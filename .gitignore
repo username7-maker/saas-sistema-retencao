@@ -1,0 +1,17 @@
+# --- BACKEND (Python) ---
+saas-backend/venv/
+saas-backend/__pycache__/
+saas-backend/*.py[cod]
+saas-backend/.env
+# Ignora o banco de dados que está na raiz
+database.db
+
+# --- FRONTEND (React/Node) ---
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# --- SISTEMA ---
+.DS_Store
+.vscode/
