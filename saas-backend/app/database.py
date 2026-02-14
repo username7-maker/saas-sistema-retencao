@@ -1,25 +1,21 @@
-import os
-from typing import Generator
+from collections.abc import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:123456@localhost:5432/saas_db"
+from app.core.config import settings
+from app.models.base import Base
+
+
+engine = create_engine(
+    str(settings.database_url),
+    pool_pre_ping=True,
+    future=True,
 )
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy models."""
-    pass
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency that provides a database session."""
     db = SessionLocal()
     try:
         yield db

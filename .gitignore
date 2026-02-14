@@ -1,17 +1,28 @@
 # --- BACKEND (Python) ---
 saas-backend/venv/
-saas-backend/__pycache__/
-saas-backend/*.py[cod]
+saas-backend/.venv/
 saas-backend/.env
-# Ignora o banco de dados que está na raiz
-database.db
+saas-backend/.pytest_cache/
+saas-backend/**/*.py[cod]
+saas-backend/**/__pycache__/
 
 # --- FRONTEND (React/Node) ---
-frontend/node_modules/
-frontend/dist/
+saas-frontend/node_modules/
+saas-frontend/dist/
+saas-frontend/.npm-cache/
+saas-frontend/.npm-cache2/
+saas-frontend/test-results/
+saas-frontend/playwright-report/
+saas-frontend/coverage/
+saas-frontend/*.tsbuildinfo
+
+# --- ROOT SHARED ---
 node_modules/
 dist/
+.env
+*.log
+database.db
 
-# --- SISTEMA ---
+# --- SYSTEM / IDE ---
 .DS_Store
 .vscode/
