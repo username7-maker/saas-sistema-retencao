@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Checkin, Member, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
+from app.services.notification_service import create_notification
 from app.utils.email import send_email
 
 
@@ -237,12 +238,22 @@ def _run_inactivity_automations(db: Session, member: Member, days_without_checki
         if level == RiskLevel.YELLOW:
             member.risk_level = RiskLevel.RED
             member.risk_score = max(member.risk_score, 70)
+        notification = create_notification(
+            db,
+            member_id=member.id,
+            user_id=member.assigned_user_id,
+            title="Aluno sem treino ha 14 dias",
+            message=f"{member.full_name} esta sem check-in ha 14 dias. Acionar plano de retencao.",
+            category="retention",
+            extra_data={"stage": "14d", "risk_level": member.risk_level.value},
+        )
         actions.append(
             {
                 "type": "in_app_notification",
                 "stage": "14d",
                 "timestamp": now.isoformat(),
                 "message": "Aluno sem treino ha 14 dias",
+                "notification_id": str(notification.id),
             }
         )
         _record_stage(db, member.id, "automation_14d")

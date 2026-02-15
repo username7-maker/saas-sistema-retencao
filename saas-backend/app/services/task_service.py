@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Task, TaskStatus
@@ -28,7 +28,7 @@ def list_tasks(
     page_size: int = 20,
     status: TaskStatus | None = None,
     assigned_to_user_id: UUID | None = None,
-) -> PaginatedResponse[Task]:
+) -> PaginatedResponse:
     filters = [Task.deleted_at.is_(None)]
     if status:
         filters.append(Task.status == status)
@@ -36,10 +36,10 @@ def list_tasks(
         filters.append(Task.assigned_to_user_id == assigned_to_user_id)
 
     stmt = select(Task).where(and_(*filters)).order_by(Task.created_at.desc())
-    total = len(db.scalars(stmt).all())
+    total = db.scalar(select(func.count()).select_from(Task).where(and_(*filters))) or 0
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
-    return PaginatedResponse[Task](items=items, total=total, page=page, page_size=page_size)
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 def update_task(db: Session, task_id: UUID, payload: TaskUpdate) -> Task:

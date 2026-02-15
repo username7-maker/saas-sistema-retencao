@@ -26,3 +26,4 @@ database.db
 # --- SYSTEM / IDE ---
 .DS_Store
 .vscode/
+.tools/

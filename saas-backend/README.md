@@ -10,6 +10,14 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+## Worker (scheduler em processo separado)
+
+Para producao, mantenha `ENABLE_SCHEDULER=false` na API e rode o worker dedicado:
+
+```bash
+python -m app.worker
+```
+
 ## Rotas principais
 
 - `/api/v1/auth/*`
@@ -23,6 +31,8 @@ uvicorn app.main:app --reload
 - `/api/v1/imports/*`
 - `/api/v1/lgpd/*`
 - `/api/v1/audit/*`
+- `/api/v1/notifications/*`
+- `/api/v1/risk-alerts/*`
 
 ## OpenAPI
 

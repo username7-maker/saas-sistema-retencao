@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import RiskLevel
 
@@ -19,3 +19,7 @@ class RiskAlertOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RiskAlertResolveInput(BaseModel):
+    resolution_note: str | None = Field(default=None, max_length=500)

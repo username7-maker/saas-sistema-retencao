@@ -6,20 +6,34 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.background_jobs.scheduler import build_scheduler
 from app.core.config import settings
-from app.database import engine
-from app.models import Base
-from app.routers import audit, auth, checkins, crm, dashboards, imports, lgpd, members, nps, tasks, users
+from app.routers import (
+    audit,
+    auth,
+    checkins,
+    crm,
+    dashboards,
+    imports,
+    lgpd,
+    members,
+    notifications,
+    nps,
+    risk_alerts,
+    tasks,
+    users,
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    Base.metadata.create_all(bind=engine)
-    scheduler = build_scheduler()
-    scheduler.start()
+    scheduler = None
+    if settings.enable_scheduler:
+        scheduler = build_scheduler()
+        scheduler.start()
     try:
         yield
     finally:
-        scheduler.shutdown(wait=False)
+        if scheduler:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -48,6 +62,8 @@ app.include_router(dashboards.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)
 app.include_router(lgpd.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
+app.include_router(notifications.router, prefix=settings.api_prefix)
+app.include_router(risk_alerts.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

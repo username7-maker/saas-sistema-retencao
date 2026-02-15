@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Member, MemberStatus, RiskLevel
@@ -46,7 +46,7 @@ def list_members(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     min_days_without_checkin: int | None = None,
-) -> PaginatedResponse[Member]:
+) -> PaginatedResponse:
     base_filters = [Member.deleted_at.is_(None)]
     if search:
         base_filters.append(
@@ -62,11 +62,11 @@ def list_members(
         base_filters.append(Member.last_checkin_at < cutoff)
 
     stmt = select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc())
-    total = len(db.scalars(stmt).all())
+    total = db.scalar(select(func.count()).select_from(Member).where(and_(*base_filters))) or 0
 
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
-    return PaginatedResponse[Member](items=items, total=total, page=page, page_size=page_size)
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 def get_member_or_404(db: Session, member_id: UUID) -> Member:

@@ -58,3 +58,4 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     tasks = relationship("Task", back_populates="member")
     nps_responses = relationship("NPSResponse", back_populates="member")
     audit_logs = relationship("AuditLog", back_populates="member")
+    in_app_notifications = relationship("InAppNotification", back_populates="member")

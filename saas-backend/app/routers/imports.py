@@ -17,9 +17,9 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 @router.post("/members", response_model=ImportSummary)
 async def import_members_endpoint(
     request: Request,
-    file: UploadFile = File(...),
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    file: UploadFile = File(...),
 ) -> ImportSummary:
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")
@@ -42,9 +42,9 @@ async def import_members_endpoint(
 @router.post("/checkins", response_model=ImportSummary)
 async def import_checkins_endpoint(
     request: Request,
-    file: UploadFile = File(...),
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    file: UploadFile = File(...),
 ) -> ImportSummary:
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")

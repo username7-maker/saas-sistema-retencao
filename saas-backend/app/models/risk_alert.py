@@ -25,7 +25,7 @@ class RiskAlert(Base):
     )
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     level: Mapped[RiskLevel] = mapped_column(
-        Enum(RiskLevel, name="risk_level_alert_enum", native_enum=False),
+        Enum(RiskLevel, name="risk_level_enum", native_enum=False),
         nullable=False,
         index=True,
     )

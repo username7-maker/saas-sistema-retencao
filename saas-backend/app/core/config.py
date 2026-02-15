@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     environment: str = "development"
     debug: bool = True
+    enable_scheduler: bool = True
 
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/aigymos"
 
@@ -39,6 +40,26 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return ["http://localhost:5173"]
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.environment.lower() != "production":
+            return self
+
+        if _unsafe_secret(self.jwt_secret_key, {"change-me", "change-this-super-secret"}):
+            raise ValueError("JWT_SECRET_KEY insegura para ambiente de producao")
+        if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):
+            raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
+        return self
+
+
+def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return True
+    if normalized in blocked_values:
+        return True
+    return len(normalized) < 32
 
 
 @lru_cache

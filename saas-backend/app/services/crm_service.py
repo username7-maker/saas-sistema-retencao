@@ -25,16 +25,16 @@ def list_leads(
     page: int = 1,
     page_size: int = 50,
     stage: LeadStage | None = None,
-) -> PaginatedResponse[Lead]:
+) -> PaginatedResponse:
     filters = [Lead.deleted_at.is_(None)]
     if stage:
         filters.append(Lead.stage == stage)
 
     stmt = select(Lead).where(and_(*filters)).order_by(Lead.updated_at.desc())
-    total = len(db.scalars(stmt).all())
+    total = db.scalar(select(func.count()).select_from(Lead).where(and_(*filters))) or 0
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
-    return PaginatedResponse[Lead](items=items, total=total, page=page, page_size=page_size)
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate) -> Lead:

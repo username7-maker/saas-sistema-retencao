@@ -54,3 +54,36 @@ def test_risk_score_can_drop_with_loyalty_factor(monkeypatch):
 
     assert result.score < 40
     assert result.level == RiskLevel.GREEN
+
+
+def test_automation_14d_generates_in_app_notification(monkeypatch):
+    member = SimpleNamespace(
+        id="member-14d",
+        full_name="Aluno Teste",
+        assigned_user_id=None,
+        email=None,
+        risk_level=RiskLevel.YELLOW,
+        risk_score=45,
+    )
+
+    monkeypatch.setattr(risk_service, "_can_trigger_stage", lambda *_: True)
+    monkeypatch.setattr(risk_service, "_record_stage", lambda *_: None)
+    monkeypatch.setattr(risk_service, "_ensure_call_task", lambda *_: None)
+    monkeypatch.setattr(
+        risk_service,
+        "create_notification",
+        lambda *_args, **_kwargs: SimpleNamespace(id="notif-1"),
+    )
+
+    actions = risk_service._run_inactivity_automations(
+        db=DummyDB(),
+        member=member,
+        days_without_checkin=14,
+        level=RiskLevel.YELLOW,
+    )
+
+    in_app_actions = [item for item in actions if item["type"] == "in_app_notification"]
+    assert in_app_actions
+    assert in_app_actions[0]["notification_id"] == "notif-1"
+    assert member.risk_level == RiskLevel.RED
+    assert member.risk_score >= 70

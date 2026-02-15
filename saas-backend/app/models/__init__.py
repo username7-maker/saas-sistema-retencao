@@ -12,6 +12,7 @@ from app.models.enums import (
     TaskPriority,
     TaskStatus,
 )
+from app.models.in_app_notification import InAppNotification
 from app.models.lead import Lead
 from app.models.member import Member
 from app.models.nps_response import NPSResponse
@@ -24,6 +25,7 @@ __all__ = [
     "Base",
     "Checkin",
     "CheckinSource",
+    "InAppNotification",
     "Lead",
     "LeadStage",
     "Member",

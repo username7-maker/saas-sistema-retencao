@@ -13,6 +13,7 @@ const FinancialDashboardPage = lazy(() => import("./pages/dashboard/FinancialDas
 const RetentionDashboardPage = lazy(() => import("./pages/dashboard/RetentionDashboardPage").then((m) => ({ default: m.RetentionDashboardPage })));
 const CrmPage = lazy(() => import("./pages/crm/CrmPage").then((m) => ({ default: m.CrmPage })));
 const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
+const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>;
@@ -83,6 +84,14 @@ export default function App() {
           element={
             <LazyWrapper>
               <TasksPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <LazyWrapper>
+              <NotificationsPage />
             </LazyWrapper>
           }
         />

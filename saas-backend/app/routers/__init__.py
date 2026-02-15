@@ -1,4 +1,18 @@
-from app.routers import audit, auth, checkins, crm, dashboards, imports, lgpd, members, nps, tasks, users
+from app.routers import (
+    audit,
+    auth,
+    checkins,
+    crm,
+    dashboards,
+    imports,
+    lgpd,
+    members,
+    notifications,
+    nps,
+    risk_alerts,
+    tasks,
+    users,
+)
 
 __all__ = [
     "audit",
@@ -9,7 +23,9 @@ __all__ = [
     "imports",
     "lgpd",
     "members",
+    "notifications",
     "nps",
+    "risk_alerts",
     "tasks",
     "users",
 ]

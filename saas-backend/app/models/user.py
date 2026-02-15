@@ -29,3 +29,4 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     tasks_assigned = relationship("Task", back_populates="assigned_user")
     leads_owned = relationship("Lead", back_populates="owner")
     audit_logs = relationship("AuditLog", back_populates="user")
+    in_app_notifications = relationship("InAppNotification", back_populates="user")

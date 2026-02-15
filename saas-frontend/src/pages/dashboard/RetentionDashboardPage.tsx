@@ -1,10 +1,26 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
+import { riskAlertService } from "../../services/riskAlertService";
 
 export function RetentionDashboardPage() {
+  const queryClient = useQueryClient();
   const query = useRetentionDashboard();
+  const alertsQuery = useQuery({
+    queryKey: ["risk-alerts", "unresolved-red"],
+    queryFn: () => riskAlertService.listUnresolved("red"),
+    staleTime: 60 * 1000,
+  });
+  const resolveMutation = useMutation({
+    mutationFn: (alertId: string) => riskAlertService.resolve(alertId, "Resolvido no dashboard de retencao"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["risk-alerts", "unresolved-red"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+    },
+  });
 
   if (query.isLoading) {
     return <LoadingPanel text="Carregando dashboard de retencao..." />;
@@ -53,6 +69,36 @@ export function RetentionDashboardPage() {
           </ul>
         </section>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Risk Alerts Ativos (Vermelho)</h3>
+        {alertsQuery.isLoading ? (
+          <p className="text-sm text-slate-500">Carregando alertas...</p>
+        ) : (
+          <div className="space-y-2">
+            {(alertsQuery.data?.items ?? []).map((alert) => (
+              <article key={alert.id} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">Alerta {alert.id.slice(0, 8)} | Score {alert.score}</p>
+                    <p className="text-xs text-slate-500">
+                      Historico de acoes: {alert.action_history.length} | Criado em {new Date(alert.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => resolveMutation.mutate(alert.id)}
+                    disabled={resolveMutation.isPending}
+                    className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    Marcar resolvido
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </section>
   );
 }

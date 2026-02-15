@@ -50,7 +50,8 @@ def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
         "red": db.scalar(select(func.count()).select_from(Member).where(Member.risk_level == RiskLevel.RED, Member.deleted_at.is_(None))) or 0,
     }
 
-    churn_value = _churn_series(db, months=1)[0].churn_rate if _churn_series(db, months=1) else 0.0
+    churn_series = _churn_series(db, months=1)
+    churn_value = churn_series[0].churn_rate if churn_series else 0.0
     payload = ExecutiveDashboard(
         total_members=total_members,
         active_members=active_members,
@@ -141,13 +142,19 @@ def get_operational_dashboard(db: Session, page: int = 1, page_size: int = 20) -
     ]
 
     cutoff = now - timedelta(days=7)
-    stmt = select(Member).where(
+    inactive_filters = (
         Member.deleted_at.is_(None),
         Member.status == MemberStatus.ACTIVE,
         or_(Member.last_checkin_at.is_(None), Member.last_checkin_at < cutoff),
     )
-    total_inactive = len(db.scalars(stmt).all())
-    items = db.scalars(stmt.order_by(Member.last_checkin_at.asc()).offset((page - 1) * page_size).limit(page_size)).all()
+    total_inactive = db.scalar(select(func.count()).select_from(Member).where(*inactive_filters)) or 0
+    items = db.scalars(
+        select(Member)
+        .where(*inactive_filters)
+        .order_by(Member.last_checkin_at.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
 
     payload = {
         "realtime_checkins": realtime_checkins,
@@ -243,8 +250,12 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
     red_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
     yellow_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
 
-    red_total = len(db.scalars(red_query).all())
-    yellow_total = len(db.scalars(yellow_query).all())
+    red_total = db.scalar(
+        select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
+    ) or 0
+    yellow_total = db.scalar(
+        select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
+    ) or 0
 
     red_items = db.scalars(
         red_query.order_by(Member.risk_score.desc()).offset((red_page - 1) * page_size).limit(page_size)

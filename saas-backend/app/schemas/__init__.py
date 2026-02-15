@@ -16,7 +16,8 @@ from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate
 from app.schemas.nps import NPSEvolutionPoint, NPSResponseCreate, NPSResponseOut
-from app.schemas.risk import RiskAlertOut
+from app.schemas.notifications import InAppNotificationOut, MarkNotificationReadInput
+from app.schemas.risk import RiskAlertOut, RiskAlertResolveInput
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
 __all__ = [
@@ -40,14 +41,17 @@ __all__ = [
     "MemberOut",
     "MemberRiskOut",
     "MemberUpdate",
+    "MarkNotificationReadInput",
     "NPSEvolutionPoint",
     "NPSResponseCreate",
     "NPSResponseOut",
+    "InAppNotificationOut",
     "PaginatedResponse",
     "ProjectionPoint",
     "RefreshTokenInput",
     "RevenuePoint",
     "RiskAlertOut",
+    "RiskAlertResolveInput",
     "TaskCreate",
     "TaskOut",
     "TaskUpdate",

@@ -135,3 +135,27 @@ export interface NPSEvolutionPoint {
   average_score: number;
   responses: number;
 }
+
+export interface InAppNotification {
+  id: string;
+  member_id: string | null;
+  user_id: string | null;
+  title: string;
+  message: string;
+  category: string;
+  read_at: string | null;
+  created_at: string;
+  extra_data: Record<string, unknown>;
+}
+
+export interface RiskAlert {
+  id: string;
+  member_id: string;
+  score: number;
+  level: RiskLevel;
+  reasons: Record<string, unknown>;
+  action_history: Array<Record<string, unknown>>;
+  automation_stage: string | null;
+  resolved: boolean;
+  created_at: string;
+}

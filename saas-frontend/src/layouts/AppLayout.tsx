@@ -10,6 +10,7 @@ const navItems = [
   { to: "/dashboard/retention", label: "Retencao" },
   { to: "/crm", label: "CRM" },
   { to: "/tasks", label: "Tasks" },
+  { to: "/notifications", label: "Notificacoes" },
 ];
 
 export function AppLayout() {
