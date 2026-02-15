@@ -54,17 +54,17 @@ def run_nps_dispatch(db: Session) -> dict[str, int]:
     members = db.scalars(select(Member).where(Member.deleted_at.is_(None))).all()
     for member in members:
         if _should_send_after_signup_7d(db, member, today):
-            _send_nps_email(db, member, NPSTrigger.AFTER_SIGNUP_7D)
-            sent_counts[NPSTrigger.AFTER_SIGNUP_7D.value] += 1
+            if _send_nps_email(db, member, NPSTrigger.AFTER_SIGNUP_7D):
+                sent_counts[NPSTrigger.AFTER_SIGNUP_7D.value] += 1
         if _should_send_monthly(db, member, today):
-            _send_nps_email(db, member, NPSTrigger.MONTHLY)
-            sent_counts[NPSTrigger.MONTHLY.value] += 1
+            if _send_nps_email(db, member, NPSTrigger.MONTHLY):
+                sent_counts[NPSTrigger.MONTHLY.value] += 1
         if member.risk_level == RiskLevel.YELLOW and _recent_send_missing(db, member.id, "nps_sent_yellow", 30):
-            _send_nps_email(db, member, NPSTrigger.YELLOW_RISK)
-            sent_counts[NPSTrigger.YELLOW_RISK.value] += 1
+            if _send_nps_email(db, member, NPSTrigger.YELLOW_RISK):
+                sent_counts[NPSTrigger.YELLOW_RISK.value] += 1
         if member.status == MemberStatus.CANCELLED and _recent_send_missing(db, member.id, "nps_sent_cancelled", 365):
-            _send_nps_email(db, member, NPSTrigger.POST_CANCELLATION)
-            sent_counts[NPSTrigger.POST_CANCELLATION.value] += 1
+            if _send_nps_email(db, member, NPSTrigger.POST_CANCELLATION):
+                sent_counts[NPSTrigger.POST_CANCELLATION.value] += 1
 
     db.commit()
     return sent_counts
@@ -136,14 +136,16 @@ def _recent_send_missing(db: Session, member_id, action: str, days: int) -> bool
     return existing is None
 
 
-def _send_nps_email(db: Session, member: Member, trigger: NPSTrigger) -> None:
+def _send_nps_email(db: Session, member: Member, trigger: NPSTrigger) -> bool:
     if not member.email:
-        return
-    send_email(
+        return False
+    sent = send_email(
         member.email,
         "Pesquisa NPS AI GYM OS",
         f"Ola {member.full_name}, compartilhe seu NPS para melhorarmos sua experiencia.",
     )
+    if not sent:
+        return False
     action_map = {
         NPSTrigger.AFTER_SIGNUP_7D: "nps_sent_after_signup",
         NPSTrigger.MONTHLY: "nps_sent_monthly",
@@ -158,3 +160,4 @@ def _send_nps_email(db: Session, member: Member, trigger: NPSTrigger) -> None:
         entity_id=member.id,
         details={"trigger": trigger.value},
     )
+    return True

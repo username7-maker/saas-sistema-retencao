@@ -181,19 +181,21 @@ def _determine_level(score: int) -> RiskLevel:
 
 
 def _create_or_update_alert(db: Session, member: Member, risk_result: RiskResult, actions: list[dict]) -> None:
-    today_start = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     current_alert = db.scalar(
-        select(RiskAlert).where(
+        select(RiskAlert)
+        .where(
             RiskAlert.member_id == member.id,
             RiskAlert.resolved.is_(False),
-            RiskAlert.created_at >= today_start,
         )
+        .order_by(RiskAlert.created_at.desc())
+        .limit(1)
     )
 
     if current_alert:
         current_alert.score = risk_result.score
         current_alert.level = risk_result.level
         current_alert.reasons = risk_result.reasons
+        current_alert.automation_stage = f"d{risk_result.days_without_checkin}"
         current_alert.action_history = (current_alert.action_history or []) + actions
         db.add(current_alert)
         return
@@ -214,10 +216,14 @@ def _run_inactivity_automations(db: Session, member: Member, days_without_checki
     actions: list[dict] = []
 
     if days_without_checkin >= 3 and _can_trigger_stage(db, member.id, "automation_3d"):
+        sent = False
         if member.email:
-            send_email(member.email, "Volte para o treino hoje", "Seu progresso importa. Vamos retomar o ritmo?")
-        actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat()})
-        _record_stage(db, member.id, "automation_3d")
+            sent = send_email(member.email, "Volte para o treino hoje", "Seu progresso importa. Vamos retomar o ritmo?")
+        if sent:
+            actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat(), "status": "sent"})
+            _record_stage(db, member.id, "automation_3d")
+        else:
+            actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat(), "status": "failed"})
 
     if days_without_checkin >= 7 and _can_trigger_stage(db, member.id, "automation_7d"):
         _ensure_call_task(db, member, "7d")
@@ -225,14 +231,18 @@ def _run_inactivity_automations(db: Session, member: Member, days_without_checki
         _record_stage(db, member.id, "automation_7d")
 
     if days_without_checkin >= 10 and _can_trigger_stage(db, member.id, "automation_10d"):
+        sent = False
         if member.email:
-            send_email(
+            sent = send_email(
                 member.email,
                 "Dica personalizada de treino",
                 "Separamos uma dica curta para facilitar sua volta. Procure a recepcao para ajustar seu plano.",
             )
-        actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat()})
-        _record_stage(db, member.id, "automation_10d")
+        if sent:
+            actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat(), "status": "sent"})
+            _record_stage(db, member.id, "automation_10d")
+        else:
+            actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat(), "status": "failed"})
 
     if days_without_checkin >= 14 and _can_trigger_stage(db, member.id, "automation_14d"):
         if level == RiskLevel.YELLOW:

@@ -8,7 +8,7 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Checkin, Member, MemberStatus, NPSResponse
+from app.models import AuditLog, Checkin, Member, MemberStatus, NPSResponse, RiskAlert, Task
 
 
 def export_member_pdf(db: Session, member_id: UUID) -> tuple[BytesIO, str]:
@@ -21,6 +21,13 @@ def export_member_pdf(db: Session, member_id: UUID) -> tuple[BytesIO, str]:
     ).all()
     nps_items = db.scalars(
         select(NPSResponse).where(NPSResponse.member_id == member_id).order_by(NPSResponse.response_date.desc()).limit(50)
+    ).all()
+    tasks = db.scalars(select(Task).where(Task.member_id == member_id).order_by(Task.created_at.desc()).limit(100)).all()
+    risk_alerts = db.scalars(
+        select(RiskAlert).where(RiskAlert.member_id == member_id).order_by(RiskAlert.created_at.desc()).limit(100)
+    ).all()
+    audit_logs = db.scalars(
+        select(AuditLog).where(AuditLog.member_id == member_id).order_by(AuditLog.created_at.desc()).limit(150)
     ).all()
 
     buffer = BytesIO()
@@ -43,6 +50,7 @@ def export_member_pdf(db: Session, member_id: UUID) -> tuple[BytesIO, str]:
     write_line(f"Email: {member.email or '-'}")
     write_line(f"Telefone: {member.phone or '-'}")
     write_line(f"Plano: {member.plan_name}")
+    write_line(f"Valor mensal: R$ {member.monthly_fee}")
     write_line(f"Status: {member.status.value}")
     write_line(f"Score de risco: {member.risk_score} ({member.risk_level.value})")
     write_line("")
@@ -57,6 +65,22 @@ def export_member_pdf(db: Session, member_id: UUID) -> tuple[BytesIO, str]:
         )
         if nps.comment:
             write_line(f"   comentario: {nps.comment}")
+    write_line("")
+    write_line(f"Total de tasks exportadas: {len(tasks)}")
+    for idx, task in enumerate(tasks[:25], start=1):
+        write_line(
+            f"{idx}. {task.created_at.isoformat()} | {task.title} | status={task.status.value} | prioridade={task.priority.value}"
+        )
+    write_line("")
+    write_line(f"Total de alertas de risco exportados: {len(risk_alerts)}")
+    for idx, alert in enumerate(risk_alerts[:25], start=1):
+        write_line(
+            f"{idx}. {alert.created_at.isoformat()} | score={alert.score} | nivel={alert.level.value} | resolvido={alert.resolved}"
+        )
+    write_line("")
+    write_line(f"Total de logs de auditoria exportados: {len(audit_logs)}")
+    for idx, log in enumerate(audit_logs[:40], start=1):
+        write_line(f"{idx}. {log.created_at.isoformat()} | {log.action} | entidade={log.entity}")
 
     pdf.save()
     buffer.seek(0)
