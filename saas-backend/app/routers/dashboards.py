@@ -3,10 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import ChurnPoint, ExecutiveDashboard, GrowthPoint, LTVPoint, RevenuePoint
+from app.schemas.insights import InsightResponse
+from app.services.ai_insight_service import generate_executive_insight, generate_retention_insight
 from app.services.dashboard_service import (
     get_churn_dashboard,
     get_commercial_dashboard,
@@ -102,3 +105,26 @@ def retention_dashboard(
     page_size: int = Query(20, ge=1, le=100),
 ) -> dict:
     return get_retention_dashboard(db, red_page=red_page, yellow_page=yellow_page, page_size=page_size)
+
+
+@router.get("/insights/executive", response_model=InsightResponse)
+def executive_insight(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> InsightResponse:
+    dashboard_data = get_executive_dashboard(db)
+    data_dict = dashboard_data.model_dump() if hasattr(dashboard_data, "model_dump") else dict(dashboard_data)
+    insight_text = generate_executive_insight(db, data_dict)
+    source = "ai" if settings.claude_api_key else "fallback"
+    return InsightResponse(dashboard="executive", insight=insight_text, source=source)
+
+
+@router.get("/insights/retention", response_model=InsightResponse)
+def retention_insight(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> InsightResponse:
+    retention_data = get_retention_dashboard(db)
+    insight_text = generate_retention_insight(db, retention_data)
+    source = "ai" if settings.claude_api_key else "fallback"
+    return InsightResponse(dashboard="retention", insight=insight_text, source=source)

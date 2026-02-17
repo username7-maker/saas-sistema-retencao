@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Task, TaskStatus
 from app.schemas import PaginatedResponse, TaskCreate, TaskUpdate
 
@@ -18,6 +19,7 @@ def create_task(db: Session, payload: TaskCreate) -> Task:
     db.add(task)
     db.commit()
     db.refresh(task)
+    invalidate_dashboard_cache("tasks")
     return task
 
 
@@ -60,4 +62,5 @@ def update_task(db: Session, task_id: UUID, payload: TaskUpdate) -> Task:
     db.add(task)
     db.commit()
     db.refresh(task)
+    invalidate_dashboard_cache("tasks")
     return task

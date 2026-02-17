@@ -1,4 +1,4 @@
-import { zodResolver } from "@hookform/resolvers/zod";
+ï»¿import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useAuth } from "../../hooks/useAuth";
 
 const loginSchema = z.object({
+  gym_slug: z.string().min(3, "Informe o slug da academia"),
   email: z.string().email("Informe um e-mail valido"),
   password: z.string().min(8, "Minimo de 8 caracteres"),
 });
@@ -25,6 +26,7 @@ export function LoginPage() {
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
+      gym_slug: "",
       email: "",
       password: "",
     },
@@ -48,6 +50,17 @@ export function LoginPage() {
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit(onSubmit)}>
           <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Academia (slug)</label>
+            <input
+              {...register("gym_slug")}
+              type="text"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-300 focus:ring"
+              placeholder="academia-centro"
+            />
+            {errors.gym_slug && <p className="mt-1 text-xs text-rose-500">{errors.gym_slug.message}</p>}
+          </div>
+
+          <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">E-mail</label>
             <input
               {...register("email")}
@@ -64,7 +77,7 @@ export function LoginPage() {
               {...register("password")}
               type="password"
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-300 focus:ring"
-              placeholder="••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
             />
             {errors.password && <p className="mt-1 text-xs text-rose-500">{errors.password.message}</p>}
           </div>

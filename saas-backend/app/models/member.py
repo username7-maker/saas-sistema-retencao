@@ -15,11 +15,18 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         CheckConstraint("risk_score >= 0 AND risk_score <= 100", name="risk_score_range"),
         CheckConstraint("nps_last_score >= 0 AND nps_last_score <= 10", name="nps_last_score_range"),
+        Index("ix_members_gym_status", "gym_id", "status"),
         Index("ix_members_risk_level_score", "risk_level", "risk_score"),
         Index("ix_members_status_last_checkin", "status", "last_checkin_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -52,6 +59,7 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     last_checkin_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
+    gym = relationship("Gym", back_populates="members")
     assigned_user = relationship("User", back_populates="assigned_members")
     checkins = relationship("Checkin", back_populates="member", cascade="all, delete-orphan")
     risk_alerts = relationship("RiskAlert", back_populates="member", cascade="all, delete-orphan")

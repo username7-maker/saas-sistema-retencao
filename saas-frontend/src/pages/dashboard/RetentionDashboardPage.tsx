@@ -1,13 +1,20 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
+import { AiInsightCard } from "../../components/common/AiInsightCard";
+import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { MemberTimeline } from "../../components/common/MemberTimeline";
+import { QuickActions } from "../../components/common/QuickActions";
 import { StatCard } from "../../components/common/StatCard";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
 import { riskAlertService } from "../../services/riskAlertService";
+import type { Member } from "../../types";
 
 export function RetentionDashboardPage() {
   const queryClient = useQueryClient();
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const query = useRetentionDashboard();
   const alertsQuery = useQuery({
     queryKey: ["risk-alerts", "unresolved-red"],
@@ -22,6 +29,10 @@ export function RetentionDashboardPage() {
     },
   });
 
+  const handleActionComplete = () => {
+    void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+  };
+
   if (query.isLoading) {
     return <LoadingPanel text="Carregando dashboard de retencao..." />;
   }
@@ -30,12 +41,30 @@ export function RetentionDashboardPage() {
     return <LoadingPanel text="Sem dados de retencao." />;
   }
 
+  const totalRisk = query.data.red.total + query.data.yellow.total;
+
   return (
     <section className="space-y-6">
-      <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard de Retencao</h2>
-        <p className="text-sm text-slate-500">Lista de risco vermelho/amarelo e evolucao NPS.</p>
+      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard de Retencao</h2>
+          <p className="text-sm text-slate-500">Lista de risco vermelho/amarelo e evolucao NPS.</p>
+        </div>
+        <DashboardActions dashboard="retention" />
       </header>
+
+      <AiInsightCard dashboard="retention" />
+
+      {totalRisk > 0 && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <p className="text-sm font-semibold text-rose-700">
+            {query.data.red.total > 0 && `${query.data.red.total} aluno(s) em risco vermelho`}
+            {query.data.red.total > 0 && query.data.yellow.total > 0 && " e "}
+            {query.data.yellow.total > 0 && `${query.data.yellow.total} em risco amarelo`}
+            {" precisam de atencao hoje."}
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <StatCard label="Risco Vermelho" value={String(query.data.red.total)} tone="danger" />
@@ -46,24 +75,72 @@ export function RetentionDashboardPage() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="rounded-2xl border border-rose-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-rose-700">Alunos em vermelho</h3>
-          <ul className="space-y-2">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-rose-700">
+            Alunos em vermelho ({query.data.red.total})
+          </h3>
+          <ul className="space-y-3">
             {query.data.red.items.map((member) => (
-              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <p className="font-medium text-slate-700">{member.full_name}</p>
-                <p className="text-xs text-slate-500">Score: {member.risk_score}</p>
+              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-slate-700">{member.full_name}</p>
+                    <p className="text-xs text-slate-500">
+                      Score: {member.risk_score} | Plano: {member.plan_name}
+                      {member.last_checkin_at && (
+                        <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
+                      )}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                    {member.risk_score}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMember(member)}
+                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                  >
+                    Ver timeline 360
+                  </button>
+                  <QuickActions member={member} onActionComplete={handleActionComplete} />
+                </div>
               </li>
             ))}
           </ul>
         </section>
 
         <section className="rounded-2xl border border-amber-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">Alunos em amarelo</h3>
-          <ul className="space-y-2">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">
+            Alunos em amarelo ({query.data.yellow.total})
+          </h3>
+          <ul className="space-y-3">
             {query.data.yellow.items.map((member) => (
-              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <p className="font-medium text-slate-700">{member.full_name}</p>
-                <p className="text-xs text-slate-500">Score: {member.risk_score}</p>
+              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-slate-700">{member.full_name}</p>
+                    <p className="text-xs text-slate-500">
+                      Score: {member.risk_score} | Plano: {member.plan_name}
+                      {member.last_checkin_at && (
+                        <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
+                      )}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    {member.risk_score}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMember(member)}
+                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                  >
+                    Ver timeline 360
+                  </button>
+                  <QuickActions member={member} onActionComplete={handleActionComplete} />
+                </div>
               </li>
             ))}
           </ul>
@@ -99,6 +176,10 @@ export function RetentionDashboardPage() {
           </div>
         )}
       </section>
+
+      {selectedMember && (
+        <MemberTimeline member={selectedMember} onClose={() => setSelectedMember(null)} />
+      )}
     </section>
   );
 }

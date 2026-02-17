@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadUpdate, PaginatedResponse
 from app.utils.email import send_email
@@ -16,6 +17,7 @@ def create_lead(db: Session, payload: LeadCreate) -> Lead:
     db.add(lead)
     db.commit()
     db.refresh(lead)
+    invalidate_dashboard_cache("leads")
     return lead
 
 
@@ -49,6 +51,7 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate) -> Lead:
     if payload.stage and payload.stage != previous_stage:
         lead.last_contact_at = datetime.now(tz=timezone.utc)
 
+    member_converted = False
     if lead.stage == LeadStage.WON and not lead.converted_member_id:
         member = Member(
             full_name=lead.full_name,
@@ -60,12 +63,17 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate) -> Lead:
         db.add(member)
         db.flush()
         lead.converted_member_id = member.id
+        member_converted = True
         if lead.email:
             send_email(lead.email, "Bem-vindo a academia", "Sua matricula foi confirmada. Bem-vindo!")
 
     db.add(lead)
     db.commit()
     db.refresh(lead)
+    if member_converted:
+        invalidate_dashboard_cache("leads", "members")
+    else:
+        invalidate_dashboard_cache("leads")
     return lead
 
 
@@ -105,6 +113,8 @@ def run_followup_automation(db: Session) -> int:
         created += 1
 
     db.commit()
+    if created:
+        invalidate_dashboard_cache("tasks", "leads")
     return created
 
 

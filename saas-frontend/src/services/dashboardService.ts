@@ -6,6 +6,7 @@ import type {
   GrowthPoint,
   HeatmapPoint,
   LTVPoint,
+  Lead,
   Member,
   NPSEvolutionPoint,
   ProjectionPoint,
@@ -52,6 +53,8 @@ export const dashboardService = {
     pipeline: Record<string, number>;
     conversion_by_source: ConversionBySource[];
     cac: number;
+    stale_leads_total: number;
+    stale_leads: Lead[];
   }> {
     const { data } = await api.get("/api/v1/dashboards/commercial");
     return data;

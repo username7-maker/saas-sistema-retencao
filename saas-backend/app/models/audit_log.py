@@ -11,11 +11,18 @@ from app.models.base import Base
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
+        Index("ix_audit_logs_gym_created", "gym_id", "created_at"),
         Index("ix_audit_action_entity_date", "action", "entity", "created_at"),
         Index("ix_audit_user_date", "user_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

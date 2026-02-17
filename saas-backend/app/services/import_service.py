@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, CheckinSource, Member
 from app.schemas import ImportErrorEntry, ImportSummary
 from app.utils.encryption import encrypt_cpf
@@ -61,6 +62,8 @@ def import_members_csv(db: Session, csv_content: bytes) -> ImportSummary:
         imported += 1
 
     db.commit()
+    if imported:
+        invalidate_dashboard_cache("members")
     return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)
 
 
@@ -134,4 +137,6 @@ def import_checkins_csv(db: Session, csv_content: bytes) -> ImportSummary:
         imported += 1
 
     db.commit()
+    if imported:
+        invalidate_dashboard_cache("checkins")
     return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)

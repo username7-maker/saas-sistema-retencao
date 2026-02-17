@@ -12,12 +12,19 @@ from app.models.enums import TaskPriority, TaskStatus
 class Task(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tasks"
     __table_args__ = (
+        Index("ix_tasks_gym_status", "gym_id", "status"),
         Index("ix_tasks_status_assigned", "status", "assigned_to_user_id"),
         Index("ix_tasks_due_status", "due_date", "status"),
         Index("ix_tasks_kanban_column", "kanban_column"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("members.id", ondelete="SET NULL"),

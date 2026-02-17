@@ -18,6 +18,7 @@ npm run build
 ## Variaveis
 
 - `VITE_API_BASE_URL=http://127.0.0.1:8000`
+- `VITE_WS_BASE_URL=ws://127.0.0.1:8000` (opcional)
 
 ## Rotas principais
 
@@ -28,7 +29,16 @@ npm run build
 - `/dashboard/retention`
 - `/crm`
 - `/tasks`
+- `/goals`
 - `/notifications`
+
+## Login multi-tenant
+
+Use os campos:
+
+- `Academia (slug)`
+- `E-mail`
+- `Senha`
 
 ## E2E
 

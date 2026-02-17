@@ -15,11 +15,18 @@ class Lead(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         CheckConstraint("estimated_value >= 0", name="lead_estimated_value_non_negative"),
         CheckConstraint("acquisition_cost >= 0", name="lead_acquisition_cost_non_negative"),
+        Index("ix_leads_gym_stage", "gym_id", "stage"),
         Index("ix_leads_stage_source", "stage", "source"),
         Index("ix_leads_last_contact", "last_contact_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     owner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

@@ -3,6 +3,7 @@ saas-backend/venv/
 saas-backend/.venv/
 saas-backend/.env
 saas-backend/.pytest_cache/
+saas-backend/pytest-cache-files-*/
 saas-backend/**/*.py[cod]
 saas-backend/**/__pycache__/
 

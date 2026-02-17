@@ -1,18 +1,26 @@
 import { useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { BarSeriesChart } from "../../components/charts/BarSeriesChart";
+import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { QuickLeadActions } from "../../components/common/QuickLeadActions";
 import { StatCard } from "../../components/common/StatCard";
 import { useCommercialDashboard } from "../../hooks/useDashboard";
 
 export function CommercialDashboardPage() {
+  const queryClient = useQueryClient();
   const query = useCommercialDashboard();
 
   const pipelineData = useMemo(() => {
     if (!query.data) return [];
     return Object.entries(query.data.pipeline).map(([stage, total]) => ({ stage, total }));
   }, [query.data]);
+
+  const handleActionComplete = () => {
+    void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
+  };
 
   if (query.isLoading) {
     return <LoadingPanel text="Carregando dashboard comercial..." />;
@@ -29,9 +37,12 @@ export function CommercialDashboardPage() {
           <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Comercial</h2>
           <p className="text-sm text-slate-500">Pipeline, conversao por origem e CAC.</p>
         </div>
-        <Link to="/crm" className="rounded-full bg-brand-500 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700">
-          Abrir CRM Kanban
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <DashboardActions dashboard="commercial" />
+          <Link to="/crm" className="rounded-full bg-brand-500 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700">
+            Abrir CRM Kanban
+          </Link>
+        </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -66,6 +77,36 @@ export function CommercialDashboardPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-amber-200 bg-white p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">
+          Leads parados 3+ dias ({query.data.stale_leads_total})
+        </h3>
+        {query.data.stale_leads.length === 0 ? (
+          <p className="text-sm text-slate-500">Nenhum lead parado no momento.</p>
+        ) : (
+          <ul className="space-y-3">
+            {query.data.stale_leads.map((lead) => (
+              <li key={lead.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-slate-700">{lead.full_name}</p>
+                    <p className="text-xs text-slate-500">
+                      Estagio: {lead.stage} | Origem: {lead.source}
+                      {lead.last_contact_at && (
+                        <> | Ultimo contato: {new Date(lead.last_contact_at).toLocaleDateString()}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <QuickLeadActions lead={lead} onActionComplete={handleActionComplete} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </section>
   );

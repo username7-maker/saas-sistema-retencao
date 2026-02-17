@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+ï»¿import { test, expect } from "@playwright/test";
 
 async function mockAuthAndExecutive(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/auth/login", async (route) => {
@@ -20,6 +20,7 @@ async function mockAuthAndExecutive(page: import("@playwright/test").Page) {
       contentType: "application/json",
       body: JSON.stringify({
         id: "a1",
+        gym_id: "11111111-1111-1111-1111-111111111111",
         full_name: "Owner Teste",
         email: "owner@test.com",
         role: "owner",
@@ -59,8 +60,9 @@ test("login flow redirects to executive dashboard", async ({ page }) => {
   await mockAuthAndExecutive(page);
 
   await page.goto("/login");
+  await page.getByPlaceholder("academia-centro").fill("academia-principal");
   await page.getByPlaceholder("gestor@academia.com").fill("owner@test.com");
-  await page.getByPlaceholder("••••••••").fill("senha1234");
+  await page.getByPlaceholder("â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢").fill("senha1234");
   await page.getByRole("button", { name: "Entrar" }).click();
 
   await expect(page).toHaveURL(/dashboard\/executive/);

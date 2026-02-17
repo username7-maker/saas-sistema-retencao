@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token, oauth2_scheme
-from app.database import get_db
+from app.database import get_db, set_current_gym_id
 from app.models import RoleEnum, User
 
 
@@ -27,12 +27,19 @@ def get_current_user(
         if payload.get("type") != "access":
             raise _credentials_exception()
         user_id = UUID(payload["sub"])
+        token_gym_id = UUID(payload["gym_id"])
     except (ValueError, KeyError):
         raise _credentials_exception()
 
     user = db.get(User, user_id)
-    if not user or not user.is_active or user.deleted_at is not None:
+    if (
+        not user
+        or not user.is_active
+        or user.deleted_at is not None
+        or user.gym_id != token_gym_id
+    ):
         raise _credentials_exception()
+    set_current_gym_id(user.gym_id)
     return user
 
 

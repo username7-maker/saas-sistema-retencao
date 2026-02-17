@@ -7,6 +7,7 @@ Plataforma SaaS B2B para academias (800 a 1.500 alunos) com BI, CRM, retencao pr
 - Backend: FastAPI + SQLAlchemy 2.0 + PostgreSQL (Supabase) + Alembic + APScheduler.
 - Frontend: React 18 + TypeScript + Vite + Tailwind + React Query + Recharts.
 - Seguranca: JWT access (15 min) + refresh (7 dias), RBAC, bcrypt (12 rounds), AES-256 para CPF, auditoria LGPD.
+- Multi-tenant: isolamento por `gym_id` (academia) no backend + autenticacao por `gym_slug`.
 
 ## Estrutura
 
@@ -54,6 +55,19 @@ python -m app.worker
 ```
 
 Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
+Health readiness: `http://127.0.0.1:8000/health/ready`
+
+### Multi-tenant bootstrap
+
+Para cadastrar uma nova academia (owner inicial), use `POST /api/v1/auth/register` com:
+
+- `full_name`
+- `email`
+- `password`
+- `gym_name`
+- `gym_slug`
+
+No login, informe `gym_slug` + `email` + `password`.
 
 ## Frontend - Setup
 
@@ -89,6 +103,28 @@ Defina `VITE_API_BASE_URL` apontando para o backend.
 3. Output: `dist`.
 4. Env: `VITE_API_BASE_URL=https://seu-backend.railway.app`.
 
+## CI/CD (GitHub Actions)
+
+- Backend CI: `.github/workflows/backend-ci.yml`
+- Frontend CI: `.github/workflows/frontend-ci.yml`
+- Deploy backend Railway: `.github/workflows/deploy-backend-railway.yml`
+- Deploy frontend Vercel: `.github/workflows/deploy-frontend-vercel.yml`
+
+Secrets para deploy backend:
+
+- `RAILWAY_TOKEN`
+- `RAILWAY_PROJECT_ID`
+- `RAILWAY_ENVIRONMENT_ID`
+- `RAILWAY_API_SERVICE_ID`
+- `RAILWAY_WORKER_SERVICE_ID` (opcional)
+- `SUPABASE_DATABASE_URL` (opcional para rodar migration automatica)
+
+Secrets para deploy frontend:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
 ## Variaveis de ambiente principais
 
 Backend:
@@ -104,11 +140,19 @@ Backend:
 - `SENDGRID_SENDER`
 - `CLAUDE_API_KEY`
 - `CLAUDE_MODEL`
+- `WHATSAPP_API_URL`
+- `WHATSAPP_API_TOKEN`
+- `WHATSAPP_INSTANCE`
+- `WHATSAPP_RATE_LIMIT_PER_HOUR`
+- `REDIS_URL` (opcional, recomendado em producao)
+- `DASHBOARD_CACHE_TTL_SECONDS` (padrao: 300)
+- `DASHBOARD_CACHE_MAXSIZE` (fallback em memoria)
 - `CORS_ORIGINS` (formato JSON, ex: `["https://app.exemplo.com"]`)
 
 Frontend:
 
 - `VITE_API_BASE_URL`
+- `VITE_WS_BASE_URL` (opcional; se vazio, usa `VITE_API_BASE_URL` com `ws://`/`wss://`)
 
 ## Testes
 
@@ -132,6 +176,9 @@ npm run test:e2e
 - Automacoes de inatividade (3/7/10/14/21 dias).
 - Notificacoes in-app de retencao + resolucao de risk alerts com historico de acoes.
 - Dashboards: Executivo, Operacional, Comercial, Financeiro, Retencao.
+- Otimizacoes de performance: indices compostos + materialized view mensal para MRR/Churn/LTV (refresh automatico no scheduler).
+- Metas mensais (MRR, novos alunos, churn, NPS, ativos) com barra de progresso e alertas de risco.
+- Relatorios PDF por dashboard + consolidado mensal com envio automatico para lideranca.
 - CRM com pipeline Kanban e automacao de follow-up.
 - NPS com gatilhos + analise de sentimento Claude.
 - Importador CSV (membros e check-ins) com validacao e log de erros.

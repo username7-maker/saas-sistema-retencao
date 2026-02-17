@@ -10,6 +10,7 @@ from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
 from app.services.audit_service import log_audit_event
 from app.services.member_service import create_member, list_members, soft_delete_member, update_member
+from app.services.member_timeline_service import get_member_timeline
 from app.services.risk import run_daily_risk_processing
 
 
@@ -129,3 +130,13 @@ def recalculate_risk_endpoint(
     )
     db.commit()
     return result
+
+
+@router.get("/{member_id}/timeline")
+def member_timeline_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    limit: int = Query(50, ge=1, le=200),
+) -> list[dict]:
+    return get_member_timeline(db, member_id, limit=limit)

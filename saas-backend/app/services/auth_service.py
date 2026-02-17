@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import re
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -15,29 +16,54 @@ from app.core.security import (
     verify_password,
     verify_refresh_token,
 )
-from app.models import RoleEnum, User
+from app.models import Gym, RoleEnum, User
 from app.schemas import TokenPair, UserLogin, UserRegister
 
 
 def _already_exists_exception() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="E-mail ja cadastrado")
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="E-mail ja cadastrado para esta academia")
 
 
 def _auth_exception() -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
 
 
-def create_user(db: Session, payload: UserRegister) -> User:
-    existing = db.scalar(select(User).where(User.email == payload.email, User.deleted_at.is_(None)))
+def _normalize_gym_slug(raw_slug: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]+", "-", raw_slug.strip().lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if len(slug) < 3:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slug da academia invalido")
+    return slug
+
+
+def create_gym(db: Session, *, name: str, slug: str) -> Gym:
+    normalized_slug = _normalize_gym_slug(slug)
+    existing = db.scalar(select(Gym).where(Gym.slug == normalized_slug))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slug da academia ja cadastrado")
+
+    gym = Gym(name=name.strip(), slug=normalized_slug, is_active=True)
+    db.add(gym)
+    db.commit()
+    db.refresh(gym)
+    return gym
+
+
+def create_user(db: Session, payload: UserRegister, *, gym_id: UUID, force_role: RoleEnum | None = None) -> User:
+    existing = db.scalar(
+        select(User).where(
+            User.email == payload.email,
+            User.gym_id == gym_id,
+            User.deleted_at.is_(None),
+        )
+    )
     if existing:
         raise _already_exists_exception()
 
-    first_user = db.scalar(select(User).limit(1))
-    role = payload.role
-    if first_user is None:
-        role = RoleEnum.OWNER
+    role = force_role or payload.role
 
     user = User(
+        gym_id=gym_id,
         full_name=payload.full_name,
         email=payload.email,
         hashed_password=hash_password(payload.password),
@@ -50,7 +76,18 @@ def create_user(db: Session, payload: UserRegister) -> User:
 
 
 def authenticate_user(db: Session, payload: UserLogin) -> User:
-    user = db.scalar(select(User).where(User.email == payload.email, User.deleted_at.is_(None)))
+    gym_slug = _normalize_gym_slug(payload.gym_slug)
+    gym = db.scalar(select(Gym).where(Gym.slug == gym_slug, Gym.is_active.is_(True)))
+    if not gym:
+        raise _auth_exception()
+
+    user = db.scalar(
+        select(User).where(
+            User.email == payload.email,
+            User.gym_id == gym.id,
+            User.deleted_at.is_(None),
+        )
+    )
     if not user or not verify_password(payload.password, user.hashed_password):
         raise _auth_exception()
     if not user.is_active:
@@ -62,8 +99,8 @@ def authenticate_user(db: Session, payload: UserLogin) -> User:
 
 
 def issue_tokens(db: Session, user: User) -> TokenPair:
-    access = create_access_token(user.id, user.role.value)
-    refresh = create_refresh_token(user.id)
+    access = create_access_token(user.id, user.role.value, user.gym_id)
+    refresh = create_refresh_token(user.id, user.gym_id)
     user.refresh_token_hash = hash_refresh_token(refresh)
     user.refresh_token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     db.add(user)
@@ -77,6 +114,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
         if payload.get("type") != "refresh":
             raise _auth_exception()
         user_id = UUID(payload["sub"])
+        token_gym_id = UUID(payload["gym_id"])
     except (KeyError, ValueError):
         raise _auth_exception()
 
@@ -84,6 +122,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
     if (
         not user
         or user.deleted_at is not None
+        or user.gym_id != token_gym_id
         or not user.refresh_token_hash
         or not verify_refresh_token(refresh_token, user.refresh_token_hash)
     ):

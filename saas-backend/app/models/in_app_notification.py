@@ -11,11 +11,18 @@ from app.models.base import Base
 class InAppNotification(Base):
     __tablename__ = "in_app_notifications"
     __table_args__ = (
+        Index("ix_in_app_notifications_gym_created", "gym_id", "created_at"),
         Index("ix_in_app_notifications_user_read", "user_id", "read_at"),
         Index("ix_in_app_notifications_member_created", "member_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("members.id", ondelete="SET NULL"),

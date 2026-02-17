@@ -2,6 +2,7 @@ export type Role = "owner" | "manager" | "salesperson" | "receptionist";
 
 export interface User {
   id: string;
+  gym_id: string;
   full_name: string;
   email: string;
   role: Role;

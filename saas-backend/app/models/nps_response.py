@@ -13,11 +13,18 @@ class NPSResponse(Base):
     __tablename__ = "nps_responses"
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 10", name="nps_score_range"),
+        Index("ix_nps_gym_response_date", "gym_id", "response_date"),
         Index("ix_nps_member_date", "member_id", "response_date"),
         Index("ix_nps_score", "score"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("members.id", ondelete="SET NULL"),

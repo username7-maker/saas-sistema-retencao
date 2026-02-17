@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     claude_model: str = "claude-3-5-haiku-latest"
     claude_max_tokens: int = 250
 
+    whatsapp_api_url: str = ""
+    whatsapp_api_token: str = ""
+    whatsapp_instance: str = "default"
+    whatsapp_rate_limit_per_hour: int = 6
+
+    redis_url: str = ""
+    dashboard_cache_ttl_seconds: int = 300
+    dashboard_cache_maxsize: int = 512
+
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     @field_validator("cors_origins", mode="before")

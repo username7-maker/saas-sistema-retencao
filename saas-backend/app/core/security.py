@@ -36,13 +36,13 @@ def _encode_token(payload: dict[str, Any], expires_delta: timedelta) -> str:
     return jwt.encode(token_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(user_id: UUID, role: str) -> str:
-    payload = {"sub": str(user_id), "role": role, "type": "access"}
+def create_access_token(user_id: UUID, role: str, gym_id: UUID) -> str:
+    payload = {"sub": str(user_id), "role": role, "gym_id": str(gym_id), "type": "access"}
     return _encode_token(payload, timedelta(minutes=settings.access_token_expire_minutes))
 
 
-def create_refresh_token(user_id: UUID) -> str:
-    payload = {"sub": str(user_id), "type": "refresh"}
+def create_refresh_token(user_id: UUID, gym_id: UUID) -> str:
+    payload = {"sub": str(user_id), "gym_id": str(gym_id), "type": "refresh"}
     return _encode_token(payload, timedelta(days=settings.refresh_token_expire_days))
 
 

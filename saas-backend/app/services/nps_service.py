@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import AuditLog, Member, MemberStatus, NPSSentiment, NPSTrigger, NPSResponse, RiskLevel
 from app.schemas import NPSEvolutionPoint, NPSResponseCreate
 from app.services.audit_service import log_audit_event
@@ -39,6 +40,7 @@ def create_response(db: Session, payload: NPSResponseCreate) -> NPSResponse:
 
     db.commit()
     db.refresh(response)
+    invalidate_dashboard_cache("nps", "risk")
     return response
 
 

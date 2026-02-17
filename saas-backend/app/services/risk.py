@@ -4,9 +4,12 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import AuditLog, Checkin, Member, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
+from app.services.automation_engine import run_automation_rules
 from app.services.notification_service import create_notification
+from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email
 
 
@@ -73,6 +76,16 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
         db.add(member)
 
     db.commit()
+    if analyzed:
+        invalidate_dashboard_cache("risk", "tasks")
+
+    try:
+        rule_results = run_automation_rules(db)
+        automations_triggered += len([r for r in rule_results if r.get("status") not in ("skipped", "error")])
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Erro ao executar regras de automacao apos processamento de risco")
+
     return {
         "members_analyzed": analyzed,
         "risk_alerts_processed": alerts_created,
@@ -198,6 +211,16 @@ def _create_or_update_alert(db: Session, member: Member, risk_result: RiskResult
         current_alert.automation_stage = f"d{risk_result.days_without_checkin}"
         current_alert.action_history = (current_alert.action_history or []) + actions
         db.add(current_alert)
+        websocket_manager.broadcast_event_sync(
+            str(member.gym_id),
+            "risk_alert_updated",
+            {
+                "member_id": str(member.id),
+                "alert_id": str(current_alert.id),
+                "score": current_alert.score,
+                "level": current_alert.level.value,
+            },
+        )
         return
 
     alert = RiskAlert(
@@ -209,6 +232,17 @@ def _create_or_update_alert(db: Session, member: Member, risk_result: RiskResult
         automation_stage=f"d{risk_result.days_without_checkin}",
     )
     db.add(alert)
+    db.flush()
+    websocket_manager.broadcast_event_sync(
+        str(member.gym_id),
+        "risk_alert_created",
+        {
+            "member_id": str(member.id),
+            "alert_id": str(alert.id),
+            "score": alert.score,
+            "level": alert.level.value,
+        },
+    )
 
 
 def _run_inactivity_automations(db: Session, member: Member, days_without_checkin: int, level: RiskLevel) -> list[dict]:

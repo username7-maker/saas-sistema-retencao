@@ -1,13 +1,20 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { BarSeriesChart } from "../../components/charts/BarSeriesChart";
+import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { QuickActions } from "../../components/common/QuickActions";
 import { StatCard } from "../../components/common/StatCard";
 import { useOperationalDashboard } from "../../hooks/useDashboard";
+import { tokenStorage } from "../../services/storage";
 
 const weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
 
 export function OperationalDashboardPage() {
+  const queryClient = useQueryClient();
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [realtimeEvents, setRealtimeEvents] = useState(0);
   const query = useOperationalDashboard();
 
   const heatmapData = useMemo(
@@ -19,6 +26,39 @@ export function OperationalDashboardPage() {
     [query.data],
   );
 
+  const handleActionComplete = () => {
+    void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });
+  };
+
+  useEffect(() => {
+    const token = tokenStorage.getAccessToken();
+    if (!token) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+    const wsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined) ?? apiBase.replace(/^http/, "ws");
+    const wsUrl = `${wsBase.replace(/\/$/, "")}/ws/updates?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => setIsRealtimeConnected(true);
+    socket.onclose = () => setIsRealtimeConnected(false);
+    socket.onerror = () => setIsRealtimeConnected(false);
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as { event?: string };
+        if (message.event === "checkin_created" || message.event === "risk_alert_created" || message.event === "risk_alert_updated") {
+          setRealtimeEvents((current) => current + 1);
+          void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });
+        }
+      } catch {
+        // Ignore malformed websocket messages.
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [queryClient]);
+
   if (query.isLoading) {
     return <LoadingPanel text="Carregando dashboard operacional..." />;
   }
@@ -29,9 +69,15 @@ export function OperationalDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Operacional</h2>
-        <p className="text-sm text-slate-500">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
+      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Operacional</h2>
+          <p className="text-sm text-slate-500">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Tempo real: {isRealtimeConnected ? "conectado" : "desconectado"} | eventos: {realtimeEvents}
+          </p>
+        </div>
+        <DashboardActions dashboard="operational" />
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -50,6 +96,7 @@ export function OperationalDashboardPage() {
                 <th className="px-2 py-2">Aluno</th>
                 <th className="px-2 py-2">Risco</th>
                 <th className="px-2 py-2">Ultimo check-in</th>
+                <th className="px-2 py-2">Acoes</th>
               </tr>
             </thead>
             <tbody>
@@ -58,6 +105,9 @@ export function OperationalDashboardPage() {
                   <td className="px-2 py-2 font-medium text-slate-700">{member.full_name}</td>
                   <td className="px-2 py-2 uppercase text-slate-600">{member.risk_level}</td>
                   <td className="px-2 py-2 text-slate-500">{member.last_checkin_at ? new Date(member.last_checkin_at).toLocaleString() : "Sem registro"}</td>
+                  <td className="px-2 py-2">
+                    <QuickActions member={member} onActionComplete={handleActionComplete} />
+                  </td>
                 </tr>
               ))}
             </tbody>

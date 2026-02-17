@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+﻿import { test, expect } from "@playwright/test";
 
 async function mockDashboard(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/auth/me", (route) =>
@@ -7,6 +7,7 @@ async function mockDashboard(page: import("@playwright/test").Page) {
       contentType: "application/json",
       body: JSON.stringify({
         id: "a1",
+        gym_id: "11111111-1111-1111-1111-111111111111",
         full_name: "Owner Teste",
         email: "owner@test.com",
         role: "owner",

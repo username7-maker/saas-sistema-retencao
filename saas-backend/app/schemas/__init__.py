@@ -1,4 +1,5 @@
-from app.schemas.auth import RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
+from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
+from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
 from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
 from app.schemas.dashboard import (
@@ -11,6 +12,7 @@ from app.schemas.dashboard import (
     ProjectionPoint,
     RevenuePoint,
 )
+from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
 from app.schemas.imports import ImportErrorEntry, ImportSummary
 from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
@@ -23,12 +25,21 @@ from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 __all__ = [
     "APIMessage",
     "AuditLogOut",
+    "AutomationExecutionResult",
+    "AutomationRuleCreate",
+    "AutomationRuleOut",
+    "AutomationRuleUpdate",
     "ChurnPoint",
     "CheckinCreate",
     "CheckinOut",
     "ConversionBySource",
     "ExecutiveDashboard",
     "GrowthPoint",
+    "GoalCreate",
+    "GoalOut",
+    "GoalProgressOut",
+    "GoalUpdate",
+    "GymOwnerRegister",
     "HeatmapPoint",
     "ImportErrorEntry",
     "ImportSummary",
@@ -42,6 +53,7 @@ __all__ = [
     "MemberRiskOut",
     "MemberUpdate",
     "MarkNotificationReadInput",
+    "MessageLogOut",
     "NPSEvolutionPoint",
     "NPSResponseCreate",
     "NPSResponseOut",

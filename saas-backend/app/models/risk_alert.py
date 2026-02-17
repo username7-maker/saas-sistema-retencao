@@ -12,11 +12,18 @@ from app.models.enums import RiskLevel
 class RiskAlert(Base):
     __tablename__ = "risk_alerts"
     __table_args__ = (
+        Index("ix_risk_alerts_gym_level", "gym_id", "level"),
         Index("ix_risk_alerts_member_created", "member_id", "created_at"),
         Index("ix_risk_alerts_level_resolved", "level", "resolved"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     member_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("members.id", ondelete="CASCADE"),

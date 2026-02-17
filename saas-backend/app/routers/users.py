@@ -22,7 +22,7 @@ def create_user_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> User:
-    new_user = create_user(db, payload)
+    new_user = create_user(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,

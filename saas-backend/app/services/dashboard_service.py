@@ -17,14 +17,16 @@ from app.schemas import (
     ProjectionPoint,
     RevenuePoint,
 )
+from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
 
 
 def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
     cache_key = make_cache_key("dashboard_executive")
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     total_members = db.scalar(select(func.count()).select_from(Member).where(Member.deleted_at.is_(None))) or 0
     active_members = db.scalar(
@@ -60,32 +62,46 @@ def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
         nps_avg=float(nps_avg),
         risk_distribution=risk_distribution,
     )
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_mrr_dashboard(db: Session, months: int = 12) -> list[RevenuePoint]:
     cache_key = make_cache_key("dashboard_mrr", months)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
     payload = _revenue_series(db, months)
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_churn_dashboard(db: Session, months: int = 12) -> list[ChurnPoint]:
     cache_key = make_cache_key("dashboard_churn", months)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
     payload = _churn_series(db, months)
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_ltv_dashboard(db: Session, months: int = 12) -> list[LTVPoint]:
     cache_key = make_cache_key("dashboard_ltv", months)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    materialized = _monthly_member_kpis_rows(db, months)
+    if materialized:
+        points = []
+        for row in materialized:
+            churn_rate = (row["cancelled"] / max(1, row["active"])) * 100
+            churn_ratio = max(churn_rate / 100, 0.0001)
+            ltv = (row["mrr"] / max(1, row["active"])) / churn_ratio
+            points.append(LTVPoint(month=row["month"], ltv=round(ltv, 2)))
+        dashboard_cache.set(cache_key, points)
+        return points
 
     churn_series = _churn_series(db, months)
     revenue_series = _revenue_series(db, months)
@@ -95,20 +111,22 @@ def get_ltv_dashboard(db: Session, months: int = 12) -> list[LTVPoint]:
         ltv = (revenue.value / max(1, _active_members_by_month(db, churn.month))) / churn_rate
         points.append(LTVPoint(month=churn.month, ltv=round(ltv, 2)))
 
-    dashboard_cache[cache_key] = points
+    dashboard_cache.set(cache_key, points)
     return points
 
 
 def get_growth_mom_dashboard(db: Session, months: int = 12) -> list[GrowthPoint]:
     cache_key = make_cache_key("dashboard_growth", months)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     values: list[GrowthPoint] = []
     month_labels = _month_labels(months)
+    cumulative_members = _members_joined_cumulative_by_month(db, month_labels)
     previous = None
     for label in month_labels:
-        current_total = _members_joined_until_month(db, label)
+        current_total = cumulative_members.get(label, 0)
         if previous in (None, 0):
             growth = 0.0
         else:
@@ -116,14 +134,15 @@ def get_growth_mom_dashboard(db: Session, months: int = 12) -> list[GrowthPoint]
         values.append(GrowthPoint(month=label, growth_mom=round(growth, 2)))
         previous = current_total
 
-    dashboard_cache[cache_key] = values
+    dashboard_cache.set(cache_key, values)
     return values
 
 
 def get_operational_dashboard(db: Session, page: int = 1, page_size: int = 20) -> dict:
     cache_key = make_cache_key("dashboard_operational", page, page_size)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     now = _utcnow()
     realtime_checkins = db.scalar(
@@ -162,14 +181,15 @@ def get_operational_dashboard(db: Session, page: int = 1, page_size: int = 20) -
         "inactive_7d_total": total_inactive,
         "inactive_7d_items": items,
     }
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_commercial_dashboard(db: Session) -> dict:
     cache_key = make_cache_key("dashboard_commercial")
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     pipeline_rows = db.execute(
         select(Lead.stage, func.count(Lead.id).label("total"))
@@ -197,19 +217,36 @@ def get_commercial_dashboard(db: Session) -> dict:
         for row in source_rows
     ]
 
+    stale_cutoff = _utcnow() - timedelta(days=3)
+    stale_filters = (
+        Lead.deleted_at.is_(None),
+        Lead.stage.notin_([LeadStage.WON, LeadStage.LOST]),
+        or_(Lead.last_contact_at.is_(None), Lead.last_contact_at < stale_cutoff),
+    )
+    stale_leads_total = db.scalar(select(func.count()).select_from(Lead).where(*stale_filters)) or 0
+    stale_leads = db.scalars(
+        select(Lead)
+        .where(*stale_filters)
+        .order_by(Lead.last_contact_at.asc().nullsfirst())
+        .limit(20)
+    ).all()
+
     payload = {
         "pipeline": pipeline,
         "conversion_by_source": conversion,
         "cac": calculate_cac(db),
+        "stale_leads_total": stale_leads_total,
+        "stale_leads": stale_leads,
     }
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_financial_dashboard(db: Session) -> dict:
     cache_key = make_cache_key("dashboard_financial")
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     revenue = _revenue_series(db, 12)
     delinquent = db.scalar(
@@ -238,14 +275,15 @@ def get_financial_dashboard(db: Session) -> dict:
         "delinquency_rate": round(delinquency_rate, 2),
         "projections": projections,
     }
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
 def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1, page_size: int = 20) -> dict:
     cache_key = make_cache_key("dashboard_retention", red_page, yellow_page, page_size)
-    if cache_key in dashboard_cache:
-        return dashboard_cache[cache_key]
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     red_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
     yellow_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
@@ -270,7 +308,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         "yellow": {"total": yellow_total, "items": yellow_items},
         "nps_trend": nps_trend,
     }
-    dashboard_cache[cache_key] = payload
+    dashboard_cache.set(cache_key, payload)
     return payload
 
 
@@ -284,6 +322,10 @@ def _month_labels(months: int) -> list[str]:
 
 
 def _revenue_series(db: Session, months: int) -> list[RevenuePoint]:
+    materialized = _monthly_member_kpis_rows(db, months)
+    if materialized:
+        return [RevenuePoint(month=row["month"], value=float(row["mrr"])) for row in materialized]
+
     labels = _month_labels(months)
     points: list[RevenuePoint] = []
     for label in labels:
@@ -300,6 +342,14 @@ def _revenue_series(db: Session, months: int) -> list[RevenuePoint]:
 
 
 def _churn_series(db: Session, months: int) -> list[ChurnPoint]:
+    materialized = _monthly_member_kpis_rows(db, months)
+    if materialized:
+        points = []
+        for row in materialized:
+            churn_rate = (row["cancelled"] / max(1, row["active"])) * 100
+            points.append(ChurnPoint(month=row["month"], churn_rate=round(churn_rate, 2)))
+        return points
+
     labels = _month_labels(months)
     points: list[ChurnPoint] = []
     for label in labels:
@@ -339,6 +389,65 @@ def _members_joined_until_month(db: Session, month_label: str) -> int:
     return db.scalar(
         select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.join_date <= month_end.date())
     ) or 0
+
+
+def _members_joined_cumulative_by_month(db: Session, labels: list[str]) -> dict[str, int]:
+    if not labels:
+        return {}
+
+    first_start, _ = _month_window(labels[0])
+    _, last_end = _month_window(labels[-1])
+
+    base_before_period = db.scalar(
+        select(func.count()).select_from(Member).where(
+            Member.deleted_at.is_(None),
+            Member.join_date < first_start.date(),
+        )
+    ) or 0
+
+    joined_rows = db.execute(
+        select(
+            func.to_char(Member.join_date, "YYYY-MM").label("month"),
+            func.count(Member.id).label("total"),
+        )
+        .where(
+            Member.deleted_at.is_(None),
+            Member.join_date >= first_start.date(),
+            Member.join_date <= last_end.date(),
+        )
+        .group_by(func.to_char(Member.join_date, "YYYY-MM"))
+    ).all()
+    joined_by_month = {str(row.month): int(row.total) for row in joined_rows}
+
+    running = int(base_before_period)
+    cumulative: dict[str, int] = {}
+    for label in labels:
+        running += joined_by_month.get(label, 0)
+        cumulative[label] = running
+    return cumulative
+
+
+def _monthly_member_kpis_rows(db: Session, months: int) -> list[dict[str, int | float | str]] | None:
+    labels = _month_labels(months)
+    kpis_by_month = get_monthly_member_kpis(db, months)
+    if not kpis_by_month:
+        return None
+
+    rows: list[dict[str, int | float | str]] = []
+    for label in labels:
+        values = kpis_by_month.get(label)
+        if values:
+            rows.append(
+                {
+                    "month": label,
+                    "mrr": float(values["mrr"]),
+                    "cancelled": int(values["cancelled"]),
+                    "active": int(values["active"]),
+                }
+            )
+        else:
+            rows.append({"month": label, "mrr": 0.0, "cancelled": 0, "active": 0})
+    return rows
 
 
 def _subtract_months(base_date: date, months: int) -> date:

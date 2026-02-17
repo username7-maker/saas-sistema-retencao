@@ -1,0 +1,63 @@
+name: Deploy Frontend Vercel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "saas-frontend/**"
+      - ".github/workflows/deploy-frontend-vercel.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: saas-frontend
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate secrets
+        run: |
+          if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
+            echo "Missing required Vercel secrets."
+            echo "Required: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID"
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: saas-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frontend E2E
+        run: npm run test:e2e
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+
+      - name: Build Vercel output
+        run: vercel build --prod --token="${VERCEL_TOKEN}"
+
+      - name: Deploy to Vercel
+        run: vercel deploy --prebuilt --prod --token="${VERCEL_TOKEN}"

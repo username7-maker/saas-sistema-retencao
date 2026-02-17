@@ -1,4 +1,5 @@
 import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
+import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
 import { useFinancialDashboard } from "../../hooks/useDashboard";
@@ -16,9 +17,12 @@ export function FinancialDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Financeiro</h2>
-        <p className="text-sm text-slate-500">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
+      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Financeiro</h2>
+          <p className="text-sm text-slate-500">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
+        </div>
+        <DashboardActions dashboard="financial" />
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">

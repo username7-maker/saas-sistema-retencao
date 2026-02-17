@@ -15,10 +15,17 @@ class Checkin(Base):
         CheckConstraint("hour_bucket >= 0 AND hour_bucket <= 23", name="hour_bucket_range"),
         CheckConstraint("weekday >= 0 AND weekday <= 6", name="weekday_range"),
         UniqueConstraint("member_id", "checkin_at", name="uq_checkin_member_datetime"),
+        Index("ix_checkins_gym_checkin_at", "gym_id", "checkin_at"),
         Index("ix_checkins_member_date_desc", "member_id", "checkin_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     member_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("members.id", ondelete="CASCADE"),

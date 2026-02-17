@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.utils.encryption import encrypt_cpf
@@ -34,6 +35,7 @@ def create_member(db: Session, payload: MemberCreate) -> Member:
     db.add(member)
     db.commit()
     db.refresh(member)
+    invalidate_dashboard_cache("members")
     return member
 
 
@@ -87,6 +89,7 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate) -> Member
     db.add(member)
     db.commit()
     db.refresh(member)
+    invalidate_dashboard_cache("members", "nps", "risk")
     return member
 
 
@@ -96,3 +99,4 @@ def soft_delete_member(db: Session, member_id: UUID) -> None:
     member.status = MemberStatus.CANCELLED
     db.add(member)
     db.commit()
+    invalidate_dashboard_cache("members", "risk")

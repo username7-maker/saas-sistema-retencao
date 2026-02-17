@@ -14,6 +14,8 @@ const RetentionDashboardPage = lazy(() => import("./pages/dashboard/RetentionDas
 const CrmPage = lazy(() => import("./pages/crm/CrmPage").then((m) => ({ default: m.CrmPage })));
 const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
+const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage").then((m) => ({ default: m.AutomationsPage })));
+const GoalsPage = lazy(() => import("./pages/goals/GoalsPage").then((m) => ({ default: m.GoalsPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>;
@@ -88,10 +90,26 @@ export default function App() {
           }
         />
         <Route
+          path="/goals"
+          element={
+            <LazyWrapper>
+              <GoalsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
           path="/notifications"
           element={
             <LazyWrapper>
               <NotificationsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/automations"
+          element={
+            <LazyWrapper>
+              <AutomationsPage />
             </LazyWrapper>
           }
         />

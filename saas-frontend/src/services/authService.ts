@@ -5,6 +5,7 @@ import type { TokenPair, User } from "../types";
 export interface LoginPayload {
   email: string;
   password: string;
+  gym_slug: string;
 }
 
 export const authService = {

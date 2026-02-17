@@ -3,6 +3,7 @@ from datetime import timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, Member
 from app.schemas import CheckinCreate
 
@@ -34,4 +35,5 @@ def create_checkin(db: Session, payload: CheckinCreate) -> Checkin:
     db.add(member)
     db.commit()
     db.refresh(checkin)
+    invalidate_dashboard_cache("checkins")
     return checkin
