@@ -3,10 +3,10 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { LoadingPanel } from "./components/common/LoadingPanel";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
-import { AppLayout } from "./layouts/AppLayout";
+import { LovableLayout } from "./components/layout/LovableLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
 
-const ExecutiveDashboardPage = lazy(() => import("./pages/dashboard/ExecutiveDashboardPage").then((m) => ({ default: m.ExecutiveDashboardPage })));
+const DashboardLovable = lazy(() => import("./pages/dashboard/DashboardLovable").then((m) => ({ default: m.DashboardLovable })));
 const OperationalDashboardPage = lazy(() => import("./pages/dashboard/OperationalDashboardPage").then((m) => ({ default: m.OperationalDashboardPage })));
 const CommercialDashboardPage = lazy(() => import("./pages/dashboard/CommercialDashboardPage").then((m) => ({ default: m.CommercialDashboardPage })));
 const FinancialDashboardPage = lazy(() => import("./pages/dashboard/FinancialDashboardPage").then((m) => ({ default: m.FinancialDashboardPage })));
@@ -33,7 +33,7 @@ export default function App() {
       <Route
         element={
           <ProtectedRoute>
-            <AppLayout />
+            <LovableLayout />
           </ProtectedRoute>
         }
       >
@@ -41,7 +41,7 @@ export default function App() {
           path="/dashboard/executive"
           element={
             <LazyWrapper>
-              <ExecutiveDashboardPage />
+              <DashboardLovable />
             </LazyWrapper>
           }
         />
