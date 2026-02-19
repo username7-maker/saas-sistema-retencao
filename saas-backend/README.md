@@ -29,6 +29,7 @@ python -m app.worker
 - `/api/v1/nps/*`
 - `/api/v1/dashboards/*`
 - `/api/v1/goals/*`
+- `/api/v1/assessments/*`
 - `/api/v1/reports/*`
 - `/ws/updates` (WebSocket realtime, autenticado com access token)
 - `/api/v1/imports/*`
@@ -36,6 +37,7 @@ python -m app.worker
 - `/api/v1/audit/*`
 - `/api/v1/notifications/*`
 - `/api/v1/risk-alerts/*`
+- `/api/v1/automations/*`
 
 ## Multi-tenant
 

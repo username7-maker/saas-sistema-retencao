@@ -61,8 +61,12 @@ def generate_retention_insight(db: Session, retention_data: dict) -> str:
         top_red = red_items[:5]
         prompt += "\nTop alunos vermelhos:\n"
         for item in top_red:
-            name = item.get("full_name", item.get("fullName", "?"))
-            score = item.get("risk_score", item.get("riskScore", "?"))
+            if isinstance(item, dict):
+                name = item.get("full_name") or item.get("fullName") or item.get("name") or "?"
+                score = item.get("risk_score") or item.get("riskScore") or item.get("risk") or "?"
+            else:
+                name = getattr(item, "full_name", None) or getattr(item, "fullName", None) or getattr(item, "name", None) or "?"
+                score = getattr(item, "risk_score", None) or getattr(item, "riskScore", None) or getattr(item, "risk", None) or "?"
             prompt += f"- {name} (score: {score})\n"
 
     if not settings.claude_api_key:

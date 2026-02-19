@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertTriangle, Star, Clipboard, Zap, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 
 import { api } from "../../services/api";
@@ -19,7 +20,7 @@ interface MemberTimelineProps {
   onClose: () => void;
 }
 
-const iconMap: Record<string, React.ComponentType<{ size: number; className?: string }>> = {
+const iconMap: Record<string, LucideIcon> = {
   activity: Activity,
   "alert-triangle": AlertTriangle,
   star: Star,

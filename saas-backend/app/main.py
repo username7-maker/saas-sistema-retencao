@@ -14,12 +14,14 @@ from app.core.security import decode_token
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import User
 from app.routers import (
+    assessments,
     audit,
     auth,
     automations,
     checkins,
     crm,
     dashboards,
+    exports,
     goals,
     imports,
     lgpd,
@@ -76,6 +78,7 @@ async def tenant_context_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
+app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)
 app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(crm.router, prefix=settings.api_prefix)
@@ -83,6 +86,7 @@ app.include_router(nps.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)
+app.include_router(exports.router, prefix=settings.api_prefix)
 app.include_router(lgpd.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)

@@ -6,7 +6,24 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker, with_loader_criteria
 
 from app.core.config import settings
-from app.models import AuditLog, AutomationRule, Checkin, Goal, InAppNotification, Lead, Member, MessageLog, NPSResponse, RiskAlert, Task, User
+from app.models import (
+    Assessment,
+    AuditLog,
+    AutomationRule,
+    Checkin,
+    Goal,
+    InAppNotification,
+    Lead,
+    Member,
+    MemberConstraints,
+    MemberGoal,
+    MessageLog,
+    NPSResponse,
+    RiskAlert,
+    Task,
+    TrainingPlan,
+    User,
+)
 from app.models.base import Base
 
 
@@ -31,6 +48,10 @@ TENANT_SCOPED_MODELS = (
     AutomationRule,
     MessageLog,
     Goal,
+    Assessment,
+    MemberConstraints,
+    MemberGoal,
+    TrainingPlan,
 )
 
 
@@ -67,7 +88,7 @@ def _apply_tenant_filter(execute_state) -> None:  # type: ignore[no-untyped-def]
 
 
 def _infer_gym_id_from_relations(session: Session, obj: object) -> UUID | None:
-    relation_candidates = ("member", "lead", "user", "assigned_user", "owner", "resolved_by")
+    relation_candidates = ("member", "lead", "user", "assigned_user", "owner", "resolved_by", "assessment")
     for relation_name in relation_candidates:
         related = getattr(obj, relation_name, None)
         gym_id = getattr(related, "gym_id", None)
@@ -84,6 +105,7 @@ def _infer_gym_id_from_relations(session: Session, obj: object) -> UUID | None:
         ("assigned_user_id", User),
         ("converted_member_id", Member),
         ("automation_rule_id", AutomationRule),
+        ("assessment_id", Assessment),
     )
     with session.no_autoflush:
         for fk_name, model in fk_candidates:

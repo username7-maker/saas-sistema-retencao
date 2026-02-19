@@ -176,6 +176,7 @@ npm run test:e2e
 - Automacoes de inatividade (3/7/10/14/21 dias).
 - Notificacoes in-app de retencao + resolucao de risk alerts com historico de acoes.
 - Dashboards: Executivo, Operacional, Comercial, Financeiro, Retencao.
+- Avaliacao fisica trimestral + Perfil 360 (evolucao corporal, objetivos, restricoes e plano de treino).
 - Otimizacoes de performance: indices compostos + materialized view mensal para MRR/Churn/LTV (refresh automatico no scheduler).
 - Metas mensais (MRR, novos alunos, churn, NPS, ativos) com barra de progresso e alertas de risco.
 - Relatorios PDF por dashboard + consolidado mensal com envio automatico para lideranca.

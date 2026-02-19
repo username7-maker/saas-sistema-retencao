@@ -10,9 +10,11 @@ const navItems = [
   { to: "/dashboard/commercial", label: "Comercial" },
   { to: "/dashboard/financial", label: "Financeiro" },
   { to: "/dashboard/retention", label: "Retencao" },
+  { to: "/assessments", label: "Avaliacoes" },
   { to: "/crm", label: "CRM" },
   { to: "/tasks", label: "Tasks" },
   { to: "/goals", label: "Metas" },
+  { to: "/imports", label: "Importacoes" },
   { to: "/automations", label: "Automacoes" },
   { to: "/notifications", label: "Notificacoes" },
 ];

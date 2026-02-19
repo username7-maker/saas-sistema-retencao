@@ -160,3 +160,15 @@ export interface RiskAlert {
   resolved: boolean;
   created_at: string;
 }
+
+export interface ImportErrorEntry {
+  row_number: number;
+  reason: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ImportSummary {
+  imported: number;
+  skipped_duplicates: number;
+  errors: ImportErrorEntry[];
+}

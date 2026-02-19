@@ -30,6 +30,10 @@ npm run build
 - `/crm`
 - `/tasks`
 - `/goals`
+- `/assessments`
+- `/assessments/members/:memberId`
+- `/assessments/new/:memberId`
+- `/automations`
 - `/notifications`
 
 ## Login multi-tenant

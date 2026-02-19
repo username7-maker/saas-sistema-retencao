@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
-from app.database import get_db
+from app.database import get_db, set_current_gym_id
 from app.models import RoleEnum, User
 from app.schemas import ImportSummary
 from app.services.audit_service import log_audit_event
@@ -23,6 +23,7 @@ async def import_members_endpoint(
 ) -> ImportSummary:
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")
+    set_current_gym_id(current_user.gym_id)
     content = await file.read()
     summary = import_members_csv(db, content)
     context = get_request_context(request)
@@ -48,6 +49,7 @@ async def import_checkins_endpoint(
 ) -> ImportSummary:
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")
+    set_current_gym_id(current_user.gym_id)
     content = await file.read()
     summary = import_checkins_csv(db, content)
     context = get_request_context(request)

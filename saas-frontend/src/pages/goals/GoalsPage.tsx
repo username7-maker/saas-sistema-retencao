@@ -93,8 +93,8 @@ export function GoalsPage() {
             <option value="active_members">Alunos ativos</option>
           </select>
           <select {...register("comparator")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            <option value="gte">Maior ou igual (>=)</option>
-            <option value="lte">Menor ou igual (<=)</option>
+            <option value="gte">Maior ou igual (&gt;=)</option>
+            <option value="lte">Menor ou igual (&lt;=)</option>
           </select>
           <input {...register("target_value")} type="number" step="0.01" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           <input {...register("period_start")} type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />

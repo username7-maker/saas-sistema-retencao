@@ -16,6 +16,10 @@ const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ de
 const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage").then((m) => ({ default: m.AutomationsPage })));
 const GoalsPage = lazy(() => import("./pages/goals/GoalsPage").then((m) => ({ default: m.GoalsPage })));
+const AssessmentsPage = lazy(() => import("./pages/assessments/AssessmentsPage").then((m) => ({ default: m.AssessmentsPage })));
+const MemberProfile360Page = lazy(() => import("./pages/assessments/MemberProfile360Page").then((m) => ({ default: m.MemberProfile360Page })));
+const NewAssessmentPage = lazy(() => import("./pages/assessments/NewAssessmentPage").then((m) => ({ default: m.NewAssessmentPage })));
+const ImportsPage = lazy(() => import("./pages/imports/ImportsPage").then((m) => ({ default: m.ImportsPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>;
@@ -98,6 +102,30 @@ export default function App() {
           }
         />
         <Route
+          path="/assessments"
+          element={
+            <LazyWrapper>
+              <AssessmentsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/assessments/members/:memberId"
+          element={
+            <LazyWrapper>
+              <MemberProfile360Page />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/assessments/new/:memberId"
+          element={
+            <LazyWrapper>
+              <NewAssessmentPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
           path="/notifications"
           element={
             <LazyWrapper>
@@ -110,6 +138,14 @@ export default function App() {
           element={
             <LazyWrapper>
               <AutomationsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/imports"
+          element={
+            <LazyWrapper>
+              <ImportsPage />
             </LazyWrapper>
           }
         />
