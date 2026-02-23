@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "AI GYM OS"
     api_prefix: str = "/api/v1"
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     enable_scheduler: bool = True
 
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/aigymos"
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     dashboard_cache_maxsize: int = 512
 
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    frontend_url: str = "http://localhost:5173"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

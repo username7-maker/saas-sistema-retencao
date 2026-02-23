@@ -48,3 +48,13 @@ class TokenPair(BaseModel):
 
 class RefreshTokenInput(BaseModel):
     refresh_token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    gym_slug: str = Field(min_length=3, max_length=80)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=72)

@@ -124,7 +124,7 @@ def executive_insight(
 ) -> InsightResponse:
     dashboard_data = get_executive_dashboard(db)
     data_dict = dashboard_data.model_dump() if hasattr(dashboard_data, "model_dump") else dict(dashboard_data)
-    insight_text = generate_executive_insight(db, data_dict)
+    insight_text = generate_executive_insight(data_dict)
     source = "ai" if settings.claude_api_key else "fallback"
     return InsightResponse(dashboard="executive", insight=insight_text, source=source)
 
@@ -137,6 +137,6 @@ def retention_insight(
     retention_data = get_retention_dashboard(db)
     # get_retention_dashboard() may return ORM objects nested inside dicts; normalize via schema validation.
     data_dict = RetentionDashboard.model_validate(retention_data).model_dump()
-    insight_text = generate_retention_insight(db, data_dict)
+    insight_text = generate_retention_insight(data_dict)
     source = "ai" if settings.claude_api_key else "fallback"
     return InsightResponse(dashboard="retention", insight=insight_text, source=source)

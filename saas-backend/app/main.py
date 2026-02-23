@@ -33,6 +33,7 @@ from app.routers import (
     tasks,
     users,
 )
+from app.core.limiter import RateLimitExceeded, limiter, rate_limit_enabled, rate_limit_exceeded_handler
 from app.services.websocket_manager import websocket_manager
 
 
@@ -55,6 +56,10 @@ app = FastAPI(
     version="3.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+if rate_limit_enabled:
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

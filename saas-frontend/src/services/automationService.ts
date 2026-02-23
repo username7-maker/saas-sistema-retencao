@@ -84,15 +84,13 @@ export const automationService = {
     return data;
   },
 
-  async sendWhatsApp(params: {
+  async sendWhatsApp(payload: {
     phone: string;
     message: string;
     member_id?: string;
     template_name?: string;
   }): Promise<MessageLog> {
-    const { data } = await api.post<MessageLog>("/api/v1/automations/whatsapp/send", null, {
-      params,
-    });
+    const { data } = await api.post<MessageLog>("/api/v1/automations/whatsapp/send", payload);
     return data;
   },
 };

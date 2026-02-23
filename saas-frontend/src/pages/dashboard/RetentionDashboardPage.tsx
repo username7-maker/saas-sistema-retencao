@@ -47,8 +47,8 @@ export function RetentionDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard de Retencao</h2>
-          <p className="text-sm text-slate-500">Lista de risco vermelho/amarelo e evolucao NPS.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retencao</h2>
+          <p className="text-sm text-lovable-ink-muted">Lista de risco vermelho/amarelo e evolucao NPS.</p>
         </div>
         <DashboardActions dashboard="retention" />
       </header>
@@ -74,17 +74,17 @@ export function RetentionDashboardPage() {
       <LineSeriesChart data={query.data.nps_trend} xKey="month" yKey="average_score" />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-2xl border border-rose-200 bg-white p-4 shadow-panel">
+        <section className="rounded-2xl border border-rose-200 bg-lovable-surface p-4 shadow-panel">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-rose-700">
             Alunos em vermelho ({query.data.red.total})
           </h3>
           <ul className="space-y-3">
             {query.data.red.items.map((member) => (
-              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+              <li key={member.id} className="rounded-lg border border-lovable-border px-3 py-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium text-slate-700">{member.full_name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-lovable-ink">{member.full_name}</p>
+                    <p className="text-xs text-lovable-ink-muted">
                       Score: {member.risk_score} | Plano: {member.plan_name}
                       {member.last_checkin_at && (
                         <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
@@ -99,7 +99,7 @@ export function RetentionDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedMember(member)}
-                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-slate-400 hover:text-lovable-ink"
                   >
                     Ver timeline 360
                   </button>
@@ -110,17 +110,17 @@ export function RetentionDashboardPage() {
           </ul>
         </section>
 
-        <section className="rounded-2xl border border-amber-200 bg-white p-4 shadow-panel">
+        <section className="rounded-2xl border border-amber-200 bg-lovable-surface p-4 shadow-panel">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">
             Alunos em amarelo ({query.data.yellow.total})
           </h3>
           <ul className="space-y-3">
             {query.data.yellow.items.map((member) => (
-              <li key={member.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+              <li key={member.id} className="rounded-lg border border-lovable-border px-3 py-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium text-slate-700">{member.full_name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-lovable-ink">{member.full_name}</p>
+                    <p className="text-xs text-lovable-ink-muted">
                       Score: {member.risk_score} | Plano: {member.plan_name}
                       {member.last_checkin_at && (
                         <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
@@ -135,7 +135,7 @@ export function RetentionDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedMember(member)}
-                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-slate-400 hover:text-lovable-ink"
                   >
                     Ver timeline 360
                   </button>
@@ -147,18 +147,18 @@ export function RetentionDashboardPage() {
         </section>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Risk Alerts Ativos (Vermelho)</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Risk Alerts Ativos (Vermelho)</h3>
         {alertsQuery.isLoading ? (
-          <p className="text-sm text-slate-500">Carregando alertas...</p>
+          <p className="text-sm text-lovable-ink-muted">Carregando alertas...</p>
         ) : (
           <div className="space-y-2">
             {(alertsQuery.data?.items ?? []).map((alert) => (
-              <article key={alert.id} className="rounded-lg border border-slate-200 p-3">
+              <article key={alert.id} className="rounded-lg border border-lovable-border p-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-slate-700">Alerta {alert.id.slice(0, 8)} | Score {alert.score}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-sm font-semibold text-lovable-ink">Alerta {alert.id.slice(0, 8)} | Score {alert.score}</p>
+                    <p className="text-xs text-lovable-ink-muted">
                       Historico de acoes: {alert.action_history.length} | Criado em {new Date(alert.created_at).toLocaleString()}
                     </p>
                   </div>

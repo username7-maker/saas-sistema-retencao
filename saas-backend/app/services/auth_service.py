@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
 import re
+import secrets
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -18,6 +20,9 @@ from app.core.security import (
 )
 from app.models import Gym, RoleEnum, User
 from app.schemas import TokenPair, UserLogin, UserRegister
+from app.utils.email import send_email
+
+_PASSWORD_RESET_EXPIRY_HOURS = 1
 
 
 def _already_exists_exception() -> HTTPException:
@@ -135,6 +140,72 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
 
 
 def logout(db: Session, user: User) -> None:
+    user.refresh_token_hash = None
+    user.refresh_token_expires_at = None
+    db.add(user)
+    db.commit()
+
+
+def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
+    """Generate a reset token and send it via email. Always returns successfully
+    (even if the user does not exist) to avoid account enumeration."""
+    normalized_slug = _normalize_gym_slug(gym_slug)
+    gym = db.scalar(select(Gym).where(Gym.slug == normalized_slug, Gym.is_active.is_(True)))
+    if not gym:
+        return
+
+    user = db.scalar(
+        select(User).where(
+            User.email == email,
+            User.gym_id == gym.id,
+            User.deleted_at.is_(None),
+            User.is_active.is_(True),
+        )
+    )
+    if not user:
+        return
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    user.password_reset_token_hash = token_hash
+    user.password_reset_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=_PASSWORD_RESET_EXPIRY_HOURS)
+    db.add(user)
+    db.commit()
+
+    reset_link = f"{settings.frontend_url}/reset-password?token={raw_token}"
+    send_email(
+        to_email=email,
+        subject="Redefinição de Senha — AI GYM OS",
+        content=(
+            f"Olá, {user.full_name}!\n\n"
+            f"Clique no link abaixo para redefinir sua senha (válido por {_PASSWORD_RESET_EXPIRY_HOURS}h):\n\n"
+            f"{reset_link}\n\n"
+            "Se você não solicitou a redefinição, ignore este e-mail."
+        ),
+    )
+
+
+def reset_password(db: Session, *, token: str, new_password: str) -> None:
+    """Validate the reset token and update the user's password."""
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = datetime.now(tz=timezone.utc)
+
+    user = db.scalar(
+        select(User).where(
+            User.password_reset_token_hash == token_hash,
+            User.password_reset_expires_at > now,
+            User.deleted_at.is_(None),
+        )
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token inválido ou expirado",
+        )
+
+    user.hashed_password = hash_password(new_password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
     user.refresh_token_hash = None
     user.refresh_token_expires_at = None
     db.add(user)

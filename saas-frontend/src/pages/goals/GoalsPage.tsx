@@ -73,12 +73,12 @@ export function GoalsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900">Metas</h2>
-        <p className="text-sm text-slate-500">Defina metas mensais e monitore risco de nao atingimento.</p>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Metas</h2>
+        <p className="text-sm text-lovable-ink-muted">Defina metas mensais e monitore risco de nao atingimento.</p>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Nova meta</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Nova meta</h3>
         <form className="grid gap-3 md:grid-cols-3" onSubmit={handleSubmit(onSubmit)}>
           <input
             {...register("name")}
@@ -123,11 +123,11 @@ export function GoalsPage() {
                 : "bg-amber-500";
 
           return (
-            <article key={item.goal.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
+            <article key={item.goal.id} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-slate-800">{item.goal.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-lovable-ink-muted">
                     {metricLabel[item.goal.metric_type]} | alvo {item.goal.comparator} {item.goal.target_value} | atual {item.current_value}
                   </p>
                 </div>
@@ -146,7 +146,7 @@ export function GoalsPage() {
                   <button
                     type="button"
                     onClick={() => deleteMutation.mutate(item.goal.id)}
-                    className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400"
+                    className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-slate-400"
                   >
                     Remover
                   </button>
@@ -155,7 +155,7 @@ export function GoalsPage() {
               <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
                 <div className={`h-2 rounded-full ${tone}`} style={{ width: `${progressClamped}%` }} />
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-lovable-ink-muted">
                 {item.status_message} ({item.progress_pct.toFixed(1)}%)
               </p>
             </article>

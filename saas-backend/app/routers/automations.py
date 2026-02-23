@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
-from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
+from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
 from app.services.audit_service import log_audit_event
 from app.services.automation_engine import (
     create_automation_rule,
@@ -155,22 +155,20 @@ def seed_defaults_endpoint(
 @router.post("/whatsapp/send")
 def send_whatsapp_endpoint(
     request: Request,
+    payload: WhatsAppSendRequest,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
-    phone: str = Query(..., min_length=8),
-    message: str = Query(..., min_length=1),
-    member_id: UUID | None = Query(None),
-    template_name: str | None = Query(None),
 ) -> MessageLogOut:
-    if template_name:
-        message = render_template(template_name, {"mensagem": message})
+    message = payload.message
+    if payload.template_name:
+        message = render_template(payload.template_name, {"mensagem": message})
 
     log = send_whatsapp_sync(
         db,
-        phone=phone,
+        phone=payload.phone,
         message=message,
-        member_id=member_id,
-        template_name=template_name,
+        member_id=payload.member_id,
+        template_name=payload.template_name,
     )
     context = get_request_context(request)
     log_audit_event(
@@ -178,7 +176,7 @@ def send_whatsapp_endpoint(
         action="whatsapp_sent_manually",
         entity="message_log",
         user=current_user,
-        member_id=member_id,
+        member_id=payload.member_id,
         entity_id=log.id,
         details={"status": log.status, "channel": "whatsapp"},
         ip_address=context["ip_address"],

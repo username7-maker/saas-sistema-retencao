@@ -6,6 +6,7 @@ import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
 
+const MembersPage = lazy(() => import("./pages/members/MembersPage").then((m) => ({ default: m.MembersPage })));
 const DashboardLovable = lazy(() => import("./pages/dashboard/DashboardLovable").then((m) => ({ default: m.DashboardLovable })));
 const OperationalDashboardPage = lazy(() => import("./pages/dashboard/OperationalDashboardPage").then((m) => ({ default: m.OperationalDashboardPage })));
 const CommercialDashboardPage = lazy(() => import("./pages/dashboard/CommercialDashboardPage").then((m) => ({ default: m.CommercialDashboardPage })));
@@ -20,6 +21,8 @@ const AssessmentsPage = lazy(() => import("./pages/assessments/AssessmentsPage")
 const MemberProfile360Page = lazy(() => import("./pages/assessments/MemberProfile360Page").then((m) => ({ default: m.MemberProfile360Page })));
 const NewAssessmentPage = lazy(() => import("./pages/assessments/NewAssessmentPage").then((m) => ({ default: m.NewAssessmentPage })));
 const ImportsPage = lazy(() => import("./pages/imports/ImportsPage").then((m) => ({ default: m.ImportsPage })));
+const SettingsPage = lazy(() => import("./pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const UsersPage = lazy(() => import("./pages/settings/UsersPage").then((m) => ({ default: m.UsersPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>;
@@ -37,6 +40,14 @@ export default function App() {
           </ProtectedRoute>
         }
       >
+        <Route
+          path="/members"
+          element={
+            <LazyWrapper>
+              <MembersPage />
+            </LazyWrapper>
+          }
+        />
         <Route
           path="/dashboard/executive"
           element={
@@ -146,6 +157,22 @@ export default function App() {
           element={
             <LazyWrapper>
               <ImportsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <LazyWrapper>
+              <SettingsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/settings/users"
+          element={
+            <LazyWrapper>
+              <UsersPage />
             </LazyWrapper>
           }
         />

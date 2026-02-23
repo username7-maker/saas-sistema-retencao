@@ -61,3 +61,10 @@ class AutomationExecutionResult(BaseModel):
     members_affected: int
     actions_executed: int
     errors: list[str] = Field(default_factory=list)
+
+
+class WhatsAppSendRequest(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+    message: str = Field(min_length=1, max_length=4096)
+    member_id: UUID | None = None
+    template_name: str | None = None

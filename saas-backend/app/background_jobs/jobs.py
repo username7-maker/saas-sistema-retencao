@@ -1,7 +1,11 @@
+from datetime import date
+
 from sqlalchemy import select
 
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import Gym
+from app.models.member import Member
+from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
 from app.services.crm_service import run_followup_automation
 from app.services.nps_service import run_nps_dispatch
@@ -58,6 +62,28 @@ def refresh_dashboard_views_job() -> None:
     try:
         refresh_member_kpis_materialized_view(db)
     finally:
+        db.close()
+
+
+def daily_loyalty_update_job() -> None:
+    """Recalcula loyalty_months para todos os membros ativos de todas as academias."""
+    today = date.today()
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            set_current_gym_id(gym.id)
+            members = db.scalars(
+                select(Member).where(
+                    Member.gym_id == gym.id,
+                    Member.deleted_at.is_(None),
+                    Member.status == MemberStatus.ACTIVE,
+                )
+            ).all()
+            for member in members:
+                member.loyalty_months = max(0, (today - member.join_date).days // 30)
+        db.commit()
+    finally:
+        clear_current_gym_id()
         db.close()
 
 

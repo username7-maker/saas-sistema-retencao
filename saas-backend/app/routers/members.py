@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
 from app.services.audit_service import log_audit_event
-from app.services.member_service import create_member, list_members, soft_delete_member, update_member
+from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.risk import run_daily_risk_processing
 
@@ -24,7 +24,7 @@ def create_member_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> MemberOut:
-    member = create_member(db, payload)
+    member = create_member(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -61,6 +61,15 @@ def list_members_endpoint(
         status=status,
         min_days_without_checkin=min_days_without_checkin,
     )
+
+
+@router.get("/{member_id}", response_model=MemberOut)
+def get_member_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> MemberOut:
+    return get_member_or_404(db, member_id)
 
 
 @router.patch("/{member_id}", response_model=MemberOut)

@@ -9,19 +9,24 @@ import {
   LogOut,
   Menu,
   Moon,
+  Settings,
   ShieldAlert,
   Sun,
   Target,
   Upload,
+  UserCog,
+  UserSquare2,
   Users,
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
+import { notificationService } from "../../services/notificationService";
 import { Button, Drawer, cn } from "../ui2";
 
 interface NavItem {
@@ -35,14 +40,17 @@ const navItems: NavItem[] = [
   { to: "/dashboard/operational", label: "Operacional", icon: Activity },
   { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase },
   { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-  { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
-  { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
+  { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
+  { to: "/members", label: "Membros", icon: UserSquare2 },
+  { to: "/assessments", label: "Avaliações", icon: ClipboardList },
   { to: "/crm", label: "CRM", icon: Users },
-  { to: "/tasks", label: "Tasks", icon: CheckSquare },
+  { to: "/tasks", label: "Tarefas", icon: CheckSquare },
   { to: "/goals", label: "Metas", icon: Target },
-  { to: "/imports", label: "Importacoes", icon: Upload },
-  { to: "/automations", label: "Automacoes", icon: Bot },
-  { to: "/notifications", label: "Notificacoes", icon: Bell },
+  { to: "/imports", label: "Importações", icon: Upload },
+  { to: "/automations", label: "Automações", icon: Bot },
+  { to: "/notifications", label: "Notificações", icon: Bell },
+  { to: "/settings/users", label: "Usuários", icon: UserCog },
+  { to: "/settings", label: "Configurações", icon: Settings },
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -82,8 +90,16 @@ export function LovableLayout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const currentSection = resolveCurrentSection(pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: notifications } = useQuery({
+    queryKey: ["notifications", "unread-count"],
+    queryFn: () => notificationService.listNotifications({ unread_only: false }),
+    refetchInterval: 60_000,
+  });
+  const unreadCount = notifications?.items.filter((n) => !n.read_at).length ?? 0;
 
   return (
     <div className="min-h-screen bg-lovable-bg text-lovable-ink">
@@ -123,6 +139,20 @@ export function LovableLayout() {
               >
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
               </Button>
+
+              <button
+                type="button"
+                onClick={() => navigate("/notifications")}
+                className="relative rounded-xl p-2 text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink transition"
+                title="Notificações"
+              >
+                <Bell size={16} />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
 
               <div className="hidden rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 md:block">
                 <p className="text-sm font-semibold text-lovable-ink">{user?.full_name}</p>

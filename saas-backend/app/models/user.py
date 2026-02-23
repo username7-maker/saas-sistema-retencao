@@ -31,6 +31,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     refresh_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_reset_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     gym = relationship("Gym", back_populates="users")
     assigned_members = relationship("Member", back_populates="assigned_user")

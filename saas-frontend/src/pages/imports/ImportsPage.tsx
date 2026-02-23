@@ -9,7 +9,7 @@ import type { ImportSummary } from "../../types";
 function ImportResult({ summary }: { summary: ImportSummary | null }) {
   if (!summary) return null;
   return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+    <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink">
       <p>Importados: {summary.imported}</p>
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
       <p>Erros: {summary.errors.length}</p>
@@ -63,16 +63,16 @@ export function ImportsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900 dark:text-slate-100">Importacoes e Exportacoes CSV</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importacoes e Exportacoes CSV</h2>
+        <p className="text-sm text-lovable-ink-muted dark:text-slate-400">
           Envie planilhas de alunos/catraca e exporte dados do sistema em CSV.
         </p>
       </header>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Importar alunos</h3>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Importar alunos</h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">
             Colunas aceitas: nome/full_name, email, telefone, cpf, matricula, plano, mensalidade, data_matricula.
           </p>
           <input
@@ -95,7 +95,7 @@ export function ImportsPage() {
               type="button"
               disabled={templateMembersMutation.isPending}
               onClick={() => templateMembersMutation.mutate()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-700 hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
             >
               <Download size={14} />
               Template alunos
@@ -104,9 +104,9 @@ export function ImportsPage() {
           <ImportResult summary={membersSummary} />
         </article>
 
-        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Importar catraca/check-ins</h3>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Importar catraca/check-ins</h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">
             Match automatico por member_id, email, matricula, cpf ou nome.
           </p>
           <input
@@ -129,7 +129,7 @@ export function ImportsPage() {
               type="button"
               disabled={templateCheckinsMutation.isPending}
               onClick={() => templateCheckinsMutation.mutate()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-700 hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
             >
               <Download size={14} />
               Template check-ins
@@ -139,9 +139,9 @@ export function ImportsPage() {
         </article>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Exportar CSV</h3>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Baixe alunos e check-ins para auditoria e BI externo.</p>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Exportar CSV</h3>
+        <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">Baixe alunos e check-ins para auditoria e BI externo.</p>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
           <input
             type="date"
@@ -159,7 +159,7 @@ export function ImportsPage() {
             type="button"
             disabled={exportMembersMutation.isPending}
             onClick={() => exportMembersMutation.mutate()}
-            className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-700 hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+            className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
           >
             <Download size={14} />
             {exportMembersMutation.isPending ? "Exportando..." : "Exportar membros CSV"}
