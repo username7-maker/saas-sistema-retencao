@@ -7,10 +7,10 @@ interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 const badgeClasses: Record<BadgeVariant, string> = {
-  neutral: "bg-slate-100 text-slate-700 dark:bg-slate-700/60 dark:text-slate-100",
-  success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200",
-  warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200",
-  danger: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200",
+  neutral: "bg-lovable-surface-soft text-lovable-ink-muted",
+  success: "bg-[hsl(var(--lovable-success)/0.15)] text-[hsl(var(--lovable-success))]",
+  warning: "bg-[hsl(var(--lovable-warning)/0.15)] text-[hsl(var(--lovable-warning))]",
+  danger: "bg-[hsl(var(--lovable-danger)/0.15)] text-[hsl(var(--lovable-danger))]",
 };
 
 export function Badge({ className, variant = "neutral", ...props }: BadgeProps) {

@@ -1,10 +1,11 @@
-import {
+﻿import {
   Activity,
   Bell,
   Bot,
   Briefcase,
   ClipboardList,
   CheckSquare,
+  FileText,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -40,17 +41,18 @@ const navItems: NavItem[] = [
   { to: "/dashboard/operational", label: "Operacional", icon: Activity },
   { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase },
   { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-  { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
+  { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
   { to: "/members", label: "Membros", icon: UserSquare2 },
-  { to: "/assessments", label: "Avaliações", icon: ClipboardList },
+  { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
   { to: "/crm", label: "CRM", icon: Users },
   { to: "/tasks", label: "Tarefas", icon: CheckSquare },
   { to: "/goals", label: "Metas", icon: Target },
-  { to: "/imports", label: "Importações", icon: Upload },
-  { to: "/automations", label: "Automações", icon: Bot },
-  { to: "/notifications", label: "Notificações", icon: Bell },
-  { to: "/settings/users", label: "Usuários", icon: UserCog },
-  { to: "/settings", label: "Configurações", icon: Settings },
+  { to: "/reports", label: "Relatorios", icon: FileText },
+  { to: "/imports", label: "Importacoes", icon: Upload },
+  { to: "/automations", label: "Automacoes", icon: Bot },
+  { to: "/notifications", label: "Notificacoes", icon: Bell },
+  { to: "/settings/users", label: "Usuarios", icon: UserCog },
+  { to: "/settings", label: "Configuracoes", icon: Settings },
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -99,7 +101,7 @@ export function LovableLayout() {
     queryFn: () => notificationService.listNotifications({ unread_only: false }),
     refetchInterval: 60_000,
   });
-  const unreadCount = notifications?.items.filter((n) => !n.read_at).length ?? 0;
+  const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
 
   return (
     <div className="min-h-screen bg-lovable-bg text-lovable-ink">
@@ -143,15 +145,15 @@ export function LovableLayout() {
               <button
                 type="button"
                 onClick={() => navigate("/notifications")}
-                className="relative rounded-xl p-2 text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink transition"
-                title="Notificações"
+                className="relative rounded-xl p-2 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
+                title="Notificacoes"
               >
                 <Bell size={16} />
-                {unreadCount > 0 && (
+                {unreadCount > 0 ? (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
-                )}
+                ) : null}
               </button>
 
               <div className="hidden rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 md:block">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,24 +8,52 @@ import toast from "react-hot-toast";
 import { PipelineKanban } from "../../components/crm/PipelineKanban";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { crmService } from "../../services/crmService";
-import { Button, Drawer, Input } from "../../components/ui2";
+import { Button, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import type { Lead } from "../../types";
 
-// ─── Validation schema ────────────────────────────────────────────────────────
+const LEAD_SOURCES = [
+  "Instagram",
+  "Facebook",
+  "Google",
+  "Indicacao",
+  "Site",
+  "Telefone",
+  "Presencial",
+  "Outro",
+] as const;
 
 const leadSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  email: z.string().email("E-mail inválido").optional().or(z.literal("")),
+  email: z.string().email("E-mail invalido").optional().or(z.literal("")),
   phone: z.string().optional(),
   source: z.string().optional(),
-  estimated_value: z.coerce.number().min(0, "Valor não pode ser negativo").optional(),
+  estimated_value: z.coerce.number().min(0, "Valor nao pode ser negativo").optional(),
   notes: z.string().optional(),
   lost_reason: z.string().optional(),
 });
 
 type LeadFormValues = z.infer<typeof leadSchema>;
 
-// ─── Lead form drawer ─────────────────────────────────────────────────────────
+function extractNotesValue(notes: Lead["notes"]): string {
+  if (!Array.isArray(notes) || notes.length === 0) {
+    return "";
+  }
+
+  const lines = notes
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+      if (typeof item === "object" && item !== null && "note" in item) {
+        const noteValue = (item as { note?: unknown }).note;
+        return typeof noteValue === "string" ? noteValue : "";
+      }
+      return "";
+    })
+    .filter(Boolean);
+
+  return lines.join("\n");
+}
 
 interface LeadFormDrawerProps {
   open: boolean;
@@ -36,6 +64,7 @@ interface LeadFormDrawerProps {
 
 function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const {
     register,
@@ -51,9 +80,13 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
           phone: lead.phone ?? "",
           source: lead.source ?? "",
           estimated_value: lead.estimated_value,
+          notes: extractNotesValue(lead.notes),
           lost_reason: lead.lost_reason ?? "",
         }
-      : {},
+      : {
+          source: "",
+          notes: "",
+        },
   });
 
   const createMutation = useMutation({
@@ -72,6 +105,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
       crmService.updateLead(id, {
         ...data,
         email: data.email || undefined,
+        notes: data.notes || undefined,
       }),
     onSuccess: () => {
       toast.success("Lead atualizado com sucesso!");
@@ -85,6 +119,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
     mutationFn: (id: string) => crmService.deleteLead(id),
     onSuccess: () => {
       toast.success("Lead removido.");
+      setConfirmDeleteOpen(false);
       onSaved();
       onClose();
     },
@@ -94,111 +129,121 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   function onSubmit(values: LeadFormValues) {
     if (isEditing && lead) {
       updateMutation.mutate({ id: lead.id, data: values });
-    } else {
-      createMutation.mutate({
-        full_name: values.full_name,
-        email: values.email || undefined,
-        phone: values.phone,
-        source: values.source,
-        estimated_value: values.estimated_value,
-      });
+      return;
     }
+
+    createMutation.mutate({
+      full_name: values.full_name,
+      email: values.email || undefined,
+      phone: values.phone,
+      source: values.source,
+      estimated_value: values.estimated_value,
+      notes: values.notes || undefined,
+    });
   }
 
   const isPending = isSubmitting || createMutation.isPending || updateMutation.isPending;
 
   return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title={isEditing ? "Editar Lead" : "Novo Lead"}
-    >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 p-1">
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Nome *
-          </label>
-          <Input {...register("full_name")} placeholder="Nome completo" />
-          {errors.full_name && (
-            <p className="mt-1 text-xs text-red-500">{errors.full_name.message}</p>
-          )}
-        </div>
+    <>
+      <Drawer open={open} onClose={onClose} title={isEditing ? "Editar Lead" : "Novo Lead"}>
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 p-1">
+          <FormField label="Nome" required error={errors.full_name?.message}>
+            <Input {...register("full_name")} placeholder="Nome completo" />
+          </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Telefone
-          </label>
-          <Input {...register("phone")} placeholder="(11) 99999-9999" />
-        </div>
+          <FormField label="Telefone">
+            <Input {...register("phone")} placeholder="(11) 99999-9999" />
+          </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            E-mail
-          </label>
-          <Input {...register("email")} type="email" placeholder="email@exemplo.com" />
-          {errors.email && (
-            <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>
-          )}
-        </div>
+          <FormField label="E-mail" error={errors.email?.message}>
+            <Input {...register("email")} type="email" placeholder="email@exemplo.com" />
+          </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Origem
-          </label>
-          <Input {...register("source")} placeholder="Instagram, Indicação, etc." />
-        </div>
+          <FormField label="Origem">
+            <Select {...register("source")}>
+              <option value="">Selecione a origem</option>
+              {LEAD_SOURCES.map((source) => (
+                <option key={source} value={source}>
+                  {source}
+                </option>
+              ))}
+            </Select>
+          </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Valor Estimado (R$)
-          </label>
-          <Input {...register("estimated_value")} type="number" min={0} step={0.01} placeholder="0,00" />
-          {errors.estimated_value && (
-            <p className="mt-1 text-xs text-red-500">{errors.estimated_value.message}</p>
-          )}
-        </div>
+          <FormField label="Valor Estimado (R$)" error={errors.estimated_value?.message}>
+            <Input {...register("estimated_value")} type="number" min={0} step={0.01} placeholder="0,00" />
+          </FormField>
 
-        {isEditing && lead?.stage === "lost" && (
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-              Motivo da Perda
-            </label>
-            <Input {...register("lost_reason")} placeholder="Descreva o motivo..." />
-          </div>
-        )}
+          <FormField label="Notas">
+            <Textarea
+              {...register("notes")}
+              placeholder="Ex: cliente busca plano para casal, melhor horario noturno."
+              rows={4}
+            />
+          </FormField>
 
-        <div className="flex gap-2 pt-2">
-          <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-            {isPending ? "Salvando..." : isEditing ? "Salvar alterações" : "Criar Lead"}
-          </Button>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancelar
-          </Button>
-        </div>
+          {isEditing && lead?.stage === "lost" ? (
+            <FormField label="Motivo da perda">
+              <Input {...register("lost_reason")} placeholder="Descreva o motivo..." />
+            </FormField>
+          ) : null}
 
-        {isEditing && lead && (
-          <div className="border-t border-lovable-border pt-4">
-            <Button
-              type="button"
-              variant="danger"
-              onClick={() => {
-                if (confirm(`Remover o lead "${lead.full_name}"?`)) {
-                  deleteMutation.mutate(lead.id);
-                }
-              }}
-              disabled={deleteMutation.isPending}
-              className="w-full"
-            >
-              {deleteMutation.isPending ? "Removendo..." : "Remover Lead"}
+          <div className="flex gap-2 pt-2">
+            <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
+              {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Criar Lead"}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancelar
             </Button>
           </div>
-        )}
-      </form>
-    </Drawer>
+
+          {isEditing && lead ? (
+            <div className="border-t border-lovable-border pt-4">
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => setConfirmDeleteOpen(true)}
+                disabled={deleteMutation.isPending}
+                className="w-full"
+              >
+                {deleteMutation.isPending ? "Removendo..." : "Remover Lead"}
+              </Button>
+            </div>
+          ) : null}
+        </form>
+      </Drawer>
+
+      <Dialog
+        open={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        title="Excluir lead"
+        description={
+          lead
+            ? `Tem certeza que deseja excluir ${lead.full_name}? Esta acao nao pode ser desfeita.`
+            : "Tem certeza que deseja excluir este lead?"
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmDeleteOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (lead) {
+                deleteMutation.mutate(lead.id);
+              }
+            }}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? "Excluindo..." : "Excluir"}
+          </Button>
+        </div>
+      </Dialog>
+    </>
   );
 }
-
-// ─── CRM page ─────────────────────────────────────────────────────────────────
 
 export function CrmPage() {
   const queryClient = useQueryClient();
@@ -212,13 +257,12 @@ export function CrmPage() {
   });
 
   const moveMutation = useMutation({
-    mutationFn: ({ leadId, stage }: { leadId: string; stage: Lead["stage"] }) =>
-      crmService.updateLeadStage(leadId, stage),
+    mutationFn: ({ leadId, stage }: { leadId: string; stage: Lead["stage"] }) => crmService.updateLeadStage(leadId, stage),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
     },
-    onError: () => toast.error("Não foi possível mover o lead."),
+    onError: () => toast.error("Nao foi possivel mover o lead."),
   });
 
   function handleNewLead() {
@@ -246,28 +290,24 @@ export function CrmPage() {
   }
 
   if (!leadsQuery.data) {
-    return <LoadingPanel text="Não foi possível carregar leads." />;
+    return <LoadingPanel text="Nao foi possivel carregar leads." />;
   }
 
   return (
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">CRM — Pipeline Kanban</h2>
-          <p className="text-sm text-lovable-ink-muted">
-            Novo → Contato → Visita → Experimental → Proposta → Fechado / Perdido
-          </p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">CRM - Pipeline Kanban</h2>
+          <p className="text-sm text-lovable-ink-muted">Novo -> Contato -> Visita -> Experimental -> Proposta -> Fechado / Perdido</p>
         </div>
         <Button variant="primary" onClick={handleNewLead}>
           + Novo Lead
         </Button>
       </header>
 
-      {moveMutation.isPending && (
-        <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
-          Atualizando estágio...
-        </p>
-      )}
+      {moveMutation.isPending ? (
+        <p className="rounded-lg bg-lovable-primary-soft px-3 py-2 text-xs text-lovable-primary">Atualizando estagio...</p>
+      ) : null}
 
       <PipelineKanban
         leads={leadsQuery.data.items}
@@ -275,12 +315,7 @@ export function CrmPage() {
         onCardClick={handleCardClick}
       />
 
-      <LeadFormDrawer
-        open={drawerOpen}
-        onClose={handleDrawerClose}
-        lead={selectedLead}
-        onSaved={handleSaved}
-      />
+      <LeadFormDrawer open={drawerOpen} onClose={handleDrawerClose} lead={selectedLead} onSaved={handleSaved} />
     </section>
   );
 }

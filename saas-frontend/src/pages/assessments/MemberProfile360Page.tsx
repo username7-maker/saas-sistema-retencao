@@ -66,21 +66,21 @@ export function MemberProfile360Page() {
     <section className="space-y-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">{profile.member.full_name}</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">{profile.member.full_name}</h2>
+          <p className="text-sm text-lovable-ink-muted">
             Plano {profile.member.plan_name} | Risco {profile.member.risk_level.toUpperCase()} ({profile.member.risk_score})
           </p>
         </div>
         <div className="flex gap-2">
           <Link
             to="/assessments"
-            className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400"
+            className="rounded-full border border-lovable-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface-soft"
           >
             Voltar
           </Link>
           <Link
             to={`/assessments/new/${memberId}`}
-            className="rounded-full bg-brand-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700"
+            className="rounded-full bg-lovable-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:brightness-105"
           >
             Nova avaliacao
           </Link>
@@ -95,9 +95,9 @@ export function MemberProfile360Page() {
       </div>
 
       {profile.insight_summary && (
-        <section className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-4 shadow-panel">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-violet-700">Insight da avaliacao</h3>
-          <p className="mt-1 text-sm text-slate-700">{profile.insight_summary}</p>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Insight da avaliacao</h3>
+          <p className="mt-1 text-sm text-lovable-ink">{profile.insight_summary}</p>
         </section>
       )}
 
@@ -109,8 +109,8 @@ export function MemberProfile360Page() {
             onClick={() => setActiveTab(tab.key)}
             className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider ${
               activeTab === tab.key
-                ? "bg-brand-500 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                ? "bg-lovable-primary-soft text-lovable-primary"
+                : "bg-lovable-surface-soft text-lovable-ink-muted hover:bg-lovable-surface-soft"
             }`}
           >
             {tab.label}
@@ -124,8 +124,8 @@ export function MemberProfile360Page() {
         evolution ? (
           <EvolutionCharts evolution={evolution} />
         ) : (
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-            <p className="text-sm text-slate-500">Sem dados de evolucao.</p>
+          <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+            <p className="text-sm text-lovable-ink-muted">Sem dados de evolucao.</p>
           </section>
         )
       )}
@@ -135,10 +135,10 @@ export function MemberProfile360Page() {
       {activeTab === "goals" && <GoalsProgress goals={profile.goals} />}
 
       {activeTab === "training" && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-600">Plano de treino ativo</h3>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Plano de treino ativo</h3>
           {profile.active_training_plan ? (
-            <div className="mt-3 space-y-2 text-sm text-slate-700">
+            <div className="mt-3 space-y-2 text-sm text-lovable-ink">
               <p>
                 <span className="font-semibold">Nome:</span> {profile.active_training_plan.name}
               </p>
@@ -163,11 +163,11 @@ export function MemberProfile360Page() {
                   : ""}
               </p>
               {profile.active_training_plan.notes && (
-                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{profile.active_training_plan.notes}</p>
+                <p className="rounded-lg bg-lovable-surface-soft px-3 py-2 text-xs text-lovable-ink-muted">{profile.active_training_plan.notes}</p>
               )}
             </div>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">Sem plano de treino ativo.</p>
+            <p className="mt-2 text-sm text-lovable-ink-muted">Sem plano de treino ativo.</p>
           )}
         </section>
       )}

@@ -17,6 +17,7 @@ const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ de
 const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage").then((m) => ({ default: m.AutomationsPage })));
 const GoalsPage = lazy(() => import("./pages/goals/GoalsPage").then((m) => ({ default: m.GoalsPage })));
+const ReportsPage = lazy(() => import("./pages/reports/ReportsPage"));
 const AssessmentsPage = lazy(() => import("./pages/assessments/AssessmentsPage").then((m) => ({ default: m.AssessmentsPage })));
 const MemberProfile360Page = lazy(() => import("./pages/assessments/MemberProfile360Page").then((m) => ({ default: m.MemberProfile360Page })));
 const NewAssessmentPage = lazy(() => import("./pages/assessments/NewAssessmentPage").then((m) => ({ default: m.NewAssessmentPage })));
@@ -109,6 +110,14 @@ export default function App() {
           element={
             <LazyWrapper>
               <GoalsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            <LazyWrapper>
+              <ReportsPage />
             </LazyWrapper>
           }
         />

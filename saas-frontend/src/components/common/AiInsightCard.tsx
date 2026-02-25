@@ -27,11 +27,11 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
 
   if (query.isLoading) {
     return (
-      <div className="animate-pulse rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-4">
-        <div className="h-4 w-32 rounded bg-violet-200" />
+      <div className="animate-pulse rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4">
+        <div className="h-4 w-32 rounded bg-lovable-border" />
         <div className="mt-3 space-y-2">
-          <div className="h-3 w-full rounded bg-violet-100" />
-          <div className="h-3 w-3/4 rounded bg-violet-100" />
+          <div className="h-3 w-full rounded bg-lovable-surface-soft" />
+          <div className="h-3 w-3/4 rounded bg-lovable-surface-soft" />
         </div>
       </div>
     );
@@ -42,14 +42,14 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
   }
 
   return (
-    <article className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-4 shadow-sm">
+    <article className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-sm">
       <div className="mb-2 flex items-center gap-2">
-        <Sparkles size={16} className="text-violet-500" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-violet-600">
+        <Sparkles size={16} className="text-lovable-primary" />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">
           Insights {query.data.source === "ai" ? "da IA" : "Automaticos"}
         </h3>
       </div>
-      <p className="text-sm leading-relaxed text-slate-700">{query.data.insight}</p>
+      <p className="text-sm leading-relaxed text-lovable-ink">{query.data.insight}</p>
     </article>
   );
 }

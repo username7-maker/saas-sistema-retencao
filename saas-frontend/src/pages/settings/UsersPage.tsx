@@ -1,20 +1,18 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, ToggleLeft, ToggleRight } from "lucide-react";
+import { UserPlus, Trash2, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { userService, type StaffUser } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
-import { Badge, Button, Drawer, Input } from "../../components/ui2";
-
-// ─── Role labels ──────────────────────────────────────────────────────────────
+import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
-  owner: "Proprietário",
+  owner: "Proprietario",
   manager: "Gerente",
   receptionist: "Recepcionista",
   salesperson: "Vendedor",
@@ -28,11 +26,9 @@ const ROLE_OPTIONS: Array<{ value: StaffUser["role"]; label: string }> = [
   { value: "trainer", label: "Instrutor" },
 ];
 
-// ─── Create user form ─────────────────────────────────────────────────────────
-
 const createSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  email: z.string().email("E-mail inválido"),
+  email: z.string().email("E-mail invalido"),
   password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
 });
@@ -59,64 +55,47 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
   const createMutation = useMutation({
     mutationFn: userService.createUser,
     onSuccess: () => {
-      toast.success("Usuário criado com sucesso!");
+      toast.success("Usuario criado com sucesso!");
       reset();
       onSaved();
       onClose();
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {
-      const msg = err?.response?.data?.detail ?? "Erro ao criar usuário.";
-      toast.error(msg);
+      const message = err?.response?.data?.detail ?? "Erro ao criar usuario.";
+      toast.error(message);
     },
   });
 
   const isPending = isSubmitting || createMutation.isPending;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Novo Usuário">
-      <form onSubmit={handleSubmit((v) => createMutation.mutate(v))} className="flex flex-col gap-4 p-1">
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Nome completo *
-          </label>
+    <Drawer open={open} onClose={onClose} title="Novo Usuario">
+      <form onSubmit={handleSubmit((values) => createMutation.mutate(values))} className="flex flex-col gap-4 p-1">
+        <FormField label="Nome completo" required error={errors.full_name?.message}>
           <Input {...register("full_name")} placeholder="Nome do colaborador" />
-          {errors.full_name && <p className="mt-1 text-xs text-red-500">{errors.full_name.message}</p>}
-        </div>
+        </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            E-mail *
-          </label>
+        <FormField label="E-mail" required error={errors.email?.message}>
           <Input {...register("email")} type="email" placeholder="email@academia.com" />
-          {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
-        </div>
+        </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Senha provisória *
-          </label>
-          <Input {...register("password")} type="password" placeholder="Mínimo 8 caracteres" />
-          {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password.message}</p>}
-        </div>
+        <FormField label="Senha provisoria" required error={errors.password?.message}>
+          <Input {...register("password")} type="password" placeholder="Minimo 8 caracteres" />
+        </FormField>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-            Função *
-          </label>
-          <select
-            {...register("role")}
-            className="w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
-          >
-            {ROLE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+        <FormField label="Funcao" required error={errors.role?.message}>
+          <Select {...register("role")}>
+            {ROLE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
             ))}
-          </select>
-          {errors.role && <p className="mt-1 text-xs text-red-500">{errors.role.message}</p>}
-        </div>
+          </Select>
+        </FormField>
 
         <div className="flex gap-2 pt-2">
           <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-            {isPending ? "Criando..." : "Criar Usuário"}
+            {isPending ? "Criando..." : "Criar Usuario"}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
@@ -127,19 +106,19 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
   );
 }
 
-// ─── User row ─────────────────────────────────────────────────────────────────
-
-function UserRow({ user, currentUserId }: { user: StaffUser; currentUserId: string }) {
-  const queryClient = useQueryClient();
-
-  const toggleMutation = useMutation({
-    mutationFn: (is_active: boolean) => userService.updateUser(user.id, { is_active }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: () => toast.error("Não foi possível alterar o usuário."),
-  });
-
+function UserRow({
+  user,
+  currentUserId,
+  onDeactivate,
+  onActivate,
+  isPending,
+}: {
+  user: StaffUser;
+  currentUserId: string;
+  onDeactivate: (user: StaffUser) => void;
+  onActivate: (user: StaffUser) => void;
+  isPending: boolean;
+}) {
   const isSelf = user.id === currentUserId;
 
   return (
@@ -147,38 +126,47 @@ function UserRow({ user, currentUserId }: { user: StaffUser; currentUserId: stri
       <div className="flex-1">
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold text-lovable-ink">{user.full_name}</p>
-          <Badge variant={user.is_active ? "success" : "neutral"}>
-            {user.is_active ? "Ativo" : "Inativo"}
-          </Badge>
+          <Badge variant={user.is_active ? "success" : "neutral"}>{user.is_active ? "Ativo" : "Inativo"}</Badge>
         </div>
         <p className="text-xs text-lovable-ink-muted">{user.email}</p>
-        <p className="mt-1 text-xs uppercase tracking-wide text-lovable-ink-muted">
-          {ROLE_LABELS[user.role] ?? user.role}
-        </p>
+        <p className="mt-1 text-xs uppercase tracking-wide text-lovable-ink-muted">{ROLE_LABELS[user.role] ?? user.role}</p>
       </div>
 
-      {!isSelf && (
-        <button
-          type="button"
-          onClick={() => toggleMutation.mutate(!user.is_active)}
-          disabled={toggleMutation.isPending}
-          className="text-lovable-ink-muted hover:text-lovable-primary disabled:opacity-50"
-          title={user.is_active ? "Desativar acesso" : "Ativar acesso"}
-        >
-          {user.is_active
-            ? <ToggleRight size={24} className="text-lovable-primary" />
-            : <ToggleLeft size={24} />}
-        </button>
+      {isSelf ? null : (
+        <div className="flex items-center gap-2">
+          {user.is_active ? (
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={() => onDeactivate(user)}
+              disabled={isPending}
+            >
+              <Trash2 size={14} />
+              Excluir
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onActivate(user)}
+              disabled={isPending}
+            >
+              <RotateCcw size={14} />
+              Reativar
+            </Button>
+          )}
+        </div>
       )}
     </article>
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-
 export function UsersPage() {
   const { user: currentUser } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [userToDeactivate, setUserToDeactivate] = useState<StaffUser | null>(null);
   const queryClient = useQueryClient();
 
   const usersQuery = useQuery({
@@ -187,8 +175,23 @@ export function UsersPage() {
     staleTime: 30 * 1000,
   });
 
+  const toggleMutation = useMutation({
+    mutationFn: ({ userId, is_active }: { userId: string; is_active: boolean }) =>
+      userService.updateUser(userId, { is_active }),
+    onSuccess: (_, variables) => {
+      if (variables.is_active) {
+        toast.success("Usuario reativado com sucesso.");
+      } else {
+        toast.success("Usuario desativado com sucesso.");
+      }
+      setUserToDeactivate(null);
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: () => toast.error("Nao foi possivel atualizar o usuario."),
+  });
+
   if (usersQuery.isLoading) {
-    return <LoadingPanel text="Carregando usuários..." />;
+    return <LoadingPanel text="Carregando usuarios..." />;
   }
 
   const users = usersQuery.data ?? [];
@@ -197,23 +200,30 @@ export function UsersPage() {
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuários</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuarios</h2>
           <p className="text-sm text-lovable-ink-muted">Gerencie a equipe da academia.</p>
         </div>
         <Button variant="primary" onClick={() => setDrawerOpen(true)}>
           <UserPlus size={14} />
-          Novo Usuário
+          Novo Usuario
         </Button>
       </header>
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center">
-          <p className="text-lovable-ink-muted">Nenhum usuário cadastrado além de você.</p>
+          <p className="text-lovable-ink-muted">Nenhum usuario cadastrado alem de voce.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {users.map((u) => (
-            <UserRow key={u.id} user={u} currentUserId={currentUser?.id ?? ""} />
+          {users.map((staff) => (
+            <UserRow
+              key={staff.id}
+              user={staff}
+              currentUserId={currentUser?.id ?? ""}
+              isPending={toggleMutation.isPending}
+              onDeactivate={(targetUser) => setUserToDeactivate(targetUser)}
+              onActivate={(targetUser) => toggleMutation.mutate({ userId: targetUser.id, is_active: true })}
+            />
           ))}
         </div>
       )}
@@ -223,6 +233,34 @@ export function UsersPage() {
         onClose={() => setDrawerOpen(false)}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
       />
+
+      <Dialog
+        open={Boolean(userToDeactivate)}
+        onClose={() => setUserToDeactivate(null)}
+        title="Excluir usuario"
+        description={
+          userToDeactivate
+            ? `Tem certeza que deseja excluir ${userToDeactivate.full_name}? Esta acao nao pode ser desfeita.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setUserToDeactivate(null)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (userToDeactivate) {
+                toggleMutation.mutate({ userId: userToDeactivate.id, is_active: false });
+              }
+            }}
+            disabled={toggleMutation.isPending}
+          >
+            {toggleMutation.isPending ? "Excluindo..." : "Excluir"}
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }
