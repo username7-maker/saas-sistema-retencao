@@ -34,8 +34,8 @@ export function CommercialDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Comercial</h2>
-          <p className="text-sm text-slate-500">Pipeline, conversao por origem e CAC.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Comercial</h2>
+          <p className="text-sm text-lovable-ink-muted">Pipeline, conversao por origem e CAC.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <DashboardActions dashboard="commercial" />
@@ -53,11 +53,11 @@ export function CommercialDashboardPage() {
 
       <BarSeriesChart data={pipelineData} xKey="stage" yKey="total" />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Conversao por origem</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Conversao por origem</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
+            <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
               <tr>
                 <th className="px-2 py-2">Origem</th>
                 <th className="px-2 py-2">Total</th>
@@ -67,8 +67,8 @@ export function CommercialDashboardPage() {
             </thead>
             <tbody>
               {query.data.conversion_by_source.map((row) => (
-                <tr key={row.source} className="border-t border-slate-100">
-                  <td className="px-2 py-2 font-medium text-slate-700">{row.source}</td>
+                <tr key={row.source} className="border-t border-lovable-border">
+                  <td className="px-2 py-2 font-medium text-lovable-ink">{row.source}</td>
                   <td className="px-2 py-2">{row.total}</td>
                   <td className="px-2 py-2">{row.won}</td>
                   <td className="px-2 py-2">{row.conversion_rate}%</td>
@@ -79,20 +79,20 @@ export function CommercialDashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-amber-200 bg-white p-4 shadow-panel">
+      <section className="rounded-2xl border border-amber-200 bg-lovable-surface p-4 shadow-panel">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">
           Leads parados 3+ dias ({query.data.stale_leads_total})
         </h3>
         {query.data.stale_leads.length === 0 ? (
-          <p className="text-sm text-slate-500">Nenhum lead parado no momento.</p>
+          <p className="text-sm text-lovable-ink-muted">Nenhum lead parado no momento.</p>
         ) : (
           <ul className="space-y-3">
             {query.data.stale_leads.map((lead) => (
-              <li key={lead.id} className="rounded-lg border border-slate-200 px-3 py-3 text-sm">
+              <li key={lead.id} className="rounded-lg border border-lovable-border px-3 py-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium text-slate-700">{lead.full_name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-lovable-ink">{lead.full_name}</p>
+                    <p className="text-xs text-lovable-ink-muted">
                       Estagio: {lead.stage} | Origem: {lead.source}
                       {lead.last_contact_at && (
                         <> | Ultimo contato: {new Date(lead.last_contact_at).toLocaleDateString()}</>

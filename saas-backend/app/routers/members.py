@@ -8,8 +8,10 @@ from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
+from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
 from app.services.audit_service import log_audit_event
-from app.services.member_service import create_member, list_members, soft_delete_member, update_member
+from app.services.body_composition_service import create_body_composition_evaluation, list_body_composition_evaluations
+from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.risk import run_daily_risk_processing
 
@@ -24,7 +26,7 @@ def create_member_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> MemberOut:
-    member = create_member(db, payload)
+    member = create_member(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -61,6 +63,15 @@ def list_members_endpoint(
         status=status,
         min_days_without_checkin=min_days_without_checkin,
     )
+
+
+@router.get("/{member_id}", response_model=MemberOut)
+def get_member_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> MemberOut:
+    return get_member_or_404(db, member_id)
 
 
 @router.patch("/{member_id}", response_model=MemberOut)
@@ -140,3 +151,25 @@ def member_timeline_endpoint(
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     return get_member_timeline(db, member_id, limit=limit)
+
+
+@router.get("/{member_id}/body-composition", response_model=list[BodyCompositionEvaluationRead])
+def list_body_composition_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    limit: int = Query(20, ge=1, le=100),
+) -> list[BodyCompositionEvaluationRead]:
+    return list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
+
+
+@router.post("/{member_id}/body-composition", response_model=BodyCompositionEvaluationRead, status_code=status.HTTP_201_CREATED)
+def create_body_composition_endpoint(
+    member_id: UUID,
+    payload: BodyCompositionEvaluationCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> BodyCompositionEvaluationRead:
+    evaluation = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
+    db.commit()
+    return evaluation

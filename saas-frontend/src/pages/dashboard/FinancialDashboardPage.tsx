@@ -19,8 +19,8 @@ export function FinancialDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Financeiro</h2>
-          <p className="text-sm text-slate-500">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Financeiro</h2>
+          <p className="text-sm text-lovable-ink-muted">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
         </div>
         <DashboardActions dashboard="financial" />
       </header>
@@ -36,13 +36,13 @@ export function FinancialDashboardPage() {
 
       <LineSeriesChart data={query.data.monthly_revenue} xKey="month" yKey="value" />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Projecoes inteligentes</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Projecoes inteligentes</h3>
         <div className="grid gap-3 md:grid-cols-3">
           {query.data.projections.map((projection) => (
-            <article key={projection.horizon_months} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Horizonte</p>
-              <p className="text-lg font-semibold text-slate-700">{projection.horizon_months} meses</p>
+            <article key={projection.horizon_months} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Horizonte</p>
+              <p className="text-lg font-semibold text-lovable-ink">{projection.horizon_months} meses</p>
               <p className="text-sm text-brand-700">R$ {projection.projected_revenue.toFixed(2)}</p>
             </article>
           ))}

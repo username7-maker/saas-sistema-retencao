@@ -1,4 +1,6 @@
 from app.models.audit_log import AuditLog
+from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
+from app.models.body_composition import BodyCompositionEvaluation
 from app.models.automation_rule import AutomationRule
 from app.models.base import Base
 from app.models.checkin import Checkin
@@ -26,6 +28,8 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "Assessment",
+    "BodyCompositionEvaluation",
     "AutomationRule",
     "Base",
     "Checkin",
@@ -36,6 +40,8 @@ __all__ = [
     "Lead",
     "LeadStage",
     "Member",
+    "MemberConstraints",
+    "MemberGoal",
     "MemberStatus",
     "MessageLog",
     "NPSResponse",
@@ -47,5 +53,6 @@ __all__ = [
     "Task",
     "TaskPriority",
     "TaskStatus",
+    "TrainingPlan",
     "User",
 ]

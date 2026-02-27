@@ -1,5 +1,4 @@
 import logging
-from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
@@ -8,13 +7,13 @@ logger = logging.getLogger(__name__)
 INSIGHT_CACHE_TTL_SECONDS = 3600
 
 
-def generate_executive_insight(db: Session, dashboard_data: dict) -> str:
+def generate_executive_insight(dashboard_data: dict) -> str:
     cache_key = make_cache_key("dashboard_insight_executive")
     cached = dashboard_cache.get(cache_key)
     if isinstance(cached, str):
         return cached
 
-    prompt = _build_executive_prompt(db, dashboard_data)
+    prompt = _build_executive_prompt(dashboard_data)
 
     if not settings.claude_api_key:
         insight = _fallback_insight(dashboard_data)
@@ -40,7 +39,7 @@ def generate_executive_insight(db: Session, dashboard_data: dict) -> str:
         return insight
 
 
-def generate_retention_insight(db: Session, retention_data: dict) -> str:
+def generate_retention_insight(retention_data: dict) -> str:
     cache_key = make_cache_key("dashboard_insight_retention")
     cached = dashboard_cache.get(cache_key)
     if isinstance(cached, str):
@@ -61,8 +60,12 @@ def generate_retention_insight(db: Session, retention_data: dict) -> str:
         top_red = red_items[:5]
         prompt += "\nTop alunos vermelhos:\n"
         for item in top_red:
-            name = item.get("full_name", item.get("fullName", "?"))
-            score = item.get("risk_score", item.get("riskScore", "?"))
+            if isinstance(item, dict):
+                name = item.get("full_name") or item.get("fullName") or item.get("name") or "?"
+                score = item.get("risk_score") or item.get("riskScore") or item.get("risk") or "?"
+            else:
+                name = getattr(item, "full_name", None) or getattr(item, "fullName", None) or getattr(item, "name", None) or "?"
+                score = getattr(item, "risk_score", None) or getattr(item, "riskScore", None) or getattr(item, "risk", None) or "?"
             prompt += f"- {name} (score: {score})\n"
 
     if not settings.claude_api_key:
@@ -89,7 +92,7 @@ def generate_retention_insight(db: Session, retention_data: dict) -> str:
         return insight
 
 
-def _build_executive_prompt(db: Session, data: dict) -> str:
+def _build_executive_prompt(data: dict) -> str:
     total = data.get("total_members", 0)
     active = data.get("active_members", 0)
     mrr = data.get("mrr", 0)

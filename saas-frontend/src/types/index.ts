@@ -69,6 +69,7 @@ export interface Task {
   due_date: string | null;
   completed_at: string | null;
   suggested_message: string | null;
+  extra_data?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -159,4 +160,52 @@ export interface RiskAlert {
   automation_stage: string | null;
   resolved: boolean;
   created_at: string;
+}
+
+export interface ImportErrorEntry {
+  row_number: number;
+  reason: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ImportSummary {
+  imported: number;
+  skipped_duplicates: number;
+  errors: ImportErrorEntry[];
+}
+
+export type EvaluationSource = "tezewa" | "manual";
+
+export interface BodyCompositionEvaluation {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  evaluation_date: string;
+  weight_kg: number | null;
+  body_fat_percent: number | null;
+  lean_mass_kg: number | null;
+  muscle_mass_kg: number | null;
+  body_water_percent: number | null;
+  visceral_fat_level: number | null;
+  bmi: number | null;
+  basal_metabolic_rate_kcal: number | null;
+  source: EvaluationSource;
+  notes: string | null;
+  report_file_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BodyCompositionEvaluationCreate {
+  evaluation_date: string;
+  weight_kg?: number | null;
+  body_fat_percent?: number | null;
+  lean_mass_kg?: number | null;
+  muscle_mass_kg?: number | null;
+  body_water_percent?: number | null;
+  visceral_fat_level?: number | null;
+  bmi?: number | null;
+  basal_metabolic_rate_kcal?: number | null;
+  source?: EvaluationSource;
+  notes?: string | null;
 }

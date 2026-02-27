@@ -1,10 +1,13 @@
+﻿import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { goalService } from "../../services/goalService";
+import { Button, FormField, Input, Select } from "../../components/ui2";
 
 const goalSchema = z.object({
   name: z.string().min(3),
@@ -29,13 +32,20 @@ const metricLabel: Record<string, string> = {
 
 export function GoalsPage() {
   const queryClient = useQueryClient();
+  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
+
   const progressQuery = useQuery({
     queryKey: ["goals", "progress"],
     queryFn: () => goalService.progress(true),
     staleTime: 60 * 1000,
   });
 
-  const { register, handleSubmit, reset, formState } = useForm<GoalForm>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<GoalForm>({
     resolver: zodResolver(goalSchema),
     defaultValues: {
       name: "",
@@ -52,16 +62,21 @@ export function GoalsPage() {
   const createMutation = useMutation({
     mutationFn: (payload: GoalForm) => goalService.create(payload),
     onSuccess: () => {
+      toast.success("Meta salva com sucesso!");
       void queryClient.invalidateQueries({ queryKey: ["goals", "progress"] });
       reset();
     },
+    onError: () => toast.error("Erro ao salvar meta."),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (goalId: string) => goalService.delete(goalId),
     onSuccess: () => {
+      toast.success("Meta removida.");
+      setDeletingGoalId(null);
       void queryClient.invalidateQueries({ queryKey: ["goals", "progress"] });
     },
+    onError: () => toast.error("Erro ao remover meta."),
   });
 
   const onSubmit = (payload: GoalForm) => createMutation.mutate(payload);
@@ -73,43 +88,60 @@ export function GoalsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-slate-900">Metas</h2>
-        <p className="text-sm text-slate-500">Defina metas mensais e monitore risco de nao atingimento.</p>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Metas</h2>
+        <p className="text-sm text-lovable-ink-muted">Defina metas mensais e monitore risco de nao atingimento.</p>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Nova meta</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Nova meta</h3>
         <form className="grid gap-3 md:grid-cols-3" onSubmit={handleSubmit(onSubmit)}>
-          <input
-            {...register("name")}
-            placeholder="Nome da meta"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <select {...register("metric_type")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            <option value="mrr">MRR</option>
-            <option value="new_members">Novos alunos</option>
-            <option value="churn_rate">Churn</option>
-            <option value="nps_avg">NPS medio</option>
-            <option value="active_members">Alunos ativos</option>
-          </select>
-          <select {...register("comparator")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            <option value="gte">Maior ou igual (>=)</option>
-            <option value="lte">Menor ou igual (<=)</option>
-          </select>
-          <input {...register("target_value")} type="number" step="0.01" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input {...register("period_start")} type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input {...register("period_end")} type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input {...register("alert_threshold_pct")} type="number" min={1} max={100} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input {...register("notes")} placeholder="Notas (opcional)" className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" />
-          <button
-            type="submit"
-            disabled={createMutation.isPending}
-            className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-          >
-            {createMutation.isPending ? "Salvando..." : "Salvar meta"}
-          </button>
+          <FormField label="Nome da meta" required error={errors.name?.message}>
+            <Input {...register("name")} placeholder="Nome da meta" />
+          </FormField>
+
+          <FormField label="Tipo de metrica" required error={errors.metric_type?.message}>
+            <Select {...register("metric_type")}>
+              <option value="mrr">MRR</option>
+              <option value="new_members">Novos alunos</option>
+              <option value="churn_rate">Churn</option>
+              <option value="nps_avg">NPS medio</option>
+              <option value="active_members">Alunos ativos</option>
+            </Select>
+          </FormField>
+
+          <FormField label="Comparador" required error={errors.comparator?.message}>
+            <Select {...register("comparator")}>
+              <option value="gte">Maior ou igual (&gt;=)</option>
+              <option value="lte">Menor ou igual (&lt;=)</option>
+            </Select>
+          </FormField>
+
+          <FormField label="Valor alvo" required error={errors.target_value?.message}>
+            <Input {...register("target_value")} type="number" step="0.01" />
+          </FormField>
+
+          <FormField label="Inicio" required error={errors.period_start?.message}>
+            <Input {...register("period_start")} type="date" />
+          </FormField>
+
+          <FormField label="Fim" required error={errors.period_end?.message}>
+            <Input {...register("period_end")} type="date" />
+          </FormField>
+
+          <FormField label="Alerta (%)" required error={errors.alert_threshold_pct?.message}>
+            <Input {...register("alert_threshold_pct")} type="number" min={1} max={100} />
+          </FormField>
+
+          <FormField label="Notas" error={errors.notes?.message}>
+            <Input {...register("notes")} placeholder="Observacoes (opcional)" />
+          </FormField>
+
+          <div className="flex items-end">
+            <Button type="submit" disabled={createMutation.isPending} className="w-full">
+              {createMutation.isPending ? "Salvando..." : "Salvar meta"}
+            </Button>
+          </div>
         </form>
-        {formState.errors.root && <p className="mt-2 text-xs text-rose-600">{formState.errors.root.message}</p>}
       </section>
 
       <section className="space-y-3">
@@ -123,11 +155,11 @@ export function GoalsPage() {
                 : "bg-amber-500";
 
           return (
-            <article key={item.goal.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
+            <article key={item.goal.id} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">{item.goal.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-semibold text-lovable-ink">{item.goal.name}</p>
+                  <p className="text-xs text-lovable-ink-muted">
                     {metricLabel[item.goal.metric_type]} | alvo {item.goal.comparator} {item.goal.target_value} | atual {item.current_value}
                   </p>
                 </div>
@@ -143,19 +175,24 @@ export function GoalsPage() {
                   >
                     {item.status}
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    onClick={() => deleteMutation.mutate(item.goal.id)}
-                    className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setDeletingGoalId(item.goal.id);
+                      deleteMutation.mutate(item.goal.id);
+                    }}
+                    disabled={deleteMutation.isPending && deletingGoalId === item.goal.id}
                   >
-                    Remover
-                  </button>
+                    {deleteMutation.isPending && deletingGoalId === item.goal.id ? "Removendo..." : "Remover"}
+                  </Button>
                 </div>
               </div>
-              <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
+              <div className="mt-3 h-2 w-full rounded-full bg-lovable-surface-soft">
                 <div className={`h-2 rounded-full ${tone}`} style={{ width: `${progressClamped}%` }} />
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-lovable-ink-muted">
                 {item.status_message} ({item.progress_pct.toFixed(1)}%)
               </p>
             </article>

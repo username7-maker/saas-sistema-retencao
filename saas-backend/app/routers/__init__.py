@@ -1,10 +1,12 @@
 from app.routers import (
+    assessments,
     audit,
     auth,
     automations,
     checkins,
     crm,
     dashboards,
+    exports,
     goals,
     imports,
     lgpd,
@@ -18,12 +20,14 @@ from app.routers import (
 )
 
 __all__ = [
+    "assessments",
     "audit",
     "auth",
     "automations",
     "checkins",
     "crm",
     "dashboards",
+    "exports",
     "goals",
     "imports",
     "lgpd",

@@ -14,12 +14,14 @@ from app.core.security import decode_token
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import User
 from app.routers import (
+    assessments,
     audit,
     auth,
     automations,
     checkins,
     crm,
     dashboards,
+    exports,
     goals,
     imports,
     lgpd,
@@ -31,6 +33,7 @@ from app.routers import (
     tasks,
     users,
 )
+from app.core.limiter import RateLimitExceeded, limiter, rate_limit_enabled, rate_limit_exceeded_handler
 from app.services.websocket_manager import websocket_manager
 
 
@@ -54,6 +57,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+if rate_limit_enabled:
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -76,6 +83,7 @@ async def tenant_context_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
+app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)
 app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(crm.router, prefix=settings.api_prefix)
@@ -83,6 +91,7 @@ app.include_router(nps.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)
+app.include_router(exports.router, prefix=settings.api_prefix)
 app.include_router(lgpd.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)

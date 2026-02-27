@@ -2,8 +2,8 @@ import { useState } from "react";
 import { MessageSquare, Phone, ClipboardList, Send, X } from "lucide-react";
 import clsx from "clsx";
 import type { Member } from "../../types";
-import { api } from "../../services/api";
 import { automationService } from "../../services/automationService";
+import { taskService } from "../../services/taskService";
 
 interface QuickActionsProps {
   member: Member;
@@ -43,7 +43,7 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
   const handleCreateTask = async () => {
     setSending(true);
     try {
-      await api.post("/api/v1/tasks/", {
+      await taskService.createTask({
         member_id: member.id,
         title: `Contatar ${member.full_name} - Risco ${member.risk_level}`,
         description: `Score: ${member.risk_score}. Entrar em contato para retencao.`,

@@ -71,9 +71,9 @@ export function OperationalDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Dashboard Operacional</h2>
-          <p className="text-sm text-slate-500">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Operacional</h2>
+          <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
             Tempo real: {isRealtimeConnected ? "conectado" : "desconectado"} | eventos: {realtimeEvents}
           </p>
         </div>
@@ -87,11 +87,11 @@ export function OperationalDashboardPage() {
 
       <BarSeriesChart data={heatmapData} xKey="slot" yKey="total" />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Lista 7+ dias sem treino</h3>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Lista 7+ dias sem treino</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
+            <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
               <tr>
                 <th className="px-2 py-2">Aluno</th>
                 <th className="px-2 py-2">Risco</th>
@@ -101,10 +101,10 @@ export function OperationalDashboardPage() {
             </thead>
             <tbody>
               {query.data.inactive_7d_items.map((member) => (
-                <tr key={member.id} className="border-t border-slate-100">
-                  <td className="px-2 py-2 font-medium text-slate-700">{member.full_name}</td>
-                  <td className="px-2 py-2 uppercase text-slate-600">{member.risk_level}</td>
-                  <td className="px-2 py-2 text-slate-500">{member.last_checkin_at ? new Date(member.last_checkin_at).toLocaleString() : "Sem registro"}</td>
+                <tr key={member.id} className="border-t border-lovable-border">
+                  <td className="px-2 py-2 font-medium text-lovable-ink">{member.full_name}</td>
+                  <td className="px-2 py-2 uppercase text-lovable-ink-muted">{member.risk_level}</td>
+                  <td className="px-2 py-2 text-lovable-ink-muted">{member.last_checkin_at ? new Date(member.last_checkin_at).toLocaleString() : "Sem registro"}</td>
                   <td className="px-2 py-2">
                     <QuickActions member={member} onActionComplete={handleActionComplete} />
                   </td>

@@ -42,11 +42,18 @@ WHATSAPP_TEMPLATES: dict[str, str] = {
 }
 
 
+class _SafeFormatDict(dict):
+    """Retorna a chave original quando ausente, evitando KeyError em templates."""
+
+    def __missing__(self, key: str) -> str:
+        return f"{{{key}}}"
+
+
 def render_template(template_name: str, variables: dict) -> str:
     template = WHATSAPP_TEMPLATES.get(template_name, WHATSAPP_TEMPLATES["custom"])
     try:
-        return template.format(**variables)
-    except KeyError:
+        return template.format_map(_SafeFormatDict(variables))
+    except Exception:
         return template
 
 

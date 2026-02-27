@@ -15,8 +15,8 @@ interface StatCardProps {
 }
 
 const toneStyles: Record<NonNullable<StatCardProps["tone"]>, string> = {
-  neutral: "from-slate-900 to-slate-800",
-  success: "from-brand-700 to-brand-500",
+  neutral: "from-lovable-ink to-[hsl(var(--lovable-ink)/0.8)]",
+  success: "from-lovable-primary to-[hsl(var(--lovable-primary)/0.7)]",
   warning: "from-amber-600 to-amber-500",
   danger: "from-rose-700 to-rose-500",
 };
@@ -76,7 +76,7 @@ export function StatCard({ label, value, tone = "neutral", trend, tooltip, onCli
       )}
 
       {tooltip && (
-        <div className="pointer-events-none absolute inset-x-0 -bottom-12 z-10 mx-2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-x-0 -bottom-12 z-10 mx-2 rounded-lg bg-lovable-ink px-3 py-2 text-xs text-white opacity-0 shadow-lg transition group-hover:opacity-100">
           {tooltip}
         </div>
       )}

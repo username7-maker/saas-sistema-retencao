@@ -1,0 +1,39 @@
+:root {
+  --lovable-bg: 147 48% 97%;
+  --lovable-bg-muted: 214 54% 96%;
+  --lovable-surface: 0 0% 100%;
+  --lovable-surface-soft: 150 31% 98%;
+  --lovable-border: 163 26% 84%;
+  --lovable-border-strong: 163 33% 74%;
+  --lovable-ink: 196 63% 16%;
+  --lovable-ink-muted: 210 21% 40%;
+  --lovable-primary: 168 61% 35%;
+  --lovable-primary-soft: 164 48% 91%;
+  --lovable-success: 158 56% 37%;
+  --lovable-warning: 35 92% 46%;
+  --lovable-danger: 350 78% 49%;
+}
+
+.dark {
+  --lovable-bg: 205 37% 10%;
+  --lovable-bg-muted: 219 34% 13%;
+  --lovable-surface: 215 31% 16%;
+  --lovable-surface-soft: 213 31% 20%;
+  --lovable-border: 210 18% 30%;
+  --lovable-border-strong: 210 22% 40%;
+  --lovable-ink: 210 40% 95%;
+  --lovable-ink-muted: 216 16% 71%;
+  --lovable-primary: 165 55% 57%;
+  --lovable-primary-soft: 165 32% 23%;
+  --lovable-success: 153 60% 45%;
+  --lovable-warning: 40 94% 58%;
+  --lovable-danger: 352 90% 66%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, hsl(var(--lovable-bg-muted)) 0%, transparent 55%),
+    radial-gradient(circle at top right, hsl(var(--lovable-primary-soft) / 0.45) 0%, transparent 52%),
+    hsl(var(--lovable-bg));
+  color: hsl(var(--lovable-ink));
+}

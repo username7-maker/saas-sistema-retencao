@@ -12,7 +12,7 @@ def test_generate_executive_insight_returns_cached_value(monkeypatch):
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("nao deveria montar prompt quando ha cache")),
     )
 
-    insight = ai_insight_service.generate_executive_insight(db=None, dashboard_data={})
+    insight = ai_insight_service.generate_executive_insight(dashboard_data={})
     assert insight == "insight-cacheado"
 
 
@@ -26,5 +26,5 @@ def test_generate_retention_insight_returns_cached_value(monkeypatch):
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("nao deveria calcular fallback quando ha cache")),
     )
 
-    insight = ai_insight_service.generate_retention_insight(db=None, retention_data={})
+    insight = ai_insight_service.generate_retention_insight(retention_data={})
     assert insight == "retencao-cacheada"

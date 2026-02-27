@@ -6,20 +6,30 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
+from app.database import get_current_gym_id
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
+from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import encrypt_cpf
 
 
-def create_member(db: Session, payload: MemberCreate) -> Member:
+def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None) -> Member:
+    gym_id = gym_id or get_current_gym_id()
+    if gym_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contexto de academia ausente")
+
     if payload.email:
-        existing = db.scalar(
-            select(Member).where(Member.email == payload.email, Member.deleted_at.is_(None))
+        existing_stmt = select(Member).where(
+            Member.email == payload.email,
+            Member.deleted_at.is_(None),
+            Member.gym_id == gym_id,
         )
+        existing = db.scalar(existing_stmt)
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email de membro ja cadastrado")
 
     member = Member(
+        gym_id=gym_id,
         full_name=payload.full_name,
         email=payload.email,
         phone=payload.phone,
@@ -35,6 +45,8 @@ def create_member(db: Session, payload: MemberCreate) -> Member:
     db.add(member)
     db.commit()
     db.refresh(member)
+    create_onboarding_tasks_for_member(db, member)
+    create_plan_followup_tasks_for_member(db, member)
     invalidate_dashboard_cache("members")
     return member
 

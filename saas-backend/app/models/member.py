@@ -67,3 +67,13 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     nps_responses = relationship("NPSResponse", back_populates="member")
     audit_logs = relationship("AuditLog", back_populates="member")
     in_app_notifications = relationship("InAppNotification", back_populates="member")
+    assessments = relationship("Assessment", back_populates="member", cascade="all, delete-orphan")
+    member_constraints = relationship("MemberConstraints", back_populates="member", cascade="all, delete-orphan", uselist=False)
+    training_plans = relationship("TrainingPlan", back_populates="member", cascade="all, delete-orphan")
+    member_goals = relationship("MemberGoal", back_populates="member", cascade="all, delete-orphan")
+    body_composition_evaluations = relationship(
+        "BodyCompositionEvaluation",
+        back_populates="member",
+        cascade="all, delete-orphan",
+        order_by="BodyCompositionEvaluation.evaluation_date.desc()",
+    )

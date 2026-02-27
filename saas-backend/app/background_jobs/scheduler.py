@@ -2,11 +2,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.background_jobs.jobs import (
     daily_crm_followup_job,
+    daily_loyalty_update_job,
     daily_nps_dispatch_job,
     daily_risk_job,
     monthly_reports_job,
     refresh_dashboard_views_job,
 )
+
+# IMPORTANTE: Em ambientes multi-worker (ex: Gunicorn com varios workers), apenas UMA
+# instancia deve iniciar o scheduler para evitar execucao duplicada dos jobs.
+# Configure ENABLE_SCHEDULER=false em todos os workers API e use um processo
+# dedicado (worker.py) para rodar o scheduler. Ex: Railway usa dois servicos separados.
 
 
 def build_scheduler() -> BackgroundScheduler:
@@ -16,4 +22,5 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(daily_crm_followup_job, trigger="cron", hour=8, minute=0, id="crm_followup_daily")
     scheduler.add_job(monthly_reports_job, trigger="cron", day=1, hour=6, minute=0, id="monthly_reports")
     scheduler.add_job(refresh_dashboard_views_job, trigger="cron", minute="*/30", id="refresh_dashboard_views")
+    scheduler.add_job(daily_loyalty_update_job, trigger="cron", hour=3, minute=0, id="loyalty_update_daily")
     return scheduler

@@ -5,6 +5,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
+from app.database import get_current_gym_id
 from app.models import AuditLog, Checkin, Member, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
 from app.services.automation_engine import run_automation_rules
@@ -339,13 +340,17 @@ def _ensure_call_task(db: Session, member: Member, stage: str) -> None:
 
 
 def _find_manager(db: Session) -> User | None:
+    gym_id = get_current_gym_id()
+    filters = [
+        User.deleted_at.is_(None),
+        User.role.in_([RoleEnum.OWNER, RoleEnum.MANAGER]),
+        User.is_active.is_(True),
+    ]
+    if gym_id:
+        filters.append(User.gym_id == gym_id)
     return db.scalar(
         select(User)
-        .where(
-            User.deleted_at.is_(None),
-            User.role.in_([RoleEnum.OWNER, RoleEnum.MANAGER]),
-            User.is_active.is_(True),
-        )
+        .where(*filters)
         .order_by(
             case((User.role == RoleEnum.OWNER, 0), else_=1),
             User.created_at.asc(),

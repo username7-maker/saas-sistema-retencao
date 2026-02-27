@@ -5,6 +5,7 @@ import type { Lead } from "../../types";
 interface PipelineKanbanProps {
   leads: Lead[];
   onMove: (leadId: string, stage: Lead["stage"]) => void;
+  onCardClick?: (lead: Lead) => void;
 }
 
 const COLUMNS: Array<{ key: Lead["stage"]; label: string }> = [
@@ -27,7 +28,7 @@ const NEXT_STAGE: Record<Lead["stage"], Lead["stage"] | null> = {
   lost: null,
 };
 
-export function PipelineKanban({ leads, onMove }: PipelineKanbanProps) {
+export function PipelineKanban({ leads, onMove, onCardClick }: PipelineKanbanProps) {
   const grouped = useMemo(() => {
     return COLUMNS.reduce<Record<string, Lead[]>>((acc, column) => {
       acc[column.key] = leads.filter((lead) => lead.stage === column.key);
@@ -49,17 +50,26 @@ export function PipelineKanban({ leads, onMove }: PipelineKanbanProps) {
             {grouped[column.key].map((lead) => {
               const nextStage = NEXT_STAGE[lead.stage];
               return (
-                <article key={lead.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <article
+                  key={lead.id}
+                  className={`rounded-xl border border-slate-200 bg-slate-50 p-3 ${onCardClick ? "cursor-pointer hover:border-brand-400 hover:bg-brand-50 transition-colors" : ""}`}
+                  onClick={() => onCardClick?.(lead)}
+                >
                   <p className="text-sm font-semibold text-slate-800">{lead.full_name}</p>
-                  <p className="mt-1 text-xs text-slate-500">Origem: {lead.source}</p>
-                  <p className="text-xs text-slate-500">Valor estimado: R$ {lead.estimated_value}</p>
+                  {lead.phone && <p className="mt-1 text-xs text-slate-500">{lead.phone}</p>}
+                  <p className="mt-1 text-xs text-slate-500">Origem: {lead.source ?? "—"}</p>
+                  {lead.estimated_value > 0 && (
+                    <p className="text-xs text-slate-500">
+                      Valor: R$ {lead.estimated_value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </p>
+                  )}
                   {nextStage && (
                     <button
                       type="button"
-                      onClick={() => onMove(lead.id, nextStage)}
+                      onClick={(e) => { e.stopPropagation(); onMove(lead.id, nextStage); }}
                       className="mt-3 rounded-lg bg-brand-500 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700"
                     >
-                      Avancar
+                      Avançar
                     </button>
                   )}
                 </article>
