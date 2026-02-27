@@ -1,4 +1,5 @@
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
+from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentDashboardOut,
@@ -45,6 +46,8 @@ from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 __all__ = [
     "APIMessage",
     "AssessmentCreate",
+    "BodyCompositionEvaluationCreate",
+    "BodyCompositionEvaluationRead",
     "AssessmentDashboardOut",
     "AssessmentMiniOut",
     "AssessmentOut",

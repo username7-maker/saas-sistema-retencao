@@ -9,6 +9,7 @@ from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
+from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import encrypt_cpf
 
 
@@ -44,6 +45,8 @@ def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None
     db.add(member)
     db.commit()
     db.refresh(member)
+    create_onboarding_tasks_for_member(db, member)
+    create_plan_followup_tasks_for_member(db, member)
     invalidate_dashboard_cache("members")
     return member
 

@@ -6,11 +6,12 @@ import { AssessmentTimeline } from "../../components/assessments/AssessmentTimel
 import { ConstraintsAlert } from "../../components/assessments/ConstraintsAlert";
 import { EvolutionCharts } from "../../components/assessments/EvolutionCharts";
 import { GoalsProgress } from "../../components/assessments/GoalsProgress";
+import { MemberBodyCompositionTab } from "../../components/assessments/MemberBodyCompositionTab";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
 import { assessmentService } from "../../services/assessmentService";
 
-type ProfileTab = "summary" | "evolution" | "constraints" | "goals" | "training";
+type ProfileTab = "summary" | "evolution" | "constraints" | "goals" | "training" | "bioimpedancia";
 
 const tabs: Array<{ key: ProfileTab; label: string }> = [
   { key: "summary", label: "Resumo" },
@@ -18,6 +19,7 @@ const tabs: Array<{ key: ProfileTab; label: string }> = [
   { key: "constraints", label: "Restricoes" },
   { key: "goals", label: "Objetivos" },
   { key: "training", label: "Treino" },
+  { key: "bioimpedancia", label: "Bioimpedância" },
 ];
 
 export function MemberProfile360Page() {
@@ -170,6 +172,10 @@ export function MemberProfile360Page() {
             <p className="mt-2 text-sm text-lovable-ink-muted">Sem plano de treino ativo.</p>
           )}
         </section>
+      )}
+
+      {activeTab === "bioimpedancia" && memberId && (
+        <MemberBodyCompositionTab memberId={memberId} />
       )}
     </section>
   );

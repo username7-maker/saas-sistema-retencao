@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import { BarChart3, ShieldAlert, Briefcase, Wallet, Activity, FileText, Send } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { reportService, type DashboardReportType } from "../../services/reportService";
@@ -9,7 +10,7 @@ interface ReportCardConfig {
   type: DashboardReportType;
   title: string;
   description: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
 }
 
 const REPORT_CARDS: ReportCardConfig[] = [

@@ -1,8 +1,9 @@
-﻿import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { PipelineKanban } from "../../components/crm/PipelineKanban";
@@ -247,6 +248,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
 
 export function CrmPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
@@ -265,6 +267,19 @@ export function CrmPage() {
     onError: () => toast.error("Nao foi possivel mover o lead."),
   });
 
+  useEffect(() => {
+    const leadId = searchParams.get("leadId");
+    if (!leadId || !leadsQuery.data?.items.length) {
+      return;
+    }
+    const lead = leadsQuery.data.items.find((item) => item.id === leadId);
+    if (!lead) {
+      return;
+    }
+    setSelectedLead(lead);
+    setDrawerOpen(true);
+  }, [leadsQuery.data?.items, searchParams]);
+
   function handleNewLead() {
     setSelectedLead(null);
     setDrawerOpen(true);
@@ -278,6 +293,11 @@ export function CrmPage() {
   function handleDrawerClose() {
     setDrawerOpen(false);
     setSelectedLead(null);
+    if (searchParams.has("leadId")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("leadId");
+      setSearchParams(next, { replace: true });
+    }
   }
 
   function handleSaved() {
@@ -298,7 +318,9 @@ export function CrmPage() {
       <header className="flex items-center justify-between gap-4">
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">CRM - Pipeline Kanban</h2>
-          <p className="text-sm text-lovable-ink-muted">Novo -> Contato -> Visita -> Experimental -> Proposta -> Fechado / Perdido</p>
+          <p className="text-sm text-lovable-ink-muted">
+            {"Novo -> Contato -> Visita -> Experimental -> Proposta -> Fechado / Perdido"}
+          </p>
         </div>
         <Button variant="primary" onClick={handleNewLead}>
           + Novo Lead
@@ -319,3 +341,4 @@ export function CrmPage() {
     </section>
   );
 }
+

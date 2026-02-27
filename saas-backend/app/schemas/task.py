@@ -44,6 +44,7 @@ class TaskOut(BaseModel):
     due_date: datetime | None
     completed_at: datetime | None
     suggested_message: str | None
+    extra_data: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
