@@ -29,7 +29,7 @@ STATUS_KEYS = ("status", "situacao", "state")
 EXTERNAL_ID_KEYS = ("external_id", "matricula", "codigo", "member_code", "id_aluno", "id_externo", "codigo_acesso")
 
 MEMBER_ID_KEYS = ("member_id", "id_membro", "aluno_id", "member_uuid")
-CHECKIN_AT_KEYS = ("checkin_at", "data_checkin", "checkin", "data_hora", "datetime", "timestamp")
+CHECKIN_AT_KEYS = ("checkin_at", "data_checkin", "checkin", "data_hora", "datetime", "timestamp", "hora", "data")
 CHECKIN_DATE_KEYS = ("checkin_date", "data_checkin", "data", "date")
 CHECKIN_TIME_KEYS = ("checkin_time", "hora_checkin", "hora", "time")
 CHECKIN_SOURCE_KEYS = ("source", "origem", "tipo")

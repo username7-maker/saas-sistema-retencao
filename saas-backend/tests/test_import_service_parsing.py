@@ -167,6 +167,15 @@ def test_parse_checkin_source_aliases() -> None:
     assert import_service._parse_checkin_source("qualquer_valor") == CheckinSource.IMPORT
 
 
+def test_checkin_datetime_uses_hora_alias_with_excel_serial() -> None:
+    row = {"hora": "46060.99887030093", "data": "46060.99887030093"}
+    value = import_service._pick_first(row, import_service.CHECKIN_AT_KEYS)
+    assert value == "46060.99887030093"
+    parsed = import_service._parse_datetime(value)
+    assert parsed is not None
+    assert parsed.tzinfo == timezone.utc
+
+
 def test_normalize_phone_prefers_first_number_candidate() -> None:
     raw = "Celular (54)999723860, Residencial (54)999723860"
     normalized = import_service._normalize_phone(raw)
