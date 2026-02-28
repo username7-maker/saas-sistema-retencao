@@ -2,9 +2,11 @@ import csv
 import io
 import re
 import unicodedata
-from datetime import date, datetime, time, timezone
+import zipfile
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
+from xml.etree import ElementTree as ET
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,16 +17,16 @@ from app.schemas import ImportErrorEntry, ImportSummary
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
 
-NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name")
+NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name", "cliente")
 EMAIL_KEYS = ("email", "e_mail", "mail", "member_email")
-PHONE_KEYS = ("phone", "telefone", "celular", "whatsapp")
+PHONE_KEYS = ("phone", "telefone", "telefones", "celular", "whatsapp")
 CPF_KEYS = ("cpf", "documento", "document", "cpf_cnpj")
-PLAN_KEYS = ("plan_name", "plan", "plano", "plano_nome")
+PLAN_KEYS = ("plan_name", "plan", "plano", "plano_nome", "assinaturas", "assinaturas_condicoes", "assinaturas_horarios")
 MONTHLY_FEE_KEYS = ("monthly_fee", "mensalidade", "valor", "valor_mensal", "price")
-JOIN_DATE_KEYS = ("join_date", "data_matricula", "data_adesao", "data_inicio", "start_date")
+JOIN_DATE_KEYS = ("join_date", "data_matricula", "data_adesao", "data_inicio", "start_date", "cadastro", "dt_primeira_ativacao", "conversao")
 PREFERRED_SHIFT_KEYS = ("preferred_shift", "turno", "turno_preferido", "horario", "shift")
 STATUS_KEYS = ("status", "situacao", "state")
-EXTERNAL_ID_KEYS = ("external_id", "matricula", "codigo", "member_code", "id_aluno", "id_externo")
+EXTERNAL_ID_KEYS = ("external_id", "matricula", "codigo", "member_code", "id_aluno", "id_externo", "codigo_acesso")
 
 MEMBER_ID_KEYS = ("member_id", "id_membro", "aluno_id", "member_uuid")
 CHECKIN_AT_KEYS = ("checkin_at", "data_checkin", "checkin", "data_hora", "datetime", "timestamp")
@@ -47,7 +49,7 @@ DATETIME_FORMATS = (
 )
 
 
-def import_members_csv(db: Session, csv_content: bytes) -> ImportSummary:
+def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
@@ -58,7 +60,7 @@ def import_members_csv(db: Session, csv_content: bytes) -> ImportSummary:
     seen_external_ids: set[str] = set()
     seen_cpfs: set[str] = set()
 
-    for row_number, row in _iter_rows(csv_content):
+    for row_number, row in _iter_rows(csv_content, filename=filename):
         full_name = _pick_first(row, NAME_KEYS)
         if not full_name:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
@@ -125,7 +127,7 @@ def import_members_csv(db: Session, csv_content: bytes) -> ImportSummary:
     return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)
 
 
-def import_checkins_csv(db: Session, csv_content: bytes) -> ImportSummary:
+def import_checkins_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
@@ -134,7 +136,7 @@ def import_checkins_csv(db: Session, csv_content: bytes) -> ImportSummary:
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
-    for row_number, row in _iter_rows(csv_content):
+    for row_number, row in _iter_rows(csv_content, filename=filename):
         member = _resolve_member_from_row(row, lookup)
         if not member:
             errors.append(
@@ -200,12 +202,205 @@ def _decode_csv_text(csv_content: bytes) -> str:
     return csv_content.decode("utf-8", errors="ignore")
 
 
-def _iter_rows(csv_content: bytes):
+def _iter_rows(csv_content: bytes, filename: str | None = None):
+    kind = _detect_file_kind(csv_content, filename)
+    if kind == "xlsx":
+        yield from _iter_rows_xlsx(csv_content)
+        return
+    yield from _iter_rows_csv(csv_content)
+
+
+def _detect_file_kind(content: bytes, filename: str | None) -> str:
+    if filename:
+        lower = filename.lower()
+        if lower.endswith(".xlsx"):
+            return "xlsx"
+        if lower.endswith(".csv"):
+            return "csv"
+    if content.startswith(b"PK\x03\x04"):
+        return "xlsx"
+    return "csv"
+
+
+def _iter_rows_csv(csv_content: bytes):
     text = _decode_csv_text(csv_content)
     delimiter = _detect_delimiter(text)
     reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     for row_number, row in enumerate(reader, start=2):
         yield row_number, _normalize_row(row)
+
+
+def _iter_rows_xlsx(content: bytes):
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        yield from _iter_rows_xlsx_fallback(content)
+        return
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError("Arquivo XLSX invalido ou corrompido.") from exc
+
+    try:
+        worksheet = workbook.active
+        header_cells = next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if not header_cells:
+            return
+
+        headers = [str(cell).strip() if cell is not None else "" for cell in header_cells]
+        for row_number, row_cells in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
+            raw_row: dict[str | None, str | None] = {}
+            has_value = False
+            for idx, header in enumerate(headers):
+                if not header:
+                    continue
+                value = row_cells[idx] if idx < len(row_cells) else None
+                normalized_value = _xlsx_cell_to_text(value)
+                if normalized_value:
+                    has_value = True
+                raw_row[header] = normalized_value
+            if not has_value:
+                continue
+            yield row_number, _normalize_row(raw_row)
+    finally:
+        workbook.close()
+
+
+def _iter_rows_xlsx_fallback(content: bytes):
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            worksheet_path = _xlsx_first_sheet_path(archive)
+            shared_strings = _xlsx_shared_strings(archive)
+            worksheet_xml = archive.read(worksheet_path)
+    except Exception as exc:
+        raise ValueError("Arquivo XLSX invalido ou corrompido.") from exc
+
+    ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    root = ET.fromstring(worksheet_xml)
+    rows = root.findall(".//x:sheetData/x:row", ns)
+    if not rows:
+        return
+
+    header_values = _xlsx_row_values(rows[0], shared_strings, ns)
+    headers = [str(value).strip() if value is not None else "" for value in header_values]
+    for row in rows[1:]:
+        row_number = int(row.attrib.get("r", "0") or "0")
+        values = _xlsx_row_values(row, shared_strings, ns)
+        raw_row: dict[str | None, str | None] = {}
+        has_value = False
+        for idx, header in enumerate(headers):
+            if not header:
+                continue
+            value = values[idx] if idx < len(values) else None
+            normalized_value = _xlsx_cell_to_text(value)
+            if normalized_value:
+                has_value = True
+            raw_row[header] = normalized_value
+        if not has_value:
+            continue
+        yield (row_number or 0), _normalize_row(raw_row)
+
+
+def _xlsx_first_sheet_path(archive: zipfile.ZipFile) -> str:
+    default_path = "xl/worksheets/sheet1.xml"
+    if default_path in archive.namelist():
+        return default_path
+
+    workbook_xml = archive.read("xl/workbook.xml")
+    workbook_rels_xml = archive.read("xl/_rels/workbook.xml.rels")
+
+    workbook_ns = {
+        "x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+    rels_ns = {"r": "http://schemas.openxmlformats.org/package/2006/relationships"}
+
+    workbook_root = ET.fromstring(workbook_xml)
+    first_sheet = workbook_root.find(".//x:sheets/x:sheet", workbook_ns)
+    if first_sheet is None:
+        raise ValueError("Planilha XLSX sem abas.")
+    rel_id = first_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    if not rel_id:
+        raise ValueError("Planilha XLSX sem relacao de aba.")
+
+    rels_root = ET.fromstring(workbook_rels_xml)
+    for rel in rels_root.findall(".//r:Relationship", rels_ns):
+        if rel.attrib.get("Id") != rel_id:
+            continue
+        target = rel.attrib.get("Target", "").lstrip("/")
+        if not target:
+            break
+        if target.startswith("xl/"):
+            return target
+        return f"xl/{target}"
+    raise ValueError("Nao foi possivel localizar a aba principal no XLSX.")
+
+
+def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    path = "xl/sharedStrings.xml"
+    if path not in archive.namelist():
+        return []
+
+    ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    root = ET.fromstring(archive.read(path))
+    values: list[str] = []
+    for si in root.findall(".//x:si", ns):
+        texts = [node.text or "" for node in si.findall(".//x:t", ns)]
+        values.append("".join(texts))
+    return values
+
+
+def _xlsx_row_values(row: ET.Element, shared_strings: list[str], ns: dict[str, str]) -> list[object | None]:
+    values: list[object | None] = []
+    for cell in row.findall("x:c", ns):
+        ref = cell.attrib.get("r", "")
+        col_index = _xlsx_col_index(ref)
+        while len(values) <= col_index:
+            values.append(None)
+        values[col_index] = _xlsx_cell_value(cell, shared_strings, ns)
+    return values
+
+
+def _xlsx_col_index(cell_ref: str) -> int:
+    letters = "".join(ch for ch in cell_ref if ch.isalpha()).upper()
+    if not letters:
+        return 0
+    index = 0
+    for letter in letters:
+        index = index * 26 + (ord(letter) - ord("A") + 1)
+    return index - 1
+
+
+def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str], ns: dict[str, str]) -> object | None:
+    cell_type = cell.attrib.get("t", "")
+    if cell_type == "inlineStr":
+        node = cell.find("x:is/x:t", ns)
+        return node.text if node is not None else ""
+
+    value_node = cell.find("x:v", ns)
+    raw_value = value_node.text if value_node is not None else ""
+    if raw_value is None:
+        return ""
+
+    if cell_type == "s":
+        try:
+            return shared_strings[int(raw_value)]
+        except Exception:
+            return raw_value
+    if cell_type == "b":
+        return "1" if raw_value == "1" else "0"
+    return raw_value
+
+
+def _xlsx_cell_to_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return str(value).strip()
 
 
 def _detect_delimiter(text: str) -> str:
@@ -278,6 +473,11 @@ def _parse_date(value: str | None) -> date | None:
     raw = value.strip()
     if not raw:
         return None
+
+    serial = _parse_excel_serial(raw)
+    if serial is not None:
+        return _excel_serial_to_datetime(serial).date()
+
     if "T" in raw:
         raw = raw.split("T", 1)[0]
     for fmt in DATE_FORMATS:
@@ -297,6 +497,10 @@ def _parse_datetime(value: str | None) -> datetime | None:
     raw = value.strip()
     if not raw:
         return None
+
+    serial = _parse_excel_serial(raw)
+    if serial is not None:
+        return _excel_serial_to_datetime(serial).replace(tzinfo=timezone.utc)
 
     iso_candidate = raw.replace("Z", "+00:00")
     try:
@@ -329,15 +533,43 @@ def _parse_member_status(raw_value: str | None) -> MemberStatus:
     mapping = {
         "active": MemberStatus.ACTIVE,
         "ativo": MemberStatus.ACTIVE,
+        "a": MemberStatus.ACTIVE,
         "paused": MemberStatus.PAUSED,
         "pausado": MemberStatus.PAUSED,
+        "p": MemberStatus.PAUSED,
         "cancelled": MemberStatus.CANCELLED,
         "canceled": MemberStatus.CANCELLED,
         "cancelado": MemberStatus.CANCELLED,
         "inactive": MemberStatus.CANCELLED,
         "inativo": MemberStatus.CANCELLED,
+        "i": MemberStatus.CANCELLED,
     }
     return mapping.get(key, MemberStatus.ACTIVE)
+
+
+def _parse_excel_serial(raw_value: str) -> float | None:
+    cleaned = raw_value.strip().replace(",", ".")
+    if not cleaned:
+        return None
+    try:
+        serial = float(cleaned)
+    except ValueError:
+        return None
+    if serial <= 0:
+        return None
+    return serial
+
+
+def _excel_serial_to_datetime(serial: float) -> datetime:
+    # Excel uses 1899-12-30 as base in the 1900 date system.
+    base = datetime(1899, 12, 30)
+    days = int(serial)
+    fraction = serial - days
+    seconds = int(round(fraction * 86400))
+    if seconds >= 86400:
+        days += 1
+        seconds -= 86400
+    return base + timedelta(days=days, seconds=seconds)
 
 
 def _parse_checkin_source(raw_value: str | None) -> CheckinSource:

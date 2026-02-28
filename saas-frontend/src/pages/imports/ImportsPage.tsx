@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Download, FileUp } from "lucide-react";
+import toast from "react-hot-toast";
 
 import { importExportService } from "../../services/importExportService";
 import type { ImportSummary } from "../../types";
@@ -26,6 +27,17 @@ function ImportResult({ summary }: { summary: ImportSummary | null }) {
   );
 }
 
+function getErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const maybeAxios = error as { response?: { data?: { detail?: string } } };
+    const detail = maybeAxios.response?.data?.detail;
+    if (detail) {
+      return detail;
+    }
+  }
+  return "Falha ao processar arquivo. Verifique formato e colunas.";
+}
+
 export function ImportsPage() {
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
@@ -36,12 +48,20 @@ export function ImportsPage() {
 
   const importMembersMutation = useMutation({
     mutationFn: (file: File) => importExportService.importMembers(file),
-    onSuccess: (summary) => setMembersSummary(summary),
+    onSuccess: (summary) => {
+      setMembersSummary(summary);
+      toast.success("Importacao de alunos concluida.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const importCheckinsMutation = useMutation({
     mutationFn: (file: File) => importExportService.importCheckins(file),
-    onSuccess: (summary) => setCheckinsSummary(summary),
+    onSuccess: (summary) => {
+      setCheckinsSummary(summary);
+      toast.success("Importacao de check-ins concluida.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportMembersMutation = useMutation({
@@ -63,9 +83,9 @@ export function ImportsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importacoes e Exportacoes CSV</h2>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importacoes e Exportacoes (CSV/XLSX)</h2>
         <p className="text-sm text-lovable-ink-muted dark:text-slate-400">
-          Envie planilhas de alunos/catraca e exporte dados do sistema em CSV.
+          Envie planilhas de alunos/catraca em CSV ou XLSX e exporte dados do sistema em CSV.
         </p>
       </header>
 
@@ -77,7 +97,7 @@ export function ImportsPage() {
           </p>
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => setMembersFile(event.target.files?.[0] ?? null)}
             className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
           />
@@ -89,7 +109,7 @@ export function ImportsPage() {
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {importMembersMutation.isPending ? "Importando..." : "Importar CSV"}
+              {importMembersMutation.isPending ? "Importando..." : "Importar arquivo"}
             </button>
             <button
               type="button"
@@ -111,7 +131,7 @@ export function ImportsPage() {
           </p>
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => setCheckinsFile(event.target.files?.[0] ?? null)}
             className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
           />
@@ -123,7 +143,7 @@ export function ImportsPage() {
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {importCheckinsMutation.isPending ? "Importando..." : "Importar CSV"}
+              {importCheckinsMutation.isPending ? "Importando..." : "Importar arquivo"}
             </button>
             <button
               type="button"

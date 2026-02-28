@@ -62,6 +62,21 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in raw.split(",") if origin.strip()]
         return ["http://localhost:5173"]
 
+    @field_validator("debug", "enable_scheduler", mode="before")
+    @classmethod
+    def parse_bool_flags(cls, value: bool | str | int | None) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value != 0
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "t", "yes", "y", "on", "debug", "dev", "development"}:
+                return True
+            if normalized in {"0", "false", "f", "no", "n", "off", "release", "prod", "production"}:
+                return False
+        return False
+
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
         if self.environment.lower() != "production":

@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
-import clsx from "clsx";
 
 import { api } from "../../services/api";
 
