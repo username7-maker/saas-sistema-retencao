@@ -29,10 +29,32 @@ function ImportResult({ summary }: { summary: ImportSummary | null }) {
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null) {
-    const maybeAxios = error as { response?: { data?: { detail?: string } } };
-    const detail = maybeAxios.response?.data?.detail;
-    if (detail) {
-      return detail;
+    const maybeAxios = error as {
+      response?: {
+        data?: {
+          detail?: string | Array<{ msg?: string }>;
+          message?: string;
+        } | string;
+      };
+    };
+    const data = maybeAxios.response?.data;
+    if (typeof data === "string" && data.trim()) {
+      return data;
+    }
+    if (typeof data === "object" && data !== null) {
+      const detail = data.detail;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail;
+      }
+      if (Array.isArray(detail) && detail.length > 0) {
+        const firstMessage = detail[0]?.msg;
+        if (firstMessage) {
+          return firstMessage;
+        }
+      }
+      if (typeof data.message === "string" && data.message.trim()) {
+        return data.message;
+      }
     }
   }
   return "Falha ao processar arquivo. Verifique formato e colunas.";

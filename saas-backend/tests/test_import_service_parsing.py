@@ -165,3 +165,9 @@ def test_parse_checkin_source_aliases() -> None:
     assert import_service._parse_checkin_source("catraca") == CheckinSource.TURNSTILE
     assert import_service._parse_checkin_source("manual") == CheckinSource.MANUAL
     assert import_service._parse_checkin_source("qualquer_valor") == CheckinSource.IMPORT
+
+
+def test_normalize_phone_prefers_first_number_candidate() -> None:
+    raw = "Celular (54)999723860, Residencial (54)999723860"
+    normalized = import_service._normalize_phone(raw)
+    assert normalized == "54999723860"

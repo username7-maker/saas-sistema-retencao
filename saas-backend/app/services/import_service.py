@@ -48,6 +48,12 @@ DATETIME_FORMATS = (
     "%d-%m-%Y %H:%M",
 )
 
+_MAX_MEMBER_NAME = 120
+_MAX_MEMBER_EMAIL = 255
+_MAX_MEMBER_PHONE = 32
+_MAX_MEMBER_PLAN = 100
+_MAX_MEMBER_SHIFT = 24
+
 
 def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
@@ -61,12 +67,12 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
     seen_cpfs: set[str] = set()
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
-        full_name = _pick_first(row, NAME_KEYS)
+        full_name = _truncate(_pick_first(row, NAME_KEYS), _MAX_MEMBER_NAME)
         if not full_name:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
             continue
 
-        email = (_pick_first(row, EMAIL_KEYS) or "").lower() or None
+        email = _truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
         external_id = (_pick_first(row, EXTERNAL_ID_KEYS) or "").strip().lower() or None
         cpf_digits = _digits(_pick_first(row, CPF_KEYS))
 
@@ -102,13 +108,13 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         member = Member(
             full_name=full_name,
             email=email,
-            phone=_pick_first(row, PHONE_KEYS),
+            phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
             cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
             status=_parse_member_status(_pick_first(row, STATUS_KEYS)),
-            plan_name=_pick_first(row, PLAN_KEYS) or "Plano Base",
+            plan_name=_truncate(_pick_first(row, PLAN_KEYS) or "Plano Base", _MAX_MEMBER_PLAN) or "Plano Base",
             monthly_fee=monthly_fee,
             join_date=join_date,
-            preferred_shift=_pick_first(row, PREFERRED_SHIFT_KEYS),
+            preferred_shift=_truncate(_pick_first(row, PREFERRED_SHIFT_KEYS), _MAX_MEMBER_SHIFT),
             extra_data=extra_data,
         )
         db.add(member)
@@ -442,6 +448,39 @@ def _pick_first(row: dict[str, str], aliases: tuple[str, ...]) -> str | None:
         if value:
             return value.strip()
     return None
+
+
+def _truncate(value: str | None, max_length: int) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if len(trimmed) <= max_length:
+        return trimmed
+    return trimmed[:max_length]
+
+
+def _normalize_phone(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    text_value = raw_value.strip()
+    if not text_value:
+        return None
+
+    digits_only = _digits(text_value)
+    if digits_only:
+        # Keep the first BR-style phone chunk when multiple numbers are concatenated.
+        if len(digits_only) >= 11:
+            return digits_only[:11]
+        if len(digits_only) >= 10:
+            return digits_only[:10]
+        return digits_only[:_MAX_MEMBER_PHONE]
+
+    candidates = re.findall(r"\d{8,}", text_value)
+    if candidates:
+        return candidates[0][:_MAX_MEMBER_PHONE]
+    return _truncate(text_value, _MAX_MEMBER_PHONE)
 
 
 def _digits(value: str | None) -> str:
