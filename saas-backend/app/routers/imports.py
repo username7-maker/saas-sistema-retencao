@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
+from app.core.limiter import limiter
 from app.database import get_db, set_current_gym_id
 from app.models import RoleEnum, User
 from app.schemas import ImportSummary
@@ -13,8 +14,11 @@ from app.services.import_service import import_checkins_csv, import_members_csv
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
+_MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
+
 
 @router.post("/members", response_model=ImportSummary)
+@limiter.limit("5/minute")
 async def import_members_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -24,7 +28,9 @@ async def import_members_endpoint(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read()
+    content = await file.read(_MAX_CSV_SIZE + 1)
+    if len(content) > _MAX_CSV_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo CSV excede o limite de 10 MB")
     summary = import_members_csv(db, content)
     context = get_request_context(request)
     log_audit_event(
@@ -41,6 +47,7 @@ async def import_members_endpoint(
 
 
 @router.post("/checkins", response_model=ImportSummary)
+@limiter.limit("5/minute")
 async def import_checkins_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -50,7 +57,9 @@ async def import_checkins_endpoint(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read()
+    content = await file.read(_MAX_CSV_SIZE + 1)
+    if len(content) > _MAX_CSV_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo CSV excede o limite de 10 MB")
     summary = import_checkins_csv(db, content)
     context = get_request_context(request)
     log_audit_event(

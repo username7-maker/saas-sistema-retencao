@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { LoadingPanel } from "./components/common/LoadingPanel";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
@@ -26,7 +27,11 @@ const SettingsPage = lazy(() => import("./pages/settings/SettingsPage").then((m)
 const UsersPage = lazy(() => import("./pages/settings/UsersPage").then((m) => ({ default: m.UsersPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>;
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingPanel text="Carregando modulo..." />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {

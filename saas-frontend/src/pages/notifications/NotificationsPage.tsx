@@ -22,6 +22,10 @@ export function NotificationsPage() {
     return <LoadingPanel text="Carregando notificacoes..." />;
   }
 
+  if (notificationsQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar notificacoes. Tente novamente." />;
+  }
+
   if (!notificationsQuery.data) {
     return <LoadingPanel text="Sem notificacoes disponiveis." />;
   }

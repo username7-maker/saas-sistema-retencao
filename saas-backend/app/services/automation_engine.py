@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -101,14 +102,14 @@ def execute_rule_for_member(
             return result
         subject = action_config.get("subject", "Mensagem da sua academia")
         body_template = action_config.get("body", "Ola {nome}, temos uma mensagem para voce.")
-        body = body_template.format(**template_vars)
+        body = _render(body_template, template_vars)
         sent = send_email(member.email, subject, body)
         result["status"] = "sent" if sent else "failed"
         _log_message(db, member.id, rule.id, "email", member.email, body, "sent" if sent else "failed")
 
     elif action_type == AutomationAction.CREATE_TASK:
         title_template = action_config.get("title", "Acao automatica para {nome}")
-        title = title_template.format(**template_vars)
+        title = _render(title_template, template_vars)
         description = action_config.get("description", "Tarefa criada por automacao.")
         priority_str = action_config.get("priority", "high")
         try:
@@ -131,7 +132,7 @@ def execute_rule_for_member(
 
         suggested_msg = action_config.get("suggested_message", "")
         if suggested_msg:
-            suggested_msg = suggested_msg.format(**template_vars)
+            suggested_msg = _render(suggested_msg, template_vars)
 
         task = Task(
             member_id=member.id,
@@ -149,8 +150,8 @@ def execute_rule_for_member(
         result["task_id"] = str(task.id)
 
     elif action_type == AutomationAction.NOTIFY:
-        title = action_config.get("title", "Alerta automatico").format(**template_vars)
-        message = action_config.get("message", "Acao necessaria para {nome}").format(**template_vars)
+        title = _render(action_config.get("title", "Alerta automatico"), template_vars)
+        message = _render(action_config.get("message", "Acao necessaria para {nome}"), template_vars)
         notification = create_notification(
             db,
             member_id=member.id,
@@ -288,6 +289,16 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         ).all())
 
     return []
+
+
+def _render(template: str, vars: dict) -> str:
+    """Safe template renderer: replaces {key} with vars[key], leaves unknown keys untouched."""
+
+    def replace(match: re.Match) -> str:
+        key = match.group(1)
+        return str(vars.get(key, match.group(0)))
+
+    return re.sub(r"\{(\w+)\}", replace, template)
 
 
 def _build_template_vars(member: Member) -> dict:

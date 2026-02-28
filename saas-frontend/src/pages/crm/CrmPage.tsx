@@ -278,7 +278,7 @@ export function CrmPage() {
     }
     setSelectedLead(lead);
     setDrawerOpen(true);
-  }, [leadsQuery.data?.items, searchParams]);
+  }, [leadsQuery.data, searchParams]);
 
   function handleNewLead() {
     setSelectedLead(null);

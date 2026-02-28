@@ -31,6 +31,10 @@ engine = create_engine(
     str(settings.database_url),
     pool_pre_ping=True,
     future=True,
+    pool_size=20,
+    max_overflow=10,
+    pool_recycle=3600,
+    pool_timeout=30,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 

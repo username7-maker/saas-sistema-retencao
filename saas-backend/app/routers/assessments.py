@@ -22,16 +22,18 @@ from app.schemas.assessment import (
     TrainingPlanCreate,
     TrainingPlanOut,
 )
-from app.services.assessment_service import (
-    create_assessment,
+from app.services.assessment_analytics_service import get_assessments_dashboard
+from app.services.assessment_goals_service import (
     create_goal,
     create_training_plan,
-    get_assessments_dashboard,
+    list_goals,
+    upsert_constraints,
+)
+from app.services.assessment_service import (
+    create_assessment,
     get_evolution_data,
     get_member_profile_360,
     list_assessments,
-    list_goals,
-    upsert_constraints,
 )
 from app.services.audit_service import log_audit_event
 

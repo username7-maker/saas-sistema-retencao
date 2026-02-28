@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -23,6 +24,8 @@ from app.services.auth_service import (
 )
 from app.services.audit_service import log_audit_event
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -99,7 +102,7 @@ def refresh(request: Request, payload: RefreshTokenInput, db: Annotated[Session,
             )
             db.commit()
     except Exception:
-        pass
+        logger.warning("Falha ao registrar audit de refresh", exc_info=True)
     return tokens
 
 
@@ -123,10 +126,6 @@ def logout_session(
     return APIMessage(message="Sessao encerrada")
 
 
-@router.get("/me", response_model=UserOut)
-def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
-    return current_user
-
 
 @router.post("/forgot-password", response_model=APIMessage)
 @limiter.limit("3/hour")
@@ -136,6 +135,7 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Annota
 
 
 @router.post("/reset-password", response_model=APIMessage)
-def do_reset_password(payload: ResetPasswordRequest, db: Annotated[Session, Depends(get_db)]) -> APIMessage:
+@limiter.limit("5/minute")
+def do_reset_password(request: Request, payload: ResetPasswordRequest, db: Annotated[Session, Depends(get_db)]) -> APIMessage:
     reset_password(db, token=payload.token, new_password=payload.new_password)
     return APIMessage(message="Senha redefinida com sucesso. Faça login com a nova senha.")

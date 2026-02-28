@@ -105,9 +105,9 @@ export function LovableLayout() {
 
   return (
     <div className="min-h-screen bg-lovable-bg text-lovable-ink">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-lovable-border bg-lovable-surface lg:block">
+      <aside aria-label="Navegacao principal" className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-lovable-border bg-lovable-surface lg:block">
         <div className="border-b border-lovable-border px-6 py-5">
-          <Link to="/dashboard/executive" className="font-display text-2xl font-bold tracking-tight text-lovable-primary">
+          <Link to="/dashboard/executive" aria-label="Ir para o dashboard" className="font-display text-2xl font-bold tracking-tight text-lovable-primary">
             AI GYM OS
           </Link>
           <p className="mt-1 text-xs uppercase tracking-widest text-lovable-ink-muted">Retention Intelligence</p>
@@ -120,10 +120,10 @@ export function LovableLayout() {
       </Drawer>
 
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-lovable-border bg-lovable-surface/90 px-4 py-3 backdrop-blur md:px-6">
+        <header role="banner" className="sticky top-0 z-20 border-b border-lovable-border bg-lovable-surface/90 px-4 py-3 backdrop-blur md:px-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setMobileOpen(true)}>
+              <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu de navegacao">
                 <Menu size={16} />
               </Button>
               <div>
@@ -147,10 +147,14 @@ export function LovableLayout() {
                 onClick={() => navigate("/notifications")}
                 className="relative rounded-xl p-2 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
                 title="Notificacoes"
+                aria-label={unreadCount > 0 ? `Notificacoes — ${unreadCount} nao lidas` : "Notificacoes"}
               >
-                <Bell size={16} />
+                <Bell size={16} aria-hidden="true" />
                 {unreadCount > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                  <span
+                    className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white"
+                    aria-hidden="true"
+                  >
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 ) : null}
@@ -169,7 +173,7 @@ export function LovableLayout() {
           </div>
         </header>
 
-        <main className="px-4 py-6 md:px-6 lg:px-8">
+        <main id="main-content" role="main" className="px-4 py-6 md:px-6 lg:px-8">
           <Outlet />
         </main>
       </div>

@@ -288,6 +288,10 @@ export function TasksPage() {
     return <LoadingPanel text="Carregando tasks..." />;
   }
 
+  if (tasksQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar tasks. Tente novamente." />;
+  }
+
   if (!tasksQuery.data) {
     return <LoadingPanel text="Nao foi possivel carregar tasks." />;
   }

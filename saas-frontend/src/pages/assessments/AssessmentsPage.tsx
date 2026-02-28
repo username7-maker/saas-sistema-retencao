@@ -17,6 +17,10 @@ export function AssessmentsPage() {
     return <LoadingPanel text="Carregando dashboard de avaliacoes..." />;
   }
 
+  if (dashboardQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar avaliacoes. Tente novamente." />;
+  }
+
   if (!dashboardQuery.data) {
     return <LoadingPanel text="Sem dados de avaliacoes." />;
   }

@@ -9,12 +9,30 @@ export interface CreateTaskPayload {
   status: Task["status"];
 }
 
+const PAGE_SIZE = 50;
+
 export const taskService = {
   async listTasks(): Promise<PaginatedResponse<Task>> {
-    const { data } = await api.get<PaginatedResponse<Task>>("/api/v1/tasks", {
-      params: { page_size: 100 },
-    });
-    return data;
+    return taskService.listAllTasks();
+  },
+
+  async listAllTasks(): Promise<PaginatedResponse<Task>> {
+    const first = await api
+      .get<PaginatedResponse<Task>>("/api/v1/tasks", { params: { page: 1, page_size: PAGE_SIZE } })
+      .then((r) => r.data);
+
+    if (first.total <= PAGE_SIZE) return first;
+
+    const totalPages = Math.ceil(first.total / PAGE_SIZE);
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) =>
+        api
+          .get<PaginatedResponse<Task>>("/api/v1/tasks", { params: { page: i + 2, page_size: PAGE_SIZE } })
+          .then((r) => r.data.items),
+      ),
+    );
+
+    return { ...first, items: [...first.items, ...rest.flat()] };
   },
 
   async createTask(payload: CreateTaskPayload): Promise<Task> {

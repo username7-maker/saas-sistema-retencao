@@ -104,6 +104,10 @@ export function NewAssessmentPage() {
     return <LoadingPanel text="Carregando dados do membro..." />;
   }
 
+  if (profileQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar dados do membro. Tente novamente." />;
+  }
+
   const profile = profileQuery.data;
 
   const onSubmit = (values: AssessmentForm) => {

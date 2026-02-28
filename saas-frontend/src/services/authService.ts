@@ -16,7 +16,7 @@ export const authService = {
   },
 
   async me(): Promise<User> {
-    const { data } = await api.get<User>("/api/v1/auth/me");
+    const { data } = await api.get<User>("/api/v1/users/me");
     return data;
   },
 

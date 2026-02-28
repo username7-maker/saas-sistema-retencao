@@ -1,3 +1,5 @@
+import logging
+import uuid as _uuid_mod
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from uuid import UUID
@@ -36,6 +38,8 @@ from app.routers import (
 from app.core.limiter import RateLimitExceeded, limiter, rate_limit_enabled, rate_limit_exceeded_handler
 from app.services.websocket_manager import websocket_manager
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -61,12 +65,29 @@ app.state.limiter = limiter
 if rate_limit_enabled:
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = str(_uuid_mod.uuid4())[:8]
+    logger.exception("Erro nao tratado [%s] %s %s", request_id, request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno do servidor", "request_id": request_id},
+    )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    max_age=3600,
 )
 
 

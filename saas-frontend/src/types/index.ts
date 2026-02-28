@@ -1,4 +1,4 @@
-export type Role = "owner" | "manager" | "salesperson" | "receptionist";
+export type Role = "owner" | "manager" | "salesperson" | "receptionist" | "trainer";
 
 export interface User {
   id: string;
@@ -50,7 +50,7 @@ export interface Lead {
   owner_id: string | null;
   last_contact_at: string | null;
   converted_member_id: string | null;
-  notes: unknown[];
+  notes: Array<string | { note: string; created_at?: string }>;
   lost_reason: string | null;
   created_at: string;
   updated_at: string;

@@ -55,6 +55,10 @@ export function MemberProfile360Page() {
     return <LoadingPanel text="Carregando perfil 360..." />;
   }
 
+  if (profileQuery.isError || assessmentsQuery.isError || evolutionQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar perfil 360. Tente novamente." />;
+  }
+
   if (!profileQuery.data) {
     return <LoadingPanel text="Perfil 360 indisponivel." />;
   }

@@ -85,6 +85,10 @@ export function GoalsPage() {
     return <LoadingPanel text="Carregando metas..." />;
   }
 
+  if (progressQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar metas. Tente novamente." />;
+  }
+
   return (
     <section className="space-y-6">
       <header>

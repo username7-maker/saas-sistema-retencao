@@ -344,6 +344,10 @@ export function AutomationsPage() {
     return <LoadingPanel text="Carregando regras de automacao..." />;
   }
 
+  if (rulesQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar automacoes. Tente novamente." />;
+  }
+
   const rules = rulesQuery.data ?? [];
 
   return (

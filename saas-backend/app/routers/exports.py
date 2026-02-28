@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
+from app.core.limiter import limiter
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.services.audit_service import log_audit_event
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/exports", tags=["exports"])
 
 
 @router.get("/members.csv")
+@limiter.limit("10/minute")
 def export_members_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -42,6 +44,7 @@ def export_members_endpoint(
 
 
 @router.get("/checkins.csv")
+@limiter.limit("10/minute")
 def export_checkins_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
