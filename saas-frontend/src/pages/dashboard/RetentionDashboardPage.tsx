@@ -22,7 +22,7 @@ export function RetentionDashboardPage() {
     staleTime: 60 * 1000,
   });
   const resolveMutation = useMutation({
-    mutationFn: (alertId: string) => riskAlertService.resolve(alertId, "Resolvido no dashboard de retencao"),
+    mutationFn: (alertId: string) => riskAlertService.resolve(alertId, "Resolvido no dashboard de retenção"),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["risk-alerts", "unresolved-red"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
@@ -34,11 +34,11 @@ export function RetentionDashboardPage() {
   };
 
   if (query.isLoading) {
-    return <LoadingPanel text="Carregando dashboard de retencao..." />;
+    return <LoadingPanel text="Carregando dashboard de retenção..." />;
   }
 
   if (!query.data) {
-    return <LoadingPanel text="Sem dados de retencao." />;
+    return <LoadingPanel text="Sem dados de retenção." />;
   }
 
   const totalRisk = query.data.red.total + query.data.yellow.total;
@@ -47,8 +47,8 @@ export function RetentionDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retencao</h2>
-          <p className="text-sm text-lovable-ink-muted">Lista de risco vermelho/amarelo e evolucao NPS.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retenção</h2>
+          <p className="text-sm text-lovable-ink-muted">Lista de risco vermelho/amarelo e evolução NPS.</p>
         </div>
         <DashboardActions dashboard="retention" />
       </header>
@@ -61,7 +61,7 @@ export function RetentionDashboardPage() {
             {query.data.red.total > 0 && `${query.data.red.total} aluno(s) em risco vermelho`}
             {query.data.red.total > 0 && query.data.yellow.total > 0 && " e "}
             {query.data.yellow.total > 0 && `${query.data.yellow.total} em risco amarelo`}
-            {" precisam de atencao hoje."}
+            {" precisam de atenção hoje."}
           </p>
         </div>
       )}
@@ -87,7 +87,7 @@ export function RetentionDashboardPage() {
                     <p className="text-xs text-lovable-ink-muted">
                       Score: {member.risk_score} | Plano: {member.plan_name}
                       {member.last_checkin_at && (
-                        <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
+                        <> | Último check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
                       )}
                     </p>
                   </div>
@@ -123,7 +123,7 @@ export function RetentionDashboardPage() {
                     <p className="text-xs text-lovable-ink-muted">
                       Score: {member.risk_score} | Plano: {member.plan_name}
                       {member.last_checkin_at && (
-                        <> | Ultimo check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
+                        <> | Último check-in: {new Date(member.last_checkin_at).toLocaleDateString()}</>
                       )}
                     </p>
                   </div>
@@ -148,7 +148,7 @@ export function RetentionDashboardPage() {
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Risk Alerts Ativos (Vermelho)</h3>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas de Risco Ativos (Vermelho)</h3>
         {alertsQuery.isLoading ? (
           <p className="text-sm text-lovable-ink-muted">Carregando alertas...</p>
         ) : (
@@ -159,7 +159,7 @@ export function RetentionDashboardPage() {
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">Alerta {alert.id.slice(0, 8)} | Score {alert.score}</p>
                     <p className="text-xs text-lovable-ink-muted">
-                      Historico de acoes: {alert.action_history.length} | Criado em {new Date(alert.created_at).toLocaleString()}
+                      Histórico de ações: {alert.action_history.length} | Criado em {new Date(alert.created_at).toLocaleString()}
                     </p>
                   </div>
                   <button

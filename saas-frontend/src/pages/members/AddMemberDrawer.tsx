@@ -9,12 +9,12 @@ import { Button, Drawer, FormField, Input, Select } from "../../components/ui2";
 import { todayIsoDate } from "./memberUtils";
 
 const createSchema = z.object({
-  full_name: z.string().min(2, "Nome obrigatorio"),
-  email: z.string().email("Email invalido").optional().or(z.literal("")),
+  full_name: z.string().min(2, "Nome obrigatório"),
+  email: z.string().email("E-mail inválido").optional().or(z.literal("")),
   phone: z.string().optional(),
   plan_name: z.enum(["Mensal", "Semestral", "Anual"]),
-  monthly_fee: z.coerce.number().min(0, "Valor invalido"),
-  join_date: z.string().min(1, "Data obrigatoria"),
+  monthly_fee: z.coerce.number().min(0, "Valor inválido"),
+  join_date: z.string().min(1, "Data obrigatória"),
   preferred_shift: z.string().optional(),
 });
 
@@ -79,7 +79,7 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
           <Input {...register("full_name")} placeholder="Nome do membro" />
         </FormField>
 
-        <FormField label="Email" error={errors.email?.message}>
+        <FormField label="E-mail" error={errors.email?.message}>
           <Input {...register("email")} type="email" placeholder="email@academia.com" />
         </FormField>
 
@@ -105,8 +105,8 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
 
         <FormField label="Turno preferido">
           <Select {...register("preferred_shift")}>
-            <option value="">Nao definido</option>
-            <option value="morning">Manha</option>
+            <option value="">Não definido</option>
+            <option value="morning">Manhã</option>
             <option value="afternoon">Tarde</option>
             <option value="evening">Noite</option>
           </Select>

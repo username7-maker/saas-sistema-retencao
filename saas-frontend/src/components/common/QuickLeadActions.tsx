@@ -15,7 +15,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
   const [sending, setSending] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState(
-    `Ola ${lead.full_name}, tudo bem? Passando para saber se voce ainda tem interesse em conhecer nossos planos da academia.`
+    `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
   );
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -46,7 +46,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
       await api.post("/api/v1/tasks/", {
         lead_id: lead.id,
         title: `Follow-up com ${lead.full_name}`,
-        description: `Lead no estagio ${lead.stage}. Realizar contato comercial.`,
+        description: `Lead no estágio ${lead.stage}. Realizar contato comercial.`,
         priority: "high",
         status: "todo",
       });

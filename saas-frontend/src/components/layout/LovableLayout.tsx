@@ -41,18 +41,18 @@ const navItems: NavItem[] = [
   { to: "/dashboard/operational", label: "Operacional", icon: Activity },
   { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase },
   { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-  { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
+  { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
   { to: "/members", label: "Membros", icon: UserSquare2 },
-  { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
+  { to: "/assessments", label: "Avaliações", icon: ClipboardList },
   { to: "/crm", label: "CRM", icon: Users },
   { to: "/tasks", label: "Tarefas", icon: CheckSquare },
   { to: "/goals", label: "Metas", icon: Target },
-  { to: "/reports", label: "Relatorios", icon: FileText },
-  { to: "/imports", label: "Importacoes", icon: Upload },
-  { to: "/automations", label: "Automacoes", icon: Bot },
-  { to: "/notifications", label: "Notificacoes", icon: Bell },
-  { to: "/settings/users", label: "Usuarios", icon: UserCog },
-  { to: "/settings", label: "Configuracoes", icon: Settings },
+  { to: "/reports", label: "Relatórios", icon: FileText },
+  { to: "/imports", label: "Importações", icon: Upload },
+  { to: "/automations", label: "Automações", icon: Bot },
+  { to: "/notifications", label: "Notificações", icon: Bell },
+  { to: "/settings/users", label: "Usuários", icon: UserCog },
+  { to: "/settings", label: "Configurações", icon: Settings },
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -105,7 +105,7 @@ export function LovableLayout() {
 
   return (
     <div className="min-h-screen bg-lovable-bg text-lovable-ink">
-      <aside aria-label="Navegacao principal" className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-lovable-border bg-lovable-surface lg:block">
+      <aside aria-label="Navegação principal" className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-lovable-border bg-lovable-surface lg:block">
         <div className="border-b border-lovable-border px-6 py-5">
           <Link to="/dashboard/executive" aria-label="Ir para o dashboard" className="font-display text-2xl font-bold tracking-tight text-lovable-primary">
             AI GYM OS
@@ -123,11 +123,11 @@ export function LovableLayout() {
         <header role="banner" className="sticky top-0 z-20 border-b border-lovable-border bg-lovable-surface/90 px-4 py-3 backdrop-blur md:px-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu de navegacao">
+              <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu de navegação">
                 <Menu size={16} />
               </Button>
               <div>
-                <p className="text-xs uppercase tracking-[0.15em] text-lovable-ink-muted">Modulo Atual</p>
+                <p className="text-xs uppercase tracking-[0.15em] text-lovable-ink-muted">Módulo Atual</p>
                 <h1 className="font-display text-xl font-semibold text-lovable-ink">{currentSection}</h1>
               </div>
             </div>
@@ -146,8 +146,8 @@ export function LovableLayout() {
                 type="button"
                 onClick={() => navigate("/notifications")}
                 className="relative rounded-xl p-2 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
-                title="Notificacoes"
-                aria-label={unreadCount > 0 ? `Notificacoes — ${unreadCount} nao lidas` : "Notificacoes"}
+                title="Notificações"
+                aria-label={unreadCount > 0 ? `Notificações — ${unreadCount} não lidas` : "Notificações"}
               >
                 <Bell size={16} aria-hidden="true" />
                 {unreadCount > 0 ? (

@@ -12,12 +12,12 @@ import { automationService, type AutomationRule } from "../../services/automatio
 import { Button, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 
 const TRIGGER_LABELS: Record<string, string> = {
-  risk_level_change: "Mudanca de Risco",
+  risk_level_change: "Mudança de Risco",
   inactivity_days: "Dias Inativo",
   nps_score: "NPS Baixo",
   lead_stale: "Lead Parado",
-  birthday: "Aniversario",
-  checkin_streak: "Sequencia Check-in",
+  birthday: "Aniversário",
+  checkin_streak: "Sequência Check-in",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -48,7 +48,7 @@ const ruleSchema = z.object({
   trigger_type: z.string().min(1, "Selecione um gatilho"),
   risk_level_target: z.enum(["red", "yellow", "green"]).optional(),
   threshold_value: z.coerce.number().min(0).optional(),
-  action_type: z.string().min(1, "Selecione uma acao"),
+  action_type: z.string().min(1, "Selecione uma ação"),
   message: z.string().optional(),
   is_active: z.boolean().default(true),
 });
@@ -84,14 +84,14 @@ function buildActionConfig(values: RuleFormValues): Record<string, unknown> {
       return {
         template: "custom",
         message,
-        extra_vars: { mensagem: message || "Ola {nome}, sentimos sua falta. Vamos retomar seus treinos?" },
+        extra_vars: { mensagem: message || "Olá {nome}, sentimos sua falta. Vamos retomar seus treinos?" },
       };
     case "send_email":
       return { subject: values.name, body: message };
     case "create_task":
-      return { title: values.name, description: message || "Tarefa criada por automacao.", priority: "high" };
+      return { title: values.name, description: message || "Tarefa criada por automação.", priority: "high" };
     case "notify":
-      return { title: values.name, message: message || "Acao necessaria para {nome}" };
+      return { title: values.name, message: message || "Ação necessária para {nome}" };
     default:
       return {};
   }
@@ -102,9 +102,9 @@ function thresholdLabel(triggerType: string): string {
     case "inactivity_days":
       return "Dias sem atividade";
     case "nps_score":
-      return "Pontuacao maxima NPS";
+      return "Pontuação máxima NPS";
     case "lead_stale":
-      return "Dias sem atualizacao (lead)";
+      return "Dias sem atualização (lead)";
     case "checkin_streak":
       return "Dias consecutivos de check-in";
     default:
@@ -160,13 +160,13 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
   const isPending = isSubmitting || createMutation.isPending;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Nova Regra de Automacao">
+    <Drawer open={open} onClose={onClose} title="Nova Regra de Automação">
       <form onSubmit={handleSubmit((values) => createMutation.mutate(values))} className="flex flex-col gap-4 p-1">
         <FormField label="Nome" required error={errors.name?.message}>
           <Input {...register("name")} placeholder="Ex: Reengajamento 30 dias" />
         </FormField>
 
-        <FormField label="Descricao">
+        <FormField label="Descrição">
           <Input {...register("description")} placeholder="Opcional - descreva o objetivo da regra" />
         </FormField>
 
@@ -182,7 +182,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
         </FormField>
 
         {needsRiskLevel ? (
-          <FormField label="Nivel alvo">
+          <FormField label="Nível alvo">
             <Select {...register("risk_level_target")}>
               {RISK_LEVEL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -199,9 +199,9 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
           </FormField>
         ) : null}
 
-        <FormField label="Acao" required error={errors.action_type?.message}>
+        <FormField label="Ação" required error={errors.action_type?.message}>
           <Select {...register("action_type")}>
-            <option value="">Selecione uma acao...</option>
+            <option value="">Selecione uma ação...</option>
             {ACTION_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -215,7 +215,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
             <Textarea
               {...register("message")}
               rows={3}
-              placeholder="Ola {nome}, sentimos sua falta! Que tal retomar seus treinos?"
+              placeholder="Olá {nome}, sentimos sua falta! Que tal retomar seus treinos?"
             />
           </FormField>
         ) : null}
@@ -281,8 +281,8 @@ function RuleCard({
           {rule.description ? <p className="mt-1 text-xs text-lovable-ink-muted">{rule.description}</p> : null}
           <div className="mt-2 flex flex-wrap gap-3 text-[10px] uppercase tracking-wider text-lovable-ink-muted">
             <span>Gatilho: {TRIGGER_LABELS[rule.trigger_type] ?? rule.trigger_type}</span>
-            <span>Execucoes: {rule.executions_count}</span>
-            {rule.last_executed_at ? <span>Ultima: {new Date(rule.last_executed_at).toLocaleString("pt-BR")}</span> : null}
+            <span>Execuções: {rule.executions_count}</span>
+            {rule.last_executed_at ? <span>Última: {new Date(rule.last_executed_at).toLocaleString("pt-BR")}</span> : null}
           </div>
         </div>
 
@@ -327,13 +327,13 @@ export function AutomationsPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
     },
-    onError: () => toast.error("Nao foi possivel alterar a regra."),
+    onError: () => toast.error("Não foi possível alterar a regra."),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => automationService.deleteRule(id),
     onSuccess: () => {
-      toast.success("Regra excluida.");
+      toast.success("Regra excluída.");
       setRuleToDelete(null);
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
     },
@@ -343,10 +343,10 @@ export function AutomationsPage() {
   const seedMutation = useMutation({
     mutationFn: () => automationService.seedDefaults(),
     onSuccess: (data) => {
-      toast.success(`${data.length} regras padrao criadas!`);
+      toast.success(`${data.length} regras padrão criadas!`);
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
     },
-    onError: () => toast.error("Erro ao criar regras padrao."),
+    onError: () => toast.error("Erro ao criar regras padrão."),
   });
 
   const handleExecuteAll = async () => {
@@ -354,9 +354,9 @@ export function AutomationsPage() {
     try {
       const results = await automationService.executeAll();
       const executed = results.filter((result) => result["status"] !== "skipped" && result["status"] !== "error").length;
-      toast.success(`${executed} acoes realizadas de ${results.length} tentativas.`);
+      toast.success(`${executed} ações realizadas de ${results.length} tentativas.`);
     } catch {
-      toast.error("Erro ao executar automacoes.");
+      toast.error("Erro ao executar automações.");
     } finally {
       setExecuting(false);
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
@@ -364,11 +364,11 @@ export function AutomationsPage() {
   };
 
   if (rulesQuery.isLoading) {
-    return <LoadingPanel text="Carregando regras de automacao..." />;
+    return <LoadingPanel text="Carregando regras de automação..." />;
   }
 
   if (rulesQuery.isError) {
-    return <LoadingPanel text="Erro ao carregar automacoes. Tente novamente." />;
+    return <LoadingPanel text="Erro ao carregar automações. Tente novamente." />;
   }
 
   const rules = rulesQuery.data ?? [];
@@ -377,14 +377,14 @@ export function AutomationsPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Automacoes</h2>
-          <p className="text-sm text-lovable-ink-muted">Configure regras automaticas de retencao e engajamento.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Automações</h2>
+          <p className="text-sm text-lovable-ink-muted">Configure regras automáticas de retenção e engajamento.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {rules.length === 0 ? (
             <Button variant="ghost" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
               <Plus size={14} />
-              {seedMutation.isPending ? "Criando..." : "Criar Regras Padrao"}
+              {seedMutation.isPending ? "Criando..." : "Criar Regras Padrão"}
             </Button>
           ) : null}
           <Button variant="ghost" onClick={() => setRuleDrawerOpen(true)}>
@@ -403,7 +403,7 @@ export function AutomationsPage() {
           <Zap size={48} className="mx-auto mb-4 text-lovable-ink-muted/40" />
           <p className="text-lg font-semibold text-lovable-ink">Nenhuma regra configurada</p>
           <p className="mt-1 text-sm text-lovable-ink-muted">
-            Clique em "Criar Regras Padrao" para comecar com automacoes pre-configuradas, ou crie uma personalizada.
+            Clique em "Criar Regras Padrão" para começar com automações pré-configuradas, ou crie uma personalizada.
           </p>
         </div>
       ) : (
@@ -423,10 +423,10 @@ export function AutomationsPage() {
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-lovable-ink">Como funciona</h3>
         <ul className="space-y-1 text-sm text-lovable-ink-muted">
-          <li>As regras sao executadas automaticamente apos o processamento diario de risco (2h UTC).</li>
-          <li>Voce tambem pode executar manualmente clicando em "Executar Todas".</li>
-          <li>Cada regra identifica alunos que atendem ao gatilho e executa a acao configurada.</li>
-          <li>Tarefas duplicadas nao sao criadas (verificacao automatica).</li>
+          <li>As regras são executadas automaticamente após o processamento diário de risco (2h UTC).</li>
+          <li>Você também pode executar manualmente clicando em "Executar Todas".</li>
+          <li>Cada regra identifica alunos que atendem ao gatilho e executa a ação configurada.</li>
+          <li>Tarefas duplicadas não são criadas (verificação automática).</li>
         </ul>
       </section>
 
@@ -442,7 +442,7 @@ export function AutomationsPage() {
         title="Excluir regra"
         description={
           ruleToDelete
-            ? `Tem certeza que deseja excluir ${ruleToDelete.name}? Esta acao nao pode ser desfeita.`
+            ? `Tem certeza que deseja excluir ${ruleToDelete.name}? Esta ação não pode ser desfeita.`
             : "Tem certeza que deseja excluir esta regra?"
         }
       >

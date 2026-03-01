@@ -92,7 +92,7 @@ export function extractBodyCompositionFromText(rawText: string): BodyComposition
 
   const warnings: string[] = [];
   if (!values.evaluation_date) {
-    warnings.push("Nao foi possivel identificar a data da avaliacao. Usando data atual.");
+    warnings.push("Não foi possível identificar a data da avaliação. Usando data atual.");
   }
   if (extractedCount <= 2) {
     warnings.push("Poucos campos foram reconhecidos. Revise os dados manualmente.");

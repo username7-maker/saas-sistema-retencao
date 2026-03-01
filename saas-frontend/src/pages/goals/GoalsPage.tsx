@@ -26,7 +26,7 @@ const metricLabel: Record<string, string> = {
   mrr: "MRR",
   new_members: "Novos alunos",
   churn_rate: "Churn",
-  nps_avg: "NPS medio",
+  nps_avg: "NPS médio",
   active_members: "Alunos ativos",
 };
 
@@ -93,7 +93,7 @@ export function GoalsPage() {
     <section className="space-y-6">
       <header>
         <h2 className="font-heading text-3xl font-bold text-lovable-ink">Metas</h2>
-        <p className="text-sm text-lovable-ink-muted">Defina metas mensais e monitore risco de nao atingimento.</p>
+        <p className="text-sm text-lovable-ink-muted">Defina metas mensais e monitore risco de não atingimento.</p>
       </header>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -103,12 +103,12 @@ export function GoalsPage() {
             <Input {...register("name")} placeholder="Nome da meta" />
           </FormField>
 
-          <FormField label="Tipo de metrica" required error={errors.metric_type?.message}>
+          <FormField label="Tipo de métrica" required error={errors.metric_type?.message}>
             <Select {...register("metric_type")}>
               <option value="mrr">MRR</option>
               <option value="new_members">Novos alunos</option>
               <option value="churn_rate">Churn</option>
-              <option value="nps_avg">NPS medio</option>
+              <option value="nps_avg">NPS médio</option>
               <option value="active_members">Alunos ativos</option>
             </Select>
           </FormField>
@@ -124,7 +124,7 @@ export function GoalsPage() {
             <Input {...register("target_value")} type="number" step="0.01" />
           </FormField>
 
-          <FormField label="Inicio" required error={errors.period_start?.message}>
+          <FormField label="Início" required error={errors.period_start?.message}>
             <Input {...register("period_start")} type="date" />
           </FormField>
 
@@ -137,7 +137,7 @@ export function GoalsPage() {
           </FormField>
 
           <FormField label="Notas" error={errors.notes?.message}>
-            <Input {...register("notes")} placeholder="Observacoes (opcional)" />
+            <Input {...register("notes")} placeholder="Observações (opcional)" />
           </FormField>
 
           <div className="flex items-end">

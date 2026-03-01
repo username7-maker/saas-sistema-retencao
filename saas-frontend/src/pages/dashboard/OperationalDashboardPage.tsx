@@ -64,7 +64,7 @@ export function OperationalDashboardPage() {
   }
 
   if (!query.data) {
-    return <LoadingPanel text="Sem dados operacionais disponiveis." />;
+    return <LoadingPanel text="Sem dados operacionais disponíveis." />;
   }
 
   return (
@@ -72,7 +72,7 @@ export function OperationalDashboardPage() {
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Operacional</h2>
-          <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
+          <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horário e inativos 7+ dias.</p>
           <p className="mt-1 text-xs text-lovable-ink-muted">
             Tempo real: {isRealtimeConnected ? "conectado" : "desconectado"} | eventos: {realtimeEvents}
           </p>
@@ -81,7 +81,7 @@ export function OperationalDashboardPage() {
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <StatCard label="Check-ins ultima hora" value={String(query.data.realtime_checkins)} tone="success" />
+        <StatCard label="Check-ins última hora" value={String(query.data.realtime_checkins)} tone="success" />
         <StatCard label="Inativos 7+ dias" value={String(query.data.inactive_7d_total)} tone="warning" />
       </div>
 
@@ -95,8 +95,8 @@ export function OperationalDashboardPage() {
               <tr>
                 <th className="px-2 py-2">Aluno</th>
                 <th className="px-2 py-2">Risco</th>
-                <th className="px-2 py-2">Ultimo check-in</th>
-                <th className="px-2 py-2">Acoes</th>
+                <th className="px-2 py-2">Último check-in</th>
+                <th className="px-2 py-2">Ações</th>
               </tr>
             </thead>
             <tbody>

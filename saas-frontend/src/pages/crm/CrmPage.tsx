@@ -16,7 +16,7 @@ const LEAD_SOURCES = [
   "Instagram",
   "Facebook",
   "Google",
-  "Indicacao",
+  "Indicação",
   "Site",
   "Telefone",
   "Presencial",
@@ -25,10 +25,10 @@ const LEAD_SOURCES = [
 
 const leadSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  email: z.string().email("E-mail invalido").optional().or(z.literal("")),
+  email: z.string().email("E-mail inválido").optional().or(z.literal("")),
   phone: z.string().optional(),
   source: z.string().optional(),
-  estimated_value: z.coerce.number().min(0, "Valor nao pode ser negativo").optional(),
+  estimated_value: z.coerce.number().min(0, "Valor não pode ser negativo").optional(),
   notes: z.string().optional(),
   lost_reason: z.string().optional(),
 });
@@ -179,7 +179,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
           <FormField label="Notas">
             <Textarea
               {...register("notes")}
-              placeholder="Ex: cliente busca plano para casal, melhor horario noturno."
+              placeholder="Ex: cliente busca plano para casal, melhor horário noturno."
               rows={4}
             />
           </FormField>
@@ -192,7 +192,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
 
           <div className="flex gap-2 pt-2">
             <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-              {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Criar Lead"}
+              {isPending ? "Salvando..." : isEditing ? "Salvar alterações" : "Criar Lead"}
             </Button>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancelar
@@ -221,7 +221,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
         title="Excluir lead"
         description={
           lead
-            ? `Tem certeza que deseja excluir ${lead.full_name}? Esta acao nao pode ser desfeita.`
+            ? `Tem certeza que deseja excluir ${lead.full_name}? Esta ação não pode ser desfeita.`
             : "Tem certeza que deseja excluir este lead?"
         }
       >
@@ -264,7 +264,7 @@ export function CrmPage() {
       void queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
     },
-    onError: () => toast.error("Nao foi possivel mover o lead."),
+    onError: () => toast.error("Não foi possível mover o lead."),
   });
 
   useEffect(() => {
@@ -310,7 +310,7 @@ export function CrmPage() {
   }
 
   if (!leadsQuery.data) {
-    return <LoadingPanel text="Nao foi possivel carregar leads." />;
+    return <LoadingPanel text="Não foi possível carregar leads." />;
   }
 
   return (
@@ -328,7 +328,7 @@ export function CrmPage() {
       </header>
 
       {moveMutation.isPending ? (
-        <p className="rounded-lg bg-lovable-primary-soft px-3 py-2 text-xs text-lovable-primary">Atualizando estagio...</p>
+        <p className="rounded-lg bg-lovable-primary-soft px-3 py-2 text-xs text-lovable-primary">Atualizando estágio...</p>
       ) : null}
 
       <PipelineKanban

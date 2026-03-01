@@ -13,13 +13,13 @@ const statusSequence: Task["status"][] = ["todo", "doing", "done"];
 const STATUS_LABELS: Record<Task["status"], string> = {
   todo: "A fazer",
   doing: "Em andamento",
-  done: "Concluida",
+  done: "Concluída",
   cancelled: "Cancelada",
 };
 
 const PRIORITY_LABELS: Record<Task["priority"], string> = {
   low: "Baixa",
-  medium: "Media",
+  medium: "Média",
   high: "Alta",
   urgent: "Urgente",
 };
@@ -225,7 +225,7 @@ export function TasksPage() {
         ? memberNameById.get(task.member_id) ?? `Aluno ${task.member_id.slice(0, 8)}`
         : task.lead_id
           ? "Leads sem aluno (CRM)"
-          : "Tasks sem vinculo";
+          : "Tasks sem vínculo";
 
       const current = draft.get(key) ?? {
         key,
@@ -293,7 +293,7 @@ export function TasksPage() {
   }
 
   if (!tasksQuery.data) {
-    return <LoadingPanel text="Nao foi possivel carregar tasks." />;
+    return <LoadingPanel text="Não foi possível carregar tasks." />;
   }
 
   const totalTasks = allTasks.length;
@@ -314,7 +314,7 @@ export function TasksPage() {
             <Badge variant="warning">Pendentes: {pendingTasks}</Badge>
             {hiddenFutureCount > 0 ? <Badge variant="neutral">Futuras ocultas: {hiddenFutureCount}</Badge> : null}
             <Button variant={showDone ? "secondary" : "ghost"} size="sm" onClick={() => setShowDone((prev) => !prev)}>
-              {showDone ? "Ocultar concluidas" : "Mostrar concluidas"}
+              {showDone ? "Ocultar concluídas" : "Mostrar concluídas"}
             </Button>
           </div>
         </div>
@@ -322,7 +322,7 @@ export function TasksPage() {
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Buscar por nome do aluno ou titulo da task..."
+          placeholder="Buscar por nome do aluno ou título da task..."
           className="max-w-xl"
         />
 
@@ -410,7 +410,7 @@ export function TasksPage() {
                             }}
                             disabled={updateMutation.isPending}
                           >
-                            Avancar
+                            Avançar
                           </Button>
                         ) : null}
                       </div>

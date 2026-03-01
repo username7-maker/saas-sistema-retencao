@@ -19,15 +19,15 @@ export function NotificationsPage() {
   });
 
   if (notificationsQuery.isLoading) {
-    return <LoadingPanel text="Carregando notificacoes..." />;
+    return <LoadingPanel text="Carregando notificações..." />;
   }
 
   if (notificationsQuery.isError) {
-    return <LoadingPanel text="Erro ao carregar notificacoes. Tente novamente." />;
+    return <LoadingPanel text="Erro ao carregar notificações. Tente novamente." />;
   }
 
   if (!notificationsQuery.data) {
-    return <LoadingPanel text="Sem notificacoes disponiveis." />;
+    return <LoadingPanel text="Sem notificações disponíveis." />;
   }
 
   const unread = notificationsQuery.data.items.filter((item) => item.read_at == null).length;
@@ -35,12 +35,12 @@ export function NotificationsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Notificacoes In-App</h2>
-        <p className="text-sm text-lovable-ink-muted">Alertas internos de retencao e operacao. Nao ha envio automatico de WhatsApp.</p>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Notificações In-App</h2>
+        <p className="text-sm text-lovable-ink-muted">Alertas internos de retenção e operação. Não há envio automático de WhatsApp.</p>
       </header>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        Nao lidas: <strong>{unread}</strong>
+        Não lidas: <strong>{unread}</strong>
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -49,7 +49,7 @@ export function NotificationsPage() {
             <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
               <tr>
                 <th className="px-2 py-2">Categoria</th>
-                <th className="px-2 py-2">Titulo</th>
+                <th className="px-2 py-2">Título</th>
                 <th className="px-2 py-2">Mensagem</th>
                 <th className="px-2 py-2">Criada em</th>
                 <th className="px-2 py-2">Status</th>

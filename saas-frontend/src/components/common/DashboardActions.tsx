@@ -1,5 +1,6 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Download, Mail } from "lucide-react";
+import toast from "react-hot-toast";
 
 import type { DashboardReportType } from "../../services/reportService";
 import { reportService } from "../../services/reportService";
@@ -26,9 +27,9 @@ export function DashboardActions({ dashboard, showMonthlyDispatch = false }: Das
     setDispatching(true);
     try {
       await reportService.dispatchMonthlyReports();
-      window.alert("Disparo mensal iniciado com sucesso.");
+      toast.success("Disparo mensal iniciado com sucesso.");
     } catch {
-      window.alert("Falha ao disparar relatorios mensais.");
+      toast.error("Falha ao disparar relatórios mensais.");
     } finally {
       setDispatching(false);
     }

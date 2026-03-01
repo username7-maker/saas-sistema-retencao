@@ -14,15 +14,15 @@ export function AssessmentsPage() {
   });
 
   if (dashboardQuery.isLoading) {
-    return <LoadingPanel text="Carregando dashboard de avaliacoes..." />;
+    return <LoadingPanel text="Carregando dashboard de avaliações..." />;
   }
 
   if (dashboardQuery.isError) {
-    return <LoadingPanel text="Erro ao carregar avaliacoes. Tente novamente." />;
+    return <LoadingPanel text="Erro ao carregar avaliações. Tente novamente." />;
   }
 
   if (!dashboardQuery.data) {
-    return <LoadingPanel text="Sem dados de avaliacoes." />;
+    return <LoadingPanel text="Sem dados de avaliações." />;
   }
 
   const data = dashboardQuery.data;
@@ -30,8 +30,8 @@ export function AssessmentsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Avaliacoes Fisicas</h2>
-        <p className="text-sm text-lovable-ink-muted">Controle trimestral, perfil 360 e acompanhamento de evolucao fisica.</p>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Avaliações Físicas</h2>
+        <p className="text-sm text-lovable-ink-muted">Controle trimestral, perfil 360 e acompanhamento de evolução física.</p>
       </header>
 
       <AiInsightCard dashboard="executive" />
@@ -41,19 +41,19 @@ export function AssessmentsPage() {
         <StatCard label="Avaliados (90d)" value={String(data.assessed_last_90_days)} tone="success" />
         <StatCard label="Atrasados" value={String(data.overdue_assessments)} tone="danger" />
         <StatCard label="Nunca Avaliados" value={String(data.never_assessed)} tone="warning" />
-        <StatCard label="Proximos 7 dias" value={String(data.upcoming_7_days)} tone="neutral" />
+        <StatCard label="Próximos 7 dias" value={String(data.upcoming_7_days)} tone="neutral" />
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Membros com avaliacao atrasada</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Membros com avaliação atrasada</h3>
           <span className="rounded-full bg-[hsl(var(--lovable-danger)/0.15)] px-2 py-0.5 text-[10px] font-bold text-[hsl(var(--lovable-danger))]">
             {data.overdue_members.length} exibidos
           </span>
         </div>
 
         {data.overdue_members.length === 0 ? (
-          <p className="text-sm text-lovable-ink-muted">Nenhum membro atrasado. Otimo trabalho.</p>
+          <p className="text-sm text-lovable-ink-muted">Nenhum membro atrasado. Ótimo trabalho.</p>
         ) : (
           <ul className="space-y-3">
             {data.overdue_members.map((member) => (
@@ -76,7 +76,7 @@ export function AssessmentsPage() {
                       to={`/assessments/new/${member.id}`}
                       className="rounded-full bg-lovable-primary px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white hover:brightness-105"
                     >
-                      Nova avaliacao
+                      Nova avaliação
                     </Link>
                   </div>
                 </div>

@@ -84,8 +84,8 @@ export function DashboardLovable() {
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-lovable-ink-muted">Dashboard Inteligente</p>
           <p className="text-sm font-semibold text-lovable-primary">Dashboard Executivo</p>
-          <h2 className="font-display text-3xl font-bold text-lovable-ink">Visao Executiva Integrada</h2>
-          <p className="mt-1 text-sm text-lovable-ink-muted">Retencao, comercial e operacao reunidos em um painel de acao.</p>
+          <h2 className="font-display text-3xl font-bold text-lovable-ink">Visão Executiva Integrada</h2>
+          <p className="mt-1 text-sm text-lovable-ink-muted">Retenção, comercial e operação reunidos em um painel de ação.</p>
         </div>
         <DashboardActions dashboard="executive" showMonthlyDispatch />
       </header>
@@ -140,7 +140,7 @@ export function DashboardLovable() {
         <Card className="border-l-4 border-l-lovable-warning">
           <CardHeader>
             <CardTitle className="text-xl">Alertas inteligentes</CardTitle>
-            <CardDescription>Acione a equipe com base nos eventos criticos do dia.</CardDescription>
+            <CardDescription>Acione a equipe com base nos eventos críticos do dia.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {alertsLoading ? (
@@ -164,7 +164,7 @@ export function DashboardLovable() {
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="font-semibold text-lovable-ink">{alert.title}</p>
                     <Badge variant={alert.tone === "danger" ? "danger" : alert.tone === "warning" ? "warning" : "neutral"}>
-                      {alert.tone === "danger" ? "alta" : alert.tone === "warning" ? "media" : "informativo"}
+                      {alert.tone === "danger" ? "alta" : alert.tone === "warning" ? "média" : "informativo"}
                     </Badge>
                   </div>
                   <p className="text-sm text-lovable-ink-muted">{alert.description}</p>
@@ -177,7 +177,7 @@ export function DashboardLovable() {
         <Card className="bg-gradient-to-br from-lovable-surface to-lovable-primary-soft/35">
           <CardHeader>
             <CardTitle className="text-xl">Insight da semana</CardTitle>
-            <CardDescription>Resumo tatico gerado a partir dos dados consolidados.</CardDescription>
+            <CardDescription>Resumo tático gerado a partir dos dados consolidados.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {insightLoading ? (
@@ -190,7 +190,7 @@ export function DashboardLovable() {
               <>
                 <p className="text-sm leading-relaxed text-lovable-ink">{viewModel.insight}</p>
                 <Button variant="secondary" className="w-full justify-between" onClick={() => navigate("/dashboard/retention")}>
-                  Ver plano de retencao
+                  Ver plano de retenção
                   <ArrowRight size={15} />
                 </Button>
               </>
@@ -201,14 +201,14 @@ export function DashboardLovable() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
-        <ChartCard title="Evolucao de Retencao" description="Comparativo de churn mensal e NPS medio">
+        <ChartCard title="Evolução de Retenção" description="Comparativo de churn mensal e NPS médio">
           {chartLoading ? (
             <div className="space-y-2 p-2">
               <Skeleton className="h-56 w-full rounded-xl" />
             </div>
           ) : viewModel.retentionChart.length === 0 ? (
             <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-lovable-border text-sm text-lovable-ink-muted">
-              Sem dados suficientes ainda. Importe historico para visualizar tendencia.
+              Sem dados suficientes ainda. Importe histórico para visualizar tendência.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -220,7 +220,7 @@ export function DashboardLovable() {
                 <Tooltip />
                 <Legend />
                 <Line yAxisId="left" type="monotone" dataKey="churn_rate" name="Churn (%)" stroke="hsl(var(--lovable-danger))" strokeWidth={2.5} />
-                <Line yAxisId="right" type="monotone" dataKey="nps_avg" name="NPS Medio" stroke="hsl(var(--lovable-primary))" strokeWidth={2.5} />
+                <Line yAxisId="right" type="monotone" dataKey="nps_avg" name="NPS Médio" stroke="hsl(var(--lovable-primary))" strokeWidth={2.5} />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -230,9 +230,9 @@ export function DashboardLovable() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
               <BarChart3 size={18} />
-              Acoes rapidas
+              Ações rápidas
             </CardTitle>
-            <CardDescription>Atalhos para executar o que mais impacta receita e retencao.</CardDescription>
+            <CardDescription>Atalhos para executar o que mais impacta receita e retenção.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {quickActionsLoading

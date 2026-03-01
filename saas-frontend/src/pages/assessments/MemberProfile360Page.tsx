@@ -15,8 +15,8 @@ type ProfileTab = "summary" | "evolution" | "constraints" | "goals" | "training"
 
 const tabs: Array<{ key: ProfileTab; label: string }> = [
   { key: "summary", label: "Resumo" },
-  { key: "evolution", label: "Evolucao" },
-  { key: "constraints", label: "Restricoes" },
+  { key: "evolution", label: "Evolução" },
+  { key: "constraints", label: "Restrições" },
   { key: "goals", label: "Objetivos" },
   { key: "training", label: "Treino" },
   { key: "bioimpedancia", label: "Bioimpedância" },
@@ -48,7 +48,7 @@ export function MemberProfile360Page() {
   });
 
   if (!memberId) {
-    return <LoadingPanel text="Membro nao informado." />;
+    return <LoadingPanel text="Membro não informado." />;
   }
 
   if (profileQuery.isLoading || assessmentsQuery.isLoading || evolutionQuery.isLoading) {
@@ -60,7 +60,7 @@ export function MemberProfile360Page() {
   }
 
   if (!profileQuery.data) {
-    return <LoadingPanel text="Perfil 360 indisponivel." />;
+    return <LoadingPanel text="Perfil 360 indisponível." />;
   }
 
   const profile = profileQuery.data;
@@ -88,21 +88,21 @@ export function MemberProfile360Page() {
             to={`/assessments/new/${memberId}`}
             className="rounded-full bg-lovable-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:brightness-105"
           >
-            Nova avaliacao
+            Nova avaliação
           </Link>
         </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Ultima Avaliacao" value={latest ? `#${latest.assessment_number}` : "-"} tone="neutral" />
+        <StatCard label="Última Avaliação" value={latest ? `#${latest.assessment_number}` : "-"} tone="neutral" />
         <StatCard label="Peso Atual" value={latest?.weight_kg !== null && latest?.weight_kg !== undefined ? `${latest.weight_kg} kg` : "-"} tone="success" />
         <StatCard label="BF Atual" value={latest?.body_fat_pct !== null && latest?.body_fat_pct !== undefined ? `${latest.body_fat_pct}%` : "-"} tone="warning" />
-        <StatCard label="Proxima Avaliacao" value={latest?.next_assessment_due ? new Date(latest.next_assessment_due).toLocaleDateString("pt-BR") : "-"} tone="danger" />
+        <StatCard label="Próxima Avaliação" value={latest?.next_assessment_due ? new Date(latest.next_assessment_due).toLocaleDateString("pt-BR") : "-"} tone="danger" />
       </div>
 
       {profile.insight_summary && (
         <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Insight da avaliacao</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Insight da avaliação</h3>
           <p className="mt-1 text-sm text-lovable-ink">{profile.insight_summary}</p>
         </section>
       )}
@@ -131,7 +131,7 @@ export function MemberProfile360Page() {
           <EvolutionCharts evolution={evolution} />
         ) : (
           <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <p className="text-sm text-lovable-ink-muted">Sem dados de evolucao.</p>
+            <p className="text-sm text-lovable-ink-muted">Sem dados de evolução.</p>
           </section>
         )
       )}
@@ -154,7 +154,7 @@ export function MemberProfile360Page() {
                 </p>
               )}
               <p>
-                <span className="font-semibold">Sessoes/semana:</span> {profile.active_training_plan.sessions_per_week}
+                <span className="font-semibold">Sessões/semana:</span> {profile.active_training_plan.sessions_per_week}
               </p>
               {profile.active_training_plan.split_type && (
                 <p>
@@ -162,10 +162,10 @@ export function MemberProfile360Page() {
                 </p>
               )}
               <p>
-                <span className="font-semibold">Periodo:</span>{" "}
+                <span className="font-semibold">Período:</span>{" "}
                 {new Date(profile.active_training_plan.start_date).toLocaleDateString("pt-BR")}
                 {profile.active_training_plan.end_date
-                  ? ` ate ${new Date(profile.active_training_plan.end_date).toLocaleDateString("pt-BR")}`
+                  ? ` até ${new Date(profile.active_training_plan.end_date).toLocaleDateString("pt-BR")}`
                   : ""}
               </p>
               {profile.active_training_plan.notes && (

@@ -12,7 +12,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
-  owner: "Proprietario",
+  owner: "Proprietário",
   manager: "Gerente",
   receptionist: "Recepcionista",
   salesperson: "Vendedor",
@@ -28,7 +28,7 @@ const ROLE_OPTIONS: Array<{ value: StaffUser["role"]; label: string }> = [
 
 const createSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  email: z.string().email("E-mail invalido"),
+  email: z.string().email("E-mail inválido"),
   password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
 });
@@ -55,13 +55,13 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
   const createMutation = useMutation({
     mutationFn: userService.createUser,
     onSuccess: () => {
-      toast.success("Usuario criado com sucesso!");
+      toast.success("Usuário criado com sucesso!");
       reset();
       onSaved();
       onClose();
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {
-      const message = err?.response?.data?.detail ?? "Erro ao criar usuario.";
+      const message = err?.response?.data?.detail ?? "Erro ao criar usuário.";
       toast.error(message);
     },
   });
@@ -69,7 +69,7 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
   const isPending = isSubmitting || createMutation.isPending;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Novo Usuario">
+    <Drawer open={open} onClose={onClose} title="Novo Usuário">
       <form onSubmit={handleSubmit((values) => createMutation.mutate(values))} className="flex flex-col gap-4 p-1">
         <FormField label="Nome completo" required error={errors.full_name?.message}>
           <Input {...register("full_name")} placeholder="Nome do colaborador" />
@@ -79,11 +79,11 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
           <Input {...register("email")} type="email" placeholder="email@academia.com" />
         </FormField>
 
-        <FormField label="Senha provisoria" required error={errors.password?.message}>
-          <Input {...register("password")} type="password" placeholder="Minimo 8 caracteres" />
+        <FormField label="Senha provisória" required error={errors.password?.message}>
+          <Input {...register("password")} type="password" placeholder="Mínimo 8 caracteres" />
         </FormField>
 
-        <FormField label="Funcao" required error={errors.role?.message}>
+        <FormField label="Função" required error={errors.role?.message}>
           <Select {...register("role")}>
             {ROLE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -95,7 +95,7 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
 
         <div className="flex gap-2 pt-2">
           <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-            {isPending ? "Criando..." : "Criar Usuario"}
+            {isPending ? "Criando..." : "Criar Usuário"}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
@@ -180,18 +180,18 @@ export function UsersPage() {
       userService.updateUser(userId, { is_active }),
     onSuccess: (_, variables) => {
       if (variables.is_active) {
-        toast.success("Usuario reativado com sucesso.");
+        toast.success("Usuário reativado com sucesso.");
       } else {
-        toast.success("Usuario desativado com sucesso.");
+        toast.success("Usuário desativado com sucesso.");
       }
       setUserToDeactivate(null);
       void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: () => toast.error("Nao foi possivel atualizar o usuario."),
+    onError: () => toast.error("Não foi possível atualizar o usuário."),
   });
 
   if (usersQuery.isLoading) {
-    return <LoadingPanel text="Carregando usuarios..." />;
+    return <LoadingPanel text="Carregando usuários..." />;
   }
 
   const users = usersQuery.data ?? [];
@@ -200,18 +200,18 @@ export function UsersPage() {
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuarios</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuários</h2>
           <p className="text-sm text-lovable-ink-muted">Gerencie a equipe da academia.</p>
         </div>
         <Button variant="primary" onClick={() => setDrawerOpen(true)}>
           <UserPlus size={14} />
-          Novo Usuario
+          Novo Usuário
         </Button>
       </header>
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center">
-          <p className="text-lovable-ink-muted">Nenhum usuario cadastrado alem de voce.</p>
+          <p className="text-lovable-ink-muted">Nenhum usuário cadastrado além de você.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -237,10 +237,10 @@ export function UsersPage() {
       <Dialog
         open={Boolean(userToDeactivate)}
         onClose={() => setUserToDeactivate(null)}
-        title="Excluir usuario"
+        title="Excluir usuário"
         description={
           userToDeactivate
-            ? `Tem certeza que deseja excluir ${userToDeactivate.full_name}? Esta acao nao pode ser desfeita.`
+            ? `Tem certeza que deseja excluir ${userToDeactivate.full_name}? Esta ação não pode ser desfeita.`
             : undefined
         }
       >

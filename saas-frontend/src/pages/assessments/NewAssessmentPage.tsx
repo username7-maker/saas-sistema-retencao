@@ -97,7 +97,7 @@ export function NewAssessmentPage() {
   });
 
   if (!memberId) {
-    return <LoadingPanel text="Membro nao informado." />;
+    return <LoadingPanel text="Membro não informado." />;
   }
 
   if (profileQuery.isLoading) {
@@ -118,9 +118,9 @@ export function NewAssessmentPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Nova Avaliacao</h2>
+          <h2 className="font-heading text-3xl font-bold text-slate-900">Nova Avaliação</h2>
           <p className="text-sm text-slate-500">
-            {profile ? `Membro: ${profile.member.full_name}` : "Preencha os dados da avaliacao fisica trimestral."}
+            {profile ? `Membro: ${profile.member.full_name}` : "Preencha os dados da avaliação física trimestral."}
           </p>
         </div>
         <Link
@@ -135,10 +135,10 @@ export function NewAssessmentPage() {
 
       <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Dados basicos</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Dados básicos</h3>
           <div className="grid gap-3 md:grid-cols-3">
             <label className="text-xs text-slate-600">
-              Data da avaliacao
+              Data da avaliação
               <input {...register("assessment_date")} type="datetime-local" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
@@ -180,7 +180,7 @@ export function NewAssessmentPage() {
               <input {...register("chest_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
-              Braco (cm)
+              Braço (cm)
               <input {...register("arm_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
@@ -194,7 +194,7 @@ export function NewAssessmentPage() {
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Performance e cardiovascular</h3>
           <div className="grid gap-3 md:grid-cols-3">
             <label className="text-xs text-slate-600">
-              Forca (0-100)
+              Força (0-100)
               <input {...register("strength_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
@@ -210,23 +210,23 @@ export function NewAssessmentPage() {
               <input {...register("resting_hr")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
-              PA sistolica
+              PA sistólica
               <input {...register("blood_pressure_systolic")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="text-xs text-slate-600">
-              PA diastolica
+              PA diastólica
               <input {...register("blood_pressure_diastolic")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </label>
           </div>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Observacoes</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Observações</h3>
           <textarea
             {...register("observations")}
             rows={4}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Observacoes gerais da avaliacao"
+            placeholder="Observações gerais da avaliação"
           />
         </section>
 
@@ -237,7 +237,7 @@ export function NewAssessmentPage() {
             disabled={createMutation.isPending}
             className="rounded-full bg-brand-500 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
           >
-            {createMutation.isPending ? "Salvando..." : "Salvar avaliacao"}
+            {createMutation.isPending ? "Salvando..." : "Salvar avaliação"}
           </button>
         </div>
       </form>

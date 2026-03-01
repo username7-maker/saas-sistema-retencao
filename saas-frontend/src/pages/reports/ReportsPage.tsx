@@ -14,12 +14,12 @@ interface ReportCardConfig {
 }
 
 const REPORT_CARDS: ReportCardConfig[] = [
-  { type: "executive", title: "Executivo", description: "Visao geral de KPIs", icon: BarChart3 },
-  { type: "retention", title: "Retencao", description: "Risco, NPS e alertas", icon: ShieldAlert },
-  { type: "commercial", title: "Comercial", description: "Leads e conversao", icon: Briefcase },
+  { type: "executive", title: "Executivo", description: "Visão geral de KPIs", icon: BarChart3 },
+  { type: "retention", title: "Retenção", description: "Risco, NPS e alertas", icon: ShieldAlert },
+  { type: "commercial", title: "Comercial", description: "Leads e conversão", icon: Briefcase },
   { type: "financial", title: "Financeiro", description: "MRR, LTV e receita", icon: Wallet },
   { type: "operational", title: "Operacional", description: "Check-ins e inatividade", icon: Activity },
-  { type: "consolidated", title: "Consolidado", description: "Relatorio completo", icon: FileText },
+  { type: "consolidated", title: "Consolidado", description: "Relatório completo", icon: FileText },
 ];
 
 function initialLoadingMap(): Record<DashboardReportType, boolean> {
@@ -41,7 +41,7 @@ export default function ReportsPage() {
     setLoadingByType((prev) => ({ ...prev, [type]: true }));
     try {
       await reportService.exportDashboardPdf(type);
-      toast.success(`Relatorio ${type} gerado com sucesso!`);
+      toast.success(`Relatório ${type} gerado com sucesso!`);
     } catch {
       toast.error("Falha ao exportar PDF.");
     } finally {
@@ -53,9 +53,9 @@ export default function ReportsPage() {
     setDispatching(true);
     try {
       await reportService.dispatchMonthlyReports();
-      toast.success("Relatorio mensal enviado por e-mail!");
+      toast.success("Relatório mensal enviado por e-mail!");
     } catch {
-      toast.error("Falha ao disparar relatorio mensal.");
+      toast.error("Falha ao disparar relatório mensal.");
     } finally {
       setDispatching(false);
     }
@@ -65,12 +65,12 @@ export default function ReportsPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Relatorios</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Relatórios</h2>
           <p className="text-sm text-lovable-ink-muted">Gere exports PDF por dashboard e dispare o consolidado mensal.</p>
         </div>
         <Button variant="primary" onClick={() => void handleDispatchMonthly()} disabled={dispatching}>
           <Send size={14} />
-          {dispatching ? "Enviando..." : "Disparar Relatorio Mensal"}
+          {dispatching ? "Enviando..." : "Disparar Relatório Mensal"}
         </Button>
       </header>
 

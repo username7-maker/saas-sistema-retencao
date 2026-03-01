@@ -14,7 +14,7 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
   const [sending, setSending] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState(
-    `Ola ${member.full_name}, tudo bem? Sentimos sua falta na academia. Que tal retomar os treinos esta semana?`
+    `Olá ${member.full_name}, tudo bem? Sentimos sua falta na academia. Que tal retomar os treinos esta semana?`
   );
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -46,7 +46,7 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
       await taskService.createTask({
         member_id: member.id,
         title: `Contatar ${member.full_name} - Risco ${member.risk_level}`,
-        description: `Score: ${member.risk_score}. Entrar em contato para retencao.`,
+        description: `Score: ${member.risk_score}. Entrar em contato para retenção.`,
         priority: member.risk_level === "red" ? "urgent" : "high",
         status: "todo",
       });

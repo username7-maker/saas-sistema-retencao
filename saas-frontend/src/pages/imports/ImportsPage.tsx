@@ -77,7 +77,7 @@ export function ImportsPage() {
     mutationFn: (file: File) => importExportService.importMembers(file),
     onSuccess: (summary) => {
       setMembersSummary(summary);
-      toast.success("Importacao de alunos concluida.");
+      toast.success("Importação de alunos concluída.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -86,20 +86,20 @@ export function ImportsPage() {
     mutationFn: (file: File) => importExportService.importCheckins(file),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
-      toast.success("Importacao de check-ins concluida.");
+      toast.success("Importação de check-ins concluída.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportMembersMutation = useMutation({
     mutationFn: () => importExportService.exportMembersCsv(),
-    onSuccess: () => toast.success("Exportacao de membros concluida."),
+    onSuccess: () => toast.success("Exportação de membros concluída."),
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportCheckinsMutation = useMutation({
     mutationFn: () => importExportService.exportCheckinsCsv(dateFrom || undefined, dateTo || undefined),
-    onSuccess: () => toast.success("Exportacao de catraca/check-ins concluida."),
+    onSuccess: () => toast.success("Exportação de catraca/check-ins concluída."),
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
@@ -116,7 +116,7 @@ export function ImportsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importacoes e Exportacoes (CSV/XLSX)</h2>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importações e Exportações (CSV/XLSX)</h2>
         <p className="text-sm text-lovable-ink-muted dark:text-slate-400">
           Envie planilhas de alunos/catraca em CSV ou XLSX e exporte dados do sistema em CSV.
         </p>
@@ -160,7 +160,7 @@ export function ImportsPage() {
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Importar catraca/check-ins</h3>
           <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">
-            Match automatico por member_id, email, matricula, cpf ou nome.
+            Match automático por member_id, email, matrícula, cpf ou nome.
           </p>
           <input
             type="file"
@@ -222,7 +222,7 @@ export function ImportsPage() {
             disabled={exportCheckinsMutation.isPending}
             onClick={() => {
               if (hasInvalidDateRange(dateFrom, dateTo)) {
-                toast.error("Periodo invalido: data inicial maior que data final.");
+                toast.error("Período inválido: data inicial maior que data final.");
                 return;
               }
               exportCheckinsMutation.mutate();

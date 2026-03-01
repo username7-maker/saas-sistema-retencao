@@ -75,22 +75,22 @@ function buildInsight(
   npsLatest: number | null,
 ): string {
   if (highRiskMembers === 0 && inactiveMembers === 0 && staleLeads === 0 && npsLatest === null) {
-    return "Sem dados suficientes ainda para gerar recomendacoes. Importe check-ins e alunos para ativar insights.";
+    return "Sem dados suficientes ainda para gerar recomendações. Importe check-ins e alunos para ativar insights.";
   }
 
   const insightParts: string[] = [];
 
   if (highRiskMembers > 0) {
-    insightParts.push(`${highRiskMembers} aluno(s) em risco alto exigem contato ativo nas proximas 24h`);
+    insightParts.push(`${highRiskMembers} aluno(s) em risco alto exigem contato ativo nas próximas 24h`);
   }
   if (inactiveMembers > 0) {
-    insightParts.push(`${inactiveMembers} aluno(s) estao ha 7+ dias sem treinar`);
+    insightParts.push(`${inactiveMembers} aluno(s) estão há 7+ dias sem treinar`);
   }
   if (staleLeads > 0) {
-    insightParts.push(`${staleLeads} lead(s) comercial(is) estao sem follow-up`);
+    insightParts.push(`${staleLeads} lead(s) comercial(is) estão sem follow-up`);
   }
   if (npsLatest !== null) {
-    insightParts.push(`NPS atual em ${npsLatest.toFixed(1)} indica tendencia de satisfacao`);
+    insightParts.push(`NPS atual em ${npsLatest.toFixed(1)} indica tendência de satisfação`);
   }
 
   return insightParts.join(". ") + ".";
@@ -117,7 +117,7 @@ export function buildLovableDashboardViewModel(input: {
     alerts.push({
       id: "high-risk",
       title: "Risco vermelho ativo",
-      description: `${highRiskMembers} aluno(s) requer(em) acao imediata da equipe de retencao.`,
+      description: `${highRiskMembers} aluno(s) requer(em) ação imediata da equipe de retenção.`,
       tone: "danger",
       href: "/dashboard/retention",
     });
@@ -126,7 +126,7 @@ export function buildLovableDashboardViewModel(input: {
     alerts.push({
       id: "inactive-members",
       title: "Inatividade acima do ideal",
-      description: `${inactiveMembers} aluno(s) estao sem check-in por 7 dias ou mais.`,
+      description: `${inactiveMembers} aluno(s) estão sem check-in por 7 dias ou mais.`,
       tone: "warning",
       href: "/dashboard/operational",
     });
@@ -135,7 +135,7 @@ export function buildLovableDashboardViewModel(input: {
     alerts.push({
       id: "stale-leads",
       title: "Pipeline comercial parado",
-      description: `${staleLeads} lead(s) estao sem contato recente e podem esfriar.`,
+      description: `${staleLeads} lead(s) estão sem contato recente e podem esfriar.`,
       tone: "neutral",
       href: "/dashboard/commercial",
     });
@@ -144,13 +144,13 @@ export function buildLovableDashboardViewModel(input: {
   const quickActions: LovableQuickAction[] = [
     {
       id: "quick-retention",
-      label: "Abrir Retencao",
+      label: "Abrir Retenção",
       description: `${highRiskMembers} aluno(s) em risco vermelho`,
       href: "/dashboard/retention",
     },
     {
       id: "quick-crm",
-      label: "Avancar CRM",
+      label: "Avançar CRM",
       description: `${staleLeads} lead(s) sem contato recente`,
       href: "/crm",
     },

@@ -161,8 +161,8 @@ export function MembersPage() {
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Plano</th>
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Status</th>
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Risco</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ultimo Check-in</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Acoes</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Último Check-in</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -236,7 +236,7 @@ export function MembersPage() {
         title="Excluir membro"
         description={
           memberToDelete
-            ? `Tem certeza que deseja excluir ${memberToDelete.full_name}? Esta acao nao pode ser desfeita.`
+            ? `Tem certeza que deseja excluir ${memberToDelete.full_name}? Esta ação não pode ser desfeita.`
             : undefined
         }
       >
