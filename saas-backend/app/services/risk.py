@@ -268,19 +268,17 @@ def _run_inactivity_automations(
     member: Member,
     days_without_checkin: int,
     level: RiskLevel,
-    triggered_stages: set[tuple],
+    triggered_stages: set[tuple] | None = None,
 ) -> list[dict]:
     now = datetime.now(tz=timezone.utc)
     actions: list[dict] = []
 
-    def already_triggered(stage: str) -> bool:
-        return (member.id, stage) in triggered_stages
-
     def mark_triggered(stage: str) -> None:
-        triggered_stages.add((member.id, stage))
+        if triggered_stages is not None:
+            triggered_stages.add((member.id, stage))
         _record_stage(db, member.id, stage)
 
-    if days_without_checkin >= 3 and not already_triggered("automation_3d"):
+    if days_without_checkin >= 3 and _can_trigger_stage(db, member.id, "automation_3d", triggered_stages):
         sent = False
         if member.email:
             sent = send_email(member.email, "Volte para o treino hoje", "Seu progresso importa. Vamos retomar o ritmo?")
@@ -290,12 +288,12 @@ def _run_inactivity_automations(
         else:
             actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat(), "status": "failed"})
 
-    if days_without_checkin >= 7 and not already_triggered("automation_7d"):
+    if days_without_checkin >= 7 and _can_trigger_stage(db, member.id, "automation_7d", triggered_stages):
         _ensure_call_task(db, member, "7d")
         actions.append({"type": "task", "stage": "7d", "timestamp": now.isoformat()})
         mark_triggered("automation_7d")
 
-    if days_without_checkin >= 10 and not already_triggered("automation_10d"):
+    if days_without_checkin >= 10 and _can_trigger_stage(db, member.id, "automation_10d", triggered_stages):
         sent = False
         if member.email:
             sent = send_email(
@@ -309,7 +307,7 @@ def _run_inactivity_automations(
         else:
             actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat(), "status": "failed"})
 
-    if days_without_checkin >= 14 and not already_triggered("automation_14d"):
+    if days_without_checkin >= 14 and _can_trigger_stage(db, member.id, "automation_14d", triggered_stages):
         if level == RiskLevel.YELLOW:
             member.risk_level = RiskLevel.RED
             member.risk_score = max(member.risk_score, 70)
@@ -333,7 +331,7 @@ def _run_inactivity_automations(
         )
         mark_triggered("automation_14d")
 
-    if days_without_checkin >= 21 and not already_triggered("automation_21d"):
+    if days_without_checkin >= 21 and _can_trigger_stage(db, member.id, "automation_21d", triggered_stages):
         manager = _find_manager(db)
         if manager:
             _ensure_manager_alert_task(db, member, manager.id)
@@ -431,3 +429,21 @@ def _record_stage(db: Session, member_id, stage_action: str) -> None:
         entity_id=member_id,
         details={"source": "risk_automation"},
     )
+
+
+def _can_trigger_stage(
+    db: Session,
+    member_id,
+    stage_action: str,
+    triggered_stages: set[tuple] | None = None,
+) -> bool:
+    if triggered_stages is not None:
+        return (member_id, stage_action) not in triggered_stages
+
+    existing_stage = db.scalar(
+        select(AuditLog.id).where(
+            AuditLog.member_id == member_id,
+            AuditLog.action == stage_action,
+        )
+    )
+    return existing_stage is None

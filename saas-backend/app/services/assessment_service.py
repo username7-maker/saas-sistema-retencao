@@ -232,3 +232,10 @@ def _calculate_delta(series: list[float | int | None]) -> float | int | None:
     if isinstance(first, int) and isinstance(last, int):
         return last - first
     return round(float(last) - float(first), 2)
+
+
+def _safe_delta_value(previous: Decimal | None, current: Decimal | None) -> str:
+    if previous is None or current is None:
+        return "n/a"
+    delta = current - previous
+    return f"{delta:+.2f}"

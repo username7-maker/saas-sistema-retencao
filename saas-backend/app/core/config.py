@@ -4,6 +4,8 @@ from functools import lru_cache
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     dashboard_cache_ttl_seconds: int = 300
     dashboard_cache_maxsize: int = 512
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
 
     @field_validator("cors_origins", mode="before")
@@ -51,7 +53,7 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             raw = value.strip()
             if not raw:
-                return ["http://localhost:5173"]
+                return DEFAULT_CORS_ORIGINS.copy()
             if raw.startswith("["):
                 try:
                     parsed = json.loads(raw)
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
                 except json.JSONDecodeError:
                     pass
             return [origin.strip() for origin in raw.split(",") if origin.strip()]
-        return ["http://localhost:5173"]
+        return DEFAULT_CORS_ORIGINS.copy()
 
     @field_validator("debug", "enable_scheduler", mode="before")
     @classmethod

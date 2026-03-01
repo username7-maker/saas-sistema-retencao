@@ -36,8 +36,22 @@ def _encode_token(payload: dict[str, Any], expires_delta: timedelta) -> str:
     return jwt.encode(token_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(user_id: UUID, role: str, gym_id: UUID) -> str:
-    payload = {"sub": str(user_id), "role": role, "gym_id": str(gym_id), "type": "access"}
+def create_access_token(
+    user_id_or_payload: UUID | dict[str, Any],
+    role: str | None = None,
+    gym_id: UUID | None = None,
+) -> str:
+    # Backward-compatible call style for tests/legacy code:
+    # create_access_token({"sub": "...", "gym_id": "..."})
+    if isinstance(user_id_or_payload, dict):
+        payload = dict(user_id_or_payload)
+        payload.setdefault("type", "access")
+        return _encode_token(payload, timedelta(minutes=settings.access_token_expire_minutes))
+
+    if role is None or gym_id is None:
+        raise TypeError("create_access_token requires role and gym_id when called with user_id")
+
+    payload = {"sub": str(user_id_or_payload), "role": role, "gym_id": str(gym_id), "type": "access"}
     return _encode_token(payload, timedelta(minutes=settings.access_token_expire_minutes))
 
 

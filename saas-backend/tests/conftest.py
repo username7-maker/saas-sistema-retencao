@@ -43,9 +43,9 @@ def client(app):
 # Shared domain objects
 # ---------------------------------------------------------------------------
 
-GYM_ID = uuid.uuid4()
-USER_ID = uuid.uuid4()
-MEMBER_ID = uuid.uuid4()
+GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+USER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
+MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 
 
 @pytest.fixture
@@ -114,10 +114,13 @@ def mock_member():
 # Mock DB session factory
 # ---------------------------------------------------------------------------
 
-def make_mock_db(scalar_returns=None, scalars_returns=None, execute_returns=None):
+_UNSET = object()
+
+
+def make_mock_db(scalar_returns=_UNSET, scalars_returns=None, execute_returns=None):
     """Return a MagicMock Session with pre-configured return values."""
     db = MagicMock()
-    if scalar_returns is not None:
+    if scalar_returns is not _UNSET:
         values = scalar_returns if isinstance(scalar_returns, list) else [scalar_returns]
         db.scalar.side_effect = values
     if scalars_returns is not None:
