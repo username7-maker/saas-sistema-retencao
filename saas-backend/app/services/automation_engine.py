@@ -82,8 +82,14 @@ def execute_rule_for_member(
             result["status"] = "skipped"
             result["reason"] = "no_phone"
             return result
-        template_name = action_config.get("template", "custom")
-        message = render_template(template_name, {**template_vars, **action_config.get("extra_vars", {})})
+        template_name = action_config.get("template") or action_config.get("template_name") or "custom"
+        extra_vars = action_config.get("extra_vars", {})
+        if not isinstance(extra_vars, dict):
+            extra_vars = {}
+        # Backward compatibility for older rules saved with {"message": "..."}.
+        if "mensagem" not in extra_vars and action_config.get("message"):
+            extra_vars["mensagem"] = str(action_config.get("message"))
+        message = render_template(template_name, {**template_vars, **extra_vars})
         log = send_whatsapp_sync(
             db,
             phone=member.phone,
@@ -175,7 +181,19 @@ def run_automation_rules(db: Session) -> list[dict]:
     all_results: list[dict] = []
 
     for rule in rules:
-        members = _find_matching_members(db, rule)
+        try:
+            members = _find_matching_members(db, rule)
+        except Exception:
+            logger.exception("Erro ao avaliar gatilho da regra %s", rule.id)
+            all_results.append(
+                {
+                    "rule_id": str(rule.id),
+                    "member_id": None,
+                    "status": "error",
+                    "reason": "trigger_eval_failed",
+                }
+            )
+            continue
         for member in members:
             try:
                 result = execute_rule_for_member(db, rule, member)
@@ -206,13 +224,13 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
     )
 
     if trigger == AutomationTrigger.RISK_LEVEL_CHANGE:
-        target_level = config.get("level", "red")
+        target_level = _coerce_risk_level(config.get("level"), default="red")
         return list(db.scalars(
             base_stmt.where(Member.risk_level == RiskLevel(target_level))
         ).all())
 
     if trigger == AutomationTrigger.INACTIVITY_DAYS:
-        days = config.get("days", 7)
+        days = _coerce_int(config.get("days", config.get("threshold_days")), default=7, minimum=0)
         cutoff = now - timedelta(days=days)
         return list(db.scalars(
             base_stmt.where(
@@ -221,7 +239,7 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         ).all())
 
     if trigger == AutomationTrigger.NPS_SCORE:
-        max_score = config.get("max_score", 6)
+        max_score = _coerce_int(config.get("max_score", config.get("threshold_value")), default=6, minimum=0)
         return list(db.scalars(
             base_stmt.where(Member.nps_last_score <= max_score)
         ).all())
@@ -246,7 +264,7 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         return result
 
     if trigger == AutomationTrigger.LEAD_STALE:
-        stale_days = int(config.get("stale_days", 7))
+        stale_days = _coerce_int(config.get("stale_days", config.get("threshold_days")), default=7, minimum=1)
         cutoff = now - timedelta(days=stale_days)
         terminal_stages = [LeadStage.WON, LeadStage.LOST]
         stale_leads = list(db.scalars(
@@ -270,7 +288,7 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         return []
 
     if trigger == AutomationTrigger.CHECKIN_STREAK:
-        streak_days = int(config.get("streak_days", 7))
+        streak_days = _coerce_int(config.get("streak_days", config.get("threshold_days")), default=7, minimum=1)
         # Find members who have checked in on at least streak_days distinct days
         # within the last streak_days days.
         from app.models.checkin import Checkin
@@ -289,6 +307,25 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         ).all())
 
     return []
+
+
+def _coerce_int(value: object, *, default: int, minimum: int | None = None) -> int:
+    try:
+        parsed = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None and parsed < minimum:
+        return minimum
+    return parsed
+
+
+def _coerce_risk_level(value: object, *, default: str = "red") -> str:
+    raw = str(value or default).strip().lower()
+    allowed = {level.value for level in RiskLevel}
+    if raw in allowed:
+        return raw
+    logger.warning("Nivel de risco invalido na automacao: %s. Usando default=%s", raw, default)
+    return default
 
 
 def _render(template: str, vars: dict) -> str:
@@ -345,8 +382,10 @@ def _log_message(
     return log
 
 
-def seed_default_rules(db: Session) -> list[AutomationRule]:
-    existing = db.scalar(select(func.count()).select_from(AutomationRule))
+def seed_default_rules(db: Session, gym_id: UUID) -> list[AutomationRule]:
+    existing = db.scalar(
+        select(func.count()).select_from(AutomationRule).where(AutomationRule.gym_id == gym_id)
+    )
     if existing and existing > 0:
         return []
 
@@ -408,7 +447,7 @@ def seed_default_rules(db: Session) -> list[AutomationRule]:
 
     rules = []
     for data in defaults:
-        rule = AutomationRule(**data)
+        rule = AutomationRule(**{**data, "gym_id": gym_id})
         db.add(rule)
         rules.append(rule)
 

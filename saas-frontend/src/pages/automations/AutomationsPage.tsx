@@ -36,11 +36,17 @@ const ACTION_COLORS: Record<string, string> = {
 
 const TRIGGER_OPTIONS = Object.entries(TRIGGER_LABELS).map(([value, label]) => ({ value, label }));
 const ACTION_OPTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }));
+const RISK_LEVEL_OPTIONS = [
+  { value: "red", label: "Vermelho" },
+  { value: "yellow", label: "Amarelo" },
+  { value: "green", label: "Verde" },
+];
 
 const ruleSchema = z.object({
   name: z.string().min(3, "Nome deve ter pelo menos 3 caracteres"),
   description: z.string().optional(),
   trigger_type: z.string().min(1, "Selecione um gatilho"),
+  risk_level_target: z.enum(["red", "yellow", "green"]).optional(),
   threshold_value: z.coerce.number().min(0).optional(),
   action_type: z.string().min(1, "Selecione uma acao"),
   message: z.string().optional(),
@@ -54,7 +60,7 @@ function buildTriggerConfig(values: RuleFormValues): Record<string, unknown> {
 
   switch (values.trigger_type) {
     case "inactivity_days":
-      return { threshold_days: amount };
+      return { days: amount };
     case "nps_score":
       return { max_score: amount };
     case "lead_stale":
@@ -62,7 +68,7 @@ function buildTriggerConfig(values: RuleFormValues): Record<string, unknown> {
     case "checkin_streak":
       return { streak_days: amount };
     case "risk_level_change":
-      return { level: "high" };
+      return { level: values.risk_level_target ?? "red" };
     case "birthday":
       return {};
     default:
@@ -75,13 +81,17 @@ function buildActionConfig(values: RuleFormValues): Record<string, unknown> {
 
   switch (values.action_type) {
     case "send_whatsapp":
-      return { template_name: "custom", message };
+      return {
+        template: "custom",
+        message,
+        extra_vars: { mensagem: message || "Ola {nome}, sentimos sua falta. Vamos retomar seus treinos?" },
+      };
     case "send_email":
       return { subject: values.name, body: message };
     case "create_task":
-      return { title: values.name, priority: "high" };
+      return { title: values.name, description: message || "Tarefa criada por automacao.", priority: "high" };
     case "notify":
-      return { message: message || values.name };
+      return { title: values.name, message: message || "Acao necessaria para {nome}" };
     default:
       return {};
   }
@@ -118,12 +128,13 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
     formState: { errors, isSubmitting },
   } = useForm<RuleFormValues>({
     resolver: zodResolver(ruleSchema),
-    defaultValues: { is_active: true, threshold_value: 7 },
+    defaultValues: { is_active: true, threshold_value: 7, risk_level_target: "red" },
   });
 
   const triggerType = watch("trigger_type");
   const actionType = watch("action_type");
   const needsThreshold = ["inactivity_days", "nps_score", "lead_stale", "checkin_streak"].includes(triggerType);
+  const needsRiskLevel = triggerType === "risk_level_change";
   const needsMessage = ["send_whatsapp", "send_email", "notify"].includes(actionType);
 
   const createMutation = useMutation({
@@ -169,6 +180,18 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
             ))}
           </Select>
         </FormField>
+
+        {needsRiskLevel ? (
+          <FormField label="Nivel alvo">
+            <Select {...register("risk_level_target")}>
+              {RISK_LEVEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        ) : null}
 
         {needsThreshold ? (
           <FormField label={thresholdLabel(triggerType)}>

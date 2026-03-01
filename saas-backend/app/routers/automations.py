@@ -42,7 +42,10 @@ def create_rule_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> AutomationRuleOut:
-    rule = create_automation_rule(db, data=payload.model_dump())
+    rule = create_automation_rule(
+        db,
+        data={**payload.model_dump(), "gym_id": current_user.gym_id},
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -147,7 +150,7 @@ def seed_defaults_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER))],
 ) -> list[AutomationRuleOut]:
-    rules = seed_default_rules(db)
+    rules = seed_default_rules(db, current_user.gym_id)
     db.commit()
     return [AutomationRuleOut.model_validate(r) for r in rules]
 

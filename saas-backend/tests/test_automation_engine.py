@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+import uuid
 
 import pytest
 
@@ -217,7 +218,7 @@ def test_seed_default_rules_creates_when_empty():
     db = DummyDB()
     db.values = [0]  # 0 existing rules
 
-    rules = automation_engine.seed_default_rules(db)
+    rules = automation_engine.seed_default_rules(db, uuid.uuid4())
 
     assert len(rules) == 5
     assert db.flushed is True
@@ -227,6 +228,65 @@ def test_seed_default_rules_skips_when_rules_exist():
     db = DummyDB()
     db.values = [3]  # 3 existing rules
 
-    rules = automation_engine.seed_default_rules(db)
+    rules = automation_engine.seed_default_rules(db, uuid.uuid4())
 
     assert len(rules) == 0
+
+
+def test_run_automation_rules_handles_trigger_failure(monkeypatch):
+    db = DummyDB()
+    rule = _make_rule()
+
+    monkeypatch.setattr(automation_engine, "list_automation_rules", lambda *_args, **_kwargs: [rule])
+    monkeypatch.setattr(automation_engine, "_find_matching_members", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("invalid")))
+
+    results = automation_engine.run_automation_rules(db)
+
+    assert len(results) == 1
+    assert results[0]["rule_id"] == "rule-1"
+    assert results[0]["status"] == "error"
+    assert results[0]["reason"] == "trigger_eval_failed"
+    assert db.committed is True
+
+
+def test_coerce_int_supports_defaults_and_minimum():
+    assert automation_engine._coerce_int("9", default=7) == 9
+    assert automation_engine._coerce_int(None, default=7) == 7
+    assert automation_engine._coerce_int("abc", default=7) == 7
+    assert automation_engine._coerce_int("-5", default=7, minimum=0) == 0
+
+
+def test_coerce_risk_level_fallback_to_default():
+    assert automation_engine._coerce_risk_level("red") == "red"
+    assert automation_engine._coerce_risk_level("YELLOW") == "yellow"
+    assert automation_engine._coerce_risk_level("high") == "red"
+
+
+def test_execute_rule_send_whatsapp_supports_legacy_template_name_and_message(monkeypatch):
+    db = DummyDB()
+    member = _make_member()
+    rule = _make_rule(
+        action_type=AutomationAction.SEND_WHATSAPP,
+        action_config={"template_name": "custom", "message": "Mensagem legado"},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_render_template(template_name, variables):
+        captured["template_name"] = template_name
+        captured["variables"] = variables
+        return str(variables.get("mensagem", ""))
+
+    monkeypatch.setattr(automation_engine, "render_template", fake_render_template)
+    monkeypatch.setattr(
+        automation_engine,
+        "send_whatsapp_sync",
+        lambda *_args, **_kwargs: SimpleNamespace(id="log-1", status="sent"),
+    )
+
+    result = automation_engine.execute_rule_for_member(db, rule, member)
+
+    assert result["status"] == "sent"
+    assert captured["template_name"] == "custom"
+    assert isinstance(captured["variables"], dict)
+    assert captured["variables"]["mensagem"] == "Mensagem legado"

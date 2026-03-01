@@ -94,11 +94,22 @@ def export_checkins_csv(
         "source",
         "hour_bucket",
         "weekday",
+        "nome",
+        "email",
+        "matricula",
+        "data_checkin",
+        "hora",
+        "origem",
     ]
 
     rows: list[dict[str, str]] = []
     for checkin, member in rows_db:
         extra_data = member.extra_data or {}
+        checkin_at = checkin.checkin_at
+        if checkin_at.tzinfo is None:
+            checkin_at = checkin_at.replace(tzinfo=timezone.utc)
+        source = checkin.source.value
+        origem = "catraca" if source == "turnstile" else source
         rows.append(
             {
                 "id": str(checkin.id),
@@ -106,10 +117,17 @@ def export_checkins_csv(
                 "member_name": member.full_name,
                 "member_email": member.email or "",
                 "member_external_id": str(extra_data.get("external_id") or ""),
-                "checkin_at": checkin.checkin_at.isoformat(),
-                "source": checkin.source.value,
+                "checkin_at": checkin_at.isoformat(),
+                "source": source,
                 "hour_bucket": str(checkin.hour_bucket),
                 "weekday": str(checkin.weekday),
+                # Compatibility aliases used by turnstile spreadsheets/imports.
+                "nome": member.full_name,
+                "email": member.email or "",
+                "matricula": str(extra_data.get("external_id") or ""),
+                "data_checkin": checkin_at.date().isoformat(),
+                "hora": checkin_at.strftime("%H:%M:%S"),
+                "origem": origem,
             }
         )
 

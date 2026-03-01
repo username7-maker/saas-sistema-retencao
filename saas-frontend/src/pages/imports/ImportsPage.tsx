@@ -60,6 +60,11 @@ function getErrorMessage(error: unknown): string {
   return "Falha ao processar arquivo. Verifique formato e colunas.";
 }
 
+function hasInvalidDateRange(dateFrom: string, dateTo: string): boolean {
+  if (!dateFrom || !dateTo) return false;
+  return new Date(dateFrom).getTime() > new Date(dateTo).getTime();
+}
+
 export function ImportsPage() {
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
@@ -88,18 +93,24 @@ export function ImportsPage() {
 
   const exportMembersMutation = useMutation({
     mutationFn: () => importExportService.exportMembersCsv(),
+    onSuccess: () => toast.success("Exportacao de membros concluida."),
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportCheckinsMutation = useMutation({
     mutationFn: () => importExportService.exportCheckinsCsv(dateFrom || undefined, dateTo || undefined),
+    onSuccess: () => toast.success("Exportacao de catraca/check-ins concluida."),
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const templateMembersMutation = useMutation({
     mutationFn: () => importExportService.downloadMembersTemplateCsv(),
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const templateCheckinsMutation = useMutation({
     mutationFn: () => importExportService.downloadCheckinsTemplateCsv(),
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   return (
@@ -209,11 +220,17 @@ export function ImportsPage() {
           <button
             type="button"
             disabled={exportCheckinsMutation.isPending}
-            onClick={() => exportCheckinsMutation.mutate()}
+            onClick={() => {
+              if (hasInvalidDateRange(dateFrom, dateTo)) {
+                toast.error("Periodo invalido: data inicial maior que data final.");
+                return;
+              }
+              exportCheckinsMutation.mutate();
+            }}
             className="inline-flex items-center justify-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
           >
             <Download size={14} />
-            {exportCheckinsMutation.isPending ? "Exportando..." : "Exportar check-ins CSV"}
+            {exportCheckinsMutation.isPending ? "Exportando..." : "Exportar catraca CSV"}
           </button>
         </div>
       </section>
