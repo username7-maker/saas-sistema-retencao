@@ -181,6 +181,15 @@ def run_automation_rules(db: Session) -> list[dict]:
     all_results: list[dict] = []
 
     for rule in rules:
+        if rule.trigger_type == AutomationTrigger.LEAD_STALE:
+            try:
+                results = _execute_lead_stale_rule(db, rule)
+                all_results.extend(results)
+            except Exception:
+                logger.exception("Erro ao executar regra lead_stale %s", rule.id)
+                all_results.append({"rule_id": str(rule.id), "status": "error", "reason": "lead_stale_failed"})
+            continue
+
         try:
             members = _find_matching_members(db, rule)
         except Exception:
@@ -196,7 +205,8 @@ def run_automation_rules(db: Session) -> list[dict]:
             continue
         for member in members:
             try:
-                result = execute_rule_for_member(db, rule, member)
+                with db.begin_nested():  # SAVEPOINT: isolates each member so a failure doesn't corrupt the session
+                    result = execute_rule_for_member(db, rule, member)
                 all_results.append(result)
             except Exception:
                 logger.exception(
@@ -210,6 +220,90 @@ def run_automation_rules(db: Session) -> list[dict]:
 
     db.commit()
     return all_results
+
+
+def _execute_lead_stale_rule(db: Session, rule: AutomationRule) -> list[dict]:
+    """Executa regra LEAD_STALE criando tarefas/notificacoes para leads parados."""
+    now = datetime.now(tz=timezone.utc)
+    config = rule.trigger_config
+    action_type = rule.action_type
+    action_config = rule.action_config
+    stale_days = _coerce_int(config.get("stale_days", config.get("threshold_days")), default=7, minimum=1)
+    cutoff = now - timedelta(days=stale_days)
+    terminal_stages = [LeadStage.WON, LeadStage.LOST]
+
+    stale_leads = list(db.scalars(
+        select(Lead).where(
+            Lead.gym_id == rule.gym_id,
+            Lead.deleted_at.is_(None),
+            Lead.stage.not_in(terminal_stages),
+            Lead.updated_at <= cutoff,
+        )
+    ).all())
+
+    results: list[dict] = []
+    for lead in stale_leads:
+        result: dict = {"rule_id": str(rule.id), "lead_id": str(lead.id), "action": action_type, "status": "skipped"}
+        lead_vars = {
+            "nome": lead.full_name,
+            "plano": "",
+            "dias": str(stale_days),
+            "score": "",
+            "nps": "",
+            "email": lead.email or "",
+            "telefone": lead.phone or "",
+            "mensagem": "",
+        }
+        if action_type == AutomationAction.CREATE_TASK:
+            title = _render(action_config.get("title", "Lead parado: {nome}"), lead_vars)
+            existing = db.scalar(
+                select(Task).where(
+                    Task.title == title,
+                    Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+                    Task.deleted_at.is_(None),
+                )
+            )
+            if existing:
+                result["status"] = "skipped"
+                result["reason"] = "task_already_exists"
+            else:
+                priority_str = action_config.get("priority", "high")
+                try:
+                    priority = TaskPriority(priority_str)
+                except ValueError:
+                    priority = TaskPriority.HIGH
+                task = Task(
+                    member_id=None,
+                    assigned_to_user_id=lead.owner_id,
+                    title=title,
+                    description=_render(action_config.get("description", "Lead sem atualizacao ha {dias} dias."), lead_vars),
+                    priority=priority,
+                    status=TaskStatus.TODO,
+                    kanban_column=TaskStatus.TODO.value,
+                )
+                db.add(task)
+                db.flush()
+                result["status"] = "created"
+                result["task_id"] = str(task.id)
+        elif action_type == AutomationAction.NOTIFY:
+            title = _render(action_config.get("title", "Lead parado: {nome}"), lead_vars)
+            message = _render(action_config.get("message", "Lead {nome} sem atualizacao ha {dias} dias."), lead_vars)
+            notification = create_notification(
+                db,
+                member_id=None,
+                user_id=lead.owner_id,
+                title=title,
+                message=message,
+                category=action_config.get("category", "crm"),
+            )
+            result["status"] = "notified"
+            result["notification_id"] = str(notification.id)
+        results.append(result)
+
+    rule.executions_count = (rule.executions_count or 0) + 1
+    rule.last_executed_at = now
+    db.add(rule)
+    return results
 
 
 def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
@@ -264,27 +358,8 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         return result
 
     if trigger == AutomationTrigger.LEAD_STALE:
-        stale_days = _coerce_int(config.get("stale_days", config.get("threshold_days")), default=7, minimum=1)
-        cutoff = now - timedelta(days=stale_days)
-        terminal_stages = [LeadStage.WON, LeadStage.LOST]
-        stale_leads = list(db.scalars(
-            select(Lead).where(
-                Lead.gym_id == rule.gym_id,
-                Lead.deleted_at.is_(None),
-                Lead.stage.not_in(terminal_stages),
-                Lead.updated_at <= cutoff,
-            )
-        ).all())
-        # For LEAD_STALE, the action is applied to the assigned member of the lead if available,
-        # otherwise we return an empty list (task/notification not tied to a specific member).
-        # We build synthetic Member-like objects from lead owners' assigned members.
-        # For simplicity: find members who own these stale leads (by lead.owner_id → user → members).
-        # To avoid complexity, return active members whose leads are stale (match by gym only).
-        # We return an empty list for member-based actions since leads aren't members.
-        # Instead, we store the lead reference in extra_data for the task engine.
-        # Returning [] is safe — the caller will not execute actions for 0 members.
-        # Future: implement a lead-scoped action runner.
-        _ = stale_leads  # consumed above for future use
+        # Lead-scoped trigger: handled separately in run_automation_rules via _execute_lead_stale_rule.
+        # Return empty here so the generic member loop is a no-op for this trigger.
         return []
 
     if trigger == AutomationTrigger.CHECKIN_STREAK:

@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from "../../components/ui2";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../../components/ui2";
 import { memberService } from "../../services/memberService";
-import { taskService } from "../../services/taskService";
+import { taskService, type CreateTaskPayload } from "../../services/taskService";
 import type { Member, Task } from "../../types";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const statusSequence: Task["status"][] = ["todo", "doing", "done"];
 
@@ -24,146 +27,247 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
   urgent: "Urgente",
 };
 
-type PlanType = "mensal" | "semestral" | "anual";
-type PlanFilter = "all" | PlanType;
+type SourceFilter = "all" | "onboarding" | "plan_followup" | "automation" | "manual";
+type PlanFilter = "all" | "mensal" | "semestral" | "anual";
+
+const SOURCE_FILTER_LABELS: Record<SourceFilter, string> = {
+  all: "Todas",
+  onboarding: "Onboarding",
+  plan_followup: "Follow-up",
+  automation: "Automação",
+  manual: "Manual",
+};
 
 const PLAN_FILTER_LABELS: Record<PlanFilter, string> = {
-  all: "Todos",
+  all: "Todos planos",
   mensal: "Mensal",
   semestral: "Semestral",
   anual: "Anual",
 };
 
-function nextStatus(currentStatus: Task["status"]): Task["status"] {
-  const index = statusSequence.indexOf(currentStatus);
-  if (index === -1 || index === statusSequence.length - 1) return "done";
-  return statusSequence[index + 1];
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function nextStatus(current: Task["status"]): Task["status"] {
+  const idx = statusSequence.indexOf(current);
+  if (idx === -1 || idx === statusSequence.length - 1) return "done";
+  return statusSequence[idx + 1];
 }
 
 function taskSource(task: Task): string {
-  const source = task.extra_data?.source;
-  return typeof source === "string" ? source : "";
+  const src = task.extra_data?.source;
+  return typeof src === "string" ? src : "manual";
 }
 
 function taskPlanType(task: Task): string {
-  const planType = task.extra_data?.plan_type;
-  return typeof planType === "string" ? planType : "";
+  const pt = task.extra_data?.plan_type;
+  return typeof pt === "string" ? pt : "";
 }
 
-function normalizePlanType(rawValue: string | null | undefined): PlanType | null {
-  const value = (rawValue ?? "").toLowerCase();
-  if (value.includes("anual")) return "anual";
-  if (value.includes("semestral")) return "semestral";
-  if (value.includes("mensal")) return "mensal";
+function normalizePlanType(val: string | null | undefined): "mensal" | "semestral" | "anual" | null {
+  const v = (val ?? "").toLowerCase();
+  if (v.includes("anual")) return "anual";
+  if (v.includes("semestral")) return "semestral";
+  if (v.includes("mensal")) return "mensal";
   return null;
 }
 
-function detectPlanTypeFromName(planName: string | null | undefined): PlanType {
+function detectPlanFromMember(planName: string | null | undefined): "mensal" | "semestral" | "anual" {
   return normalizePlanType(planName) ?? "mensal";
-}
-
-function formatPlanType(planType: string): string {
-  if (!planType) return "Mensal";
-  return planType.charAt(0).toUpperCase() + planType.slice(1);
-}
-
-function formatDueDate(value: string | null): string {
-  if (!value) return "Sem vencimento";
-  const dueDateKey = getDueDateKey(value);
-  if (!dueDateKey) return "Sem vencimento";
-  const [year, month, day] = dueDateKey.split("-");
-  if (!year || !month || !day) return "Sem vencimento";
-  return `${day}/${month}/${year}`;
-}
-
-function statusVariant(status: Task["status"]): "neutral" | "success" | "warning" | "danger" {
-  if (status === "done") return "success";
-  if (status === "doing") return "warning";
-  if (status === "cancelled") return "danger";
-  return "neutral";
-}
-
-function priorityVariant(priority: Task["priority"]): "neutral" | "success" | "warning" | "danger" {
-  if (priority === "urgent") return "danger";
-  if (priority === "high") return "warning";
-  if (priority === "low") return "success";
-  return "neutral";
 }
 
 function getTodayKey(): string {
   const now = new Date();
-  const offsetMs = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
-function getDueDateKey(value: string | null): string | null {
-  if (!value) return null;
-  if (value.length >= 10) {
-    return value.slice(0, 10);
-  }
-  return null;
+function getDueDateKey(val: string | null): string | null {
+  return val && val.length >= 10 ? val.slice(0, 10) : null;
 }
 
-function isTaskDueTodayOrPast(task: Task, todayKey: string): boolean {
-  const dueDateKey = getDueDateKey(task.due_date);
-  if (!dueDateKey) return true;
-  return dueDateKey <= todayKey;
+function formatDueDate(val: string | null): string {
+  const key = getDueDateKey(val);
+  if (!key) return "Sem vencimento";
+  const [y, m, d] = key.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function isOverdue(task: Task, todayKey: string): boolean {
+  if (task.status === "done" || task.status === "cancelled") return false;
+  const key = getDueDateKey(task.due_date);
+  return key !== null && key < todayKey;
+}
+
+function isDueTodayOrPast(task: Task, todayKey: string): boolean {
+  const key = getDueDateKey(task.due_date);
+  if (!key) return true;
+  return key <= todayKey;
+}
+
+function statusVariant(s: Task["status"]): "neutral" | "success" | "warning" | "danger" {
+  if (s === "done") return "success";
+  if (s === "doing") return "warning";
+  if (s === "cancelled") return "danger";
+  return "neutral";
+}
+
+function priorityVariant(p: Task["priority"]): "neutral" | "success" | "warning" | "danger" {
+  if (p === "urgent") return "danger";
+  if (p === "high") return "warning";
+  if (p === "low") return "success";
+  return "neutral";
+}
+
+function formatPlanLabel(planType: string): string {
+  if (!planType) return "Mensal";
+  return planType.charAt(0).toUpperCase() + planType.slice(1);
 }
 
 async function listAllMembers(): Promise<Member[]> {
-  const pageSize = 200;
-  const firstPage = await memberService.listMembers({ page: 1, page_size: pageSize });
-  const totalPages = Math.ceil(firstPage.total / pageSize);
-
-  if (totalPages <= 1) {
-    return firstPage.items;
-  }
-
-  const promises: Array<Promise<Awaited<ReturnType<typeof memberService.listMembers>>>> = [];
-  for (let page = 2; page <= totalPages; page += 1) {
-    promises.push(memberService.listMembers({ page, page_size: pageSize }));
-  }
-
-  const rest = await Promise.all(promises);
-  return [...firstPage.items, ...rest.flatMap((page) => page.items)];
+  const PAGE = 200;
+  const first = await memberService.listMembers({ page: 1, page_size: PAGE });
+  const pages = Math.ceil(first.total / PAGE);
+  if (pages <= 1) return first.items;
+  const rest = await Promise.all(
+    Array.from({ length: pages - 1 }, (_, i) =>
+      memberService.listMembers({ page: i + 2, page_size: PAGE }).then((r) => r.items),
+    ),
+  );
+  return [...first.items, ...rest.flat()];
 }
+
+// ─── Interfaces ───────────────────────────────────────────────────────────────
 
 interface TaskGroup {
   key: string;
   label: string;
   memberId: string | null;
   leadId: string | null;
-  planType: PlanType | null;
+  planType: "mensal" | "semestral" | "anual" | null;
   tasks: Task[];
   todoCount: number;
   doingCount: number;
   doneCount: number;
 }
 
-function taskDestination(task: Task): string {
-  if (task.member_id) {
-    return `/assessments/members/${task.member_id}`;
-  }
-  if (task.lead_id) {
-    return `/crm?leadId=${task.lead_id}`;
-  }
-  return "/tasks";
+// ─── Create Task Modal ────────────────────────────────────────────────────────
+
+interface CreateModalProps {
+  members: Member[];
+  onClose: () => void;
+  onSubmit: (payload: CreateTaskPayload) => void;
+  isPending: boolean;
 }
 
-function groupDestination(group: TaskGroup): string {
-  if (group.memberId) {
-    return `/assessments/members/${group.memberId}`;
+function CreateTaskModal({ members, onClose, onSubmit, isPending }: CreateModalProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formRef.current) return;
+    const fd = new FormData(formRef.current);
+    const title = (fd.get("title") as string).trim();
+    if (!title) return;
+    const memberId = (fd.get("member_id") as string) || undefined;
+    const description = (fd.get("description") as string).trim() || undefined;
+    const priority = (fd.get("priority") as Task["priority"]) || "medium";
+    const dueDate = (fd.get("due_date") as string) || undefined;
+    onSubmit({
+      title,
+      description,
+      member_id: memberId,
+      priority,
+      status: "todo",
+      due_date: dueDate ? `${dueDate}T00:00:00Z` : null,
+    });
   }
-  return "/crm";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl border border-lovable-border bg-lovable-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 text-lg font-bold text-lovable-ink">Nova Tarefa</h3>
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Título *</label>
+            <Input name="title" required minLength={3} maxLength={160} placeholder="Título da tarefa" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Descrição</label>
+            <textarea
+              name="description"
+              rows={2}
+              className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink placeholder:text-lovable-ink-muted focus:outline-none focus:ring-2 focus:ring-lovable-primary"
+              placeholder="Detalhes da tarefa (opcional)"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Aluno</label>
+            <select
+              name="member_id"
+              className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
+            >
+              <option value="">— Nenhum —</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Prioridade</label>
+              <select
+                name="priority"
+                defaultValue="medium"
+                className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
+              >
+                <option value="low">Baixa</option>
+                <option value="medium">Média</option>
+                <option value="high">Alta</option>
+                <option value="urgent">Urgente</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Vencimento</label>
+              <input
+                type="date"
+                name="due_date"
+                className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="primary" size="sm" disabled={isPending}>
+              {isPending ? "Salvando..." : "Criar tarefa"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function TasksPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [planFilter, setPlanFilter] = useState<PlanFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
+  // ── Queries ────────────────────────────────────────────────────────────────
   const tasksQuery = useQuery({
     queryKey: ["tasks"],
     queryFn: taskService.listTasks,
@@ -176,56 +280,73 @@ export function TasksPage() {
     staleTime: 10 * 60 * 1000,
   });
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const updateMutation = useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) => taskService.updateTask(taskId, status),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    },
+    mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) =>
+      taskService.updateTask(taskId, { status }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () => toast.error("Erro ao atualizar tarefa."),
   });
 
-  const memberNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const member of membersQuery.data ?? []) {
-      map.set(member.id, member.full_name);
-    }
-    return map;
-  }, [membersQuery.data]);
+  const deleteMutation = useMutation({
+    mutationFn: (taskId: string) => taskService.deleteTask(taskId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setPendingDeleteId(null);
+      toast.success("Tarefa excluída.");
+    },
+    onError: () => toast.error("Erro ao excluir tarefa."),
+  });
 
-  const memberPlanTypeById = useMemo(() => {
-    const map = new Map<string, PlanType>();
-    for (const member of membersQuery.data ?? []) {
-      map.set(member.id, detectPlanTypeFromName(member.plan_name));
+  const createMutation = useMutation({
+    mutationFn: (payload: CreateTaskPayload) => taskService.createTask(payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setCreateOpen(false);
+      toast.success("Tarefa criada.");
+    },
+    onError: () => toast.error("Erro ao criar tarefa."),
+  });
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const memberPlanById = useMemo(() => {
+    const map = new Map<string, "mensal" | "semestral" | "anual">();
+    for (const m of membersQuery.data ?? []) {
+      map.set(m.id, detectPlanFromMember(m.plan_name));
     }
     return map;
   }, [membersQuery.data]);
 
   const allTasks = tasksQuery.data?.items ?? [];
   const todayKey = useMemo(() => getTodayKey(), []);
+
+  const pendingDeleteTask = useMemo(
+    () => (pendingDeleteId ? allTasks.find((t) => t.id === pendingDeleteId) : null),
+    [pendingDeleteId, allTasks],
+  );
+
   const hiddenFutureCount = useMemo(
-    () => allTasks.filter((task) => !isTaskDueTodayOrPast(task, todayKey)).length,
+    () => allTasks.filter((t) => !isDueTodayOrPast(t, todayKey)).length,
     [allTasks, todayKey],
   );
-  const filteredByStatus = useMemo(() => {
-    const visibleByDueDate = allTasks.filter((task) => isTaskDueTodayOrPast(task, todayKey));
-    if (showDone) return visibleByDueDate;
-    return visibleByDueDate.filter((task) => task.status !== "done");
-  }, [allTasks, showDone, todayKey]);
+
+  const filtered = useMemo(() => {
+    let list = allTasks.filter((t) => isDueTodayOrPast(t, todayKey));
+    if (!showDone) list = list.filter((t) => t.status !== "done");
+    if (sourceFilter !== "all") list = list.filter((t) => taskSource(t) === sourceFilter);
+    return list;
+  }, [allTasks, showDone, sourceFilter, todayKey]);
 
   const groups = useMemo(() => {
     const draft = new Map<string, TaskGroup>();
 
-    for (const task of filteredByStatus) {
-      const key = task.member_id
-        ? `member:${task.member_id}`
-        : task.lead_id
-          ? `lead:${task.lead_id}`
-          : "unlinked";
+    for (const task of filtered) {
+      const key = task.member_id ? `member:${task.member_id}` : task.lead_id ? `lead:${task.lead_id}` : "unlinked";
 
-      const label = task.member_id
-        ? memberNameById.get(task.member_id) ?? `Aluno ${task.member_id.slice(0, 8)}`
-        : task.lead_id
-          ? "Leads sem aluno (CRM)"
-          : "Tasks sem vínculo";
+      const label =
+        task.member_name ??
+        task.lead_name ??
+        (task.member_id ? `Aluno ${task.member_id.slice(0, 8)}` : task.lead_id ? "Lead (CRM)" : "Sem vínculo");
 
       const current = draft.get(key) ?? {
         key,
@@ -233,7 +354,7 @@ export function TasksPage() {
         memberId: task.member_id,
         leadId: task.lead_id,
         planType: task.member_id
-          ? (memberPlanTypeById.get(task.member_id) ?? normalizePlanType(taskPlanType(task)))
+          ? (memberPlanById.get(task.member_id) ?? normalizePlanType(taskPlanType(task)))
           : normalizePlanType(taskPlanType(task)),
         tasks: [],
         todoCount: 0,
@@ -241,187 +362,307 @@ export function TasksPage() {
         doneCount: 0,
       };
 
-      if (!current.planType) {
-        current.planType = normalizePlanType(taskPlanType(task));
-      }
-      if (!current.planType && task.member_id) {
-        current.planType = memberPlanTypeById.get(task.member_id) ?? null;
-      }
-
       current.tasks.push(task);
       if (task.status === "todo") current.todoCount += 1;
       if (task.status === "doing") current.doingCount += 1;
       if (task.status === "done") current.doneCount += 1;
-
       draft.set(key, current);
     }
 
     const normalizedSearch = search.trim().toLowerCase();
 
     return [...draft.values()]
-      .map((group) => ({
-        ...group,
-        tasks: [...group.tasks].sort((a, b) => {
+      .map((g) => ({
+        ...g,
+        tasks: [...g.tasks].sort((a, b) => {
           const aDue = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
           const bDue = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
           return aDue - bDue;
         }),
       }))
-      .filter((group) => {
-        if (planFilter !== "all") {
-          if (!group.memberId) return false;
-          if (group.planType !== planFilter) return false;
-        }
+      .filter((g) => {
+        if (planFilter !== "all" && g.planType !== planFilter) return false;
         if (!normalizedSearch) return true;
-        if (group.label.toLowerCase().includes(normalizedSearch)) return true;
-        return group.tasks.some((task) => task.title.toLowerCase().includes(normalizedSearch));
+        if (g.label.toLowerCase().includes(normalizedSearch)) return true;
+        return g.tasks.some((t) => t.title.toLowerCase().includes(normalizedSearch));
       })
       .sort((a, b) => {
-        const pendingA = a.todoCount + a.doingCount;
-        const pendingB = b.todoCount + b.doingCount;
-        if (pendingA !== pendingB) return pendingB - pendingA;
+        const pendA = a.todoCount + a.doingCount;
+        const pendB = b.todoCount + b.doingCount;
+        if (pendA !== pendB) return pendB - pendA;
         return a.label.localeCompare(b.label);
       });
-  }, [filteredByStatus, memberNameById, memberPlanTypeById, planFilter, search]);
+  }, [filtered, memberPlanById, planFilter, search]);
 
-  if (tasksQuery.isLoading) {
-    return <LoadingPanel text="Carregando tasks..." />;
+  // ── Handlers ───────────────────────────────────────────────────────────────
+  function toggleMessage(taskId: string) {
+    setExpandedMessages((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
   }
 
-  if (tasksQuery.isError) {
-    return <LoadingPanel text="Erro ao carregar tasks. Tente novamente." />;
+  function groupDestination(group: TaskGroup): string {
+    if (group.memberId) return `/assessments/members/${group.memberId}`;
+    return "/crm";
   }
 
-  if (!tasksQuery.data) {
-    return <LoadingPanel text="Não foi possível carregar tasks." />;
-  }
+  // ── Loading / Error states ─────────────────────────────────────────────────
+  if (tasksQuery.isLoading) return <LoadingPanel text="Carregando tarefas..." />;
+  if (tasksQuery.isError) return <LoadingPanel text="Erro ao carregar tarefas. Tente novamente." />;
 
   const totalTasks = allTasks.length;
-  const pendingTasks = allTasks.filter((task) => task.status !== "done").length;
+  const pendingTasks = allTasks.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
+  const overdueTasks = allTasks.filter((t) => isOverdue(t, todayKey)).length;
 
   return (
-    <section className="space-y-6">
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-heading text-3xl font-bold text-lovable-ink">Tasks por Aluno</h2>
-            <p className="text-sm text-lovable-ink-muted">
-              Visual mais limpo: cada bloco representa um aluno. Clique na task para abrir o destino correto.
-            </p>
+    <>
+      <section className="space-y-6">
+        {/* ── Header ── */}
+        <header className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-3xl font-bold text-lovable-ink">Tarefas</h2>
+              <p className="text-sm text-lovable-ink-muted">
+                Acompanhamento de onboarding, follow-up e ações de retenção por aluno.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="neutral">Total: {totalTasks}</Badge>
+              <Badge variant="warning">Pendentes: {pendingTasks}</Badge>
+              {overdueTasks > 0 ? <Badge variant="danger">Atrasadas: {overdueTasks}</Badge> : null}
+              {hiddenFutureCount > 0 ? <Badge variant="neutral">Futuras ocultas: {hiddenFutureCount}</Badge> : null}
+              <Button variant={showDone ? "secondary" : "ghost"} size="sm" onClick={() => setShowDone((p) => !p)}>
+                {showDone ? "Ocultar concluídas" : "Mostrar concluídas"}
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+                + Nova Tarefa
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="neutral">Total: {totalTasks}</Badge>
-            <Badge variant="warning">Pendentes: {pendingTasks}</Badge>
-            {hiddenFutureCount > 0 ? <Badge variant="neutral">Futuras ocultas: {hiddenFutureCount}</Badge> : null}
-            <Button variant={showDone ? "secondary" : "ghost"} size="sm" onClick={() => setShowDone((prev) => !prev)}>
-              {showDone ? "Ocultar concluídas" : "Mostrar concluídas"}
-            </Button>
-          </div>
-        </div>
 
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Buscar por nome do aluno ou título da task..."
-          className="max-w-xl"
+          {/* Search */}
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nome do aluno ou título da tarefa..."
+            className="max-w-xl"
+          />
+
+          {/* Source filter */}
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(SOURCE_FILTER_LABELS) as SourceFilter[]).map((k) => (
+              <Button
+                key={k}
+                variant={sourceFilter === k ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setSourceFilter(k)}
+              >
+                {SOURCE_FILTER_LABELS[k]}
+              </Button>
+            ))}
+          </div>
+
+          {/* Plan filter */}
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(PLAN_FILTER_LABELS) as PlanFilter[]).map((k) => (
+              <Button
+                key={k}
+                variant={planFilter === k ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setPlanFilter(k)}
+              >
+                {PLAN_FILTER_LABELS[k]}
+              </Button>
+            ))}
+          </div>
+        </header>
+
+        {/* ── Task Groups ── */}
+        {groups.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-lovable-ink-muted">
+              Nenhuma tarefa encontrada para os filtros atuais.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {groups.map((group) => {
+              const total = group.todoCount + group.doingCount + group.doneCount;
+              const progress = total > 0 ? Math.round((group.doneCount / total) * 100) : 0;
+
+              return (
+                <Card key={group.key}>
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="flex items-center gap-2">
+                          {group.label}
+                          {group.planType ? (
+                            <Badge variant="neutral">{formatPlanLabel(group.planType)}</Badge>
+                          ) : null}
+                        </CardTitle>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">
+                          {group.tasks.length} tarefa{group.tasks.length !== 1 ? "s" : ""} · {group.todoCount} a
+                          fazer · {group.doingCount} em andamento · {group.doneCount} concluída
+                          {group.doneCount !== 1 ? "s" : ""}
+                        </p>
+                        {/* Progress bar */}
+                        <div className="mt-2 h-1.5 w-full max-w-xs rounded-full bg-lovable-border">
+                          <div
+                            className="h-full rounded-full bg-lovable-success transition-all"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <p className="mt-0.5 text-xs text-lovable-ink-muted">{progress}% concluído</p>
+                      </div>
+                      <Button variant="secondary" size="sm" onClick={() => navigate(groupDestination(group))}>
+                        Ver perfil
+                      </Button>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-2 pt-0">
+                    {group.tasks.map((task) => {
+                      const overdue = isOverdue(task, todayKey);
+                      const src = taskSource(task);
+                      const planType = taskPlanType(task);
+                      const msgExpanded = expandedMessages.has(task.id);
+
+                      return (
+                        <article
+                          key={task.id}
+                          className={`rounded-xl border p-3 transition ${
+                            overdue
+                              ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+                              : "border-lovable-border bg-lovable-surface-soft hover:bg-lovable-primary-soft/20"
+                          }`}
+                        >
+                          {/* Title row */}
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-lovable-ink">{task.title}</p>
+                              {task.description ? (
+                                <p className="mt-0.5 text-xs text-lovable-ink-muted">{task.description}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge variant={statusVariant(task.status)}>{STATUS_LABELS[task.status]}</Badge>
+                              <Badge variant={priorityVariant(task.priority)}>{PRIORITY_LABELS[task.priority]}</Badge>
+                              {src === "onboarding" ? <Badge variant="neutral">Onboarding</Badge> : null}
+                              {src === "plan_followup" && planType ? (
+                                <Badge variant="neutral">Follow-up {formatPlanLabel(planType)}</Badge>
+                              ) : null}
+                              {src === "automation" ? <Badge variant="neutral">Automação</Badge> : null}
+                              {overdue ? <Badge variant="danger">Atrasada</Badge> : null}
+                            </div>
+                          </div>
+
+                          {/* Suggested message */}
+                          {task.suggested_message ? (
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-lovable-primary hover:underline"
+                                onClick={() => toggleMessage(task.id)}
+                              >
+                                {msgExpanded ? "▲ Ocultar mensagem sugerida" : "▼ Ver mensagem sugerida"}
+                              </button>
+                              {msgExpanded ? (
+                                <p className="mt-1 rounded-lg bg-lovable-primary-soft/20 p-2 text-xs text-lovable-ink">
+                                  {task.suggested_message}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {/* Footer row */}
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              className={`text-xs ${overdue ? "font-semibold text-red-600 dark:text-red-400" : "text-lovable-ink-muted"}`}
+                            >
+                              {overdue ? "⚠ " : ""}Vencimento: {formatDueDate(task.due_date)}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {task.status !== "done" && task.status !== "cancelled" ? (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={updateMutation.isPending}
+                                    onClick={() => updateMutation.mutate({ taskId: task.id, status: nextStatus(task.status) })}
+                                  >
+                                    Avançar
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={updateMutation.isPending}
+                                    onClick={() => updateMutation.mutate({ taskId: task.id, status: "cancelled" })}
+                                  >
+                                    Cancelar
+                                  </Button>
+                                </>
+                              ) : null}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={deleteMutation.isPending}
+                                onClick={() => setPendingDeleteId(task.id)}
+                              >
+                                Excluir
+                              </Button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Create Modal ── */}
+      {createOpen ? (
+        <CreateTaskModal
+          members={membersQuery.data ?? []}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={(p) => createMutation.mutate(p)}
+          isPending={createMutation.isPending}
         />
+      ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(PLAN_FILTER_LABELS) as PlanFilter[]).map((filterKey) => (
-            <Button
-              key={filterKey}
-              variant={planFilter === filterKey ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setPlanFilter(filterKey)}
-            >
-              {PLAN_FILTER_LABELS[filterKey]}
-            </Button>
-          ))}
+      {/* ── Delete Confirm Modal ── */}
+      {pendingDeleteId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-lovable-border bg-lovable-surface p-6 shadow-xl">
+            <h3 className="mb-2 text-base font-bold text-lovable-ink">Excluir tarefa?</h3>
+            <p className="mb-4 text-sm text-lovable-ink-muted">
+              <strong>{pendingDeleteTask?.title}</strong>
+              <br />
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPendingDeleteId(null)} disabled={deleteMutation.isPending}>
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(pendingDeleteId)}
+              >
+                {deleteMutation.isPending ? "Excluindo..." : "Confirmar exclusão"}
+              </Button>
+            </div>
+          </div>
         </div>
-      </header>
-
-      {!groups.length ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-lovable-ink-muted">
-            Nenhuma task encontrada para os filtros atuais.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {groups.map((group) => (
-            <Card key={group.key}>
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <CardTitle>{group.label}</CardTitle>
-                    <CardDescription>
-                      {group.tasks.length} tasks | {group.todoCount} a fazer | {group.doingCount} em andamento
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {group.planType ? <Badge variant="neutral">Plano {formatPlanType(group.planType)}</Badge> : null}
-                    <Badge variant="neutral">Todo {group.todoCount}</Badge>
-                    <Badge variant="warning">Doing {group.doingCount}</Badge>
-                    {showDone ? <Badge variant="success">Done {group.doneCount}</Badge> : null}
-                    <Button variant="secondary" size="sm" onClick={() => navigate(groupDestination(group))}>
-                      Abrir destino
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="space-y-2 pt-0">
-                {group.tasks.map((task) => {
-                  const source = taskSource(task);
-                  const planType = taskPlanType(task);
-
-                  return (
-                    <article
-                      key={task.id}
-                      className="cursor-pointer rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 transition hover:bg-lovable-primary-soft/30"
-                      onClick={() => navigate(taskDestination(task))}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-lovable-ink">{task.title}</p>
-                          {task.description ? (
-                            <p className="mt-1 text-xs text-lovable-ink-muted">{task.description}</p>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          <Badge variant={statusVariant(task.status)}>{STATUS_LABELS[task.status]}</Badge>
-                          <Badge variant={priorityVariant(task.priority)}>{PRIORITY_LABELS[task.priority]}</Badge>
-                          {source === "onboarding" ? <Badge variant="neutral">Onboarding</Badge> : null}
-                          {source === "plan_followup" ? (
-                            <Badge variant="neutral">Plano {formatPlanType(planType)}</Badge>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-lovable-ink-muted">
-                        <span>Vencimento: {formatDueDate(task.due_date)}</span>
-                        {task.status !== "done" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              updateMutation.mutate({ taskId: task.id, status: nextStatus(task.status) });
-                            }}
-                            disabled={updateMutation.isPending}
-                          >
-                            Avançar
-                          </Button>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </section>
+      ) : null}
+    </>
   );
 }

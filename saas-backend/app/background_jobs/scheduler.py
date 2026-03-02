@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.background_jobs.jobs import (
+    daily_automations_job,
     daily_crm_followup_job,
     daily_loyalty_update_job,
     daily_nps_dispatch_job,
@@ -18,6 +19,8 @@ from app.background_jobs.jobs import (
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="UTC")
     scheduler.add_job(daily_risk_job, trigger="cron", hour=2, minute=0, id="risk_daily")
+    # Automations run after risk scoring so rules using risk_level have fresh data
+    scheduler.add_job(daily_automations_job, trigger="cron", hour=2, minute=30, id="automations_daily")
     scheduler.add_job(daily_nps_dispatch_job, trigger="cron", hour=9, minute=0, id="nps_daily")
     scheduler.add_job(daily_crm_followup_job, trigger="cron", hour=8, minute=0, id="crm_followup_daily")
     scheduler.add_job(monthly_reports_job, trigger="cron", day=1, hour=6, minute=0, id="monthly_reports")

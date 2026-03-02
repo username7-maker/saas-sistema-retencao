@@ -2,8 +2,8 @@ import { useState } from "react";
 import { ClipboardList, MessageSquare, Phone, Send, X } from "lucide-react";
 import clsx from "clsx";
 
-import { api } from "../../services/api";
 import { automationService } from "../../services/automationService";
+import { taskService } from "../../services/taskService";
 import type { Lead } from "../../types";
 
 interface QuickLeadActionsProps {
@@ -43,7 +43,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
   const handleCreateTask = async () => {
     setSending(true);
     try {
-      await api.post("/api/v1/tasks/", {
+      await taskService.createTask({
         lead_id: lead.id,
         title: `Follow-up com ${lead.full_name}`,
         description: `Lead no estágio ${lead.stage}. Realizar contato comercial.`,

@@ -12,6 +12,16 @@ from app.schemas import LeadCreate, LeadUpdate, PaginatedResponse
 from app.utils.email import send_email
 
 
+def delete_lead(db: Session, lead_id: UUID) -> None:
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
+    lead.deleted_at = datetime.now(tz=timezone.utc)
+    db.add(lead)
+    db.commit()
+    invalidate_dashboard_cache("leads")
+
+
 def create_lead(db: Session, payload: LeadCreate) -> Lead:
     lead = Lead(**payload.model_dump())
     db.add(lead)

@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import LeadStage, RoleEnum, User
 from app.schemas import APIMessage, LeadCreate, LeadOut, LeadUpdate, PaginatedResponse
 from app.services.audit_service import log_audit_event
-from app.services.crm_service import create_lead, list_leads, run_followup_automation, update_lead
+from app.services.crm_service import create_lead, delete_lead, list_leads, run_followup_automation, update_lead
 
 
 router = APIRouter(prefix="/crm", tags=["crm"])
@@ -71,6 +71,27 @@ def update_lead_endpoint(
     )
     db.commit()
     return lead
+
+
+@router.delete("/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lead_endpoint(
+    request: Request,
+    lead_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> None:
+    delete_lead(db, lead_id)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="lead_deleted",
+        entity="lead",
+        user=current_user,
+        entity_id=lead_id,
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
 
 
 @router.post("/automation/followup", response_model=APIMessage)

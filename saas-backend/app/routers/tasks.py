@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import RoleEnum, TaskStatus, User
 from app.schemas import PaginatedResponse, TaskCreate, TaskOut, TaskUpdate
 from app.services.audit_service import log_audit_event
-from app.services.task_service import create_task, list_tasks, update_task
+from app.services.task_service import create_task, delete_task, list_tasks, update_task
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -74,3 +74,25 @@ def update_task_endpoint(
     )
     db.commit()
     return task
+
+
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task_endpoint(
+    request: Request,
+    task_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> None:
+    delete_task(db, task_id)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="task_deleted",
+        entity="task",
+        user=current_user,
+        entity_id=task_id,
+        details={},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()

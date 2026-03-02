@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from xml.etree import ElementTree as ET
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
@@ -138,6 +138,7 @@ def import_checkins_csv(db: Session, csv_content: bytes, filename: str | None = 
     duplicates = 0
     imported = 0
     seen_entries: set[tuple[str, str]] = set()
+    pending_rows: list[tuple[Member, datetime, CheckinSource, dict[str, str]]] = []
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
@@ -173,30 +174,54 @@ def import_checkins_csv(db: Session, csv_content: bytes, filename: str | None = 
             duplicates += 1
             continue
         seen_entries.add(unique_key)
+        pending_rows.append((member, parsed, _parse_checkin_source(_pick_first(row, CHECKIN_SOURCE_KEYS)), row))
 
-        exists = db.scalar(select(Checkin.id).where(Checkin.member_id == member.id, Checkin.checkin_at == parsed))
-        if exists:
+    existing_keys = _fetch_existing_checkin_keys(db, [(member.id, parsed) for member, parsed, _, _ in pending_rows])
+
+    for member, parsed, source, row in pending_rows:
+        unique_key = (str(member.id), parsed.isoformat())
+        if unique_key in existing_keys:
             duplicates += 1
             continue
 
         checkin = Checkin(
             member_id=member.id,
             checkin_at=parsed,
-            source=_parse_checkin_source(_pick_first(row, CHECKIN_SOURCE_KEYS)),
+            source=source,
             hour_bucket=parsed.hour,
             weekday=parsed.weekday(),
             extra_data={"imported": True, "raw": row},
         )
         if member.last_checkin_at is None or parsed > member.last_checkin_at:
             member.last_checkin_at = parsed
+            db.add(member)
         db.add(checkin)
-        db.add(member)
         imported += 1
 
     db.commit()
     if imported:
         invalidate_dashboard_cache("checkins")
     return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)
+
+
+def _fetch_existing_checkin_keys(db: Session, keys: list[tuple[UUID, datetime]]) -> set[tuple[str, str]]:
+    if not keys:
+        return set()
+
+    existing_keys: set[tuple[str, str]] = set()
+    chunk_size = 1000
+    for idx in range(0, len(keys), chunk_size):
+        chunk = keys[idx : idx + chunk_size]
+        rows = db.execute(
+            select(Checkin.member_id, Checkin.checkin_at).where(tuple_(Checkin.member_id, Checkin.checkin_at).in_(chunk))
+        ).all()
+        for member_id, checkin_at in rows:
+            if checkin_at.tzinfo is None:
+                normalized = checkin_at.replace(tzinfo=timezone.utc)
+            else:
+                normalized = checkin_at.astimezone(timezone.utc)
+            existing_keys.add((str(member_id), normalized.isoformat()))
+    return existing_keys
 
 
 def _decode_csv_text(csv_content: bytes) -> str:

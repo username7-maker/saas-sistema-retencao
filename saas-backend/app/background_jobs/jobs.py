@@ -7,6 +7,7 @@ from app.models import Gym
 from app.models.member import Member
 from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
+from app.services.automation_engine import run_automation_rules
 from app.services.crm_service import run_followup_automation
 from app.services.nps_service import run_nps_dispatch
 from app.services.report_service import send_monthly_reports
@@ -62,6 +63,18 @@ def refresh_dashboard_views_job() -> None:
     try:
         refresh_member_kpis_materialized_view(db)
     finally:
+        db.close()
+
+
+def daily_automations_job() -> None:
+    """Executa todas as regras de automacao ativas para cada academia. Roda apos daily_risk_job."""
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            set_current_gym_id(gym.id)
+            run_automation_rules(db)
+    finally:
+        clear_current_gym_id()
         db.close()
 
 

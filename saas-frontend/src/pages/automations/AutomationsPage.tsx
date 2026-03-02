@@ -310,9 +310,93 @@ function RuleCard({
   );
 }
 
+interface ExecResult {
+  rule_id?: string;
+  lead_id?: string;
+  member_id?: string;
+  action?: string;
+  status: string;
+  reason?: string;
+  task_id?: string;
+  notification_id?: string;
+  message_log_id?: string;
+}
+
+function ExecResultsPanel({
+  results,
+  rules,
+  onClose,
+}: {
+  results: ExecResult[];
+  rules: AutomationRule[];
+  onClose: () => void;
+}) {
+  const ruleMap = Object.fromEntries(rules.map((r) => [r.id, r.name]));
+  const byRule: Record<string, ExecResult[]> = {};
+  for (const r of results) {
+    const key = r.rule_id ?? "unknown";
+    if (!byRule[key]) byRule[key] = [];
+    byRule[key].push(r);
+  }
+  const STATUS_COLOR: Record<string, string> = {
+    created: "text-[hsl(var(--lovable-success))]",
+    notified: "text-[hsl(var(--lovable-success))]",
+    sent: "text-[hsl(var(--lovable-success))]",
+    skipped: "text-lovable-ink-muted",
+    error: "text-[hsl(var(--lovable-danger))]",
+  };
+  const total = results.length;
+  const acted = results.filter((r) => !["skipped", "error"].includes(r.status)).length;
+  const errors = results.filter((r) => r.status === "error").length;
+
+  return (
+    <div className="rounded-2xl border border-lovable-border bg-lovable-surface shadow-panel">
+      <div className="flex items-center justify-between border-b border-lovable-border px-4 py-3">
+        <p className="text-sm font-semibold text-lovable-ink">
+          Resultado da execução —{" "}
+          <span className="text-[hsl(var(--lovable-success))]">{acted} ações</span>
+          {errors > 0 ? <span className="ml-2 text-[hsl(var(--lovable-danger))]">{errors} erros</span> : null}
+          <span className="ml-2 text-lovable-ink-muted">{total} total</span>
+        </p>
+        <button type="button" onClick={onClose} className="text-xs text-lovable-ink-muted hover:text-lovable-ink">
+          Fechar
+        </button>
+      </div>
+      {total === 0 ? (
+        <p className="px-4 py-3 text-sm text-lovable-ink-muted">Nenhum aluno ou lead correspondeu aos gatilhos ativos.</p>
+      ) : (
+        <ul className="divide-y divide-lovable-border">
+          {Object.entries(byRule).map(([ruleId, items]) => (
+            <li key={ruleId} className="px-4 py-3">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">
+                {ruleMap[ruleId] ?? ruleId}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {items.map((item, i) => (
+                  <span
+                    key={i}
+                    className={clsx(
+                      "rounded-full border border-lovable-border px-2 py-0.5 text-[10px] font-semibold",
+                      STATUS_COLOR[item.status] ?? "text-lovable-ink-muted",
+                    )}
+                  >
+                    {item.status}
+                    {item.reason ? ` (${item.reason})` : ""}
+                  </span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function AutomationsPage() {
   const queryClient = useQueryClient();
   const [executing, setExecuting] = useState(false);
+  const [execResults, setExecResults] = useState<ExecResult[] | null>(null);
   const [ruleDrawerOpen, setRuleDrawerOpen] = useState(false);
   const [ruleToDelete, setRuleToDelete] = useState<AutomationRule | null>(null);
 
@@ -351,10 +435,13 @@ export function AutomationsPage() {
 
   const handleExecuteAll = async () => {
     setExecuting(true);
+    setExecResults(null);
     try {
       const results = await automationService.executeAll();
-      const executed = results.filter((result) => result["status"] !== "skipped" && result["status"] !== "error").length;
-      toast.success(`${executed} ações realizadas de ${results.length} tentativas.`);
+      const typed = results as unknown as ExecResult[];
+      const acted = typed.filter((r) => !["skipped", "error"].includes(r.status)).length;
+      setExecResults(typed);
+      toast.success(`${acted} ações realizadas de ${typed.length} tentativas.`);
     } catch {
       toast.error("Erro ao executar automações.");
     } finally {
@@ -418,6 +505,14 @@ export function AutomationsPage() {
             />
           ))}
         </div>
+      )}
+
+      {execResults !== null && (
+        <ExecResultsPanel
+          results={execResults}
+          rules={rules}
+          onClose={() => setExecResults(null)}
+        />
       )}
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">

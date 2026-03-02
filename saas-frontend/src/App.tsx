@@ -25,6 +25,8 @@ const NewAssessmentPage = lazy(() => import("./pages/assessments/NewAssessmentPa
 const ImportsPage = lazy(() => import("./pages/imports/ImportsPage").then((m) => ({ default: m.ImportsPage })));
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const UsersPage = lazy(() => import("./pages/settings/UsersPage").then((m) => ({ default: m.UsersPage })));
+const NpsPage = lazy(() => import("./pages/nps/NpsPage").then((m) => ({ default: m.NpsPage })));
+const AuditPage = lazy(() => import("./pages/audit/AuditPage").then((m) => ({ default: m.AuditPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -187,6 +189,22 @@ export default function App() {
           element={
             <LazyWrapper>
               <UsersPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/nps"
+          element={
+            <LazyWrapper>
+              <NpsPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/audit"
+          element={
+            <LazyWrapper>
+              <AuditPage />
             </LazyWrapper>
           }
         />

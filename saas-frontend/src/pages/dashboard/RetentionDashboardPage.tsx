@@ -56,8 +56,8 @@ export function RetentionDashboardPage() {
       <AiInsightCard dashboard="retention" />
 
       {totalRisk > 0 && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <p className="text-sm font-semibold text-rose-700">
+        <div className="rounded-xl border border-lovable-danger/30 bg-lovable-danger/5 px-4 py-3">
+          <p className="text-sm font-semibold text-lovable-danger">
             {query.data.red.total > 0 && `${query.data.red.total} aluno(s) em risco vermelho`}
             {query.data.red.total > 0 && query.data.yellow.total > 0 && " e "}
             {query.data.yellow.total > 0 && `${query.data.yellow.total} em risco amarelo`}
@@ -74,8 +74,8 @@ export function RetentionDashboardPage() {
       <LineSeriesChart data={query.data.nps_trend} xKey="month" yKey="average_score" />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-2xl border border-rose-200 bg-lovable-surface p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-rose-700">
+        <section className="rounded-2xl border border-lovable-danger/30 bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-danger">
             Alunos em vermelho ({query.data.red.total})
           </h3>
           <ul className="space-y-3">
@@ -91,7 +91,7 @@ export function RetentionDashboardPage() {
                       )}
                     </p>
                   </div>
-                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                  <span className="rounded-full bg-lovable-danger/10 px-2 py-0.5 text-[10px] font-bold text-lovable-danger">
                     {member.risk_score}
                   </span>
                 </div>
@@ -99,7 +99,7 @@ export function RetentionDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedMember(member)}
-                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-slate-400 hover:text-lovable-ink"
+                    className="mb-2 rounded-full border border-lovable-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-lovable-border-strong hover:text-lovable-ink"
                   >
                     Ver timeline 360
                   </button>
@@ -135,7 +135,7 @@ export function RetentionDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedMember(member)}
-                    className="mb-2 rounded-full border border-slate-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-slate-400 hover:text-lovable-ink"
+                    className="mb-2 rounded-full border border-lovable-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-lovable-border-strong hover:text-lovable-ink"
                   >
                     Ver timeline 360
                   </button>

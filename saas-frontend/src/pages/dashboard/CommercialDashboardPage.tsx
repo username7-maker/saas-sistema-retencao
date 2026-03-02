@@ -39,7 +39,7 @@ export function CommercialDashboardPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <DashboardActions dashboard="commercial" />
-          <Link to="/crm" className="rounded-full bg-brand-500 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700">
+          <Link to="/crm" className="rounded-full bg-lovable-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90">
             Abrir CRM Kanban
           </Link>
         </div>
@@ -79,8 +79,8 @@ export function CommercialDashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-amber-200 bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-700">
+      <section className="rounded-2xl border border-lovable-warning/30 bg-lovable-surface p-4 shadow-panel">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-warning">
           Leads parados 3+ dias ({query.data.stale_leads_total})
         </h3>
         {query.data.stale_leads.length === 0 ? (

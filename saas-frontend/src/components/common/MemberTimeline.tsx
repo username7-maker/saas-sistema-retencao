@@ -56,18 +56,18 @@ export function MemberTimeline({ member, onClose }: MemberTimelineProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-12">
-      <div className="relative max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <div className="relative max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-lovable-border bg-lovable-surface p-6 shadow-xl">
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"
+          className="absolute right-4 top-4 text-lovable-ink-muted hover:text-lovable-ink"
         >
           <X size={20} />
         </button>
 
         <header className="mb-4">
-          <h3 className="font-heading text-xl font-bold text-slate-900">{member.full_name}</h3>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+          <h3 className="font-heading text-xl font-bold text-lovable-ink">{member.full_name}</h3>
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-lovable-ink-muted">
             <span>{member.plan_name}</span>
             <span>|</span>
             <span>R$ {member.monthly_fee.toFixed(2)}/mes</span>
@@ -83,25 +83,25 @@ export function MemberTimeline({ member, onClose }: MemberTimelineProps) {
           </div>
         </header>
 
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Timeline</h4>
+        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Timeline</h4>
 
         {query.isLoading && (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse rounded-lg border border-slate-200 p-3">
-                <div className="h-3 w-32 rounded bg-slate-200" />
-                <div className="mt-2 h-2 w-48 rounded bg-slate-100" />
+              <div key={i} className="animate-pulse rounded-lg border border-lovable-border p-3">
+                <div className="h-3 w-32 rounded bg-lovable-surface-soft" />
+                <div className="mt-2 h-2 w-48 rounded bg-lovable-bg-muted" />
               </div>
             ))}
           </div>
         )}
 
         {query.data && query.data.length === 0 && (
-          <p className="text-sm text-slate-400">Nenhum evento registrado.</p>
+          <p className="text-sm text-lovable-ink-muted">Nenhum evento registrado.</p>
         )}
 
         {query.data && query.data.length > 0 && (
-          <div className="relative space-y-3 pl-6 before:absolute before:left-2 before:top-0 before:h-full before:w-px before:bg-slate-200">
+          <div className="relative space-y-3 pl-6 before:absolute before:left-2 before:top-0 before:h-full before:w-px before:bg-lovable-border">
             {query.data.map((event, idx) => {
               const IconComponent = iconMap[event.icon] ?? Activity;
               return (
@@ -109,18 +109,18 @@ export function MemberTimeline({ member, onClose }: MemberTimelineProps) {
                   key={idx}
                   className={clsx(
                     "relative rounded-lg border p-3",
-                    typeColors[event.type] ?? "border-slate-200 bg-slate-50",
+                    typeColors[event.type] ?? "border-lovable-border bg-lovable-surface",
                   )}
                 >
-                  <div className="absolute -left-[22px] top-3 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm">
+                  <div className="absolute -left-[22px] top-3 flex h-5 w-5 items-center justify-center rounded-full bg-lovable-surface shadow-sm">
                     <IconComponent size={12} className={iconColors[event.type] ?? "text-slate-400"} />
                   </div>
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-sm font-medium text-slate-700">{event.title}</p>
-                      {event.detail && <p className="text-xs text-slate-500">{event.detail}</p>}
+                      <p className="text-sm font-medium text-lovable-ink">{event.title}</p>
+                      {event.detail && <p className="text-xs text-lovable-ink-muted">{event.detail}</p>}
                     </div>
-                    <time className="shrink-0 text-[10px] text-slate-400">
+                    <time className="shrink-0 text-[10px] text-lovable-ink-muted">
                       {new Date(event.timestamp).toLocaleDateString("pt-BR", {
                         day: "2-digit",
                         month: "short",

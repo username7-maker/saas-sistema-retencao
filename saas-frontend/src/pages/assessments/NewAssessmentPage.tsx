@@ -118,14 +118,14 @@ export function NewAssessmentPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-slate-900">Nova Avaliação</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Nova Avaliação</h2>
+          <p className="text-sm text-lovable-ink-muted">
             {profile ? `Membro: ${profile.member.full_name}` : "Preencha os dados da avaliação física trimestral."}
           </p>
         </div>
         <Link
           to={`/assessments/members/${memberId}`}
-          className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600 hover:border-slate-400"
+          className="rounded-full border border-lovable-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted hover:border-lovable-border-strong"
         >
           Voltar ao Perfil
         </Link>
@@ -134,98 +134,98 @@ export function NewAssessmentPage() {
       {profile && <ConstraintsAlert constraints={profile.constraints} />}
 
       <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Dados básicos</h3>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dados básicos</h3>
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Data da avaliação
-              <input {...register("assessment_date")} type="datetime-local" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("assessment_date")} type="datetime-local" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Altura (cm)
-              <input {...register("height_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("height_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Peso (kg)
-              <input {...register("weight_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("weight_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Gordura corporal (%)
-              <input {...register("body_fat_pct")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("body_fat_pct")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Massa magra (kg)
-              <input {...register("lean_mass_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("lean_mass_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               VO2 estimado
-              <input {...register("vo2_estimated")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("vo2_estimated")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Medidas corporais</h3>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Medidas corporais</h3>
           <div className="grid gap-3 md:grid-cols-5">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Cintura (cm)
-              <input {...register("waist_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("waist_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Quadril (cm)
-              <input {...register("hip_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("hip_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Peito (cm)
-              <input {...register("chest_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("chest_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Braço (cm)
-              <input {...register("arm_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("arm_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Coxa (cm)
-              <input {...register("thigh_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("thigh_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Performance e cardiovascular</h3>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Performance e cardiovascular</h3>
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Força (0-100)
-              <input {...register("strength_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("strength_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Flexibilidade (0-100)
-              <input {...register("flexibility_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("flexibility_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               Cardio (0-100)
-              <input {...register("cardio_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("cardio_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               FC repouso
-              <input {...register("resting_hr")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("resting_hr")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               PA sistólica
-              <input {...register("blood_pressure_systolic")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("blood_pressure_systolic")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-lovable-ink-muted">
               PA diastólica
-              <input {...register("blood_pressure_diastolic")} type="number" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input {...register("blood_pressure_diastolic")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
             </label>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-600">Observações</h3>
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Observações</h3>
           <textarea
             {...register("observations")}
             rows={4}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none"
             placeholder="Observações gerais da avaliação"
           />
         </section>
@@ -235,7 +235,7 @@ export function NewAssessmentPage() {
           <button
             type="submit"
             disabled={createMutation.isPending}
-            className="rounded-full bg-brand-500 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
+            className="rounded-full bg-lovable-primary px-5 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
           >
             {createMutation.isPending ? "Salvando..." : "Salvar avaliação"}
           </button>

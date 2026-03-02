@@ -38,6 +38,9 @@ class TaskOut(BaseModel):
     member_id: UUID | None
     lead_id: UUID | None
     assigned_to_user_id: UUID | None
+    # Enriched display names — populated by the service layer via eager-loaded relationships
+    member_name: str | None = None
+    lead_name: str | None = None
     priority: TaskPriority
     status: TaskStatus
     kanban_column: str

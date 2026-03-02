@@ -23,14 +23,14 @@ export const importExportService = {
   async importMembers(file: File): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
-    const response = await api.post("/api/v1/imports/members", form);
+    const response = await api.post("/api/v1/imports/members", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
 
   async importCheckins(file: File): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
-    const response = await api.post("/api/v1/imports/checkins", form);
+    const response = await api.post("/api/v1/imports/checkins", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
 

@@ -3,6 +3,8 @@
   Bell,
   Bot,
   Briefcase,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   CheckSquare,
   FileText,
@@ -10,8 +12,10 @@
   LogOut,
   Menu,
   Moon,
+  ScrollText,
   Settings,
   ShieldAlert,
+  Star,
   Sun,
   Target,
   Upload,
@@ -21,7 +25,7 @@
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -36,47 +40,124 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const navItems: NavItem[] = [
-  { to: "/dashboard/executive", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/dashboard/operational", label: "Operacional", icon: Activity },
-  { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase },
-  { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-  { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
-  { to: "/members", label: "Membros", icon: UserSquare2 },
-  { to: "/assessments", label: "Avaliações", icon: ClipboardList },
-  { to: "/crm", label: "CRM", icon: Users },
-  { to: "/tasks", label: "Tarefas", icon: CheckSquare },
-  { to: "/goals", label: "Metas", icon: Target },
-  { to: "/reports", label: "Relatórios", icon: FileText },
-  { to: "/imports", label: "Importações", icon: Upload },
-  { to: "/automations", label: "Automações", icon: Bot },
-  { to: "/notifications", label: "Notificações", icon: Bell },
-  { to: "/settings/users", label: "Usuários", icon: UserCog },
-  { to: "/settings", label: "Configurações", icon: Settings },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Dashboards",
+    items: [
+      { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard },
+      { to: "/dashboard/operational", label: "Operacional", icon: Activity },
+      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase },
+      { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
+      { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
+    ],
+  },
+  {
+    label: "Gestão",
+    items: [
+      { to: "/members", label: "Membros", icon: UserSquare2 },
+      { to: "/assessments", label: "Avaliações", icon: ClipboardList },
+      { to: "/crm", label: "CRM", icon: Users },
+      { to: "/tasks", label: "Tarefas", icon: CheckSquare },
+    ],
+  },
+  {
+    label: "Resultados",
+    items: [
+      { to: "/goals", label: "Metas", icon: Target },
+      { to: "/nps", label: "NPS", icon: Star },
+      { to: "/reports", label: "Relatórios", icon: FileText },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [
+      { to: "/automations", label: "Automações", icon: Bot },
+      { to: "/imports", label: "Importações", icon: Upload },
+      { to: "/audit", label: "Auditoria", icon: ScrollText },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { to: "/settings/users", label: "Usuários", icon: UserCog },
+      { to: "/settings", label: "Configurações", icon: Settings },
+    ],
+  },
 ];
 
+function resolveActiveGroup(pathname: string): string | null {
+  for (const group of navGroups) {
+    if (group.items.some((item) => pathname.startsWith(item.to))) {
+      return group.label;
+    }
+  }
+  return null;
+}
+
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+  const activeGroup = resolveActiveGroup(pathname);
+  const [openGroups, setOpenGroups] = useState<string[]>(activeGroup ? [activeGroup] : ["Dashboards"]);
+
+  useEffect(() => {
+    if (activeGroup && !openGroups.includes(activeGroup)) {
+      setOpenGroups((prev) => [...prev, activeGroup]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroup]);
+
+  function toggleGroup(label: string) {
+    setOpenGroups((prev) =>
+      prev.includes(label) ? prev.filter((g) => g !== label) : [...prev, label],
+    );
+  }
+
   return (
-    <nav className="space-y-1 px-3 py-4">
-      {navItems.map((item) => {
-        const Icon = item.icon;
+    <nav className="space-y-0.5 px-3 py-4">
+      {navGroups.map((group) => {
+        const isOpen = openGroups.includes(group.label);
+        const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
         return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition",
-                isActive
-                  ? "bg-lovable-primary text-white shadow-md"
-                  : "text-lovable-ink-muted hover:bg-lovable-primary-soft/60 hover:text-lovable-ink",
-              )
-            }
-          >
-            <Icon size={16} />
-            <span>{item.label}</span>
-          </NavLink>
+          <div key={group.label}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.label)}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
+            >
+              {group.label}
+              <ChevronIcon size={13} />
+            </button>
+            {isOpen && (
+              <div className="mt-0.5 mb-1 space-y-0.5 pl-2">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition",
+                          isActive
+                            ? "bg-lovable-primary text-white shadow-md"
+                            : "text-lovable-ink-muted hover:bg-lovable-primary-soft/60 hover:text-lovable-ink",
+                        )
+                      }
+                    >
+                      <Icon size={16} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </nav>
@@ -84,8 +165,11 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function resolveCurrentSection(pathname: string): string {
-  const item = navItems.find((candidate) => pathname.startsWith(candidate.to));
-  return item?.label ?? "AI GYM OS";
+  for (const group of navGroups) {
+    const item = group.items.find((candidate) => pathname.startsWith(candidate.to));
+    if (item) return item.label;
+  }
+  return "AI GYM OS";
 }
 
 export function LovableLayout() {
