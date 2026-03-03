@@ -219,4 +219,8 @@ class AssessmentDashboardOut(BaseModel):
     overdue_assessments: int
     never_assessed: int
     upcoming_7_days: int
+    total_members_items: list[MemberMiniOut] = Field(default_factory=list)
+    assessed_members: list[MemberMiniOut] = Field(default_factory=list)
     overdue_members: list[MemberMiniOut]
+    never_assessed_members: list[MemberMiniOut] = Field(default_factory=list)
+    upcoming_members: list[MemberMiniOut] = Field(default_factory=list)

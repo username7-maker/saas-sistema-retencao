@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -11,6 +12,8 @@ from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import encrypt_cpf
+
+MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
 
 
 def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None) -> Member:
@@ -59,6 +62,7 @@ def list_members(
     search: str | None = None,
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
+    plan_cycle: MemberPlanCycle | None = None,
     min_days_without_checkin: int | None = None,
 ) -> PaginatedResponse:
     base_filters = [Member.deleted_at.is_(None)]
@@ -70,6 +74,13 @@ def list_members(
         base_filters.append(Member.risk_level == risk_level)
     if status:
         base_filters.append(Member.status == status)
+    if plan_cycle:
+        plan_label = {
+            "monthly": "mensal",
+            "semiannual": "semestral",
+            "annual": "anual",
+        }[plan_cycle]
+        base_filters.append(Member.plan_name.ilike(f"%{plan_label}%"))
     if min_days_without_checkin is not None:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
         base_filters.append(Member.last_checkin_at.is_not(None))

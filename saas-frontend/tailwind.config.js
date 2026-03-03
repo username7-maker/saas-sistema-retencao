@@ -6,11 +6,11 @@ export default {
     extend: {
       colors: {
         brand: {
-          50: "#eefbf7",
-          100: "#d6f5eb",
-          300: "#7bdcbf",
-          500: "#1d9a7f",
-          700: "#116756",
+          50: "#fff7ec",
+          100: "#ffe7cc",
+          300: "#ffc078",
+          500: "#f58a1b",
+          700: "#b66100",
         },
         lovable: {
           bg: "hsl(var(--lovable-bg))",
@@ -34,8 +34,8 @@ export default {
         display: ["'Space Grotesk'", "sans-serif"],
       },
       boxShadow: {
-        panel: "0 15px 35px -20px rgba(17, 103, 86, 0.35)",
-        lovable: "0 16px 40px -24px rgba(9, 30, 28, 0.35)",
+        panel: "0 16px 40px -24px rgba(245, 138, 27, 0.28)",
+        lovable: "0 16px 40px -24px rgba(15, 15, 15, 0.45)",
       },
       keyframes: {
         rise: {

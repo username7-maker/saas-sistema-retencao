@@ -37,7 +37,7 @@ class LeadUpdate(BaseModel):
 class LeadOut(BaseModel):
     id: UUID
     full_name: str
-    email: EmailStr | None
+    email: str | None
     phone: str | None
     source: str
     stage: LeadStage

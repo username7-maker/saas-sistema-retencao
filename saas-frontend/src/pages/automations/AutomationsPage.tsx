@@ -1,9 +1,9 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 
@@ -112,13 +112,49 @@ function thresholdLabel(triggerType: string): string {
   }
 }
 
+function thresholdFromTriggerConfig(triggerType: string, triggerConfig: Record<string, unknown>): number {
+  const raw =
+    triggerType === "inactivity_days"
+      ? triggerConfig.days
+      : triggerType === "nps_score"
+        ? triggerConfig.max_score
+        : triggerType === "lead_stale"
+          ? triggerConfig.stale_days
+          : triggerType === "checkin_streak"
+            ? triggerConfig.streak_days
+            : 7;
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 7;
+  }
+  return 7;
+}
+
+function riskLevelFromTriggerConfig(triggerConfig: Record<string, unknown>): "red" | "yellow" | "green" {
+  const level = triggerConfig.level;
+  if (level === "yellow" || level === "green") return level;
+  return "red";
+}
+
+function messageFromActionConfig(actionType: string, actionConfig: Record<string, unknown>): string {
+  if (actionType === "send_whatsapp" && typeof actionConfig.message === "string") return actionConfig.message;
+  if (actionType === "send_email" && typeof actionConfig.body === "string") return actionConfig.body;
+  if (actionType === "notify" && typeof actionConfig.message === "string") return actionConfig.message;
+  if (actionType === "create_task" && typeof actionConfig.description === "string") return actionConfig.description;
+  return "";
+}
+
 interface RuleFormDrawerProps {
   open: boolean;
+  mode: "create" | "edit";
+  rule: AutomationRule | null;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
+function RuleFormDrawer({ open, mode, rule, onClose, onSaved }: RuleFormDrawerProps) {
+  const isEditMode = mode === "edit" && rule !== null;
   const {
     register,
     handleSubmit,
@@ -128,8 +164,44 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
     formState: { errors, isSubmitting },
   } = useForm<RuleFormValues>({
     resolver: zodResolver(ruleSchema),
-    defaultValues: { is_active: true, threshold_value: 7, risk_level_target: "red" },
+    defaultValues: {
+      name: "",
+      description: "",
+      trigger_type: "",
+      action_type: "",
+      message: "",
+      is_active: true,
+      threshold_value: 7,
+      risk_level_target: "red",
+    },
   });
+
+  useEffect(() => {
+    if (!open) return;
+    if (isEditMode && rule) {
+      reset({
+        name: rule.name,
+        description: rule.description ?? "",
+        trigger_type: rule.trigger_type,
+        action_type: rule.action_type,
+        message: messageFromActionConfig(rule.action_type, rule.action_config),
+        threshold_value: thresholdFromTriggerConfig(rule.trigger_type, rule.trigger_config),
+        risk_level_target: riskLevelFromTriggerConfig(rule.trigger_config),
+        is_active: rule.is_active,
+      });
+      return;
+    }
+    reset({
+      name: "",
+      description: "",
+      trigger_type: "",
+      action_type: "",
+      message: "",
+      is_active: true,
+      threshold_value: 7,
+      risk_level_target: "red",
+    });
+  }, [open, isEditMode, rule, reset]);
 
   const triggerType = watch("trigger_type");
   const actionType = watch("action_type");
@@ -141,7 +213,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
     mutationFn: (values: RuleFormValues) =>
       automationService.createRule({
         name: values.name,
-        description: values.description,
+        description: values.description?.trim() || undefined,
         trigger_type: values.trigger_type,
         trigger_config: buildTriggerConfig(values),
         action_type: values.action_type,
@@ -157,11 +229,48 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
     onError: () => toast.error("Erro ao criar regra. Tente novamente."),
   });
 
-  const isPending = isSubmitting || createMutation.isPending;
+  const updateMutation = useMutation({
+    mutationFn: (values: RuleFormValues) => {
+      if (!rule) throw new Error("Regra não selecionada para edição.");
+      return automationService.updateRule(rule.id, {
+        name: values.name,
+        description: values.description?.trim() || "",
+        trigger_config: {
+          ...rule.trigger_config,
+          ...buildTriggerConfig(values),
+        },
+        action_config: {
+          ...rule.action_config,
+          ...buildActionConfig(values),
+        },
+        is_active: values.is_active,
+      });
+    },
+    onSuccess: () => {
+      toast.success("Regra atualizada com sucesso!");
+      onSaved();
+      onClose();
+    },
+    onError: () => toast.error("Erro ao atualizar regra. Tente novamente."),
+  });
+
+  const isPending = isSubmitting || createMutation.isPending || updateMutation.isPending;
+  const drawerTitle = isEditMode ? "Editar Regra de Automação" : "Nova Regra de Automação";
+  const submitLabel = isEditMode ? "Salvar Alterações" : "Criar Regra";
+  const submittingLabel = isEditMode ? "Salvando..." : "Criando...";
 
   return (
-    <Drawer open={open} onClose={onClose} title="Nova Regra de Automação">
-      <form onSubmit={handleSubmit((values) => createMutation.mutate(values))} className="flex flex-col gap-4 p-1">
+    <Drawer open={open} onClose={onClose} title={drawerTitle}>
+      <form
+        onSubmit={handleSubmit((values) => {
+          if (isEditMode) {
+            updateMutation.mutate(values);
+            return;
+          }
+          createMutation.mutate(values);
+        })}
+        className="flex flex-col gap-4 p-1"
+      >
         <FormField label="Nome" required error={errors.name?.message}>
           <Input {...register("name")} placeholder="Ex: Reengajamento 30 dias" />
         </FormField>
@@ -171,7 +280,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
         </FormField>
 
         <FormField label="Gatilho" required error={errors.trigger_type?.message}>
-          <Select {...register("trigger_type")}>
+          <Select {...register("trigger_type")} disabled={isEditMode}>
             <option value="">Selecione um gatilho...</option>
             {TRIGGER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -200,7 +309,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
         ) : null}
 
         <FormField label="Ação" required error={errors.action_type?.message}>
-          <Select {...register("action_type")}>
+          <Select {...register("action_type")} disabled={isEditMode}>
             <option value="">Selecione uma ação...</option>
             {ACTION_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -209,6 +318,9 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
             ))}
           </Select>
         </FormField>
+        {isEditMode ? (
+          <p className="text-xs text-lovable-ink-muted">Gatilho e ação permanecem fixos ao editar uma regra existente.</p>
+        ) : null}
 
         {needsMessage ? (
           <FormField label="Mensagem / Conteudo">
@@ -241,7 +353,7 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
 
         <div className="flex gap-2 pt-2">
           <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-            {isPending ? "Criando..." : "Criar Regra"}
+            {isPending ? submittingLabel : submitLabel}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
@@ -255,11 +367,13 @@ function RuleFormDrawer({ open, onClose, onSaved }: RuleFormDrawerProps) {
 function RuleCard({
   rule,
   onToggle,
+  onEdit,
   onDelete,
   isToggling,
 }: {
   rule: AutomationRule;
   onToggle: (active: boolean) => void;
+  onEdit: () => void;
   onDelete: () => void;
   isToggling: boolean;
 }) {
@@ -295,6 +409,14 @@ function RuleCard({
             title={rule.is_active ? "Desativar" : "Ativar"}
           >
             {rule.is_active ? <ToggleRight size={24} className="text-lovable-primary" /> : <ToggleLeft size={24} />}
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-lovable-ink-muted transition hover:text-lovable-primary"
+            title="Editar regra"
+          >
+            <Pencil size={16} />
           </button>
           <button
             type="button"
@@ -398,6 +520,7 @@ export function AutomationsPage() {
   const [executing, setExecuting] = useState(false);
   const [execResults, setExecResults] = useState<ExecResult[] | null>(null);
   const [ruleDrawerOpen, setRuleDrawerOpen] = useState(false);
+  const [ruleToEdit, setRuleToEdit] = useState<AutomationRule | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<AutomationRule | null>(null);
 
   const rulesQuery = useQuery({
@@ -474,7 +597,13 @@ export function AutomationsPage() {
               {seedMutation.isPending ? "Criando..." : "Criar Regras Padrão"}
             </Button>
           ) : null}
-          <Button variant="ghost" onClick={() => setRuleDrawerOpen(true)}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setRuleToEdit(null);
+              setRuleDrawerOpen(true);
+            }}
+          >
             <Plus size={14} />
             Nova Regra
           </Button>
@@ -500,6 +629,10 @@ export function AutomationsPage() {
               key={rule.id}
               rule={rule}
               onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
+              onEdit={() => {
+                setRuleDrawerOpen(false);
+                setRuleToEdit(rule);
+              }}
               onDelete={() => setRuleToDelete(rule)}
               isToggling={toggleMutation.isPending}
             />
@@ -526,8 +659,13 @@ export function AutomationsPage() {
       </section>
 
       <RuleFormDrawer
-        open={ruleDrawerOpen}
-        onClose={() => setRuleDrawerOpen(false)}
+        open={ruleDrawerOpen || Boolean(ruleToEdit)}
+        mode={ruleToEdit ? "edit" : "create"}
+        rule={ruleToEdit}
+        onClose={() => {
+          setRuleDrawerOpen(false);
+          setRuleToEdit(null);
+        }}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] })}
       />
 

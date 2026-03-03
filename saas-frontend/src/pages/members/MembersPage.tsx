@@ -4,6 +4,7 @@ import { Search, UserPlus, X, Edit2, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { memberService } from "../../services/memberService";
+import type { MemberPlanCycle } from "../../services/memberService";
 import type { Member, RiskLevel } from "../../types";
 import { Badge, Button, Card, CardContent, Dialog, Input, Pagination, Select } from "../../components/ui2";
 import { AddMemberDrawer } from "./AddMemberDrawer";
@@ -134,6 +135,18 @@ export function MembersPage() {
                 <option value="green">Verde</option>
                 <option value="yellow">Amarelo</option>
                 <option value="red">Vermelho</option>
+              </Select>
+            </div>
+
+            <div className="w-full md:w-56">
+              <Select
+                value={filters.plan_cycle ?? ""}
+                onChange={(event) => handleFilterChange("plan_cycle", event.target.value as MemberPlanCycle | undefined)}
+              >
+                <option value="">Todos os planos</option>
+                <option value="monthly">Mensal</option>
+                <option value="semiannual">Semestral</option>
+                <option value="annual">Anual</option>
               </Select>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import toast from "react-hot-toast";
 import { PipelineKanban } from "../../components/crm/PipelineKanban";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { crmService } from "../../services/crmService";
-import { Button, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
+import { Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import type { Lead } from "../../types";
 
 const LEAD_SOURCES = [
@@ -22,6 +22,18 @@ const LEAD_SOURCES = [
   "Presencial",
   "Outro",
 ] as const;
+
+const STAGE_LABELS: Record<Lead["stage"], string> = {
+  new: "Novo",
+  contact: "Contato",
+  visit: "Visita",
+  trial: "Experimental",
+  proposal: "Proposta",
+  won: "Fechado",
+  lost: "Perdido",
+};
+
+type ContactFilter = "all" | "never_contacted" | "stale_3" | "stale_7" | "recent_3";
 
 const leadSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
@@ -54,6 +66,14 @@ function extractNotesValue(notes: Lead["notes"]): string {
     .filter(Boolean);
 
   return lines.join("\n");
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 interface LeadFormDrawerProps {
@@ -251,6 +271,10 @@ export function CrmPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [stageFilter, setStageFilter] = useState<Lead["stage"] | "all">("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
 
   const leadsQuery = useQuery({
     queryKey: ["crm", "leads"],
@@ -280,6 +304,69 @@ export function CrmPage() {
     setDrawerOpen(true);
   }, [leadsQuery.data, searchParams]);
 
+  const sourceOptions = useMemo(() => {
+    const items = leadsQuery.data?.items ?? [];
+    const unique = Array.from(
+      new Set(items.map((lead) => lead.source?.trim()).filter((value): value is string => Boolean(value))),
+    );
+    return unique.sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }, [leadsQuery.data]);
+
+  const filteredLeads = useMemo(() => {
+    const items = leadsQuery.data?.items ?? [];
+    const normalizedQuery = normalizeText(searchQuery);
+    const now = Date.now();
+
+    return items.filter((lead) => {
+      if (stageFilter !== "all" && lead.stage !== stageFilter) {
+        return false;
+      }
+
+      if (sourceFilter !== "all" && lead.source !== sourceFilter) {
+        return false;
+      }
+
+      if (normalizedQuery) {
+        const haystack = normalizeText([lead.full_name, lead.email ?? "", lead.phone ?? "", lead.source ?? ""].join(" "));
+        if (!haystack.includes(normalizedQuery)) {
+          return false;
+        }
+      }
+
+      const parsedLastContact = lead.last_contact_at ? Date.parse(lead.last_contact_at) : Number.NaN;
+      const hasLastContact = Number.isFinite(parsedLastContact);
+      const daysWithoutContact = hasLastContact ? (now - parsedLastContact) / (1000 * 60 * 60 * 24) : null;
+      const isOpenStage = lead.stage !== "won" && lead.stage !== "lost";
+
+      if (contactFilter === "never_contacted") {
+        return !hasLastContact;
+      }
+
+      if (contactFilter === "stale_3") {
+        return isOpenStage && (!hasLastContact || (daysWithoutContact ?? 0) > 3);
+      }
+
+      if (contactFilter === "stale_7") {
+        return isOpenStage && (!hasLastContact || (daysWithoutContact ?? 0) > 7);
+      }
+
+      if (contactFilter === "recent_3") {
+        return isOpenStage && hasLastContact && (daysWithoutContact ?? Infinity) <= 3;
+      }
+
+      return true;
+    });
+  }, [contactFilter, leadsQuery.data, searchQuery, sourceFilter, stageFilter]);
+
+  const activeFiltersCount = useMemo(() => {
+    return (
+      (searchQuery.trim() ? 1 : 0) +
+      (stageFilter !== "all" ? 1 : 0) +
+      (sourceFilter !== "all" ? 1 : 0) +
+      (contactFilter !== "all" ? 1 : 0)
+    );
+  }, [contactFilter, searchQuery, sourceFilter, stageFilter]);
+
   function handleNewLead() {
     setSelectedLead(null);
     setDrawerOpen(true);
@@ -305,6 +392,13 @@ export function CrmPage() {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
   }
 
+  function clearFilters() {
+    setSearchQuery("");
+    setStageFilter("all");
+    setSourceFilter("all");
+    setContactFilter("all");
+  }
+
   if (leadsQuery.isLoading) {
     return <LoadingPanel text="Carregando CRM..." />;
   }
@@ -327,12 +421,79 @@ export function CrmPage() {
         </Button>
       </header>
 
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[260px] flex-1">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Buscar</label>
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Nome, email, telefone ou origem..."
+              />
+            </div>
+
+            <div className="w-full md:w-52">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Estagio</label>
+              <Select value={stageFilter} onChange={(event) => setStageFilter(event.target.value as Lead["stage"] | "all")}>
+                <option value="all">Todos os estagios</option>
+                {Object.entries(STAGE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="w-full md:w-52">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Origem</label>
+              <Select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+                <option value="all">Todas as origens</option>
+                {sourceOptions.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="w-full md:w-64">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Contato</label>
+              <Select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as ContactFilter)}>
+                <option value="all">Todos</option>
+                <option value="never_contacted">Nunca contatados</option>
+                <option value="stale_3">Sem contato 3+ dias</option>
+                <option value="stale_7">Sem contato 7+ dias</option>
+                <option value="recent_3">Contato recente (ate 3 dias)</option>
+              </Select>
+            </div>
+
+            <div className="w-full md:w-auto">
+              <Button variant="ghost" onClick={clearFilters} disabled={activeFiltersCount === 0}>
+                Limpar filtros
+              </Button>
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs text-lovable-ink-muted">
+            {filteredLeads.length} de {leadsQuery.data.items.length} lead(s) exibidos
+            {activeFiltersCount > 0 ? ` (${activeFiltersCount} filtro(s) ativo(s))` : ""}.
+          </p>
+        </CardContent>
+      </Card>
+
       {moveMutation.isPending ? (
         <p className="rounded-lg bg-lovable-primary-soft px-3 py-2 text-xs text-lovable-primary">Atualizando estágio...</p>
       ) : null}
 
+      {filteredLeads.length === 0 ? (
+        <p className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-3 text-sm text-lovable-ink-muted">
+          Nenhum lead encontrado com os filtros atuais.
+        </p>
+      ) : null}
+
       <PipelineKanban
-        leads={leadsQuery.data.items}
+        leads={filteredLeads}
         onMove={(leadId, stage) => moveMutation.mutate({ leadId, stage })}
         onCardClick={handleCardClick}
       />

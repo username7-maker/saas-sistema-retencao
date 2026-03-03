@@ -1,12 +1,15 @@
 import { api } from "./api";
 import type { Member, PaginatedResponse, RiskLevel } from "../types";
 
+export type MemberPlanCycle = "monthly" | "semiannual" | "annual";
+
 export interface MemberFilters {
   page?: number;
   page_size?: number;
   search?: string;
   risk_level?: RiskLevel;
   status?: Member["status"];
+  plan_cycle?: MemberPlanCycle;
   min_days_without_checkin?: number;
 }
 
@@ -32,7 +35,7 @@ export interface MemberUpdatePayload {
 
 export const memberService = {
   async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
-    const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members", {
+    const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members/", {
       params: { page_size: 20, ...filters },
     });
     return data;
@@ -44,7 +47,7 @@ export const memberService = {
   },
 
   async createMember(payload: MemberCreatePayload): Promise<Member> {
-    const { data } = await api.post<Member>("/api/v1/members", payload);
+    const { data } = await api.post<Member>("/api/v1/members/", payload);
     return data;
   },
 

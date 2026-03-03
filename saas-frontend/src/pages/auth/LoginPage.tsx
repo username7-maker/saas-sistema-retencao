@@ -43,40 +43,40 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_#d6f5eb_0%,_#f8fffd_30%,_#eff6ff_100%)] px-4">
-      <div className="w-full max-w-md rounded-3xl border border-brand-100 bg-white/90 p-8 shadow-panel">
-        <h1 className="font-heading text-3xl font-bold text-brand-700">AI GYM OS</h1>
-        <p className="mt-2 text-sm text-slate-500">Acesso seguro ao sistema de retenção e BI.</p>
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-3xl border border-lovable-border bg-lovable-surface/95 p-8 shadow-panel backdrop-blur">
+        <h1 className="font-heading text-3xl font-bold text-lovable-primary">AI GYM OS</h1>
+        <p className="mt-2 text-sm text-lovable-ink-muted">Acesso seguro ao sistema de retenção e BI.</p>
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit(onSubmit)}>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Academia (slug)</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Academia (slug)</label>
             <input
               {...register("gym_slug")}
               type="text"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-300 focus:ring"
+              className="w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink outline-none ring-lovable-primary/30 focus:ring"
               placeholder="academia-centro"
             />
             {errors.gym_slug && <p className="mt-1 text-xs text-rose-500">{errors.gym_slug.message}</p>}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">E-mail</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">E-mail</label>
             <input
               {...register("email")}
               type="email"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-300 focus:ring"
+              className="w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink outline-none ring-lovable-primary/30 focus:ring"
               placeholder="gestor@academia.com"
             />
             {errors.email && <p className="mt-1 text-xs text-rose-500">{errors.email.message}</p>}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Senha</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Senha</label>
             <input
               {...register("password")}
               type="password"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-300 focus:ring"
+              className="w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink outline-none ring-lovable-primary/30 focus:ring"
               placeholder="••••••••"
             />
             {errors.password && <p className="mt-1 text-xs text-rose-500">{errors.password.message}</p>}
@@ -87,7 +87,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-xl bg-brand-500 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl bg-lovable-primary py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Autenticando..." : "Entrar"}
           </button>

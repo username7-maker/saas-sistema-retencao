@@ -140,7 +140,11 @@ export interface AssessmentDashboard {
   overdue_assessments: number;
   never_assessed: number;
   upcoming_7_days: number;
+  total_members_items: MemberMini[];
+  assessed_members: MemberMini[];
   overdue_members: MemberMini[];
+  never_assessed_members: MemberMini[];
+  upcoming_members: MemberMini[];
 }
 
 export interface AssessmentCreateInput {

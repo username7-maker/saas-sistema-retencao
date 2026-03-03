@@ -53,7 +53,11 @@ def assessments_dashboard_endpoint(
         overdue_assessments=payload["overdue_assessments"],
         never_assessed=payload["never_assessed"],
         upcoming_7_days=payload["upcoming_7_days"],
+        total_members_items=[MemberMiniOut.model_validate(item) for item in payload.get("total_members_items", [])],
+        assessed_members=[MemberMiniOut.model_validate(item) for item in payload.get("assessed_members", [])],
         overdue_members=[MemberMiniOut.model_validate(item) for item in payload["overdue_members"]],
+        never_assessed_members=[MemberMiniOut.model_validate(item) for item in payload.get("never_assessed_members", [])],
+        upcoming_members=[MemberMiniOut.model_validate(item) for item in payload.get("upcoming_members", [])],
     )
 
 

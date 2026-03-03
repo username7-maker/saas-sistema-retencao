@@ -62,6 +62,30 @@ def get_assessments_dashboard(db: Session) -> dict:
         )
     ) or 0
 
+    member_ordering = (Member.risk_score.desc(), Member.updated_at.desc())
+
+    total_members_items = list(
+        db.scalars(
+            select(Member)
+            .where(Member.deleted_at.is_(None))
+            .order_by(*member_ordering)
+            .limit(20)
+        ).all()
+    )
+
+    assessed_members = list(
+        db.scalars(
+            select(Member)
+            .join(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .where(
+                Member.deleted_at.is_(None),
+                latest_assessment_subquery.c.last_assessment_date >= cutoff_90,
+            )
+            .order_by(latest_assessment_subquery.c.last_assessment_date.desc(), *member_ordering)
+            .limit(20)
+        ).all()
+    )
+
     overdue_members = list(
         db.scalars(
             select(Member)
@@ -73,7 +97,40 @@ def get_assessments_dashboard(db: Session) -> dict:
                     latest_assessment_subquery.c.last_assessment_date < cutoff_90,
                 ),
             )
-            .order_by(Member.risk_score.desc(), Member.updated_at.desc())
+            .order_by(*member_ordering)
+            .limit(20)
+        ).all()
+    )
+
+    never_assessed_members = list(
+        db.scalars(
+            select(Member)
+            .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .where(
+                Member.deleted_at.is_(None),
+                latest_assessment_subquery.c.last_assessment_date.is_(None),
+            )
+            .order_by(*member_ordering)
+            .limit(20)
+        ).all()
+    )
+
+    upcoming_members_subquery = (
+        select(distinct(Assessment.member_id).label("member_id"))
+        .where(
+            Assessment.deleted_at.is_(None),
+            Assessment.next_assessment_due.is_not(None),
+            Assessment.next_assessment_due >= today,
+            Assessment.next_assessment_due <= next_7,
+        )
+        .subquery()
+    )
+    upcoming_members = list(
+        db.scalars(
+            select(Member)
+            .join(upcoming_members_subquery, upcoming_members_subquery.c.member_id == Member.id)
+            .where(Member.deleted_at.is_(None))
+            .order_by(*member_ordering)
             .limit(20)
         ).all()
     )
@@ -84,7 +141,11 @@ def get_assessments_dashboard(db: Session) -> dict:
         "overdue_assessments": int(overdue_assessments),
         "never_assessed": int(never_assessed),
         "upcoming_7_days": int(upcoming_7_days),
+        "total_members_items": total_members_items,
+        "assessed_members": assessed_members,
         "overdue_members": overdue_members,
+        "never_assessed_members": never_assessed_members,
+        "upcoming_members": upcoming_members,
     }
 
 

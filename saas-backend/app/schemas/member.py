@@ -39,7 +39,7 @@ class MemberUpdate(BaseModel):
 class MemberOut(BaseModel):
     id: UUID
     full_name: str
-    email: EmailStr | None
+    email: str | None
     phone: str | None
     status: MemberStatus
     plan_name: str

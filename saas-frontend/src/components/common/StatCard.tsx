@@ -12,6 +12,7 @@ interface StatCardProps {
   };
   tooltip?: string;
   onClick?: () => void;
+  active?: boolean;
 }
 
 const toneStyles: Record<NonNullable<StatCardProps["tone"]>, string> = {
@@ -21,7 +22,7 @@ const toneStyles: Record<NonNullable<StatCardProps["tone"]>, string> = {
   danger: "from-rose-700 to-rose-500",
 };
 
-export function StatCard({ label, value, tone = "neutral", trend, tooltip, onClick }: StatCardProps) {
+export function StatCard({ label, value, tone = "neutral", trend, tooltip, onClick, active = false }: StatCardProps) {
   const trendDirection = trend ? (trend.value > 0 ? "up" : trend.value < 0 ? "down" : "flat") : null;
 
   const isTrendPositive = trend
@@ -41,9 +42,20 @@ export function StatCard({ label, value, tone = "neutral", trend, tooltip, onCli
       className={clsx(
         "group relative rounded-2xl bg-gradient-to-br p-5 text-white shadow-panel transition hover:-translate-y-1",
         toneStyles[tone],
+        active && "ring-2 ring-white/80",
         onClick && "cursor-pointer",
       )}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-pressed={onClick ? active : undefined}
       title={tooltip}
     >
       <p className="text-xs uppercase tracking-[0.2em] text-white/70">{label}</p>

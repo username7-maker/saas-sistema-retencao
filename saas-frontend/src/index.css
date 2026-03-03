@@ -8,10 +8,14 @@
   color-scheme: light;
 }
 
+.dark {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family: "Plus Jakarta Sans", sans-serif;
-  background: linear-gradient(180deg, #f8fffd 0%, #edf6ff 100%);
+  background: hsl(var(--lovable-bg));
 }
 
 * {

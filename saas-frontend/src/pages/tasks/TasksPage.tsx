@@ -29,6 +29,7 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
 
 type SourceFilter = "all" | "onboarding" | "plan_followup" | "automation" | "manual";
 type PlanFilter = "all" | "mensal" | "semestral" | "anual";
+type TopTaskFilter = "all" | "pending" | "overdue";
 
 const SOURCE_FILTER_LABELS: Record<SourceFilter, string> = {
   all: "Todas",
@@ -261,6 +262,7 @@ export function TasksPage() {
 
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
+  const [topFilter, setTopFilter] = useState<TopTaskFilter>("all");
   const [planFilter, setPlanFilter] = useState<PlanFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -333,9 +335,11 @@ export function TasksPage() {
   const filtered = useMemo(() => {
     let list = allTasks.filter((t) => isDueTodayOrPast(t, todayKey));
     if (!showDone) list = list.filter((t) => t.status !== "done");
+    if (topFilter === "pending") list = list.filter((t) => t.status !== "done" && t.status !== "cancelled");
+    if (topFilter === "overdue") list = list.filter((t) => isOverdue(t, todayKey));
     if (sourceFilter !== "all") list = list.filter((t) => taskSource(t) === sourceFilter);
     return list;
-  }, [allTasks, showDone, sourceFilter, todayKey]);
+  }, [allTasks, showDone, sourceFilter, todayKey, topFilter]);
 
   const groups = useMemo(() => {
     const draft = new Map<string, TaskGroup>();
@@ -416,6 +420,8 @@ export function TasksPage() {
   const totalTasks = allTasks.length;
   const pendingTasks = allTasks.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
   const overdueTasks = allTasks.filter((t) => isOverdue(t, todayKey)).length;
+  const topFilterLabel =
+    topFilter === "pending" ? "Filtrando: pendentes" : topFilter === "overdue" ? "Filtrando: atrasadas" : null;
 
   return (
     <>
@@ -430,9 +436,40 @@ export function TasksPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="neutral">Total: {totalTasks}</Badge>
-              <Badge variant="warning">Pendentes: {pendingTasks}</Badge>
-              {overdueTasks > 0 ? <Badge variant="danger">Atrasadas: {overdueTasks}</Badge> : null}
+              <button type="button" className="rounded-full" onClick={() => setTopFilter("all")}>
+                <Badge
+                  variant="neutral"
+                  className={topFilter === "all" ? "ring-2 ring-lovable-primary/40" : "opacity-80 hover:opacity-100"}
+                >
+                  Total: {totalTasks}
+                </Badge>
+              </button>
+              <button
+                type="button"
+                className="rounded-full"
+                onClick={() => setTopFilter((prev) => (prev === "pending" ? "all" : "pending"))}
+              >
+                <Badge
+                  variant="warning"
+                  className={topFilter === "pending" ? "ring-2 ring-lovable-warning/50" : "opacity-80 hover:opacity-100"}
+                >
+                  Pendentes: {pendingTasks}
+                </Badge>
+              </button>
+              {overdueTasks > 0 ? (
+                <button
+                  type="button"
+                  className="rounded-full"
+                  onClick={() => setTopFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}
+                >
+                  <Badge
+                    variant="danger"
+                    className={topFilter === "overdue" ? "ring-2 ring-lovable-danger/50" : "opacity-80 hover:opacity-100"}
+                  >
+                    Atrasadas: {overdueTasks}
+                  </Badge>
+                </button>
+              ) : null}
               {hiddenFutureCount > 0 ? <Badge variant="neutral">Futuras ocultas: {hiddenFutureCount}</Badge> : null}
               <Button variant={showDone ? "secondary" : "ghost"} size="sm" onClick={() => setShowDone((p) => !p)}>
                 {showDone ? "Ocultar concluídas" : "Mostrar concluídas"}
@@ -442,6 +479,7 @@ export function TasksPage() {
               </Button>
             </div>
           </div>
+          {topFilterLabel ? <p className="text-xs font-medium text-lovable-primary">{topFilterLabel}</p> : null}
 
           {/* Search */}
           <Input

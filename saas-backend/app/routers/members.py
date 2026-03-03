@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -52,6 +52,7 @@ def list_members_endpoint(
     search: str | None = None,
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
+    plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
     min_days_without_checkin: int | None = Query(default=None, ge=0),
 ) -> PaginatedResponse[MemberOut]:
     return list_members(
@@ -61,6 +62,7 @@ def list_members_endpoint(
         search=search,
         risk_level=risk_level,
         status=status,
+        plan_cycle=plan_cycle,
         min_days_without_checkin=min_days_without_checkin,
     )
 
