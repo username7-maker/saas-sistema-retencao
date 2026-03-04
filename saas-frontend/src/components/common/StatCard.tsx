@@ -18,8 +18,8 @@ interface StatCardProps {
 const toneStyles: Record<NonNullable<StatCardProps["tone"]>, string> = {
   neutral: "from-lovable-ink to-[hsl(var(--lovable-ink)/0.8)]",
   success: "from-lovable-primary to-[hsl(var(--lovable-primary)/0.7)]",
-  warning: "from-amber-600 to-amber-500",
-  danger: "from-rose-700 to-rose-500",
+  warning: "from-lovable-warning to-[hsl(var(--lovable-warning)/0.7)]",
+  danger: "from-lovable-danger to-[hsl(var(--lovable-danger)/0.7)]",
 };
 
 export function StatCard({ label, value, tone = "neutral", trend, tooltip, onClick, active = false }: StatCardProps) {

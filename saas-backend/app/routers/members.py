@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
@@ -175,3 +176,32 @@ def create_body_composition_endpoint(
     evaluation = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
     db.commit()
     return evaluation
+
+
+class ContactLogCreate(BaseModel):
+    outcome: Literal["answered", "no_answer", "voicemail", "invalid_number"]
+    note: str | None = None
+
+
+@router.post("/{member_id}/contact-log", status_code=status.HTTP_201_CREATED)
+def create_contact_log_endpoint(
+    request: Request,
+    member_id: UUID,
+    payload: ContactLogCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> dict:
+    get_member_or_404(db, member_id)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="call_log_manual",
+        entity="contact_log",
+        member_id=member_id,
+        user=current_user,
+        details={"outcome": payload.outcome, "note": payload.note or ""},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return {"status": "logged"}

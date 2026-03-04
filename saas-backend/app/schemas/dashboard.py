@@ -82,3 +82,7 @@ class RetentionDashboard(BaseModel):
     red: RetentionBucket
     yellow: RetentionBucket
     nps_trend: list[NPSEvolutionPoint]
+    mrr_at_risk: float = 0.0
+    avg_red_score: float = 0.0
+    avg_yellow_score: float = 0.0
+    last_contact_map: dict[str, str] = {}  # member_id → ISO datetime do último contato

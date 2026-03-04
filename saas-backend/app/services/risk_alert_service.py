@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.database import get_current_gym_id
 from app.models import RiskAlert, RiskLevel, User
 from app.schemas import PaginatedResponse
 from app.services.audit_service import log_audit_event
@@ -18,7 +19,8 @@ def list_risk_alerts(
     level: RiskLevel | None = None,
     resolved: bool | None = None,
 ) -> PaginatedResponse:
-    filters = []
+    gym_id = get_current_gym_id()
+    filters = [RiskAlert.gym_id == gym_id] if gym_id else []
     if level:
         filters.append(RiskAlert.level == level)
     if resolved is not None:

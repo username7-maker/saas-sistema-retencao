@@ -73,8 +73,16 @@ export const dashboardService = {
     red: { total: number; items: Member[] };
     yellow: { total: number; items: Member[] };
     nps_trend: NPSEvolutionPoint[];
+    mrr_at_risk: number;
+    avg_red_score: number;
+    avg_yellow_score: number;
+    last_contact_map: Record<string, string>;
   }> {
     const { data } = await api.get("/api/v1/dashboards/retention");
     return data;
+  },
+
+  async contactLog(memberId: string, outcome: "answered" | "no_answer" | "voicemail" | "invalid_number", note?: string): Promise<void> {
+    await api.post(`/api/v1/members/${memberId}/contact-log`, { outcome, note });
   },
 };

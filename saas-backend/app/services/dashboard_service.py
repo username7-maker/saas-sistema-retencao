@@ -5,7 +5,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
-from app.models import Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskLevel
+from app.models import AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskLevel
 from app.schemas import (
     ChurnPoint,
     ConversionBySource,
@@ -285,28 +285,48 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
     if cached is not None:
         return cached
 
-    red_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
-    yellow_query = select(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
+    base_red = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
+    base_yellow = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
 
-    red_total = db.scalar(
-        select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
-    ) or 0
-    yellow_total = db.scalar(
-        select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
-    ) or 0
+    red_total = db.scalar(select(func.count()).select_from(Member).where(*base_red)) or 0
+    yellow_total = db.scalar(select(func.count()).select_from(Member).where(*base_yellow)) or 0
 
     red_items = db.scalars(
-        red_query.order_by(Member.risk_score.desc()).offset((red_page - 1) * page_size).limit(page_size)
+        select(Member).where(*base_red).order_by(Member.risk_score.desc()).offset((red_page - 1) * page_size).limit(page_size)
     ).all()
     yellow_items = db.scalars(
-        yellow_query.order_by(Member.risk_score.desc()).offset((yellow_page - 1) * page_size).limit(page_size)
+        select(Member).where(*base_yellow).order_by(Member.risk_score.desc()).offset((yellow_page - 1) * page_size).limit(page_size)
     ).all()
+
+    # Computed KPIs
+    all_at_risk = list(red_items) + list(yellow_items)
+    mrr_at_risk = float(sum(m.monthly_fee or 0 for m in all_at_risk))
+    avg_red_score = (sum(m.risk_score for m in red_items) / len(red_items)) if red_items else 0.0
+    avg_yellow_score = (sum(m.risk_score for m in yellow_items) / len(yellow_items)) if yellow_items else 0.0
+
+    # Last contact per at-risk member (whatsapp or call)
+    member_ids = [m.id for m in all_at_risk]
+    last_contact_map: dict[str, str] = {}
+    if member_ids:
+        rows = db.execute(
+            select(AuditLog.member_id, func.max(AuditLog.created_at).label("last_at"))
+            .where(
+                AuditLog.member_id.in_(member_ids),
+                AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+            )
+            .group_by(AuditLog.member_id)
+        ).all()
+        last_contact_map = {str(row.member_id): row.last_at.isoformat() for row in rows}
 
     nps_trend: list[NPSEvolutionPoint] = nps_evolution(db, months=12)
     payload = {
         "red": {"total": red_total, "items": red_items},
         "yellow": {"total": yellow_total, "items": yellow_items},
         "nps_trend": nps_trend,
+        "mrr_at_risk": mrr_at_risk,
+        "avg_red_score": round(avg_red_score, 1),
+        "avg_yellow_score": round(avg_yellow_score, 1),
+        "last_contact_map": last_contact_map,
     }
     dashboard_cache.set(cache_key, payload)
     return payload
