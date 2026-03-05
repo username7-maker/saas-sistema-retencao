@@ -19,7 +19,13 @@ from app.schemas import (
     RevenuePoint,
 )
 from app.schemas.insights import InsightResponse
-from app.services.ai_insight_service import generate_executive_insight, generate_retention_insight
+from app.services.ai_insight_service import (
+    generate_commercial_insight,
+    generate_executive_insight,
+    generate_financial_insight,
+    generate_operational_insight,
+    generate_retention_insight,
+)
 from app.services.dashboard_service import (
     get_churn_dashboard,
     get_commercial_dashboard,
@@ -140,3 +146,39 @@ def retention_insight(
     insight_text = generate_retention_insight(data_dict)
     source = "ai" if settings.claude_api_key else "fallback"
     return InsightResponse(dashboard="retention", insight=insight_text, source=source)
+
+
+@router.get("/insights/operational", response_model=InsightResponse)
+def operational_insight(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> InsightResponse:
+    dashboard_data = get_operational_dashboard(db)
+    data_dict = OperationalDashboard.model_validate(dashboard_data).model_dump()
+    insight_text = generate_operational_insight(data_dict)
+    source = "ai" if settings.claude_api_key else "fallback"
+    return InsightResponse(dashboard="operational", insight=insight_text, source=source)
+
+
+@router.get("/insights/commercial", response_model=InsightResponse)
+def commercial_insight(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> InsightResponse:
+    dashboard_data = get_commercial_dashboard(db)
+    data_dict = CommercialDashboard.model_validate(dashboard_data).model_dump()
+    insight_text = generate_commercial_insight(data_dict)
+    source = "ai" if settings.claude_api_key else "fallback"
+    return InsightResponse(dashboard="commercial", insight=insight_text, source=source)
+
+
+@router.get("/insights/financial", response_model=InsightResponse)
+def financial_insight(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> InsightResponse:
+    dashboard_data = get_financial_dashboard(db)
+    data_dict = FinancialDashboard.model_validate(dashboard_data).model_dump()
+    insight_text = generate_financial_insight(data_dict)
+    source = "ai" if settings.claude_api_key else "fallback"
+    return InsightResponse(dashboard="financial", insight=insight_text, source=source)

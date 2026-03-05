@@ -1,4 +1,5 @@
 import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
+import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
@@ -39,6 +40,8 @@ export function FinancialDashboardPage() {
         </div>
         <DashboardActions dashboard="financial" />
       </header>
+
+      <AiInsightCard dashboard="financial" />
 
       <div className="grid gap-4 md:grid-cols-2">
         <StatCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} tone="danger" />

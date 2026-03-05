@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickLeadActions } from "../../components/common/QuickLeadActions";
@@ -72,6 +73,8 @@ export function CommercialDashboardPage() {
           </Link>
         </div>
       </header>
+
+      <AiInsightCard dashboard="commercial" />
 
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard label="CAC" value={`R$ ${query.data.cac.toFixed(2)}`} tone="warning" />

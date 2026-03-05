@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, RefreshCw, Sparkles } from "lucide-react";
 
 import { api } from "../../services/api";
 
@@ -9,11 +9,15 @@ interface InsightResponse {
   source: string;
 }
 
+type DashboardType = "executive" | "retention" | "operational" | "commercial" | "financial";
+
 interface AiInsightCardProps {
-  dashboard: "executive" | "retention";
+  dashboard: DashboardType;
 }
 
 export function AiInsightCard({ dashboard }: AiInsightCardProps) {
+  const queryClient = useQueryClient();
+
   const query = useQuery({
     queryKey: ["insights", dashboard],
     queryFn: async () => {
@@ -37,16 +41,33 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
   }
 
   if (query.isError || !query.data) {
-    return null;
+    return (
+      <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+        <div className="flex items-center gap-2 text-lovable-ink-muted">
+          <AlertTriangle size={16} />
+          <span className="text-xs">Insights indisponíveis no momento.</span>
+        </div>
+      </article>
+    );
   }
 
   return (
     <article className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-sm">
-      <div className="mb-2 flex items-center gap-2">
-        <Sparkles size={16} className="text-lovable-primary" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">
-          Insights {query.data.source === "ai" ? "da IA" : "Automaticos"}
-        </h3>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles size={16} className="text-lovable-primary" />
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">
+            Insights {query.data.source === "ai" ? "da IA" : "Automáticos"}
+          </h3>
+        </div>
+        <button
+          type="button"
+          onClick={() => void queryClient.invalidateQueries({ queryKey: ["insights", dashboard] })}
+          className="rounded-md p-1 text-lovable-ink-muted transition-colors hover:bg-lovable-surface-soft hover:text-lovable-ink"
+          title="Atualizar insight"
+        >
+          <RefreshCw size={14} className={query.isFetching ? "animate-spin" : ""} />
+        </button>
       </div>
       <p className="text-sm leading-relaxed text-lovable-ink">{query.data.insight}</p>
     </article>

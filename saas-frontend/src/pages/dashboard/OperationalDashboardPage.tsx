@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { HeatmapGrid } from "../../components/charts/HeatmapGrid";
+import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickActions } from "../../components/common/QuickActions";
@@ -94,6 +95,8 @@ export function OperationalDashboardPage() {
         </div>
         <DashboardActions dashboard="operational" />
       </header>
+
+      <AiInsightCard dashboard="operational" />
 
       <div className="grid gap-4 md:grid-cols-2">
         <StatCard label="Check-ins última hora" value={String(query.data.realtime_checkins)} tone="success" />
