@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Member, MemberStatus, RiskLevel, Task, TaskPriority, TaskStatus
@@ -340,22 +340,20 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
 
     if trigger == AutomationTrigger.BIRTHDAY:
         today = now.date()
-        # Match members whose extra_data["date_of_birth"] has the same month/day as today.
-        # The value is expected in "YYYY-MM-DD" format stored in JSONB.
-        members = list(db.scalars(base_stmt).all())
-        result = []
-        for m in members:
-            dob_str = (m.extra_data or {}).get("date_of_birth")
-            if not dob_str:
-                continue
-            try:
-                from datetime import date as dt_date
-                dob = dt_date.fromisoformat(str(dob_str))
-                if dob.month == today.month and dob.day == today.day:
-                    result.append(m)
-            except (ValueError, TypeError):
-                continue
-        return result
+        # Match members whose extra_data["date_of_birth"] (stored as "YYYY-MM-DD" string in JSONB)
+        # has the same month/day as today. Uses SUBSTRING to avoid a full DATE cast that would
+        # error on malformed values, and avoids loading all members into Python memory.
+        dob_text = Member.extra_data["date_of_birth"].astext
+        month_expr = func.substring(dob_text, 6, 2).cast(Integer)
+        day_expr = func.substring(dob_text, 9, 2).cast(Integer)
+        return list(db.scalars(
+            base_stmt.where(
+                dob_text.isnot(None),
+                func.length(dob_text) == 10,
+                month_expr == today.month,
+                day_expr == today.day,
+            )
+        ).all())
 
     if trigger == AutomationTrigger.LEAD_STALE:
         # Lead-scoped trigger: handled separately in run_automation_rules via _execute_lead_stale_rule.

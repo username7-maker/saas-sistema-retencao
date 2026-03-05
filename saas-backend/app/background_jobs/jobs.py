@@ -1,5 +1,6 @@
 from datetime import date
 
+from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
@@ -93,7 +94,8 @@ def daily_loyalty_update_job() -> None:
                 )
             ).all()
             for member in members:
-                member.loyalty_months = max(0, (today - member.join_date).days // 30)
+                delta = relativedelta(today, member.join_date)
+                member.loyalty_months = max(0, delta.years * 12 + delta.months)
         db.commit()
     finally:
         clear_current_gym_id()

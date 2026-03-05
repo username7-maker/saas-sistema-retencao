@@ -61,7 +61,7 @@ def run_nps_dispatch(db: Session) -> dict[str, int]:
         if _should_send_monthly(db, member, today):
             if _send_nps_email(db, member, NPSTrigger.MONTHLY):
                 sent_counts[NPSTrigger.MONTHLY.value] += 1
-        if member.risk_level == RiskLevel.YELLOW and _recent_send_missing(db, member.id, "nps_sent_yellow", 30):
+        if member.status != MemberStatus.CANCELLED and member.risk_level == RiskLevel.YELLOW and _recent_send_missing(db, member.id, "nps_sent_yellow", 30):
             if _send_nps_email(db, member, NPSTrigger.YELLOW_RISK):
                 sent_counts[NPSTrigger.YELLOW_RISK.value] += 1
         if member.status == MemberStatus.CANCELLED and _recent_send_missing(db, member.id, "nps_sent_cancelled", 365):

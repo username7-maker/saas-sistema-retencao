@@ -7,6 +7,7 @@ import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../../components/ui2";
 import { memberService } from "../../services/memberService";
 import { taskService, type CreateTaskPayload } from "../../services/taskService";
+import { userService } from "../../services/userService";
 import type { Member, Task } from "../../types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -282,6 +283,12 @@ export function TasksPage() {
     staleTime: 10 * 60 * 1000,
   });
 
+  const usersQuery = useQuery({
+    queryKey: ["users"],
+    queryFn: userService.listUsers,
+    staleTime: 15 * 60 * 1000,
+  });
+
   // ── Mutations ──────────────────────────────────────────────────────────────
   const updateMutation = useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) =>
@@ -318,6 +325,14 @@ export function TasksPage() {
     }
     return map;
   }, [membersQuery.data]);
+
+  const userNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of usersQuery.data ?? []) {
+      map.set(u.id, u.full_name);
+    }
+    return map;
+  }, [usersQuery.data]);
 
   const allTasks = tasksQuery.data?.items ?? [];
   const todayKey = useMemo(() => getTodayKey(), []);
@@ -574,7 +589,7 @@ export function TasksPage() {
                           key={task.id}
                           className={`rounded-xl border p-3 transition ${
                             overdue
-                              ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+                              ? "border-lovable-danger/30 bg-lovable-danger/10"
                               : "border-lovable-border bg-lovable-surface-soft hover:bg-lovable-primary-soft/20"
                           }`}
                         >
@@ -618,11 +633,18 @@ export function TasksPage() {
 
                           {/* Footer row */}
                           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                            <span
-                              className={`text-xs ${overdue ? "font-semibold text-red-600 dark:text-red-400" : "text-lovable-ink-muted"}`}
-                            >
-                              {overdue ? "⚠ " : ""}Vencimento: {formatDueDate(task.due_date)}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`text-xs ${overdue ? "font-semibold text-lovable-danger" : "text-lovable-ink-muted"}`}
+                              >
+                                {overdue ? "⚠ " : ""}Vencimento: {formatDueDate(task.due_date)}
+                              </span>
+                              {task.assigned_to_user_id ? (
+                                <span className="rounded-full bg-lovable-primary/10 px-2 py-0.5 text-[10px] font-medium text-lovable-primary">
+                                  {userNameById.get(task.assigned_to_user_id) ?? "Responsável"}
+                                </span>
+                              ) : null}
+                            </div>
                             <div className="flex items-center gap-1">
                               {task.status !== "done" && task.status !== "cancelled" ? (
                                 <>

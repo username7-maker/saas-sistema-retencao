@@ -15,7 +15,7 @@ function ImportResult({ summary }: { summary: ImportSummary | null }) {
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
       <p>Erros: {summary.errors.length}</p>
       {summary.errors.length > 0 && (
-        <ul className="mt-2 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-rose-700">
+        <ul className="mt-2 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
           {summary.errors.slice(0, 20).map((error, index) => (
             <li key={`${error.row_number}-${index}`}>
               Linha {error.row_number}: {error.reason}
@@ -116,23 +116,23 @@ export function ImportsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink dark:text-slate-100">Importações e Exportações (CSV/XLSX)</h2>
-        <p className="text-sm text-lovable-ink-muted dark:text-slate-400">
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Importações e Exportações (CSV/XLSX)</h2>
+        <p className="text-sm text-lovable-ink-muted">
           Envie planilhas de alunos/catraca em CSV ou XLSX e exporte dados do sistema em CSV.
         </p>
       </header>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Importar alunos</h3>
-          <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar alunos</h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
             Colunas aceitas: nome/full_name, email, telefone, cpf, matricula, plano, mensalidade, data_matricula.
           </p>
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => setMembersFile(event.target.files?.[0] ?? null)}
-            className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -148,7 +148,7 @@ export function ImportsPage() {
               type="button"
               disabled={templateMembersMutation.isPending}
               onClick={() => templateMembersMutation.mutate()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong disabled:opacity-60"
             >
               <Download size={14} />
               Template alunos
@@ -157,16 +157,16 @@ export function ImportsPage() {
           <ImportResult summary={membersSummary} />
         </article>
 
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Importar catraca/check-ins</h3>
-          <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar catraca/check-ins</h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
             Match automático por member_id, email, matrícula, cpf ou nome.
           </p>
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => setCheckinsFile(event.target.files?.[0] ?? null)}
-            className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -182,7 +182,7 @@ export function ImportsPage() {
               type="button"
               disabled={templateCheckinsMutation.isPending}
               onClick={() => templateCheckinsMutation.mutate()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong disabled:opacity-60"
             >
               <Download size={14} />
               Template check-ins
@@ -192,7 +192,7 @@ export function ImportsPage() {
         </article>
       </section>
 
-      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900">
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Exportar CSV</h3>
         <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">Baixe alunos e check-ins para auditoria e BI externo.</p>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
@@ -200,19 +200,19 @@ export function ImportsPage() {
             type="date"
             value={dateFrom}
             onChange={(event) => setDateFrom(event.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <input
             type="date"
             value={dateTo}
             onChange={(event) => setDateTo(event.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <button
             type="button"
             disabled={exportMembersMutation.isPending}
             onClick={() => exportMembersMutation.mutate()}
-            className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-slate-400 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200"
+            className="inline-flex items-center justify-center gap-1 rounded-lg border border-lovable-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong disabled:opacity-60"
           >
             <Download size={14} />
             {exportMembersMutation.isPending ? "Exportando..." : "Exportar membros CSV"}

@@ -4,7 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { reportService, type DashboardReportType } from "../../services/reportService";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui2";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog } from "../../components/ui2";
 
 interface ReportCardConfig {
   type: DashboardReportType;
@@ -36,6 +36,7 @@ function initialLoadingMap(): Record<DashboardReportType, boolean> {
 export default function ReportsPage() {
   const [loadingByType, setLoadingByType] = useState<Record<DashboardReportType, boolean>>(initialLoadingMap);
   const [dispatching, setDispatching] = useState(false);
+  const [confirmDispatch, setConfirmDispatch] = useState(false);
 
   const handleDownload = async (type: DashboardReportType) => {
     setLoadingByType((prev) => ({ ...prev, [type]: true }));
@@ -68,7 +69,7 @@ export default function ReportsPage() {
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Relatórios</h2>
           <p className="text-sm text-lovable-ink-muted">Gere exports PDF por dashboard e dispare o consolidado mensal.</p>
         </div>
-        <Button variant="primary" onClick={() => void handleDispatchMonthly()} disabled={dispatching}>
+        <Button variant="primary" onClick={() => setConfirmDispatch(true)} disabled={dispatching}>
           <Send size={14} />
           {dispatching ? "Enviando..." : "Disparar Relatório Mensal"}
         </Button>
@@ -103,6 +104,29 @@ export default function ReportsPage() {
           );
         })}
       </div>
+
+      <Dialog
+        open={confirmDispatch}
+        onClose={() => setConfirmDispatch(false)}
+        title="Disparar Relatório Mensal"
+        description="O relatório consolidado será gerado e enviado por e-mail para todos os gestores. Deseja continuar?"
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmDispatch(false)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            disabled={dispatching}
+            onClick={() => {
+              setConfirmDispatch(false);
+              void handleDispatchMonthly();
+            }}
+          >
+            {dispatching ? "Enviando..." : "Confirmar envio"}
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }

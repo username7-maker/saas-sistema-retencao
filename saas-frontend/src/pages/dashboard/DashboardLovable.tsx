@@ -1,5 +1,12 @@
 ﻿import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, BarChart3, Users, Wallet, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, CheckSquare, HeartPulse, ListTodo, Upload, Users, Wallet, Zap } from "lucide-react";
+
+const QUICK_ACTION_ICONS: Record<string, React.ReactNode> = {
+  "quick-retention": <HeartPulse size={16} className="shrink-0 text-lovable-danger" />,
+  "quick-crm": <Users size={16} className="shrink-0 text-lovable-primary" />,
+  "quick-import": <Upload size={16} className="shrink-0 text-lovable-ink-muted" />,
+  "quick-tasks": <ListTodo size={16} className="shrink-0 text-lovable-warning" />,
+};
 import {
   CartesianGrid,
   Legend,
@@ -244,8 +251,11 @@ export function DashboardLovable() {
                     onClick={() => navigate(action.href)}
                     className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3 text-left transition hover:border-lovable-border-strong hover:bg-lovable-primary-soft/45"
                   >
-                    <p className="text-sm font-semibold text-lovable-ink">{action.label}</p>
-                    <p className="text-xs text-lovable-ink-muted">{action.description}</p>
+                    <div className="flex items-center gap-2">
+                      {QUICK_ACTION_ICONS[action.id] ?? <CheckSquare size={16} className="shrink-0 text-lovable-ink-muted" />}
+                      <p className="text-sm font-semibold text-lovable-ink">{action.label}</p>
+                    </div>
+                    <p className="mt-0.5 text-xs text-lovable-ink-muted">{action.description}</p>
                   </button>
                 ))}
           </CardContent>

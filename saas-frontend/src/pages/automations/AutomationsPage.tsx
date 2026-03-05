@@ -364,6 +364,57 @@ function RuleFormDrawer({ open, mode, rule, onClose, onSaved }: RuleFormDrawerPr
   );
 }
 
+function ruleToText(rule: AutomationRule): string {
+  const tc = rule.trigger_config as Record<string, unknown>;
+  const ac = rule.action_config as Record<string, unknown>;
+
+  let whenPart: string;
+  switch (rule.trigger_type) {
+    case "inactivity_days":
+      whenPart = `Quando membro ficar ${tc.days ?? "?"} dias sem treinar`;
+      break;
+    case "risk_level_change": {
+      const lv = tc.level === "red" ? "Vermelho" : tc.level === "yellow" ? "Amarelo" : "Verde";
+      whenPart = `Quando risco mudar para ${lv}`;
+      break;
+    }
+    case "nps_score":
+      whenPart = `Quando NPS for ≤ ${tc.max_score ?? "?"}`;
+      break;
+    case "lead_stale":
+      whenPart = `Quando lead ficar ${tc.stale_days ?? "?"} dias sem atualização`;
+      break;
+    case "birthday":
+      whenPart = "No aniversário do membro";
+      break;
+    case "checkin_streak":
+      whenPart = `Ao atingir sequência de ${tc.streak_days ?? "?"} check-ins`;
+      break;
+    default:
+      whenPart = `Gatilho: ${rule.trigger_type}`;
+  }
+
+  let thenPart: string;
+  switch (rule.action_type) {
+    case "create_task":
+      thenPart = `Criar tarefa "${typeof ac.title === "string" ? ac.title : rule.name}"`;
+      break;
+    case "send_whatsapp":
+      thenPart = "Enviar mensagem WhatsApp";
+      break;
+    case "send_email":
+      thenPart = "Enviar e-mail";
+      break;
+    case "notify":
+      thenPart = "Criar notificação interna";
+      break;
+    default:
+      thenPart = `Ação: ${rule.action_type}`;
+  }
+
+  return `${whenPart} → ${thenPart}`;
+}
+
 function RuleCard({
   rule,
   onToggle,
@@ -393,8 +444,8 @@ function RuleCard({
             ) : null}
           </div>
           {rule.description ? <p className="mt-1 text-xs text-lovable-ink-muted">{rule.description}</p> : null}
-          <div className="mt-2 flex flex-wrap gap-3 text-[10px] uppercase tracking-wider text-lovable-ink-muted">
-            <span>Gatilho: {TRIGGER_LABELS[rule.trigger_type] ?? rule.trigger_type}</span>
+          <p className="mt-1.5 text-xs italic text-lovable-ink-muted">{ruleToText(rule)}</p>
+          <div className="mt-1.5 flex flex-wrap gap-3 text-[10px] uppercase tracking-wider text-lovable-ink-muted">
             <span>Execuções: {rule.executions_count}</span>
             {rule.last_executed_at ? <span>Última: {new Date(rule.last_executed_at).toLocaleString("pt-BR")}</span> : null}
           </div>

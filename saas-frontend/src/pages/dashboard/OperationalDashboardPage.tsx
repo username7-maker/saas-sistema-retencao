@@ -1,30 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { BarSeriesChart } from "../../components/charts/BarSeriesChart";
+import { HeatmapGrid } from "../../components/charts/HeatmapGrid";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickActions } from "../../components/common/QuickActions";
 import { StatCard } from "../../components/common/StatCard";
+import { Badge } from "../../components/ui2";
 import { useOperationalDashboard } from "../../hooks/useDashboard";
 import { tokenStorage } from "../../services/storage";
+import type { RiskLevel } from "../../types";
 
-const weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
+const RISK_BADGE: Record<RiskLevel, "danger" | "warning" | "success"> = {
+  red: "danger",
+  yellow: "warning",
+  green: "success",
+};
+
+const RISK_LABELS: Record<RiskLevel, string> = {
+  red: "Alto",
+  yellow: "Médio",
+  green: "Baixo",
+};
 
 export function OperationalDashboardPage() {
   const queryClient = useQueryClient();
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [realtimeEvents, setRealtimeEvents] = useState(0);
   const query = useOperationalDashboard();
-
-  const heatmapData = useMemo(
-    () =>
-      (query.data?.heatmap ?? []).map((point) => ({
-        slot: `${weekdays[point.weekday]} ${String(point.hour_bucket).padStart(2, "0")}h`,
-        total: point.total_checkins,
-      })),
-    [query.data],
-  );
 
   const handleActionComplete = () => {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });
@@ -73,8 +76,20 @@ export function OperationalDashboardPage() {
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Operacional</h2>
           <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horário e inativos 7+ dias.</p>
-          <p className="mt-1 text-xs text-lovable-ink-muted">
-            Tempo real: {isRealtimeConnected ? "conectado" : "desconectado"} | eventos: {realtimeEvents}
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-lovable-ink-muted">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                isRealtimeConnected
+                  ? "animate-pulse bg-lovable-success"
+                  : "bg-lovable-ink-muted/40"
+              }`}
+            />
+            {isRealtimeConnected ? "Tempo real: conectado" : "Tempo real: desconectado"}
+            {realtimeEvents > 0 && (
+              <span className="ml-1 rounded-full bg-lovable-primary/15 px-1.5 py-0.5 font-medium text-lovable-primary">
+                {realtimeEvents} evento{realtimeEvents !== 1 ? "s" : ""}
+              </span>
+            )}
           </p>
         </div>
         <DashboardActions dashboard="operational" />
@@ -85,7 +100,7 @@ export function OperationalDashboardPage() {
         <StatCard label="Inativos 7+ dias" value={String(query.data.inactive_7d_total)} tone="warning" />
       </div>
 
-      <BarSeriesChart data={heatmapData} xKey="slot" yKey="total" />
+      <HeatmapGrid data={query.data.heatmap ?? []} />
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Lista 7+ dias sem treino</h3>
@@ -103,7 +118,11 @@ export function OperationalDashboardPage() {
               {query.data.inactive_7d_items.map((member) => (
                 <tr key={member.id} className="border-t border-lovable-border">
                   <td className="px-2 py-2 font-medium text-lovable-ink">{member.full_name}</td>
-                  <td className="px-2 py-2 uppercase text-lovable-ink-muted">{member.risk_level}</td>
+                  <td className="px-2 py-2">
+                    <Badge variant={RISK_BADGE[member.risk_level as RiskLevel]}>
+                      {RISK_LABELS[member.risk_level as RiskLevel] ?? member.risk_level}
+                    </Badge>
+                  </td>
                   <td className="px-2 py-2 text-lovable-ink-muted">{member.last_checkin_at ? new Date(member.last_checkin_at).toLocaleString() : "Sem registro"}</td>
                   <td className="px-2 py-2">
                     <QuickActions member={member} onActionComplete={handleActionComplete} />

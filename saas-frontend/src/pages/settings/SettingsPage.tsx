@@ -58,7 +58,7 @@ function ForgotPasswordForm() {
           E-mail
         </label>
         <Input {...register("email")} type="email" placeholder="seu@email.com" />
-        {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
+        {errors.email && <p className="mt-1 text-xs text-lovable-danger">{errors.email.message}</p>}
       </div>
 
       <div>
@@ -66,7 +66,7 @@ function ForgotPasswordForm() {
           Slug da Academia
         </label>
         <Input {...register("gym_slug")} placeholder="minha-academia" />
-        {errors.gym_slug && <p className="mt-1 text-xs text-red-500">{errors.gym_slug.message}</p>}
+        {errors.gym_slug && <p className="mt-1 text-xs text-lovable-danger">{errors.gym_slug.message}</p>}
         <p className="mt-1 text-xs text-lovable-ink-muted">
           O mesmo slug usado no login.
         </p>
@@ -111,7 +111,7 @@ function ResetPasswordForm() {
           Token recebido por e-mail
         </label>
         <Input {...register("token")} placeholder="Cole o token aqui" />
-        {errors.token && <p className="mt-1 text-xs text-red-500">{errors.token.message}</p>}
+        {errors.token && <p className="mt-1 text-xs text-lovable-danger">{errors.token.message}</p>}
       </div>
 
       <div>
@@ -119,7 +119,7 @@ function ResetPasswordForm() {
           Nova senha
         </label>
         <Input {...register("new_password")} type="password" placeholder="Mínimo 8 caracteres" />
-        {errors.new_password && <p className="mt-1 text-xs text-red-500">{errors.new_password.message}</p>}
+        {errors.new_password && <p className="mt-1 text-xs text-lovable-danger">{errors.new_password.message}</p>}
       </div>
 
       <div>
@@ -128,7 +128,7 @@ function ResetPasswordForm() {
         </label>
         <Input {...register("confirm_password")} type="password" placeholder="Repita a nova senha" />
         {errors.confirm_password && (
-          <p className="mt-1 text-xs text-red-500">{errors.confirm_password.message}</p>
+          <p className="mt-1 text-xs text-lovable-danger">{errors.confirm_password.message}</p>
         )}
       </div>
 

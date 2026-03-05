@@ -153,10 +153,10 @@ export function GoalsPage() {
           const progressClamped = Math.max(0, Math.min(100, item.progress_pct));
           const tone =
             item.status === "achieved"
-              ? "bg-emerald-500"
+              ? "bg-lovable-success"
               : item.status === "at_risk"
-                ? "bg-rose-500"
-                : "bg-amber-500";
+                ? "bg-lovable-danger"
+                : "bg-lovable-warning";
 
           return (
             <article key={item.goal.id} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -171,13 +171,13 @@ export function GoalsPage() {
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                       item.status === "achieved"
-                        ? "bg-emerald-100 text-emerald-700"
+                        ? "bg-lovable-success/15 text-lovable-success"
                         : item.status === "at_risk"
-                          ? "bg-rose-100 text-rose-700"
-                          : "bg-amber-100 text-amber-700"
+                          ? "bg-lovable-danger/15 text-lovable-danger"
+                          : "bg-lovable-warning/15 text-lovable-warning"
                     }`}
                   >
-                    {item.status}
+                    {item.status === "achieved" ? "Atingida" : item.status === "at_risk" ? "Em risco" : "Em progresso"}
                   </span>
                   <Button
                     type="button"

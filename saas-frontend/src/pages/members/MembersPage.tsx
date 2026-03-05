@@ -158,7 +158,7 @@ export function MembersPage() {
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-lovable-ink-muted">Carregando membros...</div>
           ) : isError ? (
-            <div className="flex items-center justify-center py-12 text-red-500">Erro ao carregar membros. Tente novamente.</div>
+            <div className="flex items-center justify-center py-12 text-lovable-danger">Erro ao carregar membros. Tente novamente.</div>
           ) : !data?.items.length ? (
             <div className="flex flex-col items-center justify-center py-12 text-lovable-ink-muted">
               <UserPlus size={40} className="mb-3 opacity-40" />

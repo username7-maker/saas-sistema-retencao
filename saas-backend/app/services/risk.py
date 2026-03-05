@@ -8,7 +8,6 @@ from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
 from app.models import AuditLog, Checkin, Member, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
-from app.services.automation_engine import run_automation_rules
 from app.services.notification_service import create_notification
 from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email
@@ -97,13 +96,8 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
     if analyzed:
         invalidate_dashboard_cache("risk", "tasks")
 
-    try:
-        rule_results = run_automation_rules(db)
-        automations_triggered += len([r for r in rule_results if r.get("status") not in ("skipped", "error")])
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Erro ao executar regras de automacao apos processamento de risco")
-
+    # NOTE: run_automation_rules() is intentionally NOT called here.
+    # It is executed by daily_automations_job (jobs.py) at 02:30 UTC to avoid double-firing.
     return {
         "members_analyzed": analyzed,
         "risk_alerts_processed": alerts_created,
@@ -429,6 +423,9 @@ def _record_stage(db: Session, member_id, stage_action: str) -> None:
         entity_id=member_id,
         details={"source": "risk_automation"},
     )
+    # flush makes the audit row visible within the current transaction so that
+    # any subsequent query in the same session sees it before db.commit()
+    db.flush()
 
 
 def _can_trigger_stage(

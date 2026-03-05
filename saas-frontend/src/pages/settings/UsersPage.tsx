@@ -19,6 +19,14 @@ const ROLE_LABELS: Record<StaffUser["role"], string> = {
   trainer: "Instrutor",
 };
 
+const ROLE_BADGE: Record<StaffUser["role"], string> = {
+  owner: "bg-lovable-primary/15 text-lovable-primary",
+  manager: "bg-lovable-warning/15 text-lovable-warning",
+  receptionist: "bg-lovable-surface-soft text-lovable-ink-muted",
+  salesperson: "bg-lovable-surface-soft text-lovable-ink-muted",
+  trainer: "bg-lovable-surface-soft text-lovable-ink-muted",
+};
+
 const ROLE_OPTIONS: Array<{ value: StaffUser["role"]; label: string }> = [
   { value: "manager", label: "Gerente" },
   { value: "receptionist", label: "Recepcionista" },
@@ -129,7 +137,12 @@ function UserRow({
           <Badge variant={user.is_active ? "success" : "neutral"}>{user.is_active ? "Ativo" : "Inativo"}</Badge>
         </div>
         <p className="text-xs text-lovable-ink-muted">{user.email}</p>
-        <p className="mt-1 text-xs uppercase tracking-wide text-lovable-ink-muted">{ROLE_LABELS[user.role] ?? user.role}</p>
+        <span
+          className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${ROLE_BADGE[user.role] ?? "bg-lovable-surface-soft text-lovable-ink-muted"}`}
+          title={user.role === "owner" ? "Acesso total ao sistema" : user.role === "manager" ? "Gestão de membros e relatórios" : "Acesso operacional"}
+        >
+          {ROLE_LABELS[user.role] ?? user.role}
+        </span>
       </div>
 
       {isSelf ? null : (
@@ -167,6 +180,7 @@ export function UsersPage() {
   const { user: currentUser } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userToDeactivate, setUserToDeactivate] = useState<StaffUser | null>(null);
+  const [roleFilter, setRoleFilter] = useState<StaffUser["role"] | "all">("all");
   const queryClient = useQueryClient();
 
   const usersQuery = useQuery({
@@ -194,7 +208,8 @@ export function UsersPage() {
     return <LoadingPanel text="Carregando usuários..." />;
   }
 
-  const users = usersQuery.data ?? [];
+  const allUsers = usersQuery.data ?? [];
+  const users = roleFilter === "all" ? allUsers : allUsers.filter((u) => u.role === roleFilter);
 
   return (
     <section className="space-y-6">
@@ -208,6 +223,23 @@ export function UsersPage() {
           Novo Usuário
         </Button>
       </header>
+
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Filtrar por função:</label>
+        <select
+          value={roleFilter}
+          onChange={(event) => setRoleFilter(event.target.value as StaffUser["role"] | "all")}
+          className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-1.5 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
+        >
+          <option value="all">Todas as funções</option>
+          <option value="owner">Proprietário</option>
+          <option value="manager">Gerente</option>
+          <option value="receptionist">Recepcionista</option>
+          <option value="salesperson">Vendedor</option>
+          <option value="trainer">Instrutor</option>
+        </select>
+        <span className="text-xs text-lovable-ink-muted">{users.length} usuário{users.length !== 1 ? "s" : ""}</span>
+      </div>
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center">

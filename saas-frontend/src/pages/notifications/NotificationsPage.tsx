@@ -39,7 +39,7 @@ export function NotificationsPage() {
         <p className="text-sm text-lovable-ink-muted">Alertas internos de retenção e operação. Não há envio automático de WhatsApp.</p>
       </header>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <div className="rounded-xl border border-lovable-warning/30 bg-lovable-warning/10 px-4 py-3 text-sm text-lovable-ink">
         Não lidas: <strong>{unread}</strong>
       </div>
 
@@ -59,17 +59,17 @@ export function NotificationsPage() {
               {notificationsQuery.data.items.map((item) => (
                 <tr key={item.id} className="border-t border-lovable-border">
                   <td className="px-2 py-2 uppercase text-xs text-lovable-ink-muted">{item.category}</td>
-                  <td className="px-2 py-2 font-medium text-slate-800">{item.title}</td>
+                  <td className="px-2 py-2 font-medium text-lovable-ink">{item.title}</td>
                   <td className="px-2 py-2 text-lovable-ink-muted">{item.message}</td>
                   <td className="px-2 py-2 text-lovable-ink-muted">{new Date(item.created_at).toLocaleString()}</td>
                   <td className="px-2 py-2">
                     {item.read_at ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Lida</span>
+                      <span className="rounded-full bg-lovable-success/15 px-2 py-1 text-xs font-semibold text-lovable-success">Lida</span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => markReadMutation.mutate(item.id)}
-                        className="rounded-full bg-brand-500 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700"
+                        className="rounded-full bg-lovable-primary px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
                       >
                         Marcar como lida
                       </button>
