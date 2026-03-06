@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import Member
-from app.models.assessment import Assessment
+from app.models.assessment import Assessment, MemberConstraints, MemberGoal
 
 logger = logging.getLogger(__name__)
 
@@ -151,64 +151,148 @@ def get_assessments_dashboard(db: Session) -> dict:
 
 def generate_ai_insights(db: Session, current: Assessment) -> None:
     try:
-        if not settings.claude_api_key:
-            return
-
-        previous = db.scalar(
-            select(Assessment)
-            .where(
-                Assessment.member_id == current.member_id,
-                Assessment.deleted_at.is_(None),
-                Assessment.assessment_date < current.assessment_date,
-            )
-            .order_by(desc(Assessment.assessment_date))
-            .limit(1)
+        previous_assessments = list(
+            db.scalars(
+                select(Assessment)
+                .where(
+                    Assessment.member_id == current.member_id,
+                    Assessment.deleted_at.is_(None),
+                    Assessment.assessment_date < current.assessment_date,
+                )
+                .order_by(desc(Assessment.assessment_date))
+                .limit(3)
+            ).all()
         )
-        if not previous:
+
+        goals = list(
+            db.scalars(
+                select(MemberGoal).where(
+                    MemberGoal.member_id == current.member_id,
+                    MemberGoal.deleted_at.is_(None),
+                    MemberGoal.status == "active",
+                )
+            ).all()
+        )
+
+        constraints = db.scalar(
+            select(MemberConstraints).where(
+                MemberConstraints.member_id == current.member_id,
+                MemberConstraints.deleted_at.is_(None),
+            )
+        )
+
+        if not settings.claude_api_key:
+            _apply_fallback_analysis(current, previous_assessments)
+            db.add(current)
+            db.commit()
             return
 
         import anthropic
+        from app.utils.claude import _parse_claude_json
 
+        prompt = _build_comprehensive_assessment_prompt(current, previous_assessments, goals, constraints)
         client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        prompt = _build_assessment_prompt(previous, current)
         response = client.messages.create(
             model=settings.claude_model,
-            max_tokens=settings.claude_max_tokens,
+            max_tokens=800,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
-        insight = response.content[0].text.strip()
-        if not insight:
-            return
-
-        current.ai_analysis = insight
-        current.ai_recommendations = insight
-        if "risco" in insight.lower():
-            current.ai_risk_flags = insight
+        text = response.content[0].text.strip()
+        parsed = _parse_claude_json(text)
+        current.ai_analysis = (parsed.get("analysis") or "")[:2000]
+        current.ai_recommendations = (parsed.get("recommendations") or "")[:2000]
+        current.ai_risk_flags = (parsed.get("risk_flags") or "")[:2000]
         db.add(current)
         db.commit()
     except Exception:
-        logger.exception("Erro ao gerar insights de avaliacao")
+        logger.exception("Erro ao gerar insights de avaliacao - usando fallback")
+        try:
+            _apply_fallback_analysis(current, [])
+            db.add(current)
+            db.commit()
+        except Exception:
+            logger.exception("Fallback de analise tambem falhou")
 
 
-def _build_assessment_prompt(previous: Assessment, current: Assessment) -> str:
-    weight_delta = _safe_delta_value(previous.weight_kg, current.weight_kg)
-    body_fat_delta = _safe_delta_value(previous.body_fat_pct, current.body_fat_pct)
-    bmi_delta = _safe_delta_value(previous.bmi, current.bmi)
-    strength_delta = _safe_delta_value(previous.strength_score, current.strength_score)
-    flexibility_delta = _safe_delta_value(previous.flexibility_score, current.flexibility_score)
-    cardio_delta = _safe_delta_value(previous.cardio_score, current.cardio_score)
+def _build_comprehensive_assessment_prompt(
+    current: Assessment,
+    previous: list[Assessment],
+    goals: list[MemberGoal],
+    constraints: MemberConstraints | None,
+) -> str:
+    if previous:
+        prev = previous[0]
+        evolution_lines = [
+            f"Peso: {current.weight_kg}kg (anterior: {prev.weight_kg}kg)",
+            f"BF: {current.body_fat_pct}% (anterior: {prev.body_fat_pct}%)",
+            f"IMC: {current.bmi} (anterior: {prev.bmi})",
+            f"Forca: {current.strength_score} (anterior: {prev.strength_score})",
+            f"Flexibilidade: {current.flexibility_score} (anterior: {prev.flexibility_score})",
+            f"Cardio: {current.cardio_score} (anterior: {prev.cardio_score})",
+        ]
+    else:
+        evolution_lines = [
+            f"Peso: {current.weight_kg}kg",
+            f"BF: {current.body_fat_pct}%",
+            f"IMC: {current.bmi}",
+            f"Forca: {current.strength_score}",
+            f"Flexibilidade: {current.flexibility_score}",
+            f"Cardio: {current.cardio_score}",
+        ]
+
+    goals_text = "Nenhuma meta ativa."
+    if goals:
+        goals_text = "; ".join(
+            f"{g.title} (alvo: {g.target_value} {g.unit or ''}, progresso: {g.progress_pct}%)"
+            for g in goals
+        )
+
+    constraints_text = "Nenhuma restricao registrada."
+    if constraints:
+        parts = []
+        if constraints.medical_conditions:
+            parts.append(f"Condicoes: {constraints.medical_conditions}")
+        if constraints.injuries:
+            parts.append(f"Lesoes: {constraints.injuries}")
+        if constraints.medications:
+            parts.append(f"Medicamentos: {constraints.medications}")
+        if constraints.contraindications:
+            parts.append(f"Contraindicacoes: {constraints.contraindications}")
+        if parts:
+            constraints_text = "; ".join(parts)
 
     return (
         "Voce e um especialista em avaliacao fisica para academias. "
-        "Gere um resumo objetivo (ate 120 palavras) contendo evolucao, risco e recomendacoes praticas.\n\n"
-        f"Peso atual: {current.weight_kg} kg | variacao: {weight_delta}\n"
-        f"BF atual: {current.body_fat_pct}% | variacao: {body_fat_delta}\n"
-        f"BMI atual: {current.bmi} | variacao: {bmi_delta}\n"
-        f"Forca atual: {current.strength_score} | variacao: {strength_delta}\n"
-        f"Flexibilidade atual: {current.flexibility_score} | variacao: {flexibility_delta}\n"
-        f"Cardio atual: {current.cardio_score} | variacao: {cardio_delta}\n"
+        "Retorne um JSON com tres campos: analysis, recommendations, risk_flags.\n"
+        "- analysis: resumo da evolucao do aluno (max 150 palavras)\n"
+        "- recommendations: recomendacoes praticas de treino e nutricao (max 150 palavras)\n"
+        "- risk_flags: alertas de saude ou riscos identificados, ou string vazia se nenhum\n\n"
+        f"Dados atuais:\n" + "\n".join(evolution_lines) + "\n\n"
+        f"Metas ativas: {goals_text}\n"
+        f"Restricoes: {constraints_text}\n"
+        f"Avaliacao numero: {current.assessment_number}\n"
         "Responda em portugues brasileiro."
     )
+
+
+def _apply_fallback_analysis(current: Assessment, previous: list[Assessment]) -> None:
+    parts = []
+    if current.body_fat_pct and current.body_fat_pct > 30:
+        parts.append("Percentual de gordura elevado.")
+    if current.bmi and current.bmi > 30:
+        parts.append("IMC acima de 30 indica obesidade.")
+    if current.resting_hr and current.resting_hr > 90:
+        parts.append("Frequencia cardiaca de repouso elevada.")
+    if previous:
+        prev = previous[0]
+        if prev.weight_kg and current.weight_kg and current.weight_kg > prev.weight_kg:
+            parts.append(f"Ganho de {float(current.weight_kg - prev.weight_kg):.1f}kg desde ultima avaliacao.")
+
+    current.ai_analysis = " ".join(parts) if parts else "Avaliacao registrada. Analise de IA indisponivel."
+    current.ai_recommendations = "Recomendamos consultar o educador fisico para orientacoes personalizadas."
+    if parts:
+        current.ai_risk_flags = " ".join(parts)
 
 
 def _safe_delta_value(before: Decimal | int | None, after: Decimal | int | None) -> str:

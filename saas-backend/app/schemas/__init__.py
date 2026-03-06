@@ -38,8 +38,16 @@ from app.schemas.imports import ImportErrorEntry, ImportSummary
 from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate
+from app.schemas.nurturing import NurturingSequenceOut
 from app.schemas.nps import NPSEvolutionPoint, NPSResponseCreate, NPSResponseOut
+from app.schemas.objection import ObjectionResponseOut, ObjectionResponseUpdate
 from app.schemas.notifications import InAppNotificationOut, MarkNotificationReadInput
+from app.schemas.public_diagnosis import (
+    PublicDiagnosisQueuedResponse,
+    PublicObjectionRequest,
+    PublicObjectionResponse,
+    PublicProposalRequest,
+)
 from app.schemas.risk import RiskAlertOut, RiskAlertResolveInput
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
@@ -89,9 +97,16 @@ __all__ = [
     "MemberUpdate",
     "MarkNotificationReadInput",
     "MessageLogOut",
+    "NurturingSequenceOut",
     "NPSEvolutionPoint",
     "NPSResponseCreate",
     "NPSResponseOut",
+    "ObjectionResponseOut",
+    "ObjectionResponseUpdate",
+    "PublicDiagnosisQueuedResponse",
+    "PublicObjectionRequest",
+    "PublicObjectionResponse",
+    "PublicProposalRequest",
     "InAppNotificationOut",
     "OperationalDashboard",
     "PaginatedResponse",

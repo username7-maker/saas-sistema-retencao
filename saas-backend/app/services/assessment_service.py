@@ -65,8 +65,7 @@ def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: di
     db.commit()
     db.refresh(assessment)
 
-    if previous_count > 0:
-        generate_ai_insights(db, assessment)
+    generate_ai_insights(db, assessment)
 
     return assessment
 

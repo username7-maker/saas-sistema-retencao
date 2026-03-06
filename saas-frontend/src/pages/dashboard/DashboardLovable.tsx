@@ -38,6 +38,7 @@ import {
   ChartCard,
   Skeleton,
 } from "../../components/ui2";
+import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
 import { buildLovableDashboardViewModel } from "./dashboardAdapters";
 
 function currency(value: number): string {
@@ -96,6 +97,8 @@ export function DashboardLovable() {
         </div>
         <DashboardActions dashboard="executive" showMonthlyDispatch />
       </header>
+
+      <RoiSummaryCard />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cardsLoading ? (

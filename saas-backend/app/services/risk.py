@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
-from app.models import AuditLog, Checkin, Member, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
+from app.models import AuditLog, Checkin, Member, MemberRiskHistory, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
 from app.services.websocket_manager import websocket_manager
@@ -29,7 +29,7 @@ def calculate_risk_score(db: Session, member: Member) -> RiskResult:
     days_without_checkin = max(0, (now - reference_dt).days)
 
     inactivity_points = _inactivity_points(days_without_checkin)
-    frequency_points, frequency_drop_pct = _frequency_drop_points(db, member.id, now)
+    frequency_points, frequency_drop_pct, baseline_avg_weekly = _frequency_drop_points(db, member.id, now)
     shift_points, shift_change_hours = _shift_change_points(db, member.id, now)
     nps_points = _nps_points(member.nps_last_score)
     loyalty_discount = min((member.loyalty_months // 6) * 3, 15)
@@ -46,6 +46,7 @@ def calculate_risk_score(db: Session, member: Member) -> RiskResult:
         "shift_change_hours": shift_change_hours,
         "nps_points": nps_points,
         "loyalty_discount": loyalty_discount,
+        "baseline_avg_weekly": round(baseline_avg_weekly, 2),
     }
     return RiskResult(score=score, level=level, reasons=reasons, days_without_checkin=days_without_checkin)
 
@@ -81,8 +82,19 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
 
     for member in members:
         result = calculate_risk_score(db, member)
+        previous_score = member.risk_score
+
         member.risk_score = result.score
         member.risk_level = result.level
+
+        if result.score != previous_score:
+            db.add(MemberRiskHistory(
+                gym_id=member.gym_id,
+                member_id=member.id,
+                score=result.score,
+                level=result.level.value,
+                reasons=result.reasons,
+            ))
 
         if result.score >= 40:
             actions = _run_inactivity_automations(db, member, result.days_without_checkin, result.level, triggered_stages)
@@ -119,37 +131,39 @@ def _inactivity_points(days_without_checkin: int) -> int:
     return 0
 
 
-def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, float]:
-    recent_start = now - timedelta(days=14)
-    prev_start = now - timedelta(days=28)
+def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, float, float]:
+    one_week_ago = now - timedelta(weeks=1)
+    ten_weeks_ago = now - timedelta(weeks=10)
 
-    recent = db.scalar(
+    current_week_count = db.scalar(
         select(func.count()).select_from(Checkin).where(
             Checkin.member_id == member_id,
-            Checkin.checkin_at >= recent_start,
+            Checkin.checkin_at >= one_week_ago,
             Checkin.checkin_at < now,
         )
     ) or 0
 
-    previous = db.scalar(
+    baseline_total = db.scalar(
         select(func.count()).select_from(Checkin).where(
             Checkin.member_id == member_id,
-            Checkin.checkin_at >= prev_start,
-            Checkin.checkin_at < recent_start,
+            Checkin.checkin_at >= ten_weeks_ago,
+            Checkin.checkin_at < one_week_ago,
         )
     ) or 0
 
-    if previous <= 0:
-        return (12, 100.0) if recent == 0 else (0, 0.0)
+    baseline_avg = baseline_total / 9.0
 
-    drop_pct = max(0.0, ((previous - recent) / previous) * 100)
-    if drop_pct >= 70:
-        return 20, drop_pct
-    if drop_pct >= 40:
-        return 12, drop_pct
-    if drop_pct >= 20:
-        return 6, drop_pct
-    return 0, drop_pct
+    if baseline_avg <= 0:
+        return (12, 100.0, 0.0) if current_week_count == 0 else (0, 0.0, 0.0)
+
+    drop_pct = max(0.0, ((baseline_avg - current_week_count) / baseline_avg) * 100)
+    if drop_pct >= 80:
+        return 20, drop_pct, baseline_avg
+    if drop_pct >= 50:
+        return 12, drop_pct, baseline_avg
+    if drop_pct >= 25:
+        return 6, drop_pct, baseline_avg
+    return 0, drop_pct, baseline_avg
 
 
 def _shift_change_points(db: Session, member_id, now: datetime) -> tuple[int, int]:

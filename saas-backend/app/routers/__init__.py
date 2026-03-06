@@ -1,4 +1,5 @@
 from app.routers import (
+    admin_objections,
     assessments,
     audit,
     auth,
@@ -13,13 +14,16 @@ from app.routers import (
     members,
     notifications,
     nps,
+    public,
     reports,
     risk_alerts,
+    roi,
     tasks,
     users,
 )
 
 __all__ = [
+    "admin_objections",
     "assessments",
     "audit",
     "auth",
@@ -34,8 +38,10 @@ __all__ = [
     "members",
     "notifications",
     "nps",
+    "public",
     "reports",
     "risk_alerts",
+    "roi",
     "tasks",
     "users",
 ]

@@ -34,7 +34,7 @@ def test_risk_score_red_for_high_inactivity_and_low_nps(monkeypatch):
     db = DummyDB()
     member = _make_member(last_checkin_days_ago=21, nps_last_score=3, loyalty_months=0)
 
-    monkeypatch.setattr(risk_service, "_frequency_drop_points", lambda *_: (20, 70.0))
+    monkeypatch.setattr(risk_service, "_frequency_drop_points", lambda *_: (20, 70.0, 5.0))
     monkeypatch.setattr(risk_service, "_shift_change_points", lambda *_: (10, 4))
 
     result = risk_service.calculate_risk_score(db, member)
@@ -47,7 +47,7 @@ def test_risk_score_can_drop_with_loyalty_factor(monkeypatch):
     db = DummyDB()
     member = _make_member(last_checkin_days_ago=7, nps_last_score=8, loyalty_months=30)
 
-    monkeypatch.setattr(risk_service, "_frequency_drop_points", lambda *_: (6, 25.0))
+    monkeypatch.setattr(risk_service, "_frequency_drop_points", lambda *_: (6, 25.0, 1.0))
     monkeypatch.setattr(risk_service, "_shift_change_points", lambda *_: (5, 2))
 
     result = risk_service.calculate_risk_score(db, member)

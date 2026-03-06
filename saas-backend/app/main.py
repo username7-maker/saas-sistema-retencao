@@ -16,6 +16,7 @@ from app.core.security import decode_token
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import User
 from app.routers import (
+    admin_objections,
     assessments,
     audit,
     auth,
@@ -30,8 +31,10 @@ from app.routers import (
     members,
     notifications,
     nps,
+    public,
     reports,
     risk_alerts,
+    roi,
     tasks,
     users,
 )
@@ -119,6 +122,9 @@ app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(risk_alerts.router, prefix=settings.api_prefix)
 app.include_router(automations.router, prefix=settings.api_prefix)
 app.include_router(reports.router, prefix=settings.api_prefix)
+app.include_router(roi.router, prefix=settings.api_prefix)
+app.include_router(public.router, prefix=settings.api_prefix)
+app.include_router(admin_objections.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

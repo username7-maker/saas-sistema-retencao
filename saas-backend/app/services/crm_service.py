@@ -138,3 +138,42 @@ def calculate_cac(db: Session) -> float:
     if won_count == 0:
         return 0.0
     return float(total_cost / won_count)
+
+
+def create_public_diagnosis_lead(
+    db: Session,
+    *,
+    gym_id: UUID,
+    full_name: str,
+    email: str,
+    phone: str,
+    gym_name: str,
+    total_members: int,
+    avg_monthly_fee: Decimal,
+    diagnosis_id: UUID,
+) -> Lead:
+    lead = Lead(
+        gym_id=gym_id,
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        source="public_diagnostico",
+        stage=LeadStage.NEW,
+        estimated_value=Decimal(total_members) * avg_monthly_fee,
+        acquisition_cost=Decimal("0"),
+        notes=[
+            {
+                "type": "public_diagnosis_requested",
+                "diagnosis_id": str(diagnosis_id),
+                "gym_name": gym_name,
+                "total_members": total_members,
+                "avg_monthly_fee": float(avg_monthly_fee),
+                "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            }
+        ],
+    )
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    invalidate_dashboard_cache("leads")
+    return lead

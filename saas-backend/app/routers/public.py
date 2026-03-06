@@ -1,0 +1,153 @@
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import Response
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.limiter import limiter, rate_limit_enabled
+from app.database import get_db
+from app.schemas.public_diagnosis import (
+    PublicDiagnosisQueuedResponse,
+    PublicObjectionRequest,
+    PublicObjectionResponse,
+    PublicProposalRequest,
+)
+from app.services.crm_service import create_public_diagnosis_lead
+from app.services.diagnosis_service import (
+    build_public_diagnosis_payload,
+    new_diagnosis_id,
+    process_public_diagnosis_background,
+    resolve_public_gym_id,
+)
+from app.services.objection_service import generate_objection_response
+from app.services.proposal_service import (
+    generate_proposal_pdf,
+    hydrate_proposal_from_lead,
+    send_proposal_email_if_needed,
+)
+
+router = APIRouter(prefix="/public", tags=["public"])
+
+_MAX_DIAG_UPLOAD_SIZE = 10 * 1024 * 1024
+_fallback_uploads_by_ip: dict[str, list[datetime]] = defaultdict(list)
+
+
+def _apply_fallback_rate_limit(request: Request) -> None:
+    if rate_limit_enabled:
+        return
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(hours=1)
+    ip = request.client.host if request.client else "unknown"
+    entries = [item for item in _fallback_uploads_by_ip[ip] if item >= cutoff]
+    if len(entries) >= 5:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Limite de uploads por hora excedido")
+    entries.append(now)
+    _fallback_uploads_by_ip[ip] = entries
+
+
+@router.post("/diagnostico", response_model=PublicDiagnosisQueuedResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.public_diag_rate_limit)
+async def public_diagnostico(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    full_name: str = Form(...),
+    email: str = Form(...),
+    whatsapp: str = Form(...),
+    gym_name: str = Form(...),
+    total_members: int = Form(...),
+    avg_monthly_fee: str = Form(...),
+    csv_file: UploadFile = File(...),
+) -> PublicDiagnosisQueuedResponse:
+    _apply_fallback_rate_limit(request)
+    try:
+        public_gym_id = resolve_public_gym_id()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    filename = (csv_file.filename or "").lower()
+    if not filename.endswith(".csv"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo de diagnostico deve ser CSV")
+
+    content = await csv_file.read(_MAX_DIAG_UPLOAD_SIZE + 1)
+    if len(content) > _MAX_DIAG_UPLOAD_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+
+    try:
+        avg_fee_decimal = Decimal(avg_monthly_fee)
+    except InvalidOperation as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="avg_monthly_fee invalido") from exc
+
+    diagnosis_id = new_diagnosis_id()
+    payload = build_public_diagnosis_payload(
+        full_name=full_name,
+        email=email,
+        whatsapp=whatsapp,
+        gym_name=gym_name,
+        total_members=total_members,
+        avg_monthly_fee=avg_fee_decimal,
+    )
+
+    lead = create_public_diagnosis_lead(
+        db,
+        gym_id=public_gym_id,
+        full_name=payload["full_name"],
+        email=payload["email"],
+        phone=payload["whatsapp"],
+        gym_name=payload["gym_name"],
+        total_members=payload["total_members"],
+        avg_monthly_fee=Decimal(str(payload["avg_monthly_fee"])),
+        diagnosis_id=diagnosis_id,
+    )
+
+    background_tasks.add_task(
+        process_public_diagnosis_background,
+        diagnosis_id=diagnosis_id,
+        lead_id=lead.id,
+        payload=payload,
+        csv_content=content,
+        requester_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PublicDiagnosisQueuedResponse(
+        message="Diagnostico recebido e em processamento.",
+        diagnosis_id=diagnosis_id,
+        lead_id=lead.id,
+    )
+
+
+@router.post("/objection-response", response_model=PublicObjectionResponse)
+def public_objection_response(
+    payload: PublicObjectionRequest,
+    db: Session = Depends(get_db),
+) -> PublicObjectionResponse:
+    public_gym_id: UUID | None = None
+    try:
+        public_gym_id = resolve_public_gym_id()
+    except Exception:
+        public_gym_id = None
+
+    result = generate_objection_response(
+        db,
+        message_text=payload.message_text,
+        lead_id=payload.lead_id,
+        context=payload.context,
+        public_gym_id=public_gym_id,
+    )
+    return PublicObjectionResponse(**result)
+
+
+@router.post("/proposal")
+def public_proposal(
+    payload: PublicProposalRequest,
+    db: Session = Depends(get_db),
+) -> Response:
+    hydrated = hydrate_proposal_from_lead(db, payload)
+    pdf_bytes, filename = generate_proposal_pdf(hydrated)
+    send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)

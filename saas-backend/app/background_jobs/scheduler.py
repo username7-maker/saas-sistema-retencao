@@ -7,7 +7,9 @@ from app.background_jobs.jobs import (
     daily_nps_dispatch_job,
     daily_risk_job,
     monthly_reports_job,
+    nurturing_followup_job,
     refresh_dashboard_views_job,
+    sunday_briefing_job,
 )
 
 # IMPORTANTE: Em ambientes multi-worker (ex: Gunicorn com varios workers), apenas UMA
@@ -29,4 +31,6 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(monthly_reports_job, trigger="cron", day=1, hour=6, minute=0, id="monthly_reports", **_CRON_DEFAULTS)
     scheduler.add_job(refresh_dashboard_views_job, trigger="cron", minute="*/30", id="refresh_dashboard_views", coalesce=True)
     scheduler.add_job(daily_loyalty_update_job, trigger="cron", hour=3, minute=0, id="loyalty_update_daily", **_CRON_DEFAULTS)
+    scheduler.add_job(sunday_briefing_job, trigger="cron", day_of_week="sun", hour=8, minute=0, id="sunday_briefing", **_CRON_DEFAULTS)
+    scheduler.add_job(nurturing_followup_job, trigger="cron", minute=0, id="nurturing_followup_hourly", **_CRON_DEFAULTS)
     return scheduler

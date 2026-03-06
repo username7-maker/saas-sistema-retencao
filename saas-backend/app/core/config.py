@@ -44,6 +44,10 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
+    public_diag_gym_id: str = ""
+    admin_gym_id: str = ""
+    public_booking_url: str = "https://cal.com/aigymos"
+    public_diag_rate_limit: str = "5/hour"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

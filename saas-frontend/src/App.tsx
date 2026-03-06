@@ -6,6 +6,7 @@ import { LoadingPanel } from "./components/common/LoadingPanel";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
+import { DiagnosticoPage } from "./pages/public/DiagnosticoPage";
 
 const MembersPage = lazy(() => import("./pages/members/MembersPage").then((m) => ({ default: m.MembersPage })));
 const DashboardLovable = lazy(() => import("./pages/dashboard/DashboardLovable").then((m) => ({ default: m.DashboardLovable })));
@@ -39,6 +40,7 @@ function LazyWrapper({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/diagnostico" element={<DiagnosticoPage />} />
       <Route path="/login" element={<LoginPage />} />
 
       <Route
