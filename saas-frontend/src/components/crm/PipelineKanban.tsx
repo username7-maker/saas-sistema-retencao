@@ -14,6 +14,8 @@ const COLUMNS: Array<{ key: Lead["stage"]; label: string }> = [
   { key: "visit", label: "Visita" },
   { key: "trial", label: "Experimental" },
   { key: "proposal", label: "Proposta" },
+  { key: "meeting_scheduled", label: "Call agendada" },
+  { key: "proposal_sent", label: "Proposta enviada" },
   { key: "won", label: "Fechado" },
   { key: "lost", label: "Perdido" },
 ];
@@ -23,7 +25,9 @@ const NEXT_STAGE: Record<Lead["stage"], Lead["stage"] | null> = {
   contact: "visit",
   visit: "trial",
   trial: "proposal",
-  proposal: "won",
+  proposal: "meeting_scheduled",
+  meeting_scheduled: "proposal_sent",
+  proposal_sent: "won",
   won: null,
   lost: null,
 };
@@ -34,6 +38,8 @@ const COLUMN_ACCENT: Record<Lead["stage"], string> = {
   visit: "border-lovable-border",
   trial: "border-lovable-border",
   proposal: "border-lovable-warning/40",
+  meeting_scheduled: "border-lovable-primary/40",
+  proposal_sent: "border-lovable-primary/50",
   won: "border-lovable-success/40",
   lost: "border-lovable-danger/30",
 };
@@ -55,7 +61,7 @@ export function PipelineKanban({ leads, onMove, onCardClick }: PipelineKanbanPro
   }, [leads]);
 
   return (
-    <div className="grid gap-4 overflow-x-auto pb-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+    <div className="grid gap-4 overflow-x-auto pb-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-9">
       {COLUMNS.map((column) => {
         const colLeads = grouped[column.key];
         const totalValue = colLeads.reduce((sum, lead) => sum + (lead.estimated_value ?? 0), 0);

@@ -64,6 +64,10 @@ def _format_phone(phone: str) -> str:
     return digits
 
 
+def format_phone(phone: str) -> str:
+    return _format_phone(phone)
+
+
 def _is_rate_limited(db: Session, recipient: str, limit_per_hour: int = DEFAULT_RATE_LIMIT_PER_HOUR) -> bool:
     window_start = datetime.now(tz=timezone.utc) - timedelta(hours=1)
     total_recent = db.scalar(
@@ -85,19 +89,27 @@ async def send_whatsapp_message(
     phone: str,
     message: str,
     member_id: UUID | None = None,
+    lead_id: UUID | None = None,
     automation_rule_id: UUID | None = None,
     template_name: str | None = None,
+    direction: str | None = "outbound",
+    event_type: str | None = None,
+    provider_message_id: str | None = None,
 ) -> MessageLog:
     formatted_phone = _format_phone(phone)
 
     log_entry = MessageLog(
         member_id=member_id,
+        lead_id=lead_id,
         automation_rule_id=automation_rule_id,
         channel="whatsapp",
         recipient=formatted_phone,
         template_name=template_name,
         content=message,
         status="pending",
+        direction=direction,
+        event_type=event_type,
+        provider_message_id=provider_message_id,
     )
     db.add(log_entry)
     db.flush()
@@ -147,19 +159,27 @@ def send_whatsapp_sync(
     phone: str,
     message: str,
     member_id: UUID | None = None,
+    lead_id: UUID | None = None,
     automation_rule_id: UUID | None = None,
     template_name: str | None = None,
+    direction: str | None = "outbound",
+    event_type: str | None = None,
+    provider_message_id: str | None = None,
 ) -> MessageLog:
     formatted_phone = _format_phone(phone)
 
     log_entry = MessageLog(
         member_id=member_id,
+        lead_id=lead_id,
         automation_rule_id=automation_rule_id,
         channel="whatsapp",
         recipient=formatted_phone,
         template_name=template_name,
         content=message,
         status="pending",
+        direction=direction,
+        event_type=event_type,
+        provider_message_id=provider_message_id,
     )
     db.add(log_entry)
     db.flush()

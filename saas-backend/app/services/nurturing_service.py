@@ -6,10 +6,13 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
-from app.models import Lead, LeadStage, NurturingSequence
+from app.models import Lead, LeadStage, MessageLog, NurturingSequence
+from app.services.crm_service import append_lead_note
+from app.services.objection_service import generate_objection_response
+from app.services.whatsapp_service import format_phone, send_whatsapp_sync
 from app.utils.email import send_email
-from app.services.whatsapp_service import send_whatsapp_sync
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +63,34 @@ def create_nurturing_sequence(
     return sequence
 
 
+def pause_sequences_for_lead(db: Session, lead_id: UUID, reason: str) -> int:
+    paused = 0
+    sequences = list(
+        db.scalars(
+            select(NurturingSequence).where(
+                NurturingSequence.lead_id == lead_id,
+                NurturingSequence.completed.is_(False),
+                NurturingSequence.paused_at.is_(None),
+            )
+        ).all()
+    )
+    now = datetime.now(tz=timezone.utc)
+    for sequence in sequences:
+        sequence.paused_at = now
+        sequence.paused_reason = reason
+        db.add(sequence)
+        paused += 1
+    db.flush()
+    return paused
+
+
 def run_nurturing_followup(db: Session) -> dict[str, int]:
     now = datetime.now(tz=timezone.utc)
     due_sequences = list(
         db.scalars(
             select(NurturingSequence).where(
                 NurturingSequence.completed.is_(False),
+                NurturingSequence.paused_at.is_(None),
                 NurturingSequence.next_send_at <= now,
             )
         ).all()
@@ -107,6 +132,102 @@ def run_nurturing_followup(db: Session) -> dict[str, int]:
     }
 
 
+def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    event_name = _extract_event_name(payload)
+    if not _is_received_message_event(event_name, payload):
+        return {"processed": False, "detail": "Evento ignorado"}
+
+    message = _extract_message_data(payload)
+    if message["is_group"]:
+        return {"processed": False, "detail": "Mensagem de grupo ignorada"}
+    if message["from_me"]:
+        return {"processed": False, "detail": "Mensagem propria ignorada"}
+    if not message["phone"] or not message["text"]:
+        return {"processed": False, "detail": "Payload sem telefone ou texto"}
+
+    sequence = find_active_sequence_by_phone(db, message["phone"])
+    if not sequence:
+        return {"processed": False, "detail": "Prospect sem sequencia ativa"}
+
+    inbound_log = MessageLog(
+        lead_id=sequence.lead_id,
+        channel="whatsapp",
+        recipient=message["phone"],
+        template_name=None,
+        content=message["text"],
+        status="received",
+        direction="inbound",
+        event_type=event_name,
+        provider_message_id=message["provider_message_id"],
+        extra_data={"raw_payload": payload},
+    )
+    db.add(inbound_log)
+    db.flush()
+
+    _invalidate_sales_cache(sequence.lead_id)
+
+    response = generate_objection_response(
+        db,
+        message_text=message["text"],
+        lead_id=sequence.lead_id,
+        context=sequence.diagnosis_data,
+        public_gym_id=sequence.gym_id,
+    )
+    if not response["matched"]:
+        db.commit()
+        return {"processed": True, "detail": "Mensagem registrada sem objecao"}
+
+    _record_detected_objection(
+        db,
+        sequence=sequence,
+        inbound_message=message["text"],
+        response=response,
+    )
+    send_result = send_whatsapp_sync(
+        db,
+        phone=message["phone"],
+        message=response["response_text"],
+        lead_id=sequence.lead_id,
+        template_name="custom",
+        direction="outbound",
+        event_type="objection_auto_reply",
+    )
+    _invalidate_sales_cache(sequence.lead_id)
+    db.commit()
+    return {
+        "processed": True,
+        "detail": "Objecao detectada e respondida" if send_result.status in {"sent", "skipped"} else "Objecao detectada",
+    }
+
+
+def find_active_sequence_by_phone(db: Session, phone: str) -> NurturingSequence | None:
+    public_gym_id = _resolve_public_gym_id()
+    target_phone = format_phone(phone)
+    candidates = list(
+        db.scalars(
+            select(NurturingSequence).where(
+                NurturingSequence.gym_id == public_gym_id,
+                NurturingSequence.completed.is_(False),
+                NurturingSequence.paused_at.is_(None),
+            )
+            .order_by(NurturingSequence.created_at.desc())
+        ).all()
+    )
+    for item in candidates:
+        candidate_phone = format_phone(item.prospect_whatsapp)
+        if candidate_phone == target_phone or target_phone.endswith(candidate_phone) or candidate_phone.endswith(target_phone):
+            return item
+    return None
+
+
+def list_sent_nurturing_steps(sequence: NurturingSequence | None) -> list[int]:
+    if not sequence:
+        return []
+    if sequence.completed:
+        return [step for step in NURTURING_STEP_ORDER if step <= sequence.current_step]
+    return [step for step in NURTURING_STEP_ORDER if step < sequence.current_step]
+
+
 def _stop_if_lead_won(db: Session, sequence: NurturingSequence) -> bool:
     if not sequence.lead_id:
         return False
@@ -130,14 +251,116 @@ def _dispatch_step(db: Session, sequence: NurturingSequence) -> bool:
             db,
             phone=sequence.prospect_whatsapp,
             message=message,
+            lead_id=sequence.lead_id,
             template_name="custom",
+            direction="outbound",
+            event_type=f"nurturing_d{step}",
         )
         return result.status in {"sent", "skipped"}
 
     subject, body = _email_for_step(sequence, step)
     if not subject:
         return False
-    return send_email(sequence.prospect_email, subject, body)
+    sent_ok = send_email(sequence.prospect_email, subject, body)
+    _record_email_dispatch(db, sequence, subject, body, sent_ok, f"nurturing_d{step}")
+    return sent_ok
+
+
+def _record_email_dispatch(
+    db: Session,
+    sequence: NurturingSequence,
+    subject: str,
+    body: str,
+    sent_ok: bool,
+    event_type: str,
+) -> None:
+    db.add(
+        MessageLog(
+            lead_id=sequence.lead_id,
+            channel="email",
+            recipient=sequence.prospect_email,
+            template_name=event_type,
+            content=f"{subject}\n\n{body}",
+            status="sent" if sent_ok else "failed",
+            direction="outbound",
+            event_type=event_type,
+            extra_data={"subject": subject},
+        )
+    )
+    db.flush()
+
+
+def _record_detected_objection(
+    db: Session,
+    *,
+    sequence: NurturingSequence,
+    inbound_message: str,
+    response: dict[str, Any],
+) -> None:
+    if not sequence.lead_id:
+        return
+    lead = db.get(Lead, sequence.lead_id)
+    if not lead:
+        return
+    append_lead_note(
+        db,
+        lead,
+        {
+            "type": "objection_detected",
+            "message_text": inbound_message,
+            "response_text": response["response_text"],
+            "objection_id": str(response["objection_id"]) if response.get("objection_id") else None,
+            "source": response["source"],
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        },
+    )
+
+
+def _invalidate_sales_cache(lead_id: UUID | None) -> None:
+    if not lead_id:
+        return
+    dashboard_cache.delete(make_cache_key("sales_brief", lead_id))
+    dashboard_cache.delete(make_cache_key("call_script", lead_id))
+
+
+def _extract_event_name(payload: dict[str, Any]) -> str:
+    return str(payload.get("event") or payload.get("type") or payload.get("eventType") or "").strip().lower()
+
+
+def _is_received_message_event(event_name: str, payload: dict[str, Any]) -> bool:
+    if event_name in {"message.received", "messages.upsert", "message_upsert", "message_created"}:
+        return True
+    data = payload.get("data")
+    return isinstance(data, dict) and ("message" in data or "text" in data or "body" in data)
+
+
+def _extract_message_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        data = payload
+
+    key = data.get("key") if isinstance(data.get("key"), dict) else {}
+    remote_jid = str(key.get("remoteJid") or data.get("from") or data.get("sender") or "").strip()
+    phone = remote_jid.split("@", 1)[0] if "@" in remote_jid else remote_jid
+    phone = format_phone(phone) if phone else ""
+
+    body = ""
+    message = data.get("message")
+    if isinstance(message, dict):
+        body = (
+            str(message.get("conversation") or "").strip()
+            or str(message.get("text") or "").strip()
+            or str(message.get("extendedTextMessage", {}).get("text") or "").strip()
+        )
+    body = body or str(data.get("text") or data.get("body") or "").strip()
+
+    return {
+        "phone": phone,
+        "text": body,
+        "from_me": bool(key.get("fromMe") or data.get("fromMe") or False),
+        "is_group": bool(str(remote_jid).endswith("@g.us") or data.get("isGroup") or False),
+        "provider_message_id": str(key.get("id") or data.get("id") or "").strip() or None,
+    }
 
 
 def _diagnosis_numbers(sequence: NurturingSequence) -> tuple[int, int, float]:
@@ -237,3 +460,10 @@ def _claude_or_fallback(*, prompt: str, fallback: str) -> str:
     except Exception:
         logger.exception("Falha no Claude, usando fallback da regua")
         return fallback
+
+
+def _resolve_public_gym_id() -> UUID:
+    raw = (settings.public_diag_gym_id or "").strip()
+    if not raw:
+        raise RuntimeError("PUBLIC_DIAG_GYM_ID nao configurado")
+    return UUID(raw)

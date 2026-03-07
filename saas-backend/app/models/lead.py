@@ -58,3 +58,5 @@ class Lead(Base, TimestampMixin, SoftDeleteMixin):
     owner = relationship("User", back_populates="leads_owned")
     converted_member = relationship("Member")
     tasks = relationship("Task", back_populates="lead")
+    message_logs = relationship("MessageLog", back_populates="lead")
+    bookings = relationship("LeadBooking", back_populates="lead")

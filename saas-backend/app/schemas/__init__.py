@@ -49,6 +49,22 @@ from app.schemas.public_diagnosis import (
     PublicProposalRequest,
 )
 from app.schemas.risk import RiskAlertOut, RiskAlertResolveInput
+from app.schemas.sales import (
+    BookingStatusOut,
+    CallEventCreate,
+    CallEventResponse,
+    CallScriptOut,
+    KnownObjectionOut,
+    LeadBookingOut,
+    PublicBookingConfirmRequest,
+    PublicBookingConfirmResponse,
+    PublicWhatsappWebhookResponse,
+    SalesArgumentOut,
+    SalesBriefDiagnosisOut,
+    SalesBriefOut,
+    SalesBriefProfileOut,
+    SalesHistoryItemOut,
+)
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
 __all__ = [
@@ -118,6 +134,20 @@ __all__ = [
     "RevenuePoint",
     "RiskAlertOut",
     "RiskAlertResolveInput",
+    "BookingStatusOut",
+    "CallEventCreate",
+    "CallEventResponse",
+    "CallScriptOut",
+    "KnownObjectionOut",
+    "LeadBookingOut",
+    "PublicBookingConfirmRequest",
+    "PublicBookingConfirmResponse",
+    "PublicWhatsappWebhookResponse",
+    "SalesArgumentOut",
+    "SalesBriefDiagnosisOut",
+    "SalesBriefOut",
+    "SalesBriefProfileOut",
+    "SalesHistoryItemOut",
     "TaskCreate",
     "TaskOut",
     "TaskUpdate",

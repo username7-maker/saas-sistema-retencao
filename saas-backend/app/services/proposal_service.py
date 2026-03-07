@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import NurturingSequence
+from app.models import Lead, NurturingSequence
 from app.schemas.public_diagnosis import PublicProposalRequest
 from app.utils.email import send_email_with_attachment
 
@@ -164,3 +164,50 @@ def hydrate_proposal_from_lead(db: Session, payload: PublicProposalRequest) -> P
     if not updates:
         return payload
     return payload.model_copy(update=updates)
+
+
+def generate_and_send_for_lead(db: Session, lead_id) -> dict:
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise ValueError("Lead nao encontrado para gerar proposta")
+
+    sequence = db.scalar(
+        select(NurturingSequence)
+        .where(NurturingSequence.lead_id == lead_id)
+        .order_by(NurturingSequence.created_at.desc())
+        .limit(1)
+    )
+    diagnosis = dict(sequence.diagnosis_data or {}) if sequence and isinstance(sequence.diagnosis_data, dict) else {}
+
+    payload = PublicProposalRequest(
+        lead_id=lead.id,
+        prospect_name=lead.full_name,
+        gym_name=_infer_gym_name(lead, diagnosis),
+        total_members=int(diagnosis.get("total_members") or 1),
+        avg_monthly_fee=Decimal(str(diagnosis.get("avg_monthly_fee") or "0")),
+        diagnosed_red=int(diagnosis.get("red_total") or 0),
+        diagnosed_yellow=int(diagnosis.get("yellow_total") or 0),
+        email=lead.email,
+    )
+    hydrated = hydrate_proposal_from_lead(db, payload)
+    pdf_bytes, filename = generate_proposal_pdf(hydrated)
+    emailed = send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
+    return {
+        "payload": hydrated,
+        "filename": filename,
+        "emailed": emailed,
+        "pdf_bytes": pdf_bytes,
+    }
+
+
+def _infer_gym_name(lead: Lead, diagnosis: dict) -> str:
+    gym_name = str(diagnosis.get("gym_name") or "").strip()
+    if gym_name:
+        return gym_name
+
+    for item in lead.notes or []:
+        if isinstance(item, dict):
+            candidate = str(item.get("gym_name") or "").strip()
+            if candidate:
+                return candidate
+    return lead.full_name

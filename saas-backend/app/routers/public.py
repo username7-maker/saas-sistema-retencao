@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,12 @@ from app.schemas.public_diagnosis import (
     PublicObjectionResponse,
     PublicProposalRequest,
 )
+from app.schemas.sales import (
+    PublicBookingConfirmRequest,
+    PublicBookingConfirmResponse,
+    PublicWhatsappWebhookResponse,
+)
+from app.services.booking_service import confirm_public_booking
 from app.services.crm_service import create_public_diagnosis_lead
 from app.services.diagnosis_service import (
     build_public_diagnosis_payload,
@@ -23,6 +29,7 @@ from app.services.diagnosis_service import (
     process_public_diagnosis_background,
     resolve_public_gym_id,
 )
+from app.services.nurturing_service import handle_incoming_whatsapp_webhook
 from app.services.objection_service import generate_objection_response
 from app.services.proposal_service import (
     generate_proposal_pdf,
@@ -151,3 +158,41 @@ def public_proposal(
     send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
+@router.post("/whatsapp/webhook", response_model=PublicWhatsappWebhookResponse)
+def public_whatsapp_webhook(
+    payload: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    x_webhook_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> PublicWhatsappWebhookResponse:
+    provided_token = x_webhook_token or _extract_bearer_token(authorization) or request.query_params.get("token")
+    if not settings.whatsapp_webhook_token or provided_token != settings.whatsapp_webhook_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Webhook token invalido")
+
+    result = handle_incoming_whatsapp_webhook(db, payload)
+    return PublicWhatsappWebhookResponse(**result)
+
+
+@router.post("/booking/confirm", response_model=PublicBookingConfirmResponse)
+def public_booking_confirm(
+    payload: PublicBookingConfirmRequest,
+    db: Session = Depends(get_db),
+) -> PublicBookingConfirmResponse:
+    lead, booking = confirm_public_booking(db, payload)
+    return PublicBookingConfirmResponse(
+        message="Agendamento confirmado",
+        lead_id=lead.id,
+        booking_id=booking.id,
+    )
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.strip().split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return authorization.strip() or None

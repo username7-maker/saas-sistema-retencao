@@ -44,12 +44,16 @@ class MessageLogOut(BaseModel):
 
     id: UUID
     member_id: UUID | None
+    lead_id: UUID | None
     automation_rule_id: UUID | None
     channel: str
     recipient: str
     template_name: str | None
     content: str
     status: str
+    direction: str | None
+    event_type: str | None
+    provider_message_id: str | None
     error_detail: str | None
     extra_data: dict
     created_at: datetime

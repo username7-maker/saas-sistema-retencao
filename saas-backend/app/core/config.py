@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     whatsapp_api_token: str = ""
     whatsapp_instance: str = "default"
     whatsapp_rate_limit_per_hour: int = 6
+    whatsapp_webhook_token: str = ""
 
     redis_url: str = ""
     dashboard_cache_ttl_seconds: int = 300
@@ -48,6 +49,8 @@ class Settings(BaseSettings):
     admin_gym_id: str = ""
     public_booking_url: str = "https://cal.com/aigymos"
     public_diag_rate_limit: str = "5/hour"
+    booking_reminder_minutes_before: int = 60
+    proposal_followup_delay_hours: int = 24
 
     @field_validator("cors_origins", mode="before")
     @classmethod

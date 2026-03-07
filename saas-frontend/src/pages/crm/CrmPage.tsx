@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { PipelineKanban } from "../../components/crm/PipelineKanban";
@@ -29,6 +29,8 @@ const STAGE_LABELS: Record<Lead["stage"], string> = {
   visit: "Visita",
   trial: "Experimental",
   proposal: "Proposta",
+  meeting_scheduled: "Call agendada",
+  proposal_sent: "Proposta enviada",
   won: "Fechado",
   lost: "Perdido",
 };
@@ -86,6 +88,7 @@ interface LeadFormDrawerProps {
 function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const navigate = useNavigate();
 
   const {
     register,
@@ -169,6 +172,29 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
     <>
       <Drawer open={open} onClose={onClose} title={isEditing ? "Editar Lead" : "Novo Lead"}>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 p-1">
+          {isEditing && lead ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  onClose();
+                  navigate(`/vendas/briefing/${lead.id}`);
+                }}
+              >
+                Abrir briefing
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onClose();
+                  navigate(`/vendas/script/${lead.id}`);
+                }}
+              >
+                Abrir script
+              </Button>
+            </div>
+          ) : null}
+
           <FormField label="Nome" required error={errors.full_name?.message}>
             <Input {...register("full_name")} placeholder="Nome completo" />
           </FormField>

@@ -44,7 +44,7 @@ export interface Lead {
   email: string | null;
   phone: string | null;
   source: string;
-  stage: "new" | "contact" | "visit" | "trial" | "proposal" | "won" | "lost";
+  stage: "new" | "contact" | "visit" | "trial" | "proposal" | "meeting_scheduled" | "proposal_sent" | "won" | "lost";
   estimated_value: number;
   acquisition_cost: number;
   owner_id: string | null;
@@ -210,4 +210,72 @@ export interface BodyCompositionEvaluationCreate {
   basal_metabolic_rate_kcal?: number | null;
   source?: EvaluationSource;
   notes?: string | null;
+}
+
+export interface SalesHistoryItem {
+  kind: string;
+  channel: string | null;
+  title: string;
+  detail: string | null;
+  occurred_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SalesArgument {
+  title: string;
+  body: string;
+  usage: string;
+}
+
+export interface SalesBrief {
+  profile: {
+    lead_id: string;
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+    source: string;
+    stage: Lead["stage"];
+    gym_name: string | null;
+    city: string | null;
+    estimated_members: number | null;
+    avg_monthly_fee: number | null;
+    current_management_system: string | null;
+  };
+  diagnosis: {
+    has_diagnosis: boolean;
+    message: string | null;
+    red_total: number;
+    yellow_total: number;
+    mrr_at_risk: number;
+    annual_loss_projection: number;
+    estimated_recovered_members: number;
+    estimated_preserved_annual_revenue: number;
+  };
+  history: SalesHistoryItem[];
+  ai_arguments: SalesArgument[];
+  next_step_recommended: string;
+}
+
+export interface KnownObjection {
+  summary: string;
+  response_text: string;
+  source: string;
+}
+
+export interface CallScript {
+  lead_id: string;
+  opening: string;
+  qualification_questions: string[];
+  presentation_points: string[];
+  objections: KnownObjection[];
+  closing: string;
+  quick_responses: Record<string, string>;
+}
+
+export interface BookingStatus {
+  has_booking: boolean;
+  booking_id: string | null;
+  scheduled_for: string | null;
+  status: string | null;
+  provider_name: string | null;
 }

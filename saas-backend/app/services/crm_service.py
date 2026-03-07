@@ -177,3 +177,48 @@ def create_public_diagnosis_lead(
     db.refresh(lead)
     invalidate_dashboard_cache("leads")
     return lead
+
+
+def create_public_booking_lead(
+    db: Session,
+    *,
+    gym_id: UUID,
+    full_name: str,
+    email: str | None,
+    phone: str | None,
+    scheduled_for: datetime,
+    provider_name: str | None = None,
+) -> Lead:
+    lead = Lead(
+        gym_id=gym_id,
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        source="public_booking",
+        stage=LeadStage.MEETING_SCHEDULED,
+        estimated_value=Decimal("0"),
+        acquisition_cost=Decimal("0"),
+        last_contact_at=datetime.now(tz=timezone.utc),
+        notes=[
+            {
+                "type": "booking_confirmed",
+                "scheduled_for": scheduled_for.isoformat(),
+                "provider_name": provider_name,
+                "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            }
+        ],
+    )
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    invalidate_dashboard_cache("leads")
+    return lead
+
+
+def append_lead_note(db: Session, lead: Lead, note: dict) -> Lead:
+    notes = list(lead.notes or [])
+    notes.append(note)
+    lead.notes = notes
+    db.add(lead)
+    db.flush()
+    return lead

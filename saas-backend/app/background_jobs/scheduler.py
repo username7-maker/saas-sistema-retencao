@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.background_jobs.jobs import (
+    booking_reminder_job,
     daily_automations_job,
     daily_crm_followup_job,
     daily_loyalty_update_job,
@@ -8,6 +9,7 @@ from app.background_jobs.jobs import (
     daily_risk_job,
     monthly_reports_job,
     nurturing_followup_job,
+    proposal_followup_job,
     refresh_dashboard_views_job,
     sunday_briefing_job,
 )
@@ -33,4 +35,6 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(daily_loyalty_update_job, trigger="cron", hour=3, minute=0, id="loyalty_update_daily", **_CRON_DEFAULTS)
     scheduler.add_job(sunday_briefing_job, trigger="cron", day_of_week="sun", hour=8, minute=0, id="sunday_briefing", **_CRON_DEFAULTS)
     scheduler.add_job(nurturing_followup_job, trigger="cron", minute=0, id="nurturing_followup_hourly", **_CRON_DEFAULTS)
+    scheduler.add_job(booking_reminder_job, trigger="cron", minute="*/10", id="booking_reminder", **_CRON_DEFAULTS)
+    scheduler.add_job(proposal_followup_job, trigger="cron", minute=15, id="proposal_followup_hourly", **_CRON_DEFAULTS)
     return scheduler

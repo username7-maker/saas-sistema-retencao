@@ -18,6 +18,7 @@ from app.routers import (
     reports,
     risk_alerts,
     roi,
+    sales,
     tasks,
     users,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "reports",
     "risk_alerts",
     "roi",
+    "sales",
     "tasks",
     "users",
 ]

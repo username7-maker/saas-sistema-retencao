@@ -32,6 +32,8 @@ class LeadStage(str, enum.Enum):
     VISIT = "visit"
     TRIAL = "trial"
     PROPOSAL = "proposal"
+    MEETING_SCHEDULED = "meeting_scheduled"
+    PROPOSAL_SENT = "proposal_sent"
     WON = "won"
     LOST = "lost"
 

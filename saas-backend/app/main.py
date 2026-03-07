@@ -35,6 +35,7 @@ from app.routers import (
     reports,
     risk_alerts,
     roi,
+    sales,
     tasks,
     users,
 )
@@ -123,6 +124,7 @@ app.include_router(risk_alerts.router, prefix=settings.api_prefix)
 app.include_router(automations.router, prefix=settings.api_prefix)
 app.include_router(reports.router, prefix=settings.api_prefix)
 app.include_router(roi.router, prefix=settings.api_prefix)
+app.include_router(sales.router, prefix=settings.api_prefix)
 app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(admin_objections.router, prefix=settings.api_prefix)
 

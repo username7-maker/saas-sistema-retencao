@@ -28,6 +28,8 @@ const SettingsPage = lazy(() => import("./pages/settings/SettingsPage").then((m)
 const UsersPage = lazy(() => import("./pages/settings/UsersPage").then((m) => ({ default: m.UsersPage })));
 const NpsPage = lazy(() => import("./pages/nps/NpsPage").then((m) => ({ default: m.NpsPage })));
 const AuditPage = lazy(() => import("./pages/audit/AuditPage").then((m) => ({ default: m.AuditPage })));
+const SalesBriefingPage = lazy(() => import("./pages/sales/SalesBriefingPage").then((m) => ({ default: m.SalesBriefingPage })));
+const CallScriptPage = lazy(() => import("./pages/sales/CallScriptPage").then((m) => ({ default: m.CallScriptPage })));
 
 function LazyWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -207,6 +209,22 @@ export default function App() {
           element={
             <LazyWrapper>
               <AuditPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/vendas/briefing/:leadId"
+          element={
+            <LazyWrapper>
+              <SalesBriefingPage />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/vendas/script/:leadId"
+          element={
+            <LazyWrapper>
+              <CallScriptPage />
             </LazyWrapper>
           }
         />

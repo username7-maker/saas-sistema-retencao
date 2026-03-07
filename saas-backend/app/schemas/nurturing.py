@@ -15,6 +15,8 @@ class NurturingSequenceOut(BaseModel):
     current_step: int
     next_send_at: datetime
     completed: bool
+    paused_at: datetime | None = None
+    paused_reason: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

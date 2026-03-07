@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +14,7 @@ class NurturingSequence(Base):
         Index("ix_nurturing_sequences_due_open", "completed", "next_send_at"),
         Index("ix_nurturing_sequences_lead", "lead_id"),
         Index("ix_nurturing_sequences_gym_due", "gym_id", "next_send_at"),
+        Index("ix_nurturing_sequences_paused", "paused_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -36,6 +37,8 @@ class NurturingSequence(Base):
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     next_send_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     lead = relationship("Lead")

@@ -9,6 +9,8 @@ from app.models.member import Member
 from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
 from app.services.automation_engine import run_automation_rules
+from app.services.booking_service import process_booking_reminders
+from app.services.call_script_service import process_proposal_followups
 from app.services.crm_service import run_followup_automation
 from app.services.nurturing_service import run_nurturing_followup
 from app.services.nps_service import run_nps_dispatch
@@ -121,6 +123,28 @@ def nurturing_followup_job() -> None:
     db = SessionLocal()
     try:
         run_nurturing_followup(db)
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+def booking_reminder_job() -> None:
+    """Envia lembretes duraveis para calls confirmadas 1h antes, com varredura a cada 10 minutos."""
+    db = SessionLocal()
+    try:
+        process_booking_reminders(db)
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+def proposal_followup_job() -> None:
+    """Cria follow-up manual 24h apos proposta enviada sem conversao."""
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            set_current_gym_id(gym.id)
+            process_proposal_followups(db)
     finally:
         clear_current_gym_id()
         db.close()
