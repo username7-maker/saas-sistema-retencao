@@ -45,8 +45,8 @@ export function DashboardActions({ dashboard, showMonthlyDispatch = false, theme
         disabled={exporting}
         className={
           isDark
-            ? "inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-100 hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-60"
-            : "inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-700 hover:border-slate-400 disabled:opacity-60"
+            ? "inline-flex items-center gap-1 rounded-full border border-lovable-border-strong bg-lovable-surface px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong/90 hover:bg-lovable-surface-soft disabled:opacity-60"
+            : "inline-flex items-center gap-1 rounded-full border border-lovable-border bg-lovable-surface px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong disabled:opacity-60"
         }
       >
         <Download size={14} />
@@ -59,8 +59,8 @@ export function DashboardActions({ dashboard, showMonthlyDispatch = false, theme
           disabled={dispatching}
           className={
             isDark
-              ? "inline-flex items-center gap-1 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-950 hover:bg-emerald-400 disabled:opacity-60"
-              : "inline-flex items-center gap-1 rounded-full bg-brand-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
+              ? "inline-flex items-center gap-1 rounded-full bg-lovable-success px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-60"
+              : "inline-flex items-center gap-1 rounded-full bg-lovable-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-60"
           }
         >
           <Mail size={14} />

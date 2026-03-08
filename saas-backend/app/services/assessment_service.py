@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Member
+from app.models import Checkin, Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
 
@@ -144,26 +144,53 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
     labels = [item.assessment_date.date().isoformat() for item in assessments]
     weight = [_decimal_to_float(item.weight_kg) for item in assessments]
     body_fat = [_decimal_to_float(item.body_fat_pct) for item in assessments]
+    lean_mass = [_decimal_to_float(item.lean_mass_kg) for item in assessments]
     bmi = [_decimal_to_float(item.bmi) for item in assessments]
     strength = [item.strength_score for item in assessments]
     flexibility = [item.flexibility_score for item in assessments]
     cardio = [item.cardio_score for item in assessments]
+    main_lift_load = [_extract_main_lift_load(item) for item in assessments]
+
+    checkin_labels = _last_month_labels(6)
+    checkins_per_month = [0 for _ in checkin_labels]
+    if checkin_labels:
+        first_label = checkin_labels[0]
+        first_month_start = datetime.strptime(f"{first_label}-01", "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        checkin_dates = db.scalars(
+            select(Checkin.checkin_at).where(
+                Checkin.member_id == member_id,
+                Checkin.checkin_at >= first_month_start,
+            )
+        ).all()
+        bucket_index = {label: index for index, label in enumerate(checkin_labels)}
+        for checkin_at in checkin_dates:
+            label = checkin_at.strftime("%Y-%m")
+            idx = bucket_index.get(label)
+            if idx is not None:
+                checkins_per_month[idx] += 1
 
     return {
         "labels": labels,
         "weight": weight,
         "body_fat": body_fat,
+        "lean_mass": lean_mass,
         "bmi": bmi,
         "strength": strength,
         "flexibility": flexibility,
         "cardio": cardio,
+        "checkins_labels": checkin_labels,
+        "checkins_per_month": checkins_per_month,
+        "main_lift_load": main_lift_load,
+        "main_lift_label": "Carga principal",
         "deltas": {
             "weight": _calculate_delta(weight),
             "body_fat": _calculate_delta(body_fat),
+            "lean_mass": _calculate_delta(lean_mass),
             "bmi": _calculate_delta(bmi),
             "strength": _calculate_delta(strength),
             "flexibility": _calculate_delta(flexibility),
             "cardio": _calculate_delta(cardio),
+            "main_lift_load": _calculate_delta(main_lift_load),
         },
     }
 
@@ -238,3 +265,46 @@ def _safe_delta_value(previous: Decimal | None, current: Decimal | None) -> str:
         return "n/a"
     delta = current - previous
     return f"{delta:+.2f}"
+
+
+def _last_month_labels(months: int) -> list[str]:
+    if months <= 0:
+        return []
+    base = date.today().replace(day=1)
+    labels: list[str] = []
+    for index in range(months - 1, -1, -1):
+        current = _subtract_months(base, index)
+        labels.append(current.strftime("%Y-%m"))
+    return labels
+
+
+def _subtract_months(base: date, months_back: int) -> date:
+    year = base.year
+    month = base.month - months_back
+    while month <= 0:
+        month += 12
+        year -= 1
+    return date(year, month, 1)
+
+
+def _extract_main_lift_load(assessment: Assessment) -> float | None:
+    extra = assessment.extra_data if isinstance(assessment.extra_data, dict) else {}
+    candidate_keys = (
+        "main_lift_load",
+        "principal_exercise_load",
+        "carga_principal",
+        "leg_press_load",
+        "supino_load",
+    )
+    for key in candidate_keys:
+        raw = extra.get(key)
+        if raw is None:
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+
+    if assessment.strength_score is not None:
+        return float(assessment.strength_score)
+    return None

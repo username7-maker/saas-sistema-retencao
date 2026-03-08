@@ -34,6 +34,7 @@ export interface Member {
   risk_score: number;
   risk_level: RiskLevel;
   last_checkin_at: string | null;
+  extra_data?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

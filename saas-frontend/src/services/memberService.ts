@@ -31,6 +31,7 @@ export interface MemberUpdatePayload {
   monthly_fee?: number;
   status?: Member["status"];
   preferred_shift?: string;
+  extra_data?: Record<string, unknown>;
 }
 
 export const memberService = {

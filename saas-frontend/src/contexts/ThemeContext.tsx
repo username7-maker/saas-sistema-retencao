@@ -10,12 +10,16 @@ interface ThemeContextValue {
 export const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 const THEME_KEY = "ai_gym_theme";
+const THEME_BAR_COLORS: Record<Theme, string> = {
+  light: "#f4f4f5",
+  dark: "#09090b",
+};
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem(THEME_KEY);
     if (stored === "dark" || stored === "light") return stored;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return "dark";
   });
 
   useEffect(() => {
@@ -24,6 +28,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.add("dark");
     } else {
       root.classList.remove("dark");
+    }
+    root.style.colorScheme = theme;
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute("content", THEME_BAR_COLORS[theme]);
     }
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);

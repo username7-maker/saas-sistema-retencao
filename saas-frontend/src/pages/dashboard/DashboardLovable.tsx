@@ -23,7 +23,6 @@ import {
   useRetentionDashboard,
 } from "../../hooks/useDashboard";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
-import { DashboardActions } from "../../components/common/DashboardActions";
 import {
   Badge,
   Button,
@@ -41,9 +40,8 @@ import { buildLovableDashboardViewModel } from "./dashboardAdapters";
 
 type ActionSource = "retention" | "commercial" | "operational";
 type ActionPriority = "high" | "medium";
-type ChartRange = "all" | "6m" | "3m";
+type ChartRange = "all" | "6m" | "3m" | "custom";
 
-const DASH_H1 = "text-[20px] leading-[1.2]";
 const DASH_H2 = "text-[16px] leading-[1.25]";
 const DASH_H3 = "text-[14px] leading-[1.3]";
 const DASH_H4 = "text-[12px] leading-[1.35]";
@@ -89,6 +87,12 @@ function formatDateLabel(value: string): string {
     month: "short",
     year: "2-digit",
   });
+}
+
+function parseChartMonth(value: string): Date | null {
+  const normalized = value.match(/^\d{4}-\d{2}$/) ? `${value}-01` : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDateTime(value: string | null): string {
@@ -179,6 +183,11 @@ export function DashboardLovable() {
   const [activeSource, setActiveSource] = useState<"all" | ActionSource>("all");
   const [search, setSearch] = useState("");
   const [chartRange, setChartRange] = useState<ChartRange>("6m");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [appliedCustomStartDate, setAppliedCustomStartDate] = useState("");
+  const [appliedCustomEndDate, setAppliedCustomEndDate] = useState("");
+  const [customRangeError, setCustomRangeError] = useState<string | null>(null);
 
   const executive = useExecutiveDashboard();
   const commercial = useCommercialDashboard();
@@ -261,10 +270,45 @@ export function DashboardLovable() {
 
   const chartData = useMemo(() => {
     const points = viewModel.retentionChart;
+    if (chartRange === "custom") {
+      if (!appliedCustomStartDate && !appliedCustomEndDate) return points;
+
+      const start = appliedCustomStartDate ? new Date(`${appliedCustomStartDate}T00:00:00`) : null;
+      const end = appliedCustomEndDate ? new Date(`${appliedCustomEndDate}T23:59:59.999`) : null;
+      if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) return points;
+      if (start && end && start > end) return [];
+
+      return points.filter((point) => {
+        const pointDate = parseChartMonth(point.month);
+        if (!pointDate) return false;
+
+        const monthStart = new Date(pointDate.getFullYear(), pointDate.getMonth(), 1, 0, 0, 0, 0);
+        const monthEnd = new Date(pointDate.getFullYear(), pointDate.getMonth() + 1, 0, 23, 59, 59, 999);
+        return (!start || monthEnd >= start) && (!end || monthStart <= end);
+      });
+    }
+
     if (chartRange === "3m") return points.slice(-3);
     if (chartRange === "6m") return points.slice(-6);
     return points;
-  }, [chartRange, viewModel.retentionChart]);
+  }, [chartRange, appliedCustomStartDate, appliedCustomEndDate, viewModel.retentionChart]);
+
+  const invalidCustomRange =
+    chartRange === "custom" &&
+    customStartDate.length > 0 &&
+    customEndDate.length > 0 &&
+    new Date(`${customStartDate}T00:00:00`) > new Date(`${customEndDate}T23:59:59.999`);
+
+  function applyCustomRange() {
+    if (invalidCustomRange) {
+      setCustomRangeError("Periodo invalido: a data final deve ser maior ou igual a data inicial.");
+      return;
+    }
+
+    setAppliedCustomStartDate(customStartDate);
+    setAppliedCustomEndDate(customEndDate);
+    setCustomRangeError(null);
+  }
 
   const cardsLoading = executive.isLoading || commercial.isLoading || operational.isLoading || retention.isLoading;
   const alertsLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
@@ -277,19 +321,6 @@ export function DashboardLovable() {
       <div className="pointer-events-none absolute -left-28 top-16 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
       <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
       <div className="relative space-y-6">
-        <header className="rounded-2xl border border-zinc-800 bg-zinc-900/65 p-5 backdrop-blur">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className={cn("uppercase tracking-[0.24em] text-zinc-500", DASH_H5)}>Orcish Style Dashboard</p>
-              <h2 className={cn("font-display font-bold text-zinc-50", DASH_H1)}>Visao Executiva Integrada</h2>
-              <p className={cn("mt-1 text-zinc-400", DASH_H3)}>
-                Layout dark premium no estilo do video, mantendo seus dados reais e fluxo atual do sistema.
-              </p>
-            </div>
-            <DashboardActions dashboard="executive" showMonthlyDispatch theme="dark" />
-          </div>
-        </header>
-
         <RoiSummaryCard />
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -408,7 +439,7 @@ export function DashboardLovable() {
               <div>
                 <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
                   <BarChart3 size={18} className="text-emerald-300" />
-                  Total Visitors
+                  Churn e NPS
                 </CardTitle>
                 <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Comparativo mensal de churn e NPS.</CardDescription>
               </div>
@@ -416,77 +447,135 @@ export function DashboardLovable() {
                 <FilterChip active={chartRange === "3m"} label="3m" onClick={() => setChartRange("3m")} />
                 <FilterChip active={chartRange === "6m"} label="6m" onClick={() => setChartRange("6m")} />
                 <FilterChip active={chartRange === "all"} label="Tudo" onClick={() => setChartRange("all")} />
+                <FilterChip active={chartRange === "custom"} label="Personalizado" onClick={() => setChartRange("custom")} />
               </div>
             </CardHeader>
-            <CardContent className="h-80">
-              {chartLoading ? (
-                <Skeleton className="h-full w-full rounded-xl bg-zinc-800" />
-              ) : chartData.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-700 text-sm text-zinc-400">
-                  Sem dados suficientes ainda. Importe historico para visualizar tendencia.
+            <CardContent className="space-y-3">
+              {chartRange === "custom" ? (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Data inicial
+                    <Input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(event) => {
+                        setCustomStartDate(event.target.value);
+                        setCustomRangeError(null);
+                      }}
+                      className="h-9 border-zinc-700 bg-zinc-900/70 text-zinc-100 [color-scheme:dark]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Data final
+                    <Input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(event) => {
+                        setCustomEndDate(event.target.value);
+                        setCustomRangeError(null);
+                      }}
+                      className="h-9 border-zinc-700 bg-zinc-900/70 text-zinc-100 [color-scheme:dark]"
+                    />
+                  </label>
+                  <div className="flex items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomStartDate("");
+                        setCustomEndDate("");
+                        setAppliedCustomStartDate("");
+                        setAppliedCustomEndDate("");
+                        setCustomRangeError(null);
+                      }}
+                      className="h-9 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100"
+                    >
+                      Limpar periodo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyCustomRange}
+                      className="h-9 w-full rounded-xl border border-emerald-500/50 bg-emerald-500/20 px-3 text-xs font-semibold uppercase tracking-wider text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/30"
+                    >
+                      Confirmar
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.48} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.04} />
-                      </linearGradient>
-                      <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.34} />
-                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis
-                      dataKey="month"
-                      tickFormatter={formatDateLabel}
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: 12,
-                        border: "1px solid #3f3f46",
-                        background: "rgba(24,24,27,0.95)",
-                        color: "#f4f4f5",
-                      }}
-                      formatter={(value, key) => {
-                        const parsedValue = typeof value === "number" ? value : Number(value);
-                        if (!Number.isFinite(parsedValue)) return ["-", String(key)];
-                        if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
-                        return [parsedValue.toFixed(2), "NPS medio"];
-                      }}
-                      labelFormatter={(label) => formatDateLabel(String(label))}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="nps_avg"
-                      name="NPS medio"
-                      stroke="#4ade80"
-                      fill="url(#npsGradient)"
-                      strokeWidth={2.5}
-                      connectNulls
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="churn_rate"
-                      name="Churn"
-                      stroke="#f59e0b"
-                      fill="url(#churnGradient)"
-                      strokeWidth={2.1}
-                      connectNulls
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+              ) : null}
+
+              {customRangeError || invalidCustomRange ? (
+                <p className="text-xs text-rose-400">{customRangeError ?? "Periodo invalido: a data final deve ser maior ou igual a data inicial."}</p>
+              ) : null}
+
+              <div className={cn(chartRange === "custom" ? "h-72" : "h-80")}>
+                {chartLoading ? (
+                  <Skeleton className="h-full w-full rounded-xl bg-zinc-800" />
+                ) : chartData.length === 0 ? (
+                  <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-700 text-sm text-zinc-400">
+                    Sem dados para o período selecionado.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.48} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0.04} />
+                        </linearGradient>
+                        <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.34} />
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                      <XAxis
+                        dataKey="month"
+                        tickFormatter={formatDateLabel}
+                        tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: 12,
+                          border: "1px solid #3f3f46",
+                          background: "rgba(24,24,27,0.95)",
+                          color: "#f4f4f5",
+                        }}
+                        formatter={(value, key) => {
+                          const parsedValue = typeof value === "number" ? value : Number(value);
+                          if (!Number.isFinite(parsedValue)) return ["-", String(key)];
+                          if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
+                          return [parsedValue.toFixed(2), "NPS medio"];
+                        }}
+                        labelFormatter={(label) => formatDateLabel(String(label))}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="nps_avg"
+                        name="NPS medio"
+                        stroke="#4ade80"
+                        fill="url(#npsGradient)"
+                        strokeWidth={2.5}
+                        connectNulls
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="churn_rate"
+                        name="Churn"
+                        stroke="#f59e0b"
+                        fill="url(#churnGradient)"
+                        strokeWidth={2.1}
+                        connectNulls
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             </CardContent>
           </Card>
 

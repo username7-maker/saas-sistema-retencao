@@ -35,14 +35,14 @@ export function AiInsightCard({ dashboard, theme = "default" }: AiInsightCardPro
       <div
         className={
           isDark
-            ? "animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4"
+            ? "animate-pulse rounded-2xl border border-lovable-border bg-lovable-surface/80 p-4"
             : "animate-pulse rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4"
         }
       >
-        <div className={isDark ? "h-4 w-32 rounded bg-zinc-700" : "h-4 w-32 rounded bg-lovable-border"} />
+        <div className={isDark ? "h-4 w-32 rounded bg-lovable-surface-soft" : "h-4 w-32 rounded bg-lovable-border"} />
         <div className="mt-3 space-y-2">
-          <div className={isDark ? "h-3 w-full rounded bg-zinc-800" : "h-3 w-full rounded bg-lovable-surface-soft"} />
-          <div className={isDark ? "h-3 w-3/4 rounded bg-zinc-800" : "h-3 w-3/4 rounded bg-lovable-surface-soft"} />
+          <div className={isDark ? "h-3 w-full rounded bg-lovable-surface-soft" : "h-3 w-full rounded bg-lovable-surface-soft"} />
+          <div className={isDark ? "h-3 w-3/4 rounded bg-lovable-surface-soft" : "h-3 w-3/4 rounded bg-lovable-surface-soft"} />
         </div>
       </div>
     );
@@ -53,11 +53,11 @@ export function AiInsightCard({ dashboard, theme = "default" }: AiInsightCardPro
       <article
         className={
           isDark
-            ? "rounded-2xl border border-zinc-800 bg-zinc-900/75 p-4"
+            ? "rounded-2xl border border-lovable-border bg-lovable-surface/75 p-4"
             : "rounded-2xl border border-lovable-border bg-lovable-surface p-4"
         }
       >
-        <div className={isDark ? "flex items-center gap-2 text-zinc-400" : "flex items-center gap-2 text-lovable-ink-muted"}>
+        <div className={isDark ? "flex items-center gap-2 text-lovable-ink-muted" : "flex items-center gap-2 text-lovable-ink-muted"}>
           <AlertTriangle size={16} />
           <span className="text-xs">Insights indisponiveis no momento.</span>
         </div>
@@ -69,17 +69,17 @@ export function AiInsightCard({ dashboard, theme = "default" }: AiInsightCardPro
     <article
       className={
         isDark
-          ? "rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 shadow-sm"
+          ? "rounded-2xl border border-lovable-success/25 bg-lovable-success/10 p-4 shadow-sm"
           : "rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-sm"
       }
     >
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles size={16} className={isDark ? "text-emerald-300" : "text-lovable-primary"} />
+          <Sparkles size={16} className={isDark ? "text-lovable-success" : "text-lovable-primary"} />
           <h3
             className={
               isDark
-                ? "text-xs font-semibold uppercase tracking-wider text-emerald-300"
+                ? "text-xs font-semibold uppercase tracking-wider text-lovable-success"
                 : "text-xs font-semibold uppercase tracking-wider text-lovable-primary"
             }
           >
@@ -91,7 +91,7 @@ export function AiInsightCard({ dashboard, theme = "default" }: AiInsightCardPro
           onClick={() => void queryClient.invalidateQueries({ queryKey: ["insights", dashboard] })}
           className={
             isDark
-              ? "rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+              ? "rounded-md p-1 text-lovable-ink-muted transition-colors hover:bg-lovable-surface-soft hover:text-lovable-ink"
               : "rounded-md p-1 text-lovable-ink-muted transition-colors hover:bg-lovable-surface-soft hover:text-lovable-ink"
           }
           title="Atualizar insight"
@@ -99,7 +99,7 @@ export function AiInsightCard({ dashboard, theme = "default" }: AiInsightCardPro
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : ""} />
         </button>
       </div>
-      <p className={isDark ? "text-sm leading-relaxed text-zinc-100" : "text-sm leading-relaxed text-lovable-ink"}>
+      <p className={isDark ? "text-sm leading-relaxed text-lovable-ink" : "text-sm leading-relaxed text-lovable-ink"}>
         {query.data.insight}
       </p>
     </article>

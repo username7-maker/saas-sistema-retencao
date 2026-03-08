@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImageUp, ScanText } from "lucide-react";
-import { useState } from "react";
+import { ArrowDown, ArrowUp, ImageUp, Minus, ScanText } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { z } from "zod";
@@ -17,7 +17,7 @@ import { Skeleton } from "../ui2/Skeleton";
 import { Textarea } from "../ui2/Textarea";
 
 const schema = z.object({
-  evaluation_date: z.string().min(1, "Data obrigatória"),
+  evaluation_date: z.string().min(1, "Data obrigatoria"),
   weight_kg: z.preprocess((v) => (v === "" || v == null ? null : Number(v)), z.number().positive().nullable().optional()),
   body_fat_percent: z.preprocess((v) => (v === "" || v == null ? null : Number(v)), z.number().min(0).max(100).nullable().optional()),
   lean_mass_kg: z.preprocess((v) => (v === "" || v == null ? null : Number(v)), z.number().positive().nullable().optional()),
@@ -30,6 +30,8 @@ const schema = z.object({
 });
 
 type FormData = z.infer<typeof schema>;
+
+type DeltaTone = "up" | "down" | "flat";
 
 interface Props {
   memberId: string;
@@ -46,6 +48,53 @@ function fmtDate(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+function toNum(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+function delta(current: number | null, previous: number | null): number | null {
+  if (current === null || previous === null) return null;
+  return Number((current - previous).toFixed(2));
+}
+
+function deltaTone(deltaValue: number | null, inverse = false): DeltaTone {
+  if (deltaValue === null || deltaValue === 0) return "flat";
+  if (inverse) return deltaValue < 0 ? "up" : "down";
+  return deltaValue > 0 ? "up" : "down";
+}
+
+function DeltaIndicator({ value, inverse = false, suffix = "" }: { value: number | null; inverse?: boolean; suffix?: string }) {
+  const tone = deltaTone(value, inverse);
+  if (value === null) {
+    return <span className="text-xs text-lovable-ink-muted">-</span>;
+  }
+  const abs = Math.abs(value);
+  const formatted = `${value > 0 ? "+" : ""}${abs.toFixed(2)}${suffix}`;
+  if (tone === "up") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-lovable-success">
+        <ArrowUp size={12} />
+        {formatted}
+      </span>
+    );
+  }
+  if (tone === "down") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-lovable-danger">
+        <ArrowDown size={12} />
+        {formatted}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-lovable-ink-muted">
+      <Minus size={12} />
+      {formatted}
+    </span>
+  );
 }
 
 async function readImageWithOcr(file: File): Promise<string> {
@@ -72,16 +121,23 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     staleTime: 60 * 1000,
   });
 
+  const latest = evaluations?.[0];
+  const previous = evaluations?.[1];
+  const weightDelta = delta(toNum(latest?.weight_kg), toNum(previous?.weight_kg));
+  const bodyFatDelta = delta(toNum(latest?.body_fat_percent), toNum(previous?.body_fat_percent));
+  const muscleDelta = delta(toNum(latest?.muscle_mass_kg), toNum(previous?.muscle_mass_kg));
+  const visceralDelta = delta(toNum(latest?.visceral_fat_level), toNum(previous?.visceral_fat_level));
+
   const mutation = useMutation({
     mutationFn: (payload: BodyCompositionEvaluationCreate) => bodyCompositionService.create(memberId, payload),
     onSuccess: () => {
-      toast.success("Avaliação registrada com sucesso.");
+      toast.success("Avaliacao registrada com sucesso.");
       void queryClient.invalidateQueries({ queryKey: ["body-composition", memberId] });
       reset();
       setOcrFile(null);
       setOcrResult(null);
     },
-    onError: () => toast.error("Erro ao registrar avaliação."),
+    onError: () => toast.error("Erro ao registrar avaliacao."),
   });
 
   const {
@@ -107,7 +163,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
 
   async function handleReadPhoto() {
     if (!ocrFile) {
-      toast.error("Selecione uma imagem da bioimpedância.");
+      toast.error("Selecione uma imagem da bioimpedancia.");
       return;
     }
 
@@ -123,15 +179,19 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
         setValue("evaluation_date", new Date().toISOString().split("T")[0]);
       }
 
-      const numericFields: Array<keyof Pick<FormData,
-      "weight_kg" |
-      "body_fat_percent" |
-      "lean_mass_kg" |
-      "muscle_mass_kg" |
-      "body_water_percent" |
-      "visceral_fat_level" |
-      "bmi" |
-      "basal_metabolic_rate_kcal">> = [
+      const numericFields: Array<
+        keyof Pick<
+          FormData,
+          | "weight_kg"
+          | "body_fat_percent"
+          | "lean_mass_kg"
+          | "muscle_mass_kg"
+          | "body_water_percent"
+          | "visceral_fat_level"
+          | "bmi"
+          | "basal_metabolic_rate_kcal"
+        >
+      > = [
         "weight_kg",
         "body_fat_percent",
         "lean_mass_kg",
@@ -160,7 +220,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
         setValue("notes", [currentNotes, warningText].filter(Boolean).join("\n"));
       }
 
-      toast.success(`Leitura concluída: ${filledCount} campo(s) preenchido(s).`);
+      toast.success(`Leitura concluida: ${filledCount} campo(s) preenchido(s).`);
     } catch {
       toast.error("Falha ao ler a imagem. Revise os campos manualmente.");
     } finally {
@@ -169,157 +229,160 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Registrar Avaliação de Bioimpedância</CardTitle>
+          <CardTitle>Resumo de Bioimpedancia</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <section className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">
-                Leitura por foto (MVP)
-              </p>
-              <p className="mt-1 text-xs text-lovable-ink-muted">
-                Envie a foto do relatório Tezewa. O sistema tenta preencher os campos automaticamente e você revisa antes de salvar.
-              </p>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => void handleReadPhoto()}
-                  disabled={!ocrFile || ocrLoading}
-                >
-                  <ScanText size={14} />
-                  {ocrLoading ? "Lendo..." : "Ler foto"}
-                </Button>
-              </div>
-
-              {ocrResult ? (
-                <div className="mt-3 space-y-2">
-                  <div className="rounded-lg border border-lovable-border bg-lovable-surface p-2 text-xs text-lovable-ink-muted">
-                    <p>
-                      Confiança estimada: <strong>{Math.round(ocrResult.confidence * 100)}%</strong>
-                    </p>
-                    {ocrResult.warnings.map((warning, index) => (
-                      <p key={index}>- {warning}</p>
-                    ))}
-                  </div>
-                  <details className="rounded-lg border border-lovable-border bg-lovable-surface p-2 text-xs text-lovable-ink-muted">
-                    <summary className="cursor-pointer font-semibold">Texto reconhecido da imagem</summary>
-                    <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap">{ocrResult.raw_text || "(vazio)"}</pre>
-                  </details>
-                </div>
-              ) : null}
-            </section>
-
-            <FormField label="Data da Avaliação" error={errors.evaluation_date?.message} required>
-              <Input type="date" {...register("evaluation_date")} />
-            </FormField>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Peso (kg)" error={errors.weight_kg?.message}>
-                <Input type="number" step="0.1" placeholder="Ex: 72.5" {...register("weight_kg")} />
-              </FormField>
-              <FormField label="% Gordura" error={errors.body_fat_percent?.message}>
-                <Input type="number" step="0.1" placeholder="Ex: 18.5" {...register("body_fat_percent")} />
-              </FormField>
+          {!latest ? (
+            <p className="text-sm text-lovable-ink-muted">Sem avaliacao de bioimpedancia registrada ainda.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard label="Peso total" value={fmt(latest.weight_kg, " kg")} deltaNode={<DeltaIndicator value={weightDelta} inverse />} />
+              <MetricCard label="% Gordura" value={fmt(latest.body_fat_percent, "%")} deltaNode={<DeltaIndicator value={bodyFatDelta} inverse suffix="%" />} />
+              <MetricCard label="Massa muscular" value={fmt(latest.muscle_mass_kg, " kg")} deltaNode={<DeltaIndicator value={muscleDelta} />} />
+              <MetricCard label="Gordura visceral" value={`Nivel ${fmt(latest.visceral_fat_level)}`} deltaNode={<DeltaIndicator value={visceralDelta} inverse />} />
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Massa Magra (kg)" error={errors.lean_mass_kg?.message}>
-                <Input type="number" step="0.1" placeholder="Ex: 59.2" {...register("lean_mass_kg")} />
-              </FormField>
-              <FormField label="Massa Muscular (kg)" error={errors.muscle_mass_kg?.message}>
-                <Input type="number" step="0.1" placeholder="Ex: 56.1" {...register("muscle_mass_kg")} />
-              </FormField>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="% Água Corporal" error={errors.body_water_percent?.message}>
-                <Input type="number" step="0.1" placeholder="Ex: 55.0" {...register("body_water_percent")} />
-              </FormField>
-              <FormField label="Gordura Visceral (nível)" error={errors.visceral_fat_level?.message}>
-                <Input type="number" step="0.5" placeholder="Ex: 8.5" {...register("visceral_fat_level")} />
-              </FormField>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="IMC" error={errors.bmi?.message}>
-                <Input type="number" step="0.01" placeholder="Ex: 24.3" {...register("bmi")} />
-              </FormField>
-              <FormField label="TMB (kcal)" error={errors.basal_metabolic_rate_kcal?.message}>
-                <Input type="number" step="1" placeholder="Ex: 1650" {...register("basal_metabolic_rate_kcal")} />
-              </FormField>
-            </div>
-
-            <FormField label="Observações" error={errors.notes?.message}>
-              <Textarea rows={3} placeholder="Notas adicionais sobre a avaliação..." {...register("notes")} />
-            </FormField>
-
-            <Button type="submit" variant="primary" size="md" className="w-full" disabled={mutation.isPending}>
-              <ImageUp size={14} />
-              {mutation.isPending ? "Salvando..." : "Salvar Avaliação"}
-            </Button>
-          </form>
+          )}
         </CardContent>
       </Card>
 
-      <div className="flex flex-col gap-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
-          Histórico de Avaliações
-        </h3>
-
-        {isLoading && (
-          <div className="space-y-3">
-            <Skeleton className="h-32 w-full rounded-2xl" />
-            <Skeleton className="h-32 w-full rounded-2xl" />
-          </div>
-        )}
-
-        {!isLoading && (!evaluations || evaluations.length === 0) && (
-          <Card>
-            <CardContent className="py-8 text-center">
-              <p className="text-sm text-lovable-ink-muted">Nenhuma avaliação registrada ainda.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {!isLoading &&
-          evaluations?.map((ev) => (
-            <Card key={ev.id}>
-              <CardContent className="pt-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-lovable-ink">{fmtDate(ev.evaluation_date)}</span>
-                  <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-lovable-primary">
-                    {ev.source === "tezewa" ? "Tezewa" : "Manual"}
-                  </span>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Registrar Avaliacao de Bioimpedancia</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <section className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Leitura por foto (MVP)</p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  Envie a foto do relatorio Tezewa. O sistema tenta preencher os campos automaticamente e voce revisa antes de salvar.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <Input type="file" accept="image/*" onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)} />
+                  <Button type="button" variant="ghost" onClick={() => void handleReadPhoto()} disabled={!ocrFile || ocrLoading}>
+                    <ScanText size={14} />
+                    {ocrLoading ? "Lendo..." : "Ler foto"}
+                  </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
-                  <Metric label="Peso" value={fmt(ev.weight_kg, " kg")} />
-                  <Metric label="% Gordura" value={fmt(ev.body_fat_percent, "%")} />
-                  <Metric label="Massa Magra" value={fmt(ev.lean_mass_kg, " kg")} />
-                  <Metric label="Massa Musc." value={fmt(ev.muscle_mass_kg, " kg")} />
-                  <Metric label="% Água" value={fmt(ev.body_water_percent, "%")} />
-                  <Metric label="Gordura Visc." value={fmt(ev.visceral_fat_level)} />
-                  <Metric label="IMC" value={fmt(ev.bmi)} />
-                  <Metric label="TMB" value={fmt(ev.basal_metabolic_rate_kcal, " kcal")} />
-                </div>
+                {ocrResult ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-lg border border-lovable-border bg-lovable-surface p-2 text-xs text-lovable-ink-muted">
+                      <p>
+                        Confianca estimada: <strong>{Math.round(ocrResult.confidence * 100)}%</strong>
+                      </p>
+                      {ocrResult.warnings.map((warning, index) => (
+                        <p key={index}>- {warning}</p>
+                      ))}
+                    </div>
+                    <details className="rounded-lg border border-lovable-border bg-lovable-surface p-2 text-xs text-lovable-ink-muted">
+                      <summary className="cursor-pointer font-semibold">Texto reconhecido da imagem</summary>
+                      <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap">{ocrResult.raw_text || "(vazio)"}</pre>
+                    </details>
+                  </div>
+                ) : null}
+              </section>
 
-                {ev.notes && (
-                  <p className="mt-3 rounded-lg bg-lovable-surface-soft px-3 py-2 text-xs text-lovable-ink-muted">
-                    {ev.notes}
-                  </p>
-                )}
+              <FormField label="Data da Avaliacao" error={errors.evaluation_date?.message} required>
+                <Input type="date" {...register("evaluation_date")} />
+              </FormField>
+
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Peso (kg)" error={errors.weight_kg?.message}>
+                  <Input type="number" step="0.1" placeholder="Ex: 72.5" {...register("weight_kg")} />
+                </FormField>
+                <FormField label="% Gordura" error={errors.body_fat_percent?.message}>
+                  <Input type="number" step="0.1" placeholder="Ex: 18.5" {...register("body_fat_percent")} />
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Massa Magra (kg)" error={errors.lean_mass_kg?.message}>
+                  <Input type="number" step="0.1" placeholder="Ex: 59.2" {...register("lean_mass_kg")} />
+                </FormField>
+                <FormField label="Massa Muscular (kg)" error={errors.muscle_mass_kg?.message}>
+                  <Input type="number" step="0.1" placeholder="Ex: 56.1" {...register("muscle_mass_kg")} />
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="% Agua Corporal" error={errors.body_water_percent?.message}>
+                  <Input type="number" step="0.1" placeholder="Ex: 55.0" {...register("body_water_percent")} />
+                </FormField>
+                <FormField label="Gordura Visceral (nivel)" error={errors.visceral_fat_level?.message}>
+                  <Input type="number" step="0.5" placeholder="Ex: 8.5" {...register("visceral_fat_level")} />
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="IMC" error={errors.bmi?.message}>
+                  <Input type="number" step="0.01" placeholder="Ex: 24.3" {...register("bmi")} />
+                </FormField>
+                <FormField label="TMB (kcal)" error={errors.basal_metabolic_rate_kcal?.message}>
+                  <Input type="number" step="1" placeholder="Ex: 1650" {...register("basal_metabolic_rate_kcal")} />
+                </FormField>
+              </div>
+
+              <FormField label="Observacoes" error={errors.notes?.message}>
+                <Textarea rows={3} placeholder="Notas adicionais sobre a avaliacao..." {...register("notes")} />
+              </FormField>
+
+              <Button type="submit" variant="primary" size="md" className="w-full" disabled={mutation.isPending}>
+                <ImageUp size={14} />
+                {mutation.isPending ? "Salvando..." : "Salvar Avaliacao"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Historico de Avaliacoes</h3>
+
+          {isLoading && (
+            <div className="space-y-3">
+              <Skeleton className="h-32 w-full rounded-2xl" />
+              <Skeleton className="h-32 w-full rounded-2xl" />
+            </div>
+          )}
+
+          {!isLoading && (!evaluations || evaluations.length === 0) && (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <p className="text-sm text-lovable-ink-muted">Nenhuma avaliacao registrada ainda.</p>
               </CardContent>
             </Card>
-          ))}
+          )}
+
+          {!isLoading &&
+            evaluations?.map((ev) => (
+              <Card key={ev.id}>
+                <CardContent className="pt-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-lovable-ink">{fmtDate(ev.evaluation_date)}</span>
+                    <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-lovable-primary">
+                      {ev.source === "tezewa" ? "Tezewa" : "Manual"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+                    <Metric label="Peso" value={fmt(ev.weight_kg, " kg")} />
+                    <Metric label="% Gordura" value={fmt(ev.body_fat_percent, "%")} />
+                    <Metric label="Massa Magra" value={fmt(ev.lean_mass_kg, " kg")} />
+                    <Metric label="Massa Musc." value={fmt(ev.muscle_mass_kg, " kg")} />
+                    <Metric label="% Agua" value={fmt(ev.body_water_percent, "%")} />
+                    <Metric label="Gordura Visc." value={fmt(ev.visceral_fat_level)} />
+                    <Metric label="IMC" value={fmt(ev.bmi)} />
+                    <Metric label="TMB" value={fmt(ev.basal_metabolic_rate_kcal, " kcal")} />
+                  </div>
+
+                  {ev.notes && <p className="mt-3 rounded-lg bg-lovable-surface-soft px-3 py-2 text-xs text-lovable-ink-muted">{ev.notes}</p>}
+                </CardContent>
+              </Card>
+            ))}
+        </div>
       </div>
     </div>
   );
@@ -331,5 +394,15 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span className="text-xs text-lovable-ink-muted">{label}</span>
       <p className="font-semibold text-lovable-ink">{value}</p>
     </div>
+  );
+}
+
+function MetricCard({ label, value, deltaNode }: { label: string; value: string; deltaNode: ReactNode }) {
+  return (
+    <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+      <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-lovable-ink">{value}</p>
+      <div className="mt-1">{deltaNode}</div>
+    </article>
   );
 }

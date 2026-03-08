@@ -1,43 +1,51 @@
 :root {
-  --lovable-bg: 0 0% 92%;
-  --lovable-bg-muted: 0 0% 87%;
-  --lovable-surface: 0 0% 96%;
-  --lovable-surface-soft: 0 0% 93%;
-  --lovable-border: 0 0% 78%;
-  --lovable-border-strong: 0 0% 64%;
-  --lovable-ink: 220 15% 12%;
-  --lovable-ink-muted: 220 10% 38%;
-  --lovable-primary: 28 95% 52%;
-  --lovable-primary-soft: 30 100% 90%;
-  --lovable-success: 152 58% 38%;
-  --lovable-warning: 40 94% 48%;
-  --lovable-danger: 352 82% 52%;
-  --lovable-brand: #f58a1b;
-  --lovable-muted: #60656f;
+  --lovable-bg: 220 16% 96%;
+  --lovable-bg-muted: 220 14% 92%;
+  --lovable-surface: 0 0% 100%;
+  --lovable-surface-soft: 220 14% 95%;
+  --lovable-border: 220 10% 85%;
+  --lovable-border-strong: 220 10% 72%;
+  --lovable-ink: 240 10% 8%;
+  --lovable-ink-muted: 240 6% 42%;
+  --lovable-primary: 36 93% 50%;
+  --lovable-primary-soft: 38 92% 88%;
+  --lovable-success: 160 84% 39%;
+  --lovable-warning: 38 92% 50%;
+  --lovable-danger: 0 84% 60%;
+  --lovable-brand: #f59e0b;
+  --lovable-muted: #71717a;
 }
 
 .dark {
-  --lovable-bg: 220 8% 7%;
-  --lovable-bg-muted: 220 8% 10%;
-  --lovable-surface: 220 9% 13%;
-  --lovable-surface-soft: 220 8% 17%;
-  --lovable-border: 220 8% 29%;
-  --lovable-border-strong: 220 9% 42%;
-  --lovable-ink: 0 0% 95%;
-  --lovable-ink-muted: 220 9% 72%;
-  --lovable-primary: 30 96% 58%;
-  --lovable-primary-soft: 30 85% 23%;
-  --lovable-success: 152 56% 47%;
-  --lovable-warning: 40 94% 58%;
-  --lovable-danger: 352 90% 68%;
-  --lovable-brand: #fb9a35;
-  --lovable-muted: #9ca3af;
+  --lovable-bg: 240 10% 4%;
+  --lovable-bg-muted: 240 7% 7%;
+  --lovable-surface: 240 6% 10%;
+  --lovable-surface-soft: 240 6% 13%;
+  --lovable-border: 240 5% 16%;
+  --lovable-border-strong: 240 5% 24%;
+  --lovable-ink: 0 0% 98%;
+  --lovable-ink-muted: 240 5% 65%;
+  --lovable-primary: 36 93% 50%;
+  --lovable-primary-soft: 36 70% 20%;
+  --lovable-success: 160 84% 39%;
+  --lovable-warning: 38 92% 50%;
+  --lovable-danger: 0 84% 60%;
+  --lovable-brand: #f59e0b;
+  --lovable-muted: #a1a1aa;
 }
 
 body {
   background:
-    radial-gradient(circle at 12% 0%, hsl(var(--lovable-primary-soft) / 0.55) 0%, transparent 40%),
-    radial-gradient(circle at top right, hsl(var(--lovable-bg-muted)) 0%, transparent 56%),
+    radial-gradient(circle at 12% 4%, hsl(var(--lovable-success) / 0.2) 0%, transparent 34%),
+    radial-gradient(circle at 84% 8%, hsl(var(--lovable-success) / 0.12) 0%, transparent 38%),
+    radial-gradient(circle at 52% 110%, hsl(var(--lovable-primary) / 0.1) 0%, transparent 42%),
     hsl(var(--lovable-bg));
   color: hsl(var(--lovable-ink));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+#root {
+  min-height: 100vh;
+  isolation: isolate;
 }

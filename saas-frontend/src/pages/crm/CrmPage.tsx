@@ -6,10 +6,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
-import { PipelineKanban } from "../../components/crm/PipelineKanban";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { crmService } from "../../services/crmService";
-import { Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
+import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import type { Lead } from "../../types";
 
 const LEAD_SOURCES = [
@@ -33,6 +32,30 @@ const STAGE_LABELS: Record<Lead["stage"], string> = {
   proposal_sent: "Proposta enviada",
   won: "Fechado",
   lost: "Perdido",
+};
+
+const STAGE_ORDER: Lead["stage"][] = [
+  "new",
+  "contact",
+  "visit",
+  "trial",
+  "proposal",
+  "meeting_scheduled",
+  "proposal_sent",
+  "won",
+  "lost",
+];
+
+const NEXT_STAGE: Record<Lead["stage"], Lead["stage"] | null> = {
+  new: "contact",
+  contact: "visit",
+  visit: "trial",
+  trial: "proposal",
+  proposal: "meeting_scheduled",
+  meeting_scheduled: "proposal_sent",
+  proposal_sent: "won",
+  won: null,
+  lost: null,
 };
 
 type ContactFilter = "all" | "never_contacted" | "stale_3" | "stale_7" | "recent_3";
@@ -76,6 +99,26 @@ function normalizeText(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function daysSince(isoDate: string | null): number | null {
+  if (!isoDate) return null;
+  const parsed = Date.parse(isoDate);
+  if (Number.isNaN(parsed)) return null;
+  return Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24));
+}
+
+function formatDateTime(isoDate: string | null): string {
+  if (!isoDate) return "Nunca";
+  const parsed = Date.parse(isoDate);
+  if (Number.isNaN(parsed)) return "Nunca";
+  return new Date(parsed).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 interface LeadFormDrawerProps {
@@ -298,7 +341,7 @@ export function CrmPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<Lead["stage"] | "all">("all");
+  const [selectedStage, setSelectedStage] = useState<Lead["stage"]>("new");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
 
@@ -338,16 +381,12 @@ export function CrmPage() {
     return unique.sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   }, [leadsQuery.data]);
 
-  const filteredLeads = useMemo(() => {
+  const leadsAfterBaseFilters = useMemo(() => {
     const items = leadsQuery.data?.items ?? [];
     const normalizedQuery = normalizeText(searchQuery);
     const now = Date.now();
 
     return items.filter((lead) => {
-      if (stageFilter !== "all" && lead.stage !== stageFilter) {
-        return false;
-      }
-
       if (sourceFilter !== "all" && lead.source !== sourceFilter) {
         return false;
       }
@@ -382,16 +421,40 @@ export function CrmPage() {
 
       return true;
     });
-  }, [contactFilter, leadsQuery.data, searchQuery, sourceFilter, stageFilter]);
+  }, [contactFilter, leadsQuery.data, searchQuery, sourceFilter]);
+
+  const stageCounts = useMemo(() => {
+    const counters = STAGE_ORDER.reduce<Record<Lead["stage"], number>>((acc, stage) => {
+      acc[stage] = 0;
+      return acc;
+    }, {} as Record<Lead["stage"], number>);
+
+    for (const lead of leadsAfterBaseFilters) {
+      counters[lead.stage] += 1;
+    }
+
+    return counters;
+  }, [leadsAfterBaseFilters]);
+
+  const filteredLeads = useMemo(() => {
+    return leadsAfterBaseFilters
+      .filter((lead) => lead.stage === selectedStage)
+      .sort((a, b) => {
+        const aTime = a.last_contact_at ? Date.parse(a.last_contact_at) : Number.NaN;
+        const bTime = b.last_contact_at ? Date.parse(b.last_contact_at) : Number.NaN;
+        const parsedA = Number.isNaN(aTime) ? Date.parse(a.updated_at) : aTime;
+        const parsedB = Number.isNaN(bTime) ? Date.parse(b.updated_at) : bTime;
+        return parsedB - parsedA;
+      });
+  }, [leadsAfterBaseFilters, selectedStage]);
 
   const activeFiltersCount = useMemo(() => {
     return (
       (searchQuery.trim() ? 1 : 0) +
-      (stageFilter !== "all" ? 1 : 0) +
       (sourceFilter !== "all" ? 1 : 0) +
       (contactFilter !== "all" ? 1 : 0)
     );
-  }, [contactFilter, searchQuery, sourceFilter, stageFilter]);
+  }, [contactFilter, searchQuery, sourceFilter]);
 
   function handleNewLead() {
     setSelectedLead(null);
@@ -420,7 +483,6 @@ export function CrmPage() {
 
   function clearFilters() {
     setSearchQuery("");
-    setStageFilter("all");
     setSourceFilter("all");
     setContactFilter("all");
   }
@@ -437,9 +499,9 @@ export function CrmPage() {
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">CRM - Pipeline Kanban</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">CRM - Pipeline por estagio</h2>
           <p className="text-sm text-lovable-ink-muted">
-            {"Novo -> Contato -> Visita -> Experimental -> Proposta -> Fechado / Perdido"}
+            Clique no estagio desejado para ver somente os leads dessa etapa em lista vertical.
           </p>
         </div>
         <Button variant="primary" onClick={handleNewLead}>
@@ -457,18 +519,6 @@ export function CrmPage() {
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Nome, email, telefone ou origem..."
               />
-            </div>
-
-            <div className="w-full md:w-52">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Estagio</label>
-              <Select value={stageFilter} onChange={(event) => setStageFilter(event.target.value as Lead["stage"] | "all")}>
-                <option value="all">Todos os estagios</option>
-                {Object.entries(STAGE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
             </div>
 
             <div className="w-full md:w-52">
@@ -501,8 +551,28 @@ export function CrmPage() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap gap-2">
+            {STAGE_ORDER.map((stage) => (
+              <button
+                key={stage}
+                type="button"
+                onClick={() => setSelectedStage(stage)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                  selectedStage === stage
+                    ? "border-lovable-primary bg-lovable-primary-soft text-lovable-primary"
+                    : "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted hover:border-lovable-border-strong hover:text-lovable-ink"
+                }`}
+              >
+                <span>{STAGE_LABELS[stage]}</span>
+                <span className="rounded-full bg-lovable-surface px-2 py-0.5 text-[10px] text-lovable-ink-muted">
+                  {stageCounts[stage]}
+                </span>
+              </button>
+            ))}
+          </div>
+
           <p className="mt-3 text-xs text-lovable-ink-muted">
-            {filteredLeads.length} de {leadsQuery.data.items.length} lead(s) exibidos
+            {filteredLeads.length} lead(s) no estagio <strong>{STAGE_LABELS[selectedStage]}</strong> de {leadsAfterBaseFilters.length} lead(s) apos filtros base
             {activeFiltersCount > 0 ? ` (${activeFiltersCount} filtro(s) ativo(s))` : ""}.
           </p>
         </CardContent>
@@ -512,17 +582,87 @@ export function CrmPage() {
         <p className="rounded-lg bg-lovable-primary-soft px-3 py-2 text-xs text-lovable-primary">Atualizando estágio...</p>
       ) : null}
 
-      {filteredLeads.length === 0 ? (
-        <p className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-3 text-sm text-lovable-ink-muted">
-          Nenhum lead encontrado com os filtros atuais.
-        </p>
-      ) : null}
+      <Card>
+        <CardContent className="p-0">
+          {filteredLeads.length === 0 ? (
+            <div className="flex items-center justify-center px-4 py-12 text-sm text-lovable-ink-muted">
+              Nenhum lead encontrado no estagio selecionado com os filtros atuais.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-lovable-border bg-lovable-surface-soft">
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Nome</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Origem</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ultimo contato</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Valor estimado</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Status contato</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Acoes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLeads.map((lead) => {
+                    const daysWithoutContact = daysSince(lead.last_contact_at);
+                    const nextStage = NEXT_STAGE[lead.stage];
+                    const statusVariant =
+                      daysWithoutContact === null ? "danger" : daysWithoutContact > 7 ? "danger" : daysWithoutContact > 3 ? "warning" : "success";
+                    const statusLabel =
+                      daysWithoutContact === null
+                        ? "Nunca contatado"
+                        : daysWithoutContact === 0
+                          ? "Contato hoje"
+                          : `${daysWithoutContact}d sem contato`;
 
-      <PipelineKanban
-        leads={filteredLeads}
-        onMove={(leadId, stage) => moveMutation.mutate({ leadId, stage })}
-        onCardClick={handleCardClick}
-      />
+                    return (
+                      <tr
+                        key={lead.id}
+                        className="cursor-pointer border-b border-lovable-border/50 transition hover:bg-lovable-surface-soft/40"
+                        onClick={() => handleCardClick(lead)}
+                      >
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-semibold text-lovable-ink">{lead.full_name}</p>
+                            <p className="text-xs text-lovable-ink-muted">{lead.email ?? lead.phone ?? "Sem contato principal"}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-lovable-ink-muted">{lead.source || "Nao informado"}</td>
+                        <td className="px-4 py-3 text-lovable-ink-muted">{formatDateTime(lead.last_contact_at)}</td>
+                        <td className="px-4 py-3 text-lovable-ink">
+                          {(lead.estimated_value ?? 0).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                            maximumFractionDigits: 0,
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={statusVariant}>{statusLabel}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                            <Button size="sm" variant="ghost" onClick={() => handleCardClick(lead)}>
+                              Editar
+                            </Button>
+                            {nextStage ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => moveMutation.mutate({ leadId: lead.id, stage: nextStage })}
+                              >
+                                Avancar
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <LeadFormDrawer open={drawerOpen} onClose={handleDrawerClose} lead={selectedLead} onSaved={handleSaved} />
     </section>

@@ -189,6 +189,9 @@ class MemberMiniOut(BaseModel):
     plan_name: str
     risk_level: RiskLevel
     risk_score: int
+    email: str | None = None
+    last_checkin_at: datetime | None = None
+    extra_data: dict = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -206,10 +209,15 @@ class EvolutionOut(BaseModel):
     labels: list[str]
     weight: list[float | None]
     body_fat: list[float | None]
+    lean_mass: list[float | None]
     bmi: list[float | None]
     strength: list[int | None]
     flexibility: list[int | None]
     cardio: list[int | None]
+    checkins_labels: list[str] = Field(default_factory=list)
+    checkins_per_month: list[int] = Field(default_factory=list)
+    main_lift_load: list[float | None] = Field(default_factory=list)
+    main_lift_label: str | None = None
     deltas: dict[str, float | int | None]
 
 

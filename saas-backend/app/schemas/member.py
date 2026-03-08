@@ -51,6 +51,7 @@ class MemberOut(BaseModel):
     risk_score: int
     risk_level: RiskLevel
     last_checkin_at: datetime | None
+    extra_data: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

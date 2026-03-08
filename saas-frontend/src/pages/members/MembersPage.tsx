@@ -71,14 +71,10 @@ export function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display text-2xl font-bold text-lovable-ink">Membros</h2>
-          <p className="text-sm text-lovable-ink-muted">{data ? `${data.total} membros cadastrados` : "Carregando..."}</p>
-        </div>
-        <Button variant="primary" onClick={() => setAddOpen(true)}>
-          + Adicionar Membro
-        </Button>
+      <div className="px-1">
+        <p className="text-sm text-lovable-ink-muted">
+          {data ? `${data.total} membros cadastrados` : "Carregando membros..."}
+        </p>
       </div>
 
       <Card>
@@ -148,6 +144,12 @@ export function MembersPage() {
                 <option value="semiannual">Semestral</option>
                 <option value="annual">Anual</option>
               </Select>
+            </div>
+
+            <div className="w-full md:w-auto">
+              <Button variant="primary" onClick={() => setAddOpen(true)}>
+                + Adicionar Membro
+              </Button>
             </div>
           </div>
         </CardContent>

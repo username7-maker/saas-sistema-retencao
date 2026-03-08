@@ -85,13 +85,6 @@ const navGroups: NavGroup[] = [
       { to: "/audit", label: "Auditoria", icon: ScrollText },
     ],
   },
-  {
-    label: "Admin",
-    items: [
-      { to: "/settings/users", label: "Usuarios", icon: UserCog },
-      { to: "/settings", label: "Configuracoes", icon: Settings },
-    ],
-  },
 ];
 
 function resolveActiveGroup(pathname: string): string | null {
@@ -104,6 +97,9 @@ function resolveActiveGroup(pathname: string): string | null {
 }
 
 function resolveCurrentSection(pathname: string): string {
+  if (pathname.startsWith("/settings/users")) return "Usuarios";
+  if (pathname.startsWith("/settings")) return "Configuracoes";
+
   for (const group of navGroups) {
     const item = group.items.find((candidate) => pathname.startsWith(candidate.to));
     if (item) return item.label;
@@ -135,11 +131,11 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         const isOpen = openGroups.includes(group.label);
         const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
         return (
-          <div key={group.label} className="border-b border-zinc-900/90 pb-2 last:border-b-0">
+          <div key={group.label} className="border-b border-lovable-border/60 pb-2 last:border-b-0">
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
-              className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
+              className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
             >
               {group.label}
               <ChevronIcon size={13} />
@@ -157,8 +153,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                         cn(
                           "flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition",
                           isActive
-                            ? "border border-zinc-700 bg-zinc-800 text-zinc-100"
-                            : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100",
+                            ? "border border-lovable-border-strong bg-lovable-surface-soft text-lovable-ink"
+                            : "text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink",
                         )
                       }
                     >
@@ -172,7 +168,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                             "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
                             item.badge === "new"
                               ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-zinc-700 text-zinc-200",
+                              : "bg-lovable-surface-soft text-lovable-ink",
                           )}
                         >
                           {item.badge}
@@ -197,6 +193,7 @@ export function LovableLayout() {
   const navigate = useNavigate();
   const currentSection = resolveCurrentSection(pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
 
   const { data: notifications } = useQuery({
     queryKey: ["notifications", "unread-count"],
@@ -207,39 +204,77 @@ export function LovableLayout() {
   const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
   const userEmail = user?.email ?? "owner@demo.local";
 
+  useEffect(() => {
+    setWorkspaceMenuOpen(false);
+  }, [pathname]);
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="relative min-h-screen bg-transparent font-body text-lovable-ink">
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-28 left-[14%] h-[380px] w-[380px] rounded-full bg-lovable-success/25 blur-[135px]" />
+        <div className="absolute top-[28%] -right-20 h-[320px] w-[320px] rounded-full bg-lovable-success/18 blur-[130px]" />
+        <div className="absolute -bottom-36 left-[32%] h-[420px] w-[420px] rounded-full bg-lovable-primary/14 blur-[160px]" />
+      </div>
+
       <aside aria-label="Main navigation" className="fixed inset-y-0 left-0 z-30 hidden w-72 p-3 lg:block">
-        <div className="flex h-full flex-col rounded-[24px] border border-zinc-800 bg-zinc-950 shadow-[0_22px_80px_-40px_rgba(0,0,0,0.9)]">
+        <div className="flex h-full flex-col rounded-[24px] border border-lovable-border bg-lovable-bg/90 shadow-lovable backdrop-blur-xl">
           <div className="px-4 pt-4">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/85 p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-950 text-sm font-semibold text-zinc-200">
-                    #
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setWorkspaceMenuOpen((prev) => !prev)}
+                className="w-full rounded-xl border border-lovable-border bg-lovable-surface/85 p-3 text-left transition hover:border-lovable-border-strong"
+                aria-expanded={workspaceMenuOpen}
+                aria-label="Abrir menu de usuarios"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-lovable-border-strong bg-lovable-bg text-sm font-semibold text-lovable-ink">
+                      #
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-lovable-ink">AI GYM OS</p>
+                      <p className="flex items-center gap-1 text-xs text-lovable-ink-muted">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        {userEmail}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-lg font-semibold text-zinc-100">AI GYM OS</p>
-                    <p className="flex items-center gap-1 text-xs text-zinc-500">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      {userEmail}
-                    </p>
-                  </div>
+                  <ChevronDown
+                    size={14}
+                    className={cn("mt-1 text-lovable-ink-muted transition-transform", workspaceMenuOpen ? "rotate-180" : "")}
+                  />
                 </div>
-                <ChevronDown size={14} className="mt-1 text-zinc-500" />
-              </div>
+              </button>
+
+              {workspaceMenuOpen ? (
+                <div className="absolute left-0 right-0 z-20 mt-2 rounded-xl border border-lovable-border bg-lovable-surface/95 p-2 shadow-panel">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false);
+                      navigate("/settings/users");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-lovable-ink transition hover:bg-lovable-surface-soft"
+                  >
+                    <UserCog size={15} />
+                    Usuarios
+                  </button>
+                  <p className="px-2.5 pb-1 text-[11px] text-lovable-ink-muted">Acesse e gerencie todos os usuarios.</p>
+                </div>
+              ) : null}
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-              <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Integracoes</p>
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface/70 px-3 py-2">
+              <p className="text-xs uppercase tracking-[0.16em] text-lovable-ink-muted">Integracoes</p>
               <div className="flex items-center gap-1">
-                <span className="rounded-md bg-zinc-800 p-1 text-zinc-300">
+                <span className="rounded-md bg-lovable-surface-soft p-1 text-lovable-ink-muted">
                   <Globe size={12} />
                 </span>
-                <span className="rounded-md bg-zinc-800 p-1 text-zinc-300">
+                <span className="rounded-md bg-lovable-surface-soft p-1 text-lovable-ink-muted">
                   <Activity size={12} />
                 </span>
-                <span className="rounded-md bg-zinc-800 p-1 text-zinc-300">
+                <span className="rounded-md bg-lovable-surface-soft p-1 text-lovable-ink-muted">
                   <Sparkles size={12} />
                 </span>
               </div>
@@ -251,16 +286,16 @@ export function LovableLayout() {
           </div>
 
           <div className="space-y-3 px-4 pb-4">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3">
+            <div className="rounded-xl border border-lovable-border bg-lovable-surface/75 p-3">
               <span className="inline-flex rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                 New
               </span>
-              <p className="mt-2 text-sm font-semibold text-zinc-100">Retencao Program</p>
-              <p className="mt-1 text-xs text-zinc-500">Automacao para recuperar alunos inativos em lotes.</p>
+              <p className="mt-2 text-sm font-semibold text-lovable-ink">Retencao Program</p>
+              <p className="mt-1 text-xs text-lovable-ink-muted">Automacao para recuperar alunos inativos em lotes.</p>
               <button
                 type="button"
                 onClick={() => navigate("/automations")}
-                className="mt-3 inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+                className="mt-3 inline-flex items-center rounded-lg border border-lovable-border-strong bg-lovable-surface-soft px-2.5 py-1.5 text-xs font-semibold text-lovable-ink transition hover:border-lovable-border-strong/90 hover:bg-lovable-surface"
               >
                 Abrir automacoes
               </button>
@@ -270,7 +305,7 @@ export function LovableLayout() {
               <button
                 type="button"
                 onClick={() => navigate("/settings")}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100"
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
               >
                 <Settings size={15} />
                 Settings
@@ -278,7 +313,7 @@ export function LovableLayout() {
               <button
                 type="button"
                 onClick={() => navigate("/reports")}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100"
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
               >
                 <HelpCircle size={15} />
                 Help Center
@@ -294,21 +329,21 @@ export function LovableLayout() {
 
       <div className="min-h-screen lg:ml-72">
         <header role="banner" className="sticky top-0 z-20 px-4 pt-3 md:px-6 lg:px-7">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/92 px-4 py-3 backdrop-blur-xl">
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg/92 px-4 py-3 backdrop-blur-xl">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="!text-zinc-300 hover:!bg-zinc-800 hover:!text-zinc-100 lg:hidden"
+                  className="!text-lovable-ink-muted hover:!bg-lovable-surface-soft hover:!text-lovable-ink lg:hidden"
                   onClick={() => setMobileOpen(true)}
                   aria-label="Open navigation menu"
                 >
                   <Menu size={16} />
                 </Button>
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Workspace</p>
-                  <h1 className="font-display text-xl font-semibold text-zinc-100">{currentSection}</h1>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-lovable-ink-muted">Workspace</p>
+                  <h1 className="font-display text-xl font-semibold text-lovable-ink">{currentSection}</h1>
                 </div>
               </div>
 
@@ -317,7 +352,7 @@ export function LovableLayout() {
                   type="button"
                   onClick={toggleTheme}
                   title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-                  className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100"
+                  className="rounded-lg border border-lovable-border-strong bg-lovable-surface p-2 text-lovable-ink-muted transition hover:border-lovable-border-strong/90 hover:text-lovable-ink"
                 >
                   {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
                 </button>
@@ -325,7 +360,7 @@ export function LovableLayout() {
                 <button
                   type="button"
                   onClick={() => navigate("/notifications")}
-                  className="relative rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100"
+                  className="relative rounded-lg border border-lovable-border-strong bg-lovable-surface p-2 text-lovable-ink-muted transition hover:border-lovable-border-strong/90 hover:text-lovable-ink"
                   title="Notifications"
                   aria-label={unreadCount > 0 ? `Notifications ${unreadCount} unread` : "Notifications"}
                 >
@@ -340,10 +375,10 @@ export function LovableLayout() {
                   ) : null}
                 </button>
 
-                <div className="hidden items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 md:flex">
+                <div className="hidden items-center gap-2 rounded-lg border border-lovable-border-strong bg-lovable-surface px-3 py-1.5 md:flex">
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-zinc-100">{user?.full_name ?? "Owner"}</p>
-                    <p className="text-[11px] uppercase tracking-wider text-zinc-500">{user?.role ?? "owner"}</p>
+                    <p className="text-sm font-semibold text-lovable-ink">{user?.full_name ?? "Owner"}</p>
+                    <p className="text-[11px] uppercase tracking-wider text-lovable-ink-muted">{user?.role ?? "owner"}</p>
                   </div>
                 </div>
 

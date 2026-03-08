@@ -109,9 +109,12 @@ export interface MemberConstraints {
 export interface MemberMini {
   id: string;
   full_name: string;
+  email?: string | null;
   plan_name: string;
   risk_level: RiskLevel;
   risk_score: number;
+  last_checkin_at?: string | null;
+  extra_data?: Record<string, unknown>;
 }
 
 export interface Profile360 {
@@ -127,10 +130,15 @@ export interface EvolutionData {
   labels: string[];
   weight: Array<number | null>;
   body_fat: Array<number | null>;
+  lean_mass: Array<number | null>;
   bmi: Array<number | null>;
   strength: Array<number | null>;
   flexibility: Array<number | null>;
   cardio: Array<number | null>;
+  checkins_labels: string[];
+  checkins_per_month: number[];
+  main_lift_load: Array<number | null>;
+  main_lift_label: string | null;
   deltas: Record<string, number | null>;
 }
 
