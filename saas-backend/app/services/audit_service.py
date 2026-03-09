@@ -18,6 +18,7 @@ def log_audit_event(
     details: dict | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    flush: bool = True,
 ) -> AuditLog | None:
     resolved_gym_id = gym_id or (user.gym_id if user else None) or get_current_gym_id()
     if resolved_gym_id is None:
@@ -35,5 +36,6 @@ def log_audit_event(
         user_agent=user_agent,
     )
     db.add(event)
-    db.flush()
+    if flush:
+        db.flush()
     return event

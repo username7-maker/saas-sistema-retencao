@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
@@ -58,6 +58,7 @@ async def import_checkins_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    auto_create_missing_members: bool = Form(False),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -67,7 +68,12 @@ async def import_checkins_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        summary = import_checkins_csv(db, content, filename=file.filename)
+        summary = import_checkins_csv(
+            db,
+            content,
+            filename=file.filename,
+            auto_create_missing_members=auto_create_missing_members,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -76,7 +82,13 @@ async def import_checkins_endpoint(
         action="import_checkins_csv",
         entity="checkins",
         user=current_user,
-        details={"imported": summary.imported, "duplicates": summary.skipped_duplicates, "errors": len(summary.errors)},
+        details={
+            "imported": summary.imported,
+            "duplicates": summary.skipped_duplicates,
+            "ignored_rows": summary.ignored_rows,
+            "provisional_members_created": summary.provisional_members_created,
+            "errors": len(summary.errors),
+        },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

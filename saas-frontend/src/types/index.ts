@@ -171,9 +171,19 @@ export interface ImportErrorEntry {
   payload: Record<string, unknown>;
 }
 
+export interface MissingMemberEntry {
+  name: string;
+  occurrences: number;
+  sample_plan: string | null;
+}
+
 export interface ImportSummary {
   imported: number;
   skipped_duplicates: number;
+  ignored_rows: number;
+  provisional_members_created: number;
+  provisional_members: string[];
+  missing_members: MissingMemberEntry[];
   errors: ImportErrorEntry[];
 }
 

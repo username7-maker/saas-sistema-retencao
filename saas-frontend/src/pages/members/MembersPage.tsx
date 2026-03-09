@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, UserPlus, X, Edit2, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -50,9 +50,9 @@ export function MembersPage() {
     setFilters((prev) => ({ ...prev, search: search.trim() || undefined }));
   };
 
-  const handleFilterChange = (key: keyof MemberQueryFilters, value: string | undefined) => {
+  const handleFilterChange = <K extends keyof MemberQueryFilters>(key: K, value: MemberQueryFilters[K] | undefined) => {
     setPage(1);
-    setFilters((prev) => ({ ...prev, [key]: value || undefined }));
+    setFilters((prev) => ({ ...prev, [key]: value === "" ? undefined : value }));
   };
 
   const openDetail = (member: Member) => {
@@ -146,6 +146,29 @@ export function MembersPage() {
               </Select>
             </div>
 
+            <div className="w-full md:w-56">
+              <Select
+                value={
+                  filters.provisional_only === undefined
+                    ? ""
+                    : filters.provisional_only
+                      ? "true"
+                      : "false"
+                }
+                onChange={(event) => {
+                  const value = event.target.value;
+                  handleFilterChange(
+                    "provisional_only",
+                    value === "" ? undefined : value === "true",
+                  );
+                }}
+              >
+                <option value="">Todos os cadastros</option>
+                <option value="true">Apenas provisórios</option>
+                <option value="false">Apenas definitivos</option>
+              </Select>
+            </div>
+
             <div className="w-full md:w-auto">
               <Button variant="primary" onClick={() => setAddOpen(true)}>
                 + Adicionar Membro
@@ -176,8 +199,8 @@ export function MembersPage() {
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Plano</th>
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Status</th>
                     <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Risco</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Último Check-in</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ações</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ãšltimo Check-in</th>
+                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">AÃ§Ãµes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -251,7 +274,7 @@ export function MembersPage() {
         title="Excluir membro"
         description={
           memberToDelete
-            ? `Tem certeza que deseja excluir ${memberToDelete.full_name}? Esta ação não pode ser desfeita.`
+            ? `Tem certeza que deseja excluir ${memberToDelete.full_name}? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`
             : undefined
         }
       >
@@ -275,3 +298,4 @@ export function MembersPage() {
     </div>
   );
 }
+

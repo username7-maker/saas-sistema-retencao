@@ -64,6 +64,7 @@ def list_members(
     status: MemberStatus | None = None,
     plan_cycle: MemberPlanCycle | None = None,
     min_days_without_checkin: int | None = None,
+    provisional_only: bool | None = None,
 ) -> PaginatedResponse:
     base_filters = [Member.deleted_at.is_(None)]
     if search:
@@ -85,6 +86,12 @@ def list_members(
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
         base_filters.append(Member.last_checkin_at.is_not(None))
         base_filters.append(Member.last_checkin_at < cutoff)
+    if provisional_only is not None:
+        provisional_flag = func.coalesce(Member.extra_data["provisional_member"].astext, "false")
+        if provisional_only:
+            base_filters.append(provisional_flag == "true")
+        else:
+            base_filters.append(provisional_flag != "true")
 
     stmt = select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc())
     total = db.scalar(select(func.count()).select_from(Member).where(and_(*base_filters))) or 0

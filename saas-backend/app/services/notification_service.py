@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -18,8 +19,10 @@ def create_notification(
     member_id: UUID | None = None,
     user_id: UUID | None = None,
     extra_data: dict | None = None,
+    flush: bool = True,
 ) -> InAppNotification:
     notification = InAppNotification(
+        id=uuid.uuid4(),
         member_id=member_id,
         user_id=user_id,
         title=title,
@@ -28,7 +31,8 @@ def create_notification(
         extra_data=extra_data or {},
     )
     db.add(notification)
-    db.flush()
+    if flush:
+        db.flush()
     return notification
 
 

@@ -11,6 +11,7 @@ export interface MemberFilters {
   status?: Member["status"];
   plan_cycle?: MemberPlanCycle;
   min_days_without_checkin?: number;
+  provisional_only?: boolean;
 }
 
 export interface MemberCreatePayload {

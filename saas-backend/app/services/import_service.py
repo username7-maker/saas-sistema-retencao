@@ -3,6 +3,7 @@ import io
 import re
 import unicodedata
 import zipfile
+from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
@@ -13,18 +14,41 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, CheckinSource, Member, MemberStatus
-from app.schemas import ImportErrorEntry, ImportSummary
+from app.schemas import ImportErrorEntry, ImportSummary, MissingMemberEntry
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
 
 NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name", "cliente")
+FIRST_NAME_KEYS = ("first_name", "primeiro_nome", "nome_1", "nome1")
+LAST_NAME_KEYS = ("last_name", "sobrenome", "ultimo_nome", "nome_2", "nome2")
 EMAIL_KEYS = ("email", "e_mail", "mail", "member_email")
 PHONE_KEYS = ("phone", "telefone", "telefones", "celular", "whatsapp")
 CPF_KEYS = ("cpf", "documento", "document", "cpf_cnpj")
-PLAN_KEYS = ("plan_name", "plan", "plano", "plano_nome", "assinaturas", "assinaturas_condicoes", "assinaturas_horarios")
+PLAN_KEYS = (
+    "plan_name",
+    "plan",
+    "plano",
+    "plano_nome",
+    "assinatura",
+    "assinaturas",
+    "assinatura_atual",
+    "plano_atual",
+    "produto",
+    "produto_nome",
+    "assinaturas_condicoes",
+)
 MONTHLY_FEE_KEYS = ("monthly_fee", "mensalidade", "valor", "valor_mensal", "price")
 JOIN_DATE_KEYS = ("join_date", "data_matricula", "data_adesao", "data_inicio", "start_date", "cadastro", "dt_primeira_ativacao", "conversao")
-PREFERRED_SHIFT_KEYS = ("preferred_shift", "turno", "turno_preferido", "horario", "shift")
+LAST_ACCESS_KEYS = ("ult_acesso", "ultimo_acesso", "last_access", "last_checkin_at", "dt_ultimo_login")
+PREFERRED_SHIFT_KEYS = (
+    "preferred_shift",
+    "turno",
+    "turno_preferido",
+    "horario",
+    "shift",
+    "assinaturas_horarios",
+    "horarios",
+)
 STATUS_KEYS = ("status", "situacao", "state")
 EXTERNAL_ID_KEYS = ("external_id", "matricula", "codigo", "member_code", "id_aluno", "id_externo", "codigo_acesso")
 
@@ -53,6 +77,10 @@ _MAX_MEMBER_EMAIL = 255
 _MAX_MEMBER_PHONE = 32
 _MAX_MEMBER_PLAN = 100
 _MAX_MEMBER_SHIFT = 24
+_NAME_PARTICLES = {"da", "de", "do", "das", "dos", "e"}
+_GENERIC_PLAN_VALUES = {"livre", "nao_informado", "nao informado", "nao", "sem_assinatura", "sem plano", "sem_plano"}
+_GENERIC_SHIFT_VALUES = {"livre", "nao_informado", "nao informado", "integral", "full", "all_day"}
+_IGNORABLE_CHECKIN_NAMES = {"passagem liberada manualmente", "registro manual", "catraca liberada manualmente"}
 
 
 def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
@@ -67,13 +95,13 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
     seen_cpfs: set[str] = set()
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
-        full_name = _truncate(_pick_first(row, NAME_KEYS), _MAX_MEMBER_NAME)
+        full_name = _extract_member_name(row)
         if not full_name:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
             continue
 
         email = _truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
-        external_id = (_pick_first(row, EXTERNAL_ID_KEYS) or "").strip().lower() or None
+        external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
         cpf_digits = _digits(_pick_first(row, CPF_KEYS))
 
         if email and (email in seen_emails or email in lookup["by_email"]):
@@ -91,6 +119,7 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         try:
             monthly_fee = _parse_decimal(monthly_fee_raw)
             join_date = _parse_date(join_date_raw) or datetime.now(tz=timezone.utc).date()
+            last_checkin_at = _parse_datetime(_pick_first(row, LAST_ACCESS_KEYS))
         except ValueError:
             errors.append(
                 ImportErrorEntry(
@@ -104,6 +133,7 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         extra_data: dict = {"imported": True}
         if external_id:
             extra_data["external_id"] = external_id
+        _populate_member_extra_data(extra_data, row)
 
         member = Member(
             full_name=full_name,
@@ -111,10 +141,11 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
             cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
             status=_parse_member_status(_pick_first(row, STATUS_KEYS)),
-            plan_name=_truncate(_pick_first(row, PLAN_KEYS) or "Plano Base", _MAX_MEMBER_PLAN) or "Plano Base",
+            plan_name=_extract_plan_name(row),
             monthly_fee=monthly_fee,
             join_date=join_date,
-            preferred_shift=_truncate(_pick_first(row, PREFERRED_SHIFT_KEYS), _MAX_MEMBER_SHIFT),
+            preferred_shift=_extract_preferred_shift(row),
+            last_checkin_at=last_checkin_at,
             extra_data=extra_data,
         )
         db.add(member)
@@ -130,43 +161,70 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
     db.commit()
     if imported:
         invalidate_dashboard_cache("members")
-    return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)
+    return ImportSummary(imported=imported, skipped_duplicates=duplicates, ignored_rows=0, errors=errors)
 
 
-def import_checkins_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
+def import_checkins_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    auto_create_missing_members: bool = False,
+) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
+    ignored = 0
     imported = 0
+    provisional_created = 0
+    provisional_members: list[str] = []
     seen_entries: set[tuple[str, str]] = set()
     pending_rows: list[tuple[Member, datetime, CheckinSource, dict[str, str]]] = []
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
+        if _is_ignorable_checkin_row(row):
+            ignored += 1
+            continue
+
+        date_raw = _pick_first(row, CHECKIN_DATE_KEYS)
+        time_raw = _pick_first(row, CHECKIN_TIME_KEYS)
+        checkin_raw = _pick_first(row, CHECKIN_AT_KEYS)
+        if not checkin_raw and date_raw and time_raw:
+            checkin_raw = f"{date_raw} {time_raw}"
+        elif not checkin_raw:
+            checkin_raw = date_raw
+
+        parsed = _parse_datetime(checkin_raw)
+        if not parsed and date_raw and time_raw:
+            parsed = _parse_datetime(f"{date_raw} {time_raw}")
+        if not parsed:
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
+            continue
+
         member = _resolve_member_from_row(row, lookup)
+        if not member and auto_create_missing_members:
+            member = _create_provisional_member_from_checkin(db, row, parsed)
+            if member:
+                provisional_created += 1
+                provisional_members.append(member.full_name)
+                _add_member_to_lookups(member, lookup)
+
         if not member:
+            missing_name = _extract_member_name(row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
-                    reason="Membro nao encontrado (use member_id, email, matricula, cpf ou nome)",
+                    reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
                     payload=row,
                 )
             )
-            continue
-
-        checkin_raw = _pick_first(row, CHECKIN_AT_KEYS)
-        if not checkin_raw:
-            date_raw = _pick_first(row, CHECKIN_DATE_KEYS)
-            time_raw = _pick_first(row, CHECKIN_TIME_KEYS)
-            if date_raw and time_raw:
-                checkin_raw = f"{date_raw} {time_raw}"
-            else:
-                checkin_raw = date_raw
-
-        parsed = _parse_datetime(checkin_raw)
-        if not parsed:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
             continue
 
         unique_key = (str(member.id), parsed.isoformat())
@@ -201,7 +259,17 @@ def import_checkins_csv(db: Session, csv_content: bytes, filename: str | None = 
     db.commit()
     if imported:
         invalidate_dashboard_cache("checkins")
-    return ImportSummary(imported=imported, skipped_duplicates=duplicates, errors=errors)
+    if provisional_created:
+        invalidate_dashboard_cache("members")
+    return ImportSummary(
+        imported=imported,
+        skipped_duplicates=duplicates,
+        ignored_rows=ignored,
+        provisional_members_created=provisional_created,
+        provisional_members=provisional_members,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        errors=errors,
+    )
 
 
 def _fetch_existing_checkin_keys(db: Session, keys: list[tuple[UUID, datetime]]) -> set[tuple[str, str]]:
@@ -478,7 +546,7 @@ def _pick_first(row: dict[str, str], aliases: tuple[str, ...]) -> str | None:
 def _truncate(value: str | None, max_length: int) -> str | None:
     if value is None:
         return None
-    trimmed = value.strip()
+    trimmed = re.sub(r"\s+", " ", value).strip()
     if not trimmed:
         return None
     if len(trimmed) <= max_length:
@@ -654,6 +722,8 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
     by_external_id: dict[str, Member] = {}
     by_cpf: dict[str, Member] = {}
     by_name: dict[str, list[Member]] = {}
+    by_name_compact: dict[str, list[Member]] = {}
+    by_name_core: dict[str, list[Member]] = {}
 
     for member in members:
         by_id[str(member.id)] = member
@@ -662,8 +732,7 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
             by_email[member.email.lower()] = member
 
         extra_data = member.extra_data or {}
-        external_id = str(extra_data.get("external_id") or "").strip().lower()
-        if external_id:
+        for external_id in _external_id_candidates(str(extra_data.get("external_id") or "")):
             by_external_id[external_id] = member
 
         if member.cpf_encrypted:
@@ -676,6 +745,12 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
 
         name_key = _normalize_text(member.full_name)
         by_name.setdefault(name_key, []).append(member)
+        compact_key = _compact_name(member.full_name)
+        if compact_key:
+            by_name_compact.setdefault(compact_key, []).append(member)
+        core_key = _core_name_key(member.full_name)
+        if core_key:
+            by_name_core.setdefault(core_key, []).append(member)
 
     return {
         "by_id": by_id,
@@ -683,7 +758,37 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
         "by_external_id": by_external_id,
         "by_cpf": by_cpf,
         "by_name": by_name,
+        "by_name_compact": by_name_compact,
+        "by_name_core": by_name_core,
     }
+
+
+def _add_member_to_lookups(member: Member, lookup: dict[str, dict]) -> None:
+    lookup["by_id"][str(member.id)] = member
+
+    if member.email:
+        lookup["by_email"][member.email.lower()] = member
+
+    extra_data = member.extra_data or {}
+    for external_id in _external_id_candidates(str(extra_data.get("external_id") or "")):
+        lookup["by_external_id"][external_id] = member
+
+    if member.cpf_encrypted:
+        try:
+            cpf_digits = _digits(decrypt_cpf(member.cpf_encrypted))
+            if cpf_digits and cpf_digits not in lookup["by_cpf"]:
+                lookup["by_cpf"][cpf_digits] = member
+        except Exception:
+            pass
+
+    name_key = _normalize_text(member.full_name)
+    lookup["by_name"].setdefault(name_key, []).append(member)
+    compact_key = _compact_name(member.full_name)
+    if compact_key:
+        lookup["by_name_compact"].setdefault(compact_key, []).append(member)
+    core_key = _core_name_key(member.full_name)
+    if core_key:
+        lookup["by_name_core"].setdefault(core_key, []).append(member)
 
 
 def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Member | None:
@@ -704,9 +809,9 @@ def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Me
         if member:
             return member
 
-    external_id = (_pick_first(row, EXTERNAL_ID_KEYS) or member_id_raw or "").strip().lower()
-    if external_id:
-        member = lookup["by_external_id"].get(external_id)
+    external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS) or member_id_raw)
+    for candidate in _external_id_candidates(external_id):
+        member = lookup["by_external_id"].get(candidate)
         if member:
             return member
 
@@ -716,10 +821,231 @@ def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Me
         if member:
             return member
 
-    name = _pick_first(row, NAME_KEYS)
+    name = _extract_member_name(row)
     if name:
         candidates = lookup["by_name"].get(_normalize_text(name), [])
-        if len(candidates) == 1:
-            return candidates[0]
+        best_candidate = _select_best_member_candidate(candidates, row)
+        if best_candidate:
+            return best_candidate
+        candidates = lookup["by_name_compact"].get(_compact_name(name), [])
+        best_candidate = _select_best_member_candidate(candidates, row)
+        if best_candidate:
+            return best_candidate
+        candidates = lookup["by_name_core"].get(_core_name_key(name), [])
+        best_candidate = _select_best_member_candidate(candidates, row)
+        if best_candidate:
+            return best_candidate
+        fuzzy = _find_unique_name_candidate(name, lookup["by_name_compact"])
+        if fuzzy:
+            return fuzzy
 
+    return None
+
+
+def _extract_member_name(row: dict[str, str]) -> str | None:
+    direct = _truncate(_pick_first(row, NAME_KEYS), _MAX_MEMBER_NAME)
+    if direct:
+        return direct
+    first_name = _pick_first(row, FIRST_NAME_KEYS)
+    last_name = _pick_first(row, LAST_NAME_KEYS)
+    combined = " ".join(part for part in [first_name, last_name] if part)
+    return _truncate(combined, _MAX_MEMBER_NAME)
+
+
+def _is_viable_member_name(name: str | None) -> bool:
+    if not name:
+        return False
+    normalized = _normalize_text(name)
+    if len(normalized) < 5:
+        return False
+    if normalized in _IGNORABLE_CHECKIN_NAMES or normalized.startswith("total de registros"):
+        return False
+    return bool(re.search(r"[a-z]", normalized))
+
+
+def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], parsed: datetime) -> Member | None:
+    full_name = _extract_member_name(row)
+    if not _is_viable_member_name(full_name):
+        return None
+
+    cpf_digits = _digits(_pick_first(row, CPF_KEYS))
+    extra_data: dict = {
+        "imported": True,
+        "provisional_member": True,
+        "provisional_source": "checkin_import",
+        "provisional_created_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+    external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
+    if external_id:
+        extra_data["external_id"] = external_id
+    _populate_member_extra_data(extra_data, row)
+
+    member = Member(
+        full_name=full_name,
+        email=_truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL),
+        phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
+        cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
+        status=MemberStatus.ACTIVE,
+        plan_name=_extract_plan_name(row),
+        monthly_fee=Decimal("0"),
+        join_date=parsed.date(),
+        preferred_shift=_extract_preferred_shift(row),
+        last_checkin_at=parsed,
+        extra_data=extra_data,
+    )
+    db.add(member)
+    db.flush()
+    return member
+
+
+def _is_ignorable_checkin_row(row: dict[str, str]) -> bool:
+    raw_name = _extract_member_name(row)
+    if not raw_name:
+        return False
+    normalized = _normalize_text(raw_name)
+    if normalized in _IGNORABLE_CHECKIN_NAMES:
+        return True
+    return normalized.startswith("total de registros")
+
+
+def _build_missing_member_entries(counts: Counter[str], plans: dict[str, str | None]) -> list[MissingMemberEntry]:
+    entries = [
+        MissingMemberEntry(name=name, occurrences=occurrences, sample_plan=plans.get(name))
+        for name, occurrences in counts.most_common()
+    ]
+    return entries
+
+
+def _extract_plan_name(row: dict[str, str]) -> str:
+    for key in PLAN_KEYS:
+        raw_value = row.get(key)
+        candidate = _truncate(raw_value, _MAX_MEMBER_PLAN)
+        if not candidate:
+            continue
+        normalized = _normalize_text(candidate)
+        if normalized in _GENERIC_PLAN_VALUES:
+            continue
+        return candidate
+    return "Plano Base"
+
+
+def _candidate_plan_match(member: Member, row: dict[str, str]) -> bool:
+    raw_plan = _pick_first(row, PLAN_KEYS)
+    if not raw_plan:
+        return False
+    normalized_plan = _normalize_text(raw_plan)
+    if not normalized_plan or normalized_plan in _GENERIC_PLAN_VALUES:
+        return False
+
+    member_values = [
+        member.plan_name,
+        str((member.extra_data or {}).get("raw_plan_name") or ""),
+        str((member.extra_data or {}).get("raw_plan_conditions") or ""),
+    ]
+    return any(_normalize_text(value) == normalized_plan for value in member_values if value)
+
+
+def _member_candidate_rank(member: Member, row: dict[str, str]) -> tuple:
+    status_rank = {
+        MemberStatus.ACTIVE: 3,
+        MemberStatus.PAUSED: 2,
+        MemberStatus.CANCELLED: 1,
+    }.get(member.status, 0)
+    return (
+        status_rank,
+        1 if _candidate_plan_match(member, row) else 0,
+        1 if member.email else 0,
+        1 if member.phone else 0,
+        1 if member.cpf_encrypted else 0,
+        1 if member.last_checkin_at else 0,
+        member.join_date.toordinal() if member.join_date else 0,
+        int(member.updated_at.timestamp()) if member.updated_at else 0,
+        str(member.id),
+    )
+
+
+def _select_best_member_candidate(candidates: list[Member], row: dict[str, str]) -> Member | None:
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    return max(candidates, key=lambda member: _member_candidate_rank(member, row))
+
+
+def _extract_preferred_shift(row: dict[str, str]) -> str | None:
+    candidate = _truncate(_pick_first(row, PREFERRED_SHIFT_KEYS), _MAX_MEMBER_SHIFT)
+    if not candidate:
+        return None
+    normalized = _normalize_text(candidate)
+    if normalized in _GENERIC_SHIFT_VALUES:
+        return None
+    return candidate
+
+
+def _populate_member_extra_data(extra_data: dict, row: dict[str, str]) -> None:
+    metadata_map = {
+        "cidade_residencial": "city",
+        "estado_residencial": "state",
+        "sexo": "gender",
+        "tipo_cadastro": "registration_type",
+        "categoria": "category",
+        "consultores": "consultants",
+        "aniversario": "birthday_label",
+        "data_prox_vencimento": "next_due_date_raw",
+        "dt_prox_renovacao_assinatura": "next_plan_renewal_raw",
+        "dt_ultimo_recebimento": "last_payment_received_raw",
+        "assinaturas": "raw_plan_name",
+        "assinatura": "raw_plan_name",
+        "assinaturas_condicoes": "raw_plan_conditions",
+        "assinaturas_horarios": "raw_shift_label",
+    }
+    for source_key, target_key in metadata_map.items():
+        value = _truncate(row.get(source_key), 255)
+        if value:
+            extra_data[target_key] = value
+
+
+def _normalize_external_id(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().lower()
+    return value or None
+
+
+def _external_id_candidates(raw_value: str | None) -> tuple[str, ...]:
+    normalized = _normalize_external_id(raw_value)
+    if not normalized:
+        return ()
+    candidates: list[str] = [normalized]
+    digits = _digits(normalized)
+    if digits:
+        candidates.append(digits)
+        stripped = digits.lstrip("0")
+        if stripped:
+            candidates.append(stripped)
+    return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _compact_name(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _normalize_text(value or ""))
+
+
+def _core_name_key(value: str | None) -> str:
+    tokens = [token for token in _normalize_text(value or "").split(" ") if token and token not in _NAME_PARTICLES]
+    return " ".join(tokens)
+
+
+def _find_unique_name_candidate(name: str, lookup: dict[str, list[Member]]) -> Member | None:
+    target = _compact_name(name)
+    if len(target) < 8:
+        return None
+    matches: dict[UUID, Member] = {}
+    for key, members in lookup.items():
+        if not key:
+            continue
+        if target in key or key in target:
+            for member in members:
+                matches[member.id] = member
+    if len(matches) == 1:
+        return next(iter(matches.values()))
     return None

@@ -1,28 +1,133 @@
-import { useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Download, FileUp } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { importExportService } from "../../services/importExportService";
-import type { ImportSummary } from "../../types";
+import type { ImportSummary, MissingMemberEntry } from "../../types";
 
+function downloadCsv(filename: string, rows: string[][]): void {
+  const content = rows
+    .map((row) =>
+      row
+        .map((cell) => {
+          const escaped = cell.replace(/"/g, '""');
+          return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+        })
+        .join(","),
+    )
+    .join("\n");
 
-function ImportResult({ summary }: { summary: ImportSummary | null }) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function exportMissingMembers(summary: ImportSummary): void {
+  const rows: string[][] = [["nome", "ocorrencias", "plano_exemplo"]];
+  for (const item of summary.missing_members) {
+    rows.push([item.name, String(item.occurrences), item.sample_plan ?? ""]);
+  }
+  downloadCsv("pendencias-catraca.csv", rows);
+}
+
+function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMemberEntry[] }) {
+  if (missingMembers.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold">Nomes presentes na catraca, mas ausentes na base de alunos</p>
+          <p className="text-xs text-amber-900/80">
+            Esses nomes nao foram encontrados no cadastro atual. Voce pode exportar a lista ou reimportar usando cadastro provisiorio.
+          </p>
+        </div>
+      </div>
+      <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
+        {missingMembers.slice(0, 16).map((item) => (
+          <li key={item.name} className="rounded-md bg-white/70 px-2 py-1">
+            <span className="font-medium">{item.name}</span>
+            <span className="ml-2 text-xs text-amber-900/80">{item.occurrences} registros</span>
+            {item.sample_plan ? <span className="ml-2 text-xs text-amber-900/80">Plano: {item.sample_plan}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {missingMembers.length > 16 ? (
+        <p className="mt-2 text-xs text-amber-900/80">Mostrando 16 de {missingMembers.length} nomes pendentes.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function CreatedMembersPanel({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950">
+      <p className="font-semibold">Cadastros provisórios criados nesta importação</p>
+      <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
+        {names.slice(0, 16).map((name) => (
+          <li key={name} className="rounded-md bg-white/70 px-2 py-1">
+            {name}
+          </li>
+        ))}
+      </ul>
+      {names.length > 16 ? (
+        <p className="mt-2 text-xs text-emerald-900/80">Mostrando 16 de {names.length} nomes criados.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportResult({
+  summary,
+  allowMissingExport = false,
+}: {
+  summary: ImportSummary | null;
+  allowMissingExport?: boolean;
+}) {
   if (!summary) return null;
+  const visibleErrors = summary.errors.filter((error) => !error.reason.includes("base de alunos importada"));
+
   return (
     <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink">
       <p>Importados: {summary.imported}</p>
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
-      <p>Erros: {summary.errors.length}</p>
-      {summary.errors.length > 0 && (
-        <ul className="mt-2 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
-          {summary.errors.slice(0, 20).map((error, index) => (
+      <p>Linhas ignoradas: {summary.ignored_rows}</p>
+      {summary.provisional_members_created > 0 ? <p>Cadastros provisorios criados: {summary.provisional_members_created}</p> : null}
+      <p>Erros tecnicos: {visibleErrors.length}</p>
+      {summary.missing_members.length > 0 ? <p>Pendencias de cadastro: {summary.missing_members.length}</p> : null}
+
+      <CreatedMembersPanel names={summary.provisional_members} />
+      <MissingMembersPanel missingMembers={summary.missing_members} />
+
+      {allowMissingExport && summary.missing_members.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => exportMissingMembers(summary)}
+          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+        >
+          <Download size={14} />
+          Exportar pendentes CSV
+        </button>
+      ) : null}
+
+      {visibleErrors.length > 0 ? (
+        <ul className="mt-3 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
+          {visibleErrors.slice(0, 20).map((error, index) => (
             <li key={`${error.row_number}-${index}`}>
               Linha {error.row_number}: {error.reason}
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -72,34 +177,42 @@ export function ImportsPage() {
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [autoCreateMissingMembers, setAutoCreateMissingMembers] = useState(false);
+
+  const hasMissingMembers = useMemo(() => (checkinsSummary?.missing_members.length ?? 0) > 0, [checkinsSummary]);
 
   const importMembersMutation = useMutation({
     mutationFn: (file: File) => importExportService.importMembers(file),
     onSuccess: (summary) => {
       setMembersSummary(summary);
-      toast.success("Importação de alunos concluída.");
+      toast.success("Importacao de alunos concluida.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const importCheckinsMutation = useMutation({
-    mutationFn: (file: File) => importExportService.importCheckins(file),
+    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
+      importExportService.importCheckins(file, autoCreate),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
-      toast.success("Importação de check-ins concluída.");
+      if (summary.provisional_members_created > 0) {
+        toast.success(`Importacao concluida com ${summary.provisional_members_created} cadastros provisorios.`);
+        return;
+      }
+      toast.success("Importacao de check-ins concluida.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportMembersMutation = useMutation({
     mutationFn: () => importExportService.exportMembersCsv(),
-    onSuccess: () => toast.success("Exportação de membros concluída."),
+    onSuccess: () => toast.success("Exportacao de membros concluida."),
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const exportCheckinsMutation = useMutation({
     mutationFn: () => importExportService.exportCheckinsCsv(dateFrom || undefined, dateTo || undefined),
-    onSuccess: () => toast.success("Exportação de catraca/check-ins concluída."),
+    onSuccess: () => toast.success("Exportacao de catraca/check-ins concluida."),
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
@@ -116,7 +229,7 @@ export function ImportsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Importações e Exportações (CSV/XLSX)</h2>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Importacoes e Exportacoes (CSV/XLSX)</h2>
         <p className="text-sm text-lovable-ink-muted">
           Envie planilhas de alunos/catraca em CSV ou XLSX e exporte dados do sistema em CSV.
         </p>
@@ -160,7 +273,7 @@ export function ImportsPage() {
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar catraca/check-ins</h3>
           <p className="mt-1 text-xs text-lovable-ink-muted">
-            Match automático por member_id, email, matrícula, cpf ou nome.
+            Match automatico por member_id, email, matricula, cpf ou nome.
           </p>
           <input
             type="file"
@@ -168,11 +281,28 @@ export function ImportsPage() {
             onChange={(event) => setCheckinsFile(event.target.files?.[0] ?? null)}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
+          <label className="mt-3 flex items-start gap-2 text-sm text-lovable-ink">
+            <input
+              type="checkbox"
+              checked={autoCreateMissingMembers}
+              onChange={(event) => setAutoCreateMissingMembers(event.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-lovable-border text-brand-500 focus:ring-brand-500"
+            />
+            <span>
+              Criar cadastro provisorio quando o nome estiver na catraca, mas ainda nao existir na base de alunos.
+              <span className="block text-xs text-lovable-ink-muted">
+                Use isso apenas quando o arquivo da catraca trouxer pessoas validas que ainda nao foram importadas como alunos.
+              </span>
+            </span>
+          </label>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               disabled={!checkinsFile || importCheckinsMutation.isPending}
-              onClick={() => checkinsFile && importCheckinsMutation.mutate(checkinsFile)}
+              onClick={() =>
+                checkinsFile &&
+                importCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+              }
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
@@ -187,14 +317,23 @@ export function ImportsPage() {
               <Download size={14} />
               Template check-ins
             </button>
+            <button
+              type="button"
+              disabled={!hasMissingMembers || !checkinsSummary}
+              onClick={() => checkinsSummary && exportMissingMembers(checkinsSummary)}
+              className="inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={14} />
+              Exportar pendentes
+            </button>
           </div>
-          <ImportResult summary={checkinsSummary} />
+          <ImportResult summary={checkinsSummary} allowMissingExport />
         </article>
       </section>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted dark:text-slate-300">Exportar CSV</h3>
-        <p className="mt-1 text-xs text-lovable-ink-muted dark:text-slate-400">Baixe alunos e check-ins para auditoria e BI externo.</p>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Exportar CSV</h3>
+        <p className="mt-1 text-xs text-lovable-ink-muted">Baixe alunos e check-ins para auditoria e BI externo.</p>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
           <input
             type="date"
@@ -222,7 +361,7 @@ export function ImportsPage() {
             disabled={exportCheckinsMutation.isPending}
             onClick={() => {
               if (hasInvalidDateRange(dateFrom, dateTo)) {
-                toast.error("Período inválido: data inicial maior que data final.");
+                toast.error("Periodo invalido: data inicial maior que data final.");
                 return;
               }
               exportCheckinsMutation.mutate();

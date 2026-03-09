@@ -1,9 +1,12 @@
-from datetime import timezone
+from datetime import date, timezone
 from io import BytesIO
+from collections import Counter
+from uuid import uuid4
 import zipfile
 from xml.sax.saxutils import escape
+from unittest.mock import MagicMock
 
-from app.models import CheckinSource, MemberStatus
+from app.models import CheckinSource, Member, MemberStatus
 from app.services import import_service
 
 
@@ -180,3 +183,190 @@ def test_normalize_phone_prefers_first_number_candidate() -> None:
     raw = "Celular (54)999723860, Residencial (54)999723860"
     normalized = import_service._normalize_phone(raw)
     assert normalized == "54999723860"
+
+
+def test_extract_plan_name_ignores_generic_shift_values() -> None:
+    row = {
+        "assinaturas": "",
+        "assinaturas_condicoes": "",
+        "assinaturas_horarios": "LIVRE",
+    }
+    assert import_service._extract_plan_name(row) == "Plano Base"
+
+
+def test_extract_plan_name_prefers_real_plan_value() -> None:
+    row = {
+        "assinaturas_horarios": "LIVRE",
+        "assinatura": "LIVRE MENSAL",
+    }
+    assert import_service._extract_plan_name(row) == "LIVRE MENSAL"
+
+
+def test_extract_preferred_shift_uses_schedule_column() -> None:
+    row = {"assinaturas_horarios": "Manha"}
+    assert import_service._extract_preferred_shift(row) == "Manha"
+
+
+def test_extract_member_name_combines_first_and_last_names() -> None:
+    row = {"primeiro_nome": "Ana", "sobrenome": "Silva"}
+    assert import_service._extract_member_name(row) == "Ana Silva"
+
+
+def test_extract_member_name_collapses_repeated_spaces() -> None:
+    row = {"nome": "Mateus   Dalsant   Zonatto"}
+    assert import_service._extract_member_name(row) == "Mateus Dalsant Zonatto"
+
+
+def test_external_id_candidates_include_digits_and_zero_stripped() -> None:
+    candidates = import_service._external_id_candidates("000123")
+    assert candidates == ("000123", "123")
+
+
+def test_resolve_member_from_row_matches_compact_name_and_external_id() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Maria da Silva",
+        email="maria@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={"external_id": "000123"},
+    )
+    lookup = import_service._build_member_lookups([member])
+
+    by_name = import_service._resolve_member_from_row({"nome": "Mariadasilva"}, lookup)
+    by_external_id = import_service._resolve_member_from_row({"codigo_acesso": "123"}, lookup)
+
+    assert by_name is member
+    assert by_external_id is member
+
+
+def test_is_ignorable_checkin_row_skips_manual_turnstile_events() -> None:
+    assert import_service._is_ignorable_checkin_row({"nome": "Passagem liberada manualmente"}) is True
+    assert import_service._is_ignorable_checkin_row({"nome": "Total de registros:"}) is True
+    assert import_service._is_ignorable_checkin_row({"nome": "Gabriel Rosalem"}) is False
+
+
+def test_resolve_member_from_row_prefers_active_member_when_name_is_duplicated() -> None:
+    cancelled = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Iago Gehlen",
+        email=None,
+        status=MemberStatus.CANCELLED,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2020, 3, 12),
+        extra_data={},
+    )
+    active = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Iago Gehlen",
+        email="iago@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2020, 8, 3),
+        extra_data={},
+    )
+    lookup = import_service._build_member_lookups([cancelled, active])
+
+    resolved = import_service._resolve_member_from_row({"nome": "Iago Gehlen"}, lookup)
+
+    assert resolved is active
+
+
+def test_build_missing_member_entries_returns_sorted_entries() -> None:
+    entries = import_service._build_missing_member_entries(
+        Counter({"Mateus Zonatto": 4, "Ronaldo Dos Santos": 2}),
+        {"Mateus Zonatto": "Mensal"},
+    )
+
+    assert [entry.name for entry in entries] == ["Mateus Zonatto", "Ronaldo Dos Santos"]
+    assert entries[0].occurrences == 4
+    assert entries[0].sample_plan == "Mensal"
+    assert entries[1].sample_plan is None
+
+
+def test_create_provisional_member_from_checkin_builds_member() -> None:
+    db = MagicMock()
+    row = {"nome": "Ronaldo Dos Santos", "assinatura": "Plano Silver", "codigo_acesso": "00045"}
+    parsed = import_service._parse_datetime("2026-03-07 08:30")
+
+    member = import_service._create_provisional_member_from_checkin(db, row, parsed)
+
+    assert member is not None
+    assert member.full_name == "Ronaldo Dos Santos"
+    assert member.plan_name == "Plano Silver"
+    assert member.status == MemberStatus.ACTIVE
+    assert member.extra_data["provisional_member"] is True
+    assert member.extra_data["external_id"] == "00045"
+    db.add.assert_called_once_with(member)
+    db.flush.assert_called_once()
+
+
+def test_import_checkins_csv_groups_missing_members() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = (
+        "nome,data,hora\n"
+        "Mateus Dalsant Zonatto,2026-03-01,08:00\n"
+        "Mateus Dalsant Zonatto,2026-03-01,18:00\n"
+        "Ronaldo Dos Santos,2026-03-02,07:30\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_checkins_csv(db, csv_content)
+
+    assert summary.imported == 0
+    assert summary.provisional_members_created == 0
+    assert summary.ignored_rows == 0
+    assert len(summary.errors) == 3
+    assert [item.name for item in summary.missing_members] == [
+        "Mateus Dalsant Zonatto",
+        "Ronaldo Dos Santos",
+    ]
+    assert summary.missing_members[0].occurrences == 2
+
+
+def test_import_checkins_csv_auto_creates_missing_members(monkeypatch) -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    provisional_member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Mateus Dalsant Zonatto",
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 3, 1),
+        extra_data={"provisional_member": True},
+    )
+
+    monkeypatch.setattr(
+        import_service,
+        "_create_provisional_member_from_checkin",
+        lambda _db, _row, _parsed: provisional_member,
+    )
+
+    csv_content = "nome,data,hora\nMateus Dalsant Zonatto,2026-03-01,08:00\n".encode("utf-8")
+
+    summary = import_service.import_checkins_csv(db, csv_content, auto_create_missing_members=True)
+
+    assert summary.imported == 1
+    assert summary.provisional_members_created == 1
+    assert summary.provisional_members == ["Mateus Dalsant Zonatto"]
+    assert summary.missing_members == []
+    assert summary.errors == []
+    assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)

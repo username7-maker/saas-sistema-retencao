@@ -34,7 +34,7 @@ from app.schemas.dashboard import (
     RevenuePoint,
 )
 from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
-from app.schemas.imports import ImportErrorEntry, ImportSummary
+from app.schemas.imports import ImportErrorEntry, ImportSummary, MissingMemberEntry
 from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate
@@ -97,6 +97,7 @@ __all__ = [
     "HeatmapPoint",
     "ImportErrorEntry",
     "ImportSummary",
+    "MissingMemberEntry",
     "LeadCreate",
     "LeadOut",
     "LeadUpdate",

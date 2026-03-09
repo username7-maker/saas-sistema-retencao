@@ -36,6 +36,21 @@ class TestListMembers:
         assert result.total == 0
         assert result.items == []
 
+    def test_provisional_filter_builds_query(self):
+        from app.services.member_service import list_members
+
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = 0
+
+        list_members(db, page=1, page_size=20, provisional_only=True)
+
+        stmt = db.scalars.call_args.args[0]
+        compiled = str(stmt)
+        assert "extra_data" in compiled
+
 
 class TestGetMemberOr404:
     def test_raises_404_when_not_found(self):

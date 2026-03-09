@@ -27,9 +27,10 @@ export const importExportService = {
     return response.data;
   },
 
-  async importCheckins(file: File): Promise<ImportSummary> {
+  async importCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
+    form.append("auto_create_missing_members", String(autoCreateMissingMembers));
     const response = await api.post("/api/v1/imports/checkins", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
