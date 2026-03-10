@@ -154,7 +154,7 @@ class TestRiskHistory:
 
         monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_: new_result)
         monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
-        monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_a, **_kw: None)
         monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
 
         db = MagicMock()
@@ -182,7 +182,7 @@ class TestRiskHistory:
 
         monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_: new_result)
         monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
-        monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_a, **_kw: None)
         monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
 
         db = MagicMock()

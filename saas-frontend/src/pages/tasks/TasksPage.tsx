@@ -18,13 +18,13 @@ const statusSequence: Task["status"][] = ["todo", "doing", "done"];
 const STATUS_LABELS: Record<Task["status"], string> = {
   todo: "A fazer",
   doing: "Em andamento",
-  done: "ConcluÃƒÆ’Ã‚Â­da",
+  done: "Concluída",
   cancelled: "Cancelada",
 };
 
 const PRIORITY_LABELS: Record<Task["priority"], string> = {
   low: "Baixa",
-  medium: "MÃƒÆ’Ã‚Â©dia",
+  medium: "Média",
   high: "Alta",
   urgent: "Urgente",
 };
@@ -179,11 +179,11 @@ function CreateTaskModal({ members, onClose, onSubmit, isPending }: CreateModalP
         <h3 className="mb-4 text-lg font-bold text-lovable-ink">Nova Tarefa</h3>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">TÃƒÆ’Ã‚Â­tulo *</label>
-            <Input name="title" required minLength={3} maxLength={160} placeholder="TÃƒÆ’Ã‚Â­tulo da tarefa" />
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Título *</label>
+            <Input name="title" required minLength={3} maxLength={160} placeholder="Título da tarefa" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">DescriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</label>
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Descrição</label>
             <textarea
               name="description"
               rows={2}
@@ -289,7 +289,7 @@ export function TasksPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
       setPendingDeleteId(null);
-      toast.success("Tarefa excluÃƒÆ’Ã‚Â­da.");
+      toast.success("Tarefa excluída.");
     },
     onError: () => toast.error("Erro ao excluir tarefa."),
   });

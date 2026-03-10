@@ -5,6 +5,8 @@ import unicodedata
 import zipfile
 from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
+
+from dateutil.relativedelta import relativedelta
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from xml.etree import ElementTree as ET
@@ -83,10 +85,14 @@ _GENERIC_SHIFT_VALUES = {"livre", "nao_informado", "nao informado", "integral", 
 _IGNORABLE_CHECKIN_NAMES = {"passagem liberada manualmente", "registro manual", "catraca liberada manualmente"}
 
 
+_IMPORT_BATCH_SIZE = 500
+
+
 def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
+    pending_count = 0
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
@@ -144,12 +150,14 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             plan_name=_extract_plan_name(row),
             monthly_fee=monthly_fee,
             join_date=join_date,
+            loyalty_months=_compute_loyalty_months(join_date),
             preferred_shift=_extract_preferred_shift(row),
             last_checkin_at=last_checkin_at,
             extra_data=extra_data,
         )
         db.add(member)
         imported += 1
+        pending_count += 1
 
         if email:
             seen_emails.add(email)
@@ -158,7 +166,12 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         if cpf_digits:
             seen_cpfs.add(cpf_digits)
 
-    db.commit()
+        if pending_count >= _IMPORT_BATCH_SIZE:
+            db.commit()
+            pending_count = 0
+
+    if pending_count:
+        db.commit()
     if imported:
         invalidate_dashboard_cache("members")
     return ImportSummary(imported=imported, skipped_duplicates=duplicates, ignored_rows=0, errors=errors)
@@ -679,15 +692,23 @@ def _parse_member_status(raw_value: str | None) -> MemberStatus:
     return mapping.get(key, MemberStatus.ACTIVE)
 
 
+_EXCEL_SERIAL_MIN = 35000  # ~1995-10-09
+_EXCEL_SERIAL_MAX = 55000  # ~2050-07-03
+
+
 def _parse_excel_serial(raw_value: str) -> float | None:
     cleaned = raw_value.strip().replace(",", ".")
     if not cleaned:
+        return None
+    # Must be a plain number — if it contains date/time separators it's not an Excel serial.
+    if any(ch in cleaned for ch in ("-", "/", ":", "T")):
         return None
     try:
         serial = float(cleaned)
     except ValueError:
         return None
-    if serial <= 0:
+    # Only accept serials within a plausible date range (~1995 to 2050).
+    if not (_EXCEL_SERIAL_MIN <= serial <= _EXCEL_SERIAL_MAX):
         return None
     return serial
 
@@ -880,6 +901,7 @@ def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], pa
         extra_data["external_id"] = external_id
     _populate_member_extra_data(extra_data, row)
 
+    provisional_join_date = parsed.date()
     member = Member(
         full_name=full_name,
         email=_truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL),
@@ -888,7 +910,8 @@ def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], pa
         status=MemberStatus.ACTIVE,
         plan_name=_extract_plan_name(row),
         monthly_fee=Decimal("0"),
-        join_date=parsed.date(),
+        join_date=provisional_join_date,
+        loyalty_months=_compute_loyalty_months(provisional_join_date),
         preferred_shift=_extract_preferred_shift(row),
         last_checkin_at=parsed,
         extra_data=extra_data,
@@ -1003,6 +1026,11 @@ def _populate_member_extra_data(extra_data: dict, row: dict[str, str]) -> None:
         value = _truncate(row.get(source_key), 255)
         if value:
             extra_data[target_key] = value
+
+
+def _compute_loyalty_months(join_date: date) -> int:
+    delta = relativedelta(date.today(), join_date)
+    return max(0, delta.years * 12 + delta.months)
 
 
 def _normalize_external_id(raw_value: str | None) -> str | None:

@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from dateutil.relativedelta import relativedelta
@@ -18,13 +19,19 @@ from app.services.report_service import send_monthly_reports
 from app.services.risk import run_daily_risk_processing
 from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
 
+logger = logging.getLogger(__name__)
+
 
 def daily_risk_job() -> None:
     db = SessionLocal()
     try:
         for gym in _active_gyms(db):
-            set_current_gym_id(gym.id)
-            run_daily_risk_processing(db)
+            try:
+                set_current_gym_id(gym.id)
+                run_daily_risk_processing(db)
+            except Exception:
+                logger.exception("Risk processing failed for gym %s", gym.id)
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()

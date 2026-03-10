@@ -1,12 +1,15 @@
+import logging
+import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
-from app.database import get_db
+from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
@@ -15,6 +18,8 @@ from app.services.body_composition_service import create_body_composition_evalua
 from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.risk import run_daily_risk_processing
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/members", tags=["members"])
@@ -127,25 +132,49 @@ def delete_member_endpoint(
     return APIMessage(message="Membro removido com soft delete")
 
 
-@router.post("/recalculate-risk", response_model=dict[str, int])
+@router.post("/recalculate-risk", status_code=202)
 def recalculate_risk_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
-) -> dict[str, int]:
-    result = run_daily_risk_processing(db)
+) -> JSONResponse:
+    gym_id = current_user.gym_id
     context = get_request_context(request)
     log_audit_event(
         db,
         action="risk_recalculation_triggered",
         entity="member",
         user=current_user,
-        details=result,
+        details={"status": "started_background"},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
     db.commit()
-    return result
+
+    threading.Thread(
+        target=_run_risk_recalculation_background,
+        args=(gym_id,),
+        daemon=True,
+    ).start()
+
+    return JSONResponse(
+        status_code=202,
+        content={"message": "Recalculo de risco iniciado em segundo plano", "status": "processing"},
+    )
+
+
+def _run_risk_recalculation_background(gym_id: UUID) -> None:
+    db = SessionLocal()
+    try:
+        set_current_gym_id(gym_id)
+        result = run_daily_risk_processing(db)
+        logger.info("Background risk recalculation completed for gym %s: %s", gym_id, result)
+    except Exception:
+        logger.exception("Background risk recalculation failed for gym %s", gym_id)
+        db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
 
 
 @router.get("/{member_id}/timeline")

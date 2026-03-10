@@ -1,5 +1,5 @@
+import logging
 import uuid
-from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta, timezone
 
@@ -13,6 +13,8 @@ from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
 from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -95,106 +97,109 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
 
     # Prefetch all automation audit records in ONE query to avoid N+1
     metrics_by_member = _prefetch_member_checkin_metrics(db, now)
+    ninety_days_ago = now - timedelta(days=90)
     triggered_stages: set[tuple] = set(
         db.execute(
             select(AuditLog.member_id, AuditLog.action).where(
                 AuditLog.member_id.is_not(None),
                 AuditLog.action.in_(_AUTOMATION_STAGES),
+                AuditLog.created_at >= ninety_days_ago,
             )
         ).all()
     )
-    current_alerts_by_member = _prefetch_open_risk_alerts(db)
-    existing_call_task_rows = db.scalars(
-        select(Task.member_id).where(
-            Task.member_id.is_not(None),
-            Task.title.ilike("Ligar para %"),
-            Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
-            Task.deleted_at.is_(None),
-        )
-    ).all()
-    existing_call_tasks = {
-        row for row in existing_call_task_rows if isinstance(row, (str, int, uuid.UUID))
-    }
+    current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True)
+    existing_call_tasks = _prefetch_open_call_tasks(db, deduplicate=True)
     manager = _find_manager(db)
     existing_manager_alert_tasks: set[tuple] = set()
     if manager:
-        existing_manager_alert_tasks = set(
-            db.execute(
-                select(Task.member_id, Task.assigned_to_user_id).where(
-                    Task.member_id.is_not(None),
-                    Task.assigned_to_user_id == manager.id,
-                    Task.title.ilike("%Escalar churn%"),
-                    Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
-                    Task.deleted_at.is_(None),
-                )
-            ).all()
+        existing_manager_alert_tasks = _prefetch_open_manager_alert_tasks(
+            db,
+            manager.id,
+            deduplicate=True,
         )
 
     alerts_created = 0
     automations_triggered = 0
+    ws_events: list[dict] = []
 
-    for member in members:
-        result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
-        previous_score = member.risk_score
-        previous_level = member.risk_level
+    BATCH_SIZE = 100
+    for batch_start in range(0, analyzed, BATCH_SIZE):
+        batch = members[batch_start : batch_start + BATCH_SIZE]
+        try:
+            db.execute(text("SET LOCAL statement_timeout = 0"))
+            for member in batch:
+                result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
+                previous_score = member.risk_score
+                previous_level = member.risk_level
 
-        member.risk_score = result.score
-        member.risk_level = result.level
+                member.risk_score = result.score
+                member.risk_level = result.level
 
-        if result.score >= 40:
-            actions = _run_inactivity_automations(
-                db,
-                member,
-                result.days_without_checkin,
-                result.level,
-                triggered_stages,
-                existing_call_tasks=existing_call_tasks,
-                manager=manager,
-                existing_manager_alert_tasks=existing_manager_alert_tasks,
+                if result.score >= 40:
+                    actions = _run_inactivity_automations(
+                        db,
+                        member,
+                        result.days_without_checkin,
+                        result.level,
+                        triggered_stages,
+                        existing_call_tasks=existing_call_tasks,
+                        manager=manager,
+                        existing_manager_alert_tasks=existing_manager_alert_tasks,
+                    )
+                    automations_triggered += len(actions)
+                    effective_result = _result_from_member_state(member, result)
+                    current_alert_obj = current_alerts_by_member.get(member.id)
+                    current_alert = _create_or_update_alert(
+                        db,
+                        member,
+                        effective_result,
+                        actions,
+                        current_alert=current_alert_obj,
+                        ws_events=ws_events,
+                    )
+                    current_alerts_by_member[member.id] = current_alert
+                    alerts_created += 1
+                else:
+                    effective_result = result
+
+                if (
+                    effective_result.score != previous_score
+                    or effective_result.level != previous_level
+                ):
+                    member.risk_score = effective_result.score
+                    member.risk_level = effective_result.level
+                    db.add(member)
+
+                if effective_result.score != previous_score:
+                    db.add(MemberRiskHistory(
+                        gym_id=member.gym_id,
+                        member_id=member.id,
+                        score=effective_result.score,
+                        level=effective_result.level.value,
+                        reasons=effective_result.reasons,
+                    ))
+
+            db.commit()
+        except Exception:
+            logger.exception(
+                "Risk batch failed (members %d-%d)", batch_start, batch_start + len(batch),
             )
-            automations_triggered += len(actions)
-            effective_result = _result_from_member_state(member, result)
-            current_alert_obj = current_alerts_by_member.get(member.id)
-            if current_alert_obj is None:
-                current_alert = _create_or_update_alert(
-                    db,
-                    member,
-                    effective_result,
-                    actions,
-                )
-            else:
-                current_alert = _create_or_update_alert(
-                    db,
-                    member,
-                    effective_result,
-                    actions,
-                    current_alert=current_alert_obj,
-                )
-            current_alerts_by_member[member.id] = current_alert
-            alerts_created += 1
-        else:
-            effective_result = result
+            db.rollback()
 
-        if (
-            effective_result.score != previous_score
-            or effective_result.level != previous_level
-        ):
-            member.risk_score = effective_result.score
-            member.risk_level = effective_result.level
-            db.add(member)
-
-        if effective_result.score != previous_score:
-            db.add(MemberRiskHistory(
-                gym_id=member.gym_id,
-                member_id=member.id,
-                score=effective_result.score,
-                level=effective_result.level.value,
-                reasons=effective_result.reasons,
-            ))
-
-    db.commit()
     if analyzed:
         invalidate_dashboard_cache("risk", "tasks")
+
+    # Broadcast a single summary event instead of per-alert broadcasts
+    if ws_events:
+        gym_id = ws_events[0]["gym_id"]
+        websocket_manager.broadcast_event_sync(
+            gym_id,
+            "risk_processing_complete",
+            {
+                "members_analyzed": analyzed,
+                "alerts_processed": alerts_created,
+            },
+        )
 
     # NOTE: run_automation_rules() is intentionally NOT called here.
     # It is executed by daily_automations_job (jobs.py) at 02:30 UTC to avoid double-firing.
@@ -232,65 +237,115 @@ def _prefetch_member_checkin_metrics(db: Session, now: datetime) -> dict:
     one_week_ago = now - timedelta(weeks=1)
     recent_start = now - timedelta(days=14)
     prev_start = now - timedelta(days=60)
+    prev_end = now - timedelta(days=14)
 
-    raw_metrics: dict = defaultdict(
-        lambda: {
-            "current_week_count": 0,
-            "baseline_total": 0,
-            "recent_hours": Counter(),
-            "previous_hours": Counter(),
-        }
-    )
-
+    # Single SQL query with aggregation — returns O(members) rows instead of O(checkins).
+    # PostgreSQL mode() picks arbitrary value on ties (acceptable for shift-change heuristic).
     rows = db.execute(
-        select(Checkin.member_id, Checkin.checkin_at, Checkin.hour_bucket).where(
+        select(
+            Checkin.member_id,
+            func.count(Checkin.id).filter(Checkin.checkin_at >= one_week_ago).label("current_week_count"),
+            func.count(Checkin.id).filter(Checkin.checkin_at < one_week_ago).label("baseline_total"),
+            func.mode().within_group(Checkin.hour_bucket).filter(
+                Checkin.checkin_at >= recent_start,
+            ).label("recent_mode_hour"),
+            func.mode().within_group(Checkin.hour_bucket).filter(
+                Checkin.checkin_at >= prev_start,
+                Checkin.checkin_at < prev_end,
+            ).label("previous_mode_hour"),
+        ).where(
             Checkin.checkin_at >= ten_weeks_ago,
             Checkin.checkin_at < now,
-        )
+        ).group_by(Checkin.member_id)
     ).all()
 
-    for member_id, checkin_at, hour_bucket in rows:
-        bucket = raw_metrics[member_id]
-        if checkin_at >= one_week_ago:
-            bucket["current_week_count"] += 1
-        else:
-            bucket["baseline_total"] += 1
-
-        if checkin_at >= recent_start:
-            bucket["recent_hours"][int(hour_bucket)] += 1
-        elif checkin_at >= prev_start:
-            bucket["previous_hours"][int(hour_bucket)] += 1
-
     metrics_by_member: dict = {}
-    for member_id, values in raw_metrics.items():
-        metrics_by_member[member_id] = PrefetchedCheckinMetrics(
-            current_week_count=values["current_week_count"],
-            baseline_total=values["baseline_total"],
-            recent_mode_hour=_most_common_hour(values["recent_hours"]),
-            previous_mode_hour=_most_common_hour(values["previous_hours"]),
+    for row in rows:
+        metrics_by_member[row.member_id] = PrefetchedCheckinMetrics(
+            current_week_count=row.current_week_count or 0,
+            baseline_total=row.baseline_total or 0,
+            recent_mode_hour=int(row.recent_mode_hour) if row.recent_mode_hour is not None else None,
+            previous_mode_hour=int(row.previous_mode_hour) if row.previous_mode_hour is not None else None,
         )
     return metrics_by_member
 
 
-def _most_common_hour(counter: Counter) -> int | None:
-    if not counter:
-        return None
-    return min(counter.items(), key=lambda item: (-item[1], item[0]))[0]
-
-
-def _prefetch_open_risk_alerts(db: Session) -> dict:
+def _prefetch_open_risk_alerts(db: Session, *, deduplicate: bool = False) -> dict:
     alerts = db.scalars(
         select(RiskAlert)
         .where(RiskAlert.resolved.is_(False))
-        .order_by(RiskAlert.member_id.asc(), RiskAlert.created_at.desc())
+        .order_by(RiskAlert.member_id.asc(), RiskAlert.created_at.desc(), RiskAlert.id.desc())
     ).all()
     alert_by_member: dict = {}
+    now = datetime.now(tz=timezone.utc)
     for alert in alerts:
         member_id = getattr(alert, "member_id", None)
         if member_id is None:
             continue
-        alert_by_member.setdefault(member_id, alert)
+        if member_id in alert_by_member:
+            if deduplicate:
+                alert.resolved = True
+                alert.resolved_at = now
+                db.add(alert)
+            continue
+        alert_by_member[member_id] = alert
     return alert_by_member
+
+
+def _prefetch_open_call_tasks(db: Session, *, deduplicate: bool = False) -> set:
+    tasks = db.scalars(
+        select(Task).where(
+            Task.member_id.is_not(None),
+            Task.title.ilike("Ligar para %"),
+            Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+            Task.deleted_at.is_(None),
+        ).order_by(Task.member_id.asc(), Task.created_at.asc(), Task.id.asc())
+    ).all()
+    task_member_ids: set = set()
+    now = datetime.now(tz=timezone.utc)
+    for task in tasks:
+        member_id = getattr(task, "member_id", None)
+        if member_id is None:
+            continue
+        if member_id in task_member_ids:
+            if deduplicate:
+                task.deleted_at = now
+                db.add(task)
+            continue
+        task_member_ids.add(member_id)
+    return task_member_ids
+
+
+def _prefetch_open_manager_alert_tasks(
+    db: Session,
+    manager_id,
+    *,
+    deduplicate: bool = False,
+) -> set[tuple]:
+    tasks = db.scalars(
+        select(Task).where(
+            Task.member_id.is_not(None),
+            Task.assigned_to_user_id == manager_id,
+            Task.title.ilike("%Escalar churn%"),
+            Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+            Task.deleted_at.is_(None),
+        ).order_by(Task.member_id.asc(), Task.created_at.asc(), Task.id.asc())
+    ).all()
+    task_keys: set[tuple] = set()
+    now = datetime.now(tz=timezone.utc)
+    for task in tasks:
+        member_id = getattr(task, "member_id", None)
+        assigned_to_user_id = getattr(task, "assigned_to_user_id", None)
+        if member_id is None or assigned_to_user_id is None:
+            continue
+        task_key = (member_id, assigned_to_user_id)
+        if task_key in task_keys:
+            if deduplicate:
+                task.deleted_at = now
+                db.add(task)
+            continue
+        task_keys.add(task_key)
+    return task_keys
 
 
 def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, float, float]:
@@ -413,6 +468,7 @@ def _create_or_update_alert(
     actions: list[dict],
     *,
     current_alert: RiskAlert | None = None,
+    ws_events: list[dict] | None = None,
 ) -> RiskAlert:
     if current_alert:
         current_alert.score = risk_result.score
@@ -421,16 +477,7 @@ def _create_or_update_alert(
         current_alert.automation_stage = f"d{risk_result.days_without_checkin}"
         current_alert.action_history = (current_alert.action_history or []) + actions
         db.add(current_alert)
-        websocket_manager.broadcast_event_sync(
-            str(member.gym_id),
-            "risk_alert_updated",
-            {
-                "member_id": str(member.id),
-                "alert_id": str(current_alert.id),
-                "score": current_alert.score,
-                "level": current_alert.level.value,
-            },
-        )
+        _emit_ws_event(ws_events, member.gym_id, "risk_alert_updated", member.id, current_alert.id, current_alert.score, current_alert.level.value)
         return current_alert
 
     alert = RiskAlert(
@@ -443,17 +490,16 @@ def _create_or_update_alert(
         automation_stage=f"d{risk_result.days_without_checkin}",
     )
     db.add(alert)
-    websocket_manager.broadcast_event_sync(
-        str(member.gym_id),
-        "risk_alert_created",
-        {
-            "member_id": str(member.id),
-            "alert_id": str(alert.id),
-            "score": alert.score,
-            "level": alert.level.value,
-        },
-    )
+    _emit_ws_event(ws_events, member.gym_id, "risk_alert_created", member.id, alert.id, alert.score, alert.level.value)
     return alert
+
+
+def _emit_ws_event(ws_events: list[dict] | None, gym_id, event_type: str, member_id, alert_id, score: int, level: str) -> None:
+    payload = {"member_id": str(member_id), "alert_id": str(alert_id), "score": score, "level": level}
+    if ws_events is not None:
+        ws_events.append({"gym_id": str(gym_id), "event": event_type, "payload": payload})
+    else:
+        websocket_manager.broadcast_event_sync(str(gym_id), event_type, payload)
 
 
 def _run_inactivity_automations(

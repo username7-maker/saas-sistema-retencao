@@ -20,4 +20,4 @@ class ImportSummary(BaseModel):
     provisional_members_created: int = 0
     provisional_members: list[str] = Field(default_factory=list)
     missing_members: list[MissingMemberEntry] = Field(default_factory=list)
-    errors: list[ImportErrorEntry]
+    errors: list[ImportErrorEntry] = Field(default_factory=list)
