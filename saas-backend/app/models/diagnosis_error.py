@@ -16,10 +16,10 @@ class DiagnosisError(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    gym_id: Mapped[uuid.UUID | None] = mapped_column(
+    gym_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("gyms.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     prospect_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

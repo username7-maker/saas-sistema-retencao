@@ -1,5 +1,5 @@
+import json
 import logging
-import pickle
 from collections import defaultdict
 from collections.abc import Iterable
 from threading import RLock
@@ -166,14 +166,14 @@ class DashboardCache:
             try:
                 payload = self._redis.get(self._data_key(cache_key))
                 if payload is not None:
-                    value = pickle.loads(payload)
+                    value = json.loads(payload)
                     with self._lock:
                         self._local_cache[cache_key] = value
                         self._register_local_key(cache_key)
                     return value
             except RedisError as exc:
                 self._mark_redis_down(exc)
-            except (pickle.PickleError, EOFError, AttributeError, ValueError, TypeError) as exc:
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 logger.warning("Payload de cache invalido para chave %s: %s", cache_key, exc)
                 try:
                     self._redis.delete(self._data_key(cache_key))
@@ -191,7 +191,7 @@ class DashboardCache:
 
         if self._redis_enabled and self._redis is not None:
             try:
-                payload = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+                payload = json.dumps(value, ensure_ascii=False, default=str)
                 split = self._split_cache_key(cache_key)
                 pipe = self._redis.pipeline()
                 pipe.set(self._data_key(cache_key), payload, ex=ttl_seconds)
@@ -203,7 +203,7 @@ class DashboardCache:
                 pipe.execute()
             except RedisError as exc:
                 self._mark_redis_down(exc)
-            except (pickle.PickleError, TypeError, ValueError) as exc:
+            except (TypeError, ValueError) as exc:
                 logger.warning("Falha ao serializar cache para chave %s. Mantendo somente cache local: %s", cache_key, exc)
 
     def delete(self, cache_key: str) -> None:

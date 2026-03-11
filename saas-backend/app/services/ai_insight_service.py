@@ -1,10 +1,19 @@
 import logging
+import re
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 INSIGHT_CACHE_TTL_SECONDS = 3600
+
+_SANITIZE_RE = re.compile(r"[^\w\s\-.'àáâãéêíóôõúüçÀÁÂÃÉÊÍÓÔÕÚÜÇ]", re.UNICODE)
+
+
+def _sanitize_prompt_input(value: str, max_length: int = 80) -> str:
+    """Strip control chars and limit length to prevent prompt injection."""
+    cleaned = _SANITIZE_RE.sub("", value)
+    return cleaned[:max_length].strip() or "?"
 
 
 def generate_executive_insight(dashboard_data: dict) -> str:
@@ -66,7 +75,7 @@ def generate_retention_insight(retention_data: dict) -> str:
             else:
                 name = getattr(item, "full_name", None) or getattr(item, "fullName", None) or getattr(item, "name", None) or "?"
                 score = getattr(item, "risk_score", None) or getattr(item, "riskScore", None) or getattr(item, "risk", None) or "?"
-            prompt += f"- {name} (score: {score})\n"
+            prompt += f"- {_sanitize_prompt_input(str(name))} (score: {score})\n"
 
     if not settings.claude_api_key:
         insight = _fallback_retention_insight(red_count, yellow_count)

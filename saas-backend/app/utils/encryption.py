@@ -9,8 +9,11 @@ from app.core.config import settings
 
 def _get_key() -> bytes:
     raw_key = settings.cpf_encryption_key.strip()
-    if not raw_key:
-        return hashlib.sha256(settings.jwt_secret_key.encode("utf-8")).digest()
+    if not raw_key or raw_key in ("change-me-with-64-hex", "change-me"):
+        raise RuntimeError(
+            "CPF_ENCRYPTION_KEY nao configurada. "
+            "Defina uma chave AES-256 de 64 caracteres hexadecimais na variavel de ambiente."
+        )
 
     if len(raw_key) == 64:
         try:

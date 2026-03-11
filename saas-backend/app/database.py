@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Generator
 from contextvars import ContextVar
 from uuid import UUID
@@ -6,6 +7,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker, with_loader_criteria
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 from app.models import (
     Assessment,
     AuditLog,
@@ -65,6 +68,7 @@ TENANT_SCOPED_MODELS = (
     DiagnosisError,
     TrainingPlan,
 )
+_TENANT_SCOPED_TABLE_NAMES = frozenset(m.__tablename__ for m in TENANT_SCOPED_MODELS)
 
 
 def set_current_gym_id(gym_id: UUID | None) -> None:
@@ -81,10 +85,27 @@ def get_current_gym_id() -> UUID | None:
 
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_filter(execute_state) -> None:  # type: ignore[no-untyped-def]
-    gym_id = get_current_gym_id()
-    if gym_id is None or not execute_state.is_select:
+    if not execute_state.is_select:
         return
     if execute_state.execution_options.get("include_all_tenants"):
+        return
+
+    gym_id = get_current_gym_id()
+    if gym_id is None:
+        # Warn when querying tenant-scoped tables without gym context.
+        # This catches accidental unscoped queries while allowing legitimate
+        # ones (e.g. listing active gyms, auth login) that don't touch
+        # tenant-scoped models.
+        compiled = execute_state.statement.compile()
+        sql_text = str(compiled)
+        for table_name in _TENANT_SCOPED_TABLE_NAMES:
+            if table_name in sql_text:
+                logger.warning(
+                    "Query on tenant-scoped table '%s' without gym_id context. "
+                    "This may return unfiltered data.",
+                    table_name,
+                )
+                break
         return
 
     statement = execute_state.statement
