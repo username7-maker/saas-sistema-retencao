@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { ConstraintsAlert } from "../../components/assessments/ConstraintsAlert";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { Button, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { assessmentService, type AssessmentCreateInput } from "../../services/assessmentService";
 
 const assessmentSchema = z.object({
@@ -26,6 +27,18 @@ const assessmentSchema = z.object({
   strength_score: z.string().optional(),
   flexibility_score: z.string().optional(),
   cardio_score: z.string().optional(),
+  goal_type: z.string().default("general"),
+  goal_target_value: z.string().optional(),
+  target_frequency_per_week: z.string().optional(),
+  adherence_score: z.string().optional(),
+  sleep_quality_score: z.string().optional(),
+  stress_score: z.string().optional(),
+  pain_score: z.string().optional(),
+  motivation_score: z.string().optional(),
+  perceived_progress_score: z.string().optional(),
+  exercise_execution_score: z.string().optional(),
+  main_goal_obstacle: z.string().optional(),
+  routine_notes: z.string().optional(),
   observations: z.string().optional(),
 });
 
@@ -40,6 +53,21 @@ function parseOptionalNumber(value?: string): number | undefined {
 }
 
 function buildPayload(values: AssessmentForm): AssessmentCreateInput {
+  const extraData: Record<string, unknown> = {
+    goal_type: values.goal_type || "general",
+    goal_target_value: parseOptionalNumber(values.goal_target_value),
+    target_frequency_per_week: parseOptionalNumber(values.target_frequency_per_week),
+    adherence_score: parseOptionalNumber(values.adherence_score),
+    sleep_quality_score: parseOptionalNumber(values.sleep_quality_score),
+    stress_score: parseOptionalNumber(values.stress_score),
+    pain_score: parseOptionalNumber(values.pain_score),
+    motivation_score: parseOptionalNumber(values.motivation_score),
+    perceived_progress_score: parseOptionalNumber(values.perceived_progress_score),
+    exercise_execution_score: parseOptionalNumber(values.exercise_execution_score),
+    main_goal_obstacle: values.main_goal_obstacle || undefined,
+    routine_notes: values.routine_notes || undefined,
+  };
+
   return {
     assessment_date: values.assessment_date || undefined,
     height_cm: parseOptionalNumber(values.height_cm),
@@ -59,6 +87,7 @@ function buildPayload(values: AssessmentForm): AssessmentCreateInput {
     flexibility_score: parseOptionalNumber(values.flexibility_score),
     cardio_score: parseOptionalNumber(values.cardio_score),
     observations: values.observations || undefined,
+    extra_data: Object.fromEntries(Object.entries(extraData).filter(([, value]) => value !== undefined)),
   };
 }
 
@@ -67,6 +96,13 @@ function defaultDateTimeLocal(): string {
   const tzOffsetMs = now.getTimezoneOffset() * 60_000;
   return new Date(now.getTime() - tzOffsetMs).toISOString().slice(0, 16);
 }
+
+const goalOptions = [
+  { label: "Geral", value: "general" },
+  { label: "Perda de gordura", value: "fat_loss" },
+  { label: "Ganho de massa", value: "muscle_gain" },
+  { label: "Performance", value: "performance" },
+];
 
 export function NewAssessmentPage() {
   const { memberId } = useParams<{ memberId: string }>();
@@ -79,11 +115,13 @@ export function NewAssessmentPage() {
     staleTime: 60 * 1000,
   });
 
-  const { register, handleSubmit, formState } = useForm<AssessmentForm>({
+  const { register, handleSubmit, formState, watch } = useForm<AssessmentForm>({
     resolver: zodResolver(assessmentSchema),
     defaultValues: {
       assessment_date: defaultDateTimeLocal(),
       observations: "",
+      goal_type: "general",
+      target_frequency_per_week: "3",
     },
   });
 
@@ -97,7 +135,7 @@ export function NewAssessmentPage() {
   });
 
   if (!memberId) {
-    return <LoadingPanel text="Membro não informado." />;
+    return <LoadingPanel text="Membro nao informado." />;
   }
 
   if (profileQuery.isLoading) {
@@ -109,7 +147,6 @@ export function NewAssessmentPage() {
   }
 
   const profile = profileQuery.data;
-
   const onSubmit = (values: AssessmentForm) => {
     createMutation.mutate(buildPayload(values));
   };
@@ -118,9 +155,9 @@ export function NewAssessmentPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Nova Avaliação</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Nova Avaliacao</h2>
           <p className="text-sm text-lovable-ink-muted">
-            {profile ? `Membro: ${profile.member.full_name}` : "Preencha os dados da avaliação física trimestral."}
+            {profile ? `Membro: ${profile.member.full_name}` : "Preencha os dados da avaliacao fisica estruturada."}
           </p>
         </div>
         <Link
@@ -135,110 +172,138 @@ export function NewAssessmentPage() {
 
       <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
         <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dados básicos</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dados basicos</h3>
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="text-xs text-lovable-ink-muted">
-              Data da avaliação
-              <input {...register("assessment_date")} type="datetime-local" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Altura (cm)
-              <input {...register("height_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Peso (kg)
-              <input {...register("weight_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Gordura corporal (%)
-              <input {...register("body_fat_pct")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Massa magra (kg)
-              <input {...register("lean_mass_kg")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              VO2 estimado
-              <input {...register("vo2_estimated")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
+            <FormField label="Data da avaliacao">
+              <Input {...register("assessment_date")} type="datetime-local" />
+            </FormField>
+            <FormField label="Altura (cm)">
+              <Input {...register("height_cm")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Peso (kg)">
+              <Input {...register("weight_kg")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Gordura corporal (%)">
+              <Input {...register("body_fat_pct")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Massa magra (kg)">
+              <Input {...register("lean_mass_kg")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="VO2 estimado">
+              <Input {...register("vo2_estimated")} type="number" step="0.01" />
+            </FormField>
           </div>
         </section>
 
         <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Medidas corporais</h3>
           <div className="grid gap-3 md:grid-cols-5">
-            <label className="text-xs text-lovable-ink-muted">
-              Cintura (cm)
-              <input {...register("waist_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Quadril (cm)
-              <input {...register("hip_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Peito (cm)
-              <input {...register("chest_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Braço (cm)
-              <input {...register("arm_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Coxa (cm)
-              <input {...register("thigh_cm")} type="number" step="0.01" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
+            <FormField label="Cintura (cm)">
+              <Input {...register("waist_cm")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Quadril (cm)">
+              <Input {...register("hip_cm")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Peito (cm)">
+              <Input {...register("chest_cm")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Braco (cm)">
+              <Input {...register("arm_cm")} type="number" step="0.01" />
+            </FormField>
+            <FormField label="Coxa (cm)">
+              <Input {...register("thigh_cm")} type="number" step="0.01" />
+            </FormField>
           </div>
         </section>
 
         <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Performance e cardiovascular</h3>
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="text-xs text-lovable-ink-muted">
-              Força (0-100)
-              <input {...register("strength_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Flexibilidade (0-100)
-              <input {...register("flexibility_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              Cardio (0-100)
-              <input {...register("cardio_score")} type="number" min={0} max={100} className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              FC repouso
-              <input {...register("resting_hr")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              PA sistólica
-              <input {...register("blood_pressure_systolic")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
-            <label className="text-xs text-lovable-ink-muted">
-              PA diastólica
-              <input {...register("blood_pressure_diastolic")} type="number" className="mt-1 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none" />
-            </label>
+            <FormField label="Forca (0-100)">
+              <Input {...register("strength_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Flexibilidade (0-100)">
+              <Input {...register("flexibility_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Cardio (0-100)">
+              <Input {...register("cardio_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="FC repouso">
+              <Input {...register("resting_hr")} type="number" />
+            </FormField>
+            <FormField label="PA sistolica">
+              <Input {...register("blood_pressure_systolic")} type="number" />
+            </FormField>
+            <FormField label="PA diastolica">
+              <Input {...register("blood_pressure_diastolic")} type="number" />
+            </FormField>
           </div>
         </section>
 
         <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Observações</h3>
-          <textarea
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Contexto de meta e aderencia</h3>
+          <div className="grid gap-3 md:grid-cols-3">
+            <FormField label="Meta principal">
+              <Select {...register("goal_type")} value={watch("goal_type") || "general"}>
+                {goalOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            <FormField label="Valor alvo da meta">
+              <Input {...register("goal_target_value")} type="number" step="0.01" placeholder="Ex: 18 (% gordura)" />
+            </FormField>
+            <FormField label="Frequencia alvo / semana">
+              <Input {...register("target_frequency_per_week")} type="number" min={1} max={14} />
+            </FormField>
+            <FormField label="Aderencia percebida (0-100)">
+              <Input {...register("adherence_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Qualidade do sono (0-100)">
+              <Input {...register("sleep_quality_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Estresse (0-100)">
+              <Input {...register("stress_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Dor / restricao (0-100)">
+              <Input {...register("pain_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Motivacao atual (0-100)">
+              <Input {...register("motivation_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Percepcao de progresso (0-100)">
+              <Input {...register("perceived_progress_score")} type="number" min={0} max={100} />
+            </FormField>
+            <FormField label="Execucao tecnica (0-100)">
+              <Input {...register("exercise_execution_score")} type="number" min={0} max={100} />
+            </FormField>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <FormField label="Maior obstaculo para evolucao">
+              <Textarea {...register("main_goal_obstacle")} rows={3} placeholder="Ex: rotina instavel, alimentacao, dor, baixa frequencia..." />
+            </FormField>
+            <FormField label="Notas sobre rotina e aderencia">
+              <Textarea {...register("routine_notes")} rows={3} placeholder="Ex: trabalha em turnos, treina melhor a noite, falha no fim de semana..." />
+            </FormField>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Observacoes finais</h3>
+          <Textarea
             {...register("observations")}
             rows={4}
-            className="w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none"
-            placeholder="Observações gerais da avaliação"
+            placeholder="Observacoes gerais da avaliacao, contexto clinico e pontos de atencao."
           />
         </section>
 
         <div className="flex items-center justify-end gap-3">
           {formState.errors.root && <p className="text-xs text-rose-600">{formState.errors.root.message}</p>}
-          <button
-            type="submit"
-            disabled={createMutation.isPending}
-            className="rounded-full bg-lovable-primary px-5 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
-          >
-            {createMutation.isPending ? "Salvando..." : "Salvar avaliação"}
-          </button>
+          <Button type="submit" variant="primary" disabled={createMutation.isPending}>
+            {createMutation.isPending ? "Salvando..." : "Salvar avaliacao"}
+          </Button>
         </div>
       </form>
     </section>

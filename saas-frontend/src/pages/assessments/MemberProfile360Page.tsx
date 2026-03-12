@@ -11,10 +11,10 @@ import { GoalsProgress } from "../../components/assessments/GoalsProgress";
 import { MemberBodyCompositionTab } from "../../components/assessments/MemberBodyCompositionTab";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Button, Dialog, Textarea } from "../../components/ui2";
-import { assessmentService } from "../../services/assessmentService";
+import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
 import { memberService } from "../../services/memberService";
 
-type ProfileTab = "summary" | "evolution" | "constraints" | "goals" | "training" | "bioimpedancia";
+type ProfileTab = "summary" | "diagnosis" | "evolution" | "constraints" | "goals" | "training" | "actions" | "bioimpedancia";
 
 interface InternalNote {
   id: string;
@@ -28,10 +28,12 @@ interface ApiErrorPayload {
 
 const tabs: Array<{ key: ProfileTab; label: string }> = [
   { key: "summary", label: "Resumo" },
+  { key: "diagnosis", label: "Diagnostico IA" },
   { key: "evolution", label: "Evolucao" },
   { key: "constraints", label: "Restricoes" },
   { key: "goals", label: "Objetivos" },
   { key: "training", label: "Treino" },
+  { key: "actions", label: "Acoes" },
   { key: "bioimpedancia", label: "Bioimpedancia" },
 ];
 
@@ -84,6 +86,25 @@ function riskLabel(riskLevel: string): string {
   if (riskLevel === "red") return "Risco de cancelamento: Alto";
   if (riskLevel === "yellow") return "Risco de cancelamento: Medio";
   return "Risco de cancelamento: Baixo";
+}
+
+function statusBadgeClass(status: AssessmentSummary360["status"]): string {
+  if (status === "critical") return "bg-lovable-danger/20 text-lovable-danger";
+  if (status === "attention") return "bg-lovable-warning/25 text-lovable-warning";
+  return "bg-lovable-success/20 text-lovable-success";
+}
+
+function statusLabel(status: AssessmentSummary360["status"]): string {
+  if (status === "critical") return "Meta em risco";
+  if (status === "attention") return "Atencao operacional";
+  return "Na curva esperada";
+}
+
+function formatGoalType(goalType: string): string {
+  if (goalType === "fat_loss") return "Perda de gordura";
+  if (goalType === "muscle_gain") return "Ganho de massa";
+  if (goalType === "performance") return "Performance";
+  return "Geral";
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -254,6 +275,13 @@ export function MemberProfile360Page() {
     staleTime: 60 * 1000,
   });
 
+  const summary360Query = useQuery({
+    queryKey: ["assessments", "summary360", memberId],
+    queryFn: () => assessmentService.summary360(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const addNoteMutation = useMutation({
     mutationFn: async () => {
       if (!memberId) {
@@ -339,21 +367,22 @@ export function MemberProfile360Page() {
     return <LoadingPanel text="Membro nao informado." />;
   }
 
-  if (profileQuery.isLoading || assessmentsQuery.isLoading || evolutionQuery.isLoading) {
+  if (profileQuery.isLoading || assessmentsQuery.isLoading || evolutionQuery.isLoading || summary360Query.isLoading) {
     return <LoadingPanel text="Carregando perfil 360..." />;
   }
 
-  if (profileQuery.isError || assessmentsQuery.isError || evolutionQuery.isError) {
+  if (profileQuery.isError || assessmentsQuery.isError || evolutionQuery.isError || summary360Query.isError) {
     return <LoadingPanel text="Erro ao carregar perfil 360. Tente novamente." />;
   }
 
-  if (!profileQuery.data) {
+  if (!profileQuery.data || !summary360Query.data) {
     return <LoadingPanel text="Perfil 360 indisponivel." />;
   }
 
   const profile = profileQuery.data;
   const assessments = assessmentsQuery.data ?? [];
   const evolution = evolutionQuery.data;
+  const assessmentIntelligence = summary360Query.data;
   const memberExtra = profile.member.extra_data ?? {};
   const apiNotes = parseInternalNotes(memberExtra);
   const localNotes = memberId ? parseInternalNotesFromStorage(memberId) : [];
@@ -457,6 +486,49 @@ export function MemberProfile360Page() {
         </div>
       </section>
 
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Status da meta</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(assessmentIntelligence.status)}`}>
+              {statusLabel(assessmentIntelligence.status)}
+            </span>
+          </div>
+          <p className="mt-3 text-2xl font-semibold text-lovable-ink">{assessmentIntelligence.forecast.probability_60d}%</p>
+          <p className="text-xs text-lovable-ink-muted">chance de meta em 60 dias</p>
+        </article>
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Gargalo principal</p>
+          <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.primary_bottleneck_label}</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">Meta: {formatGoalType(assessmentIntelligence.goal_type)}</p>
+        </article>
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Risco de frustracao</p>
+          <p className="mt-3 text-2xl font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.frustration_risk}</p>
+          <p className="text-xs text-lovable-ink-muted">score de 0 a 100</p>
+        </article>
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Benchmark</p>
+          <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.benchmark.position_label}</p>
+          <p className="text-xs text-lovable-ink-muted">{assessmentIntelligence.benchmark.percentile} percentil no cohort</p>
+        </article>
+      </section>
+
+      <section className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+        <article className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Narrativa para a equipe</p>
+          <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.coach_summary}</p>
+          <p className="mt-3 text-xs text-lovable-ink-muted">{assessmentIntelligence.forecast.current_summary}</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">{assessmentIntelligence.forecast.corrected_summary}</p>
+        </article>
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Proxima melhor acao</p>
+          <p className="mt-2 text-base font-semibold text-lovable-ink">{assessmentIntelligence.next_best_action.title}</p>
+          <p className="mt-1 text-sm text-lovable-ink-muted">{assessmentIntelligence.next_best_action.reason}</p>
+          <p className="mt-3 text-xs text-lovable-primary">{assessmentIntelligence.next_best_action.suggested_message}</p>
+        </article>
+      </section>
+
       {profile.insight_summary ? (
         <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Insight da avaliacao</h3>
@@ -481,7 +553,77 @@ export function MemberProfile360Page() {
         ))}
       </nav>
 
-      {activeTab === "summary" && <AssessmentTimeline assessments={assessments} />}
+      {activeTab === "summary" && (
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <AssessmentTimeline assessments={assessments} />
+          <section className="space-y-4 rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
+              <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.member_summary}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para retencao</p>
+              <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.retention_summary}</p>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {activeTab === "diagnosis" && (
+        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Diagnostico causal</h3>
+            <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.primary_bottleneck_label}</p>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Secundario: {assessmentIntelligence.diagnosis.secondary_bottleneck_label}</p>
+            <p className="mt-3 text-sm text-lovable-ink">{assessmentIntelligence.diagnosis.explanation}</p>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de evolucao</p>
+                <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
+                  {assessmentIntelligence.diagnosis.evolution_factors.map((item) => (
+                    <li key={item}>- {item}</li>
+                  ))}
+                </ul>
+              </article>
+              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de estagnacao</p>
+                <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
+                  {assessmentIntelligence.diagnosis.stagnation_factors.map((item) => (
+                    <li key={item}>- {item}</li>
+                  ))}
+                </ul>
+              </article>
+            </div>
+          </article>
+
+          <aside className="space-y-4">
+            <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Scores de leitura</h3>
+              <ul className="mt-3 space-y-2">
+                {assessmentIntelligence.diagnosis.factors.map((factor) => (
+                  <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-lovable-ink">{factor.label}</span>
+                      <span className="text-xs font-semibold text-lovable-primary">{factor.score}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Benchmark</h3>
+              <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.benchmark.position_label}</p>
+              <p className="mt-1 text-sm text-lovable-ink-muted">{assessmentIntelligence.benchmark.explanation}</p>
+              <p className="mt-3 text-xs text-lovable-ink-muted">
+                {assessmentIntelligence.benchmark.sample_size} perfis analisados - media do cohort {assessmentIntelligence.benchmark.peer_average_score ?? "-"}
+              </p>
+            </article>
+          </aside>
+        </section>
+      )}
 
       {activeTab === "evolution" &&
         (evolution ? (
@@ -521,6 +663,47 @@ export function MemberProfile360Page() {
           ) : (
             <p className="mt-3 text-sm text-lovable-ink-muted">Aluno sem ficha de treino ativa no momento.</p>
           )}
+        </section>
+      )}
+
+      {activeTab === "actions" && (
+        <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Acoes recomendadas</h3>
+            <ul className="mt-4 space-y-3">
+              {assessmentIntelligence.actions.map((action) => (
+                <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+                    </div>
+                    <span className="rounded-full bg-lovable-primary-soft px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-lovable-primary">
+                      {action.priority}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-lovable-primary">{action.suggested_message}</p>
+                  <p className="mt-2 text-[11px] text-lovable-ink-muted">Responsavel sugerido: {action.owner_role} - prazo: D+{action.due_in_days}</p>
+                </li>
+              ))}
+            </ul>
+          </article>
+          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Leitura operacional</h3>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Consistencia atual</p>
+                <p className="mt-1 text-xl font-semibold text-lovable-ink">
+                  {assessmentIntelligence.recent_weekly_checkins.toFixed(1)} / {assessmentIntelligence.target_frequency_per_week}x semana
+                </p>
+              </div>
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Cenario corrigido</p>
+                <p className="mt-1 text-xl font-semibold text-lovable-ink">{assessmentIntelligence.forecast.corrected_probability_90d}%</p>
+                <p className="text-xs text-lovable-ink-muted">chance de meta em 90 dias se a equipe corrigir o gargalo dominante</p>
+              </div>
+            </div>
+          </article>
         </section>
       )}
 
@@ -586,3 +769,4 @@ export function MemberProfile360Page() {
     </section>
   );
 }
+

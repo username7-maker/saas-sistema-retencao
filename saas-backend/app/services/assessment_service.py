@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Checkin, Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
+from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
 
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: di
     db.refresh(assessment)
 
     generate_ai_insights(db, assessment)
+    sync_assessment_intelligence_tasks(db, member_id)
 
     return assessment
 
@@ -308,3 +310,4 @@ def _extract_main_lift_load(assessment: Assessment) -> float | None:
     if assessment.strength_score is not None:
         return float(assessment.strength_score)
     return None
+

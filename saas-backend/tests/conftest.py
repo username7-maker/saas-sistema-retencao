@@ -4,6 +4,7 @@ Shared fixtures for the AI Gym OS test suite.
 Strategy: models use postgresql.UUID so we mock DB sessions rather than
 creating a full in-memory DB, keeping tests fast and dependency-free.
 """
+import os
 from pathlib import Path
 import sys
 import uuid
@@ -13,6 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("CPF_ENCRYPTION_KEY", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:

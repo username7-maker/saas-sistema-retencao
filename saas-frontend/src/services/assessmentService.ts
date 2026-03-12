@@ -155,6 +155,86 @@ export interface AssessmentDashboard {
   upcoming_members: MemberMini[];
 }
 
+export interface AssessmentFactor {
+  key: string;
+  label: string;
+  score: number;
+  reason: string;
+}
+
+export interface AssessmentDiagnosis {
+  primary_bottleneck: string;
+  primary_bottleneck_label: string;
+  secondary_bottleneck: string;
+  secondary_bottleneck_label: string;
+  explanation: string;
+  evolution_factors: string[];
+  stagnation_factors: string[];
+  frustration_risk: number;
+  confidence: string;
+  factors: AssessmentFactor[];
+}
+
+export interface AssessmentForecast {
+  goal_type: string;
+  probability_30d: number;
+  probability_60d: number;
+  probability_90d: number;
+  corrected_probability_90d: number;
+  likely_days_to_goal: number | null;
+  current_summary: string;
+  corrected_summary: string;
+  consistency_score: number;
+  progress_score: number;
+  adherence_score: number;
+  recovery_score: number;
+  overall_score: number;
+  blocked: boolean;
+  confidence: string;
+}
+
+export interface AssessmentBenchmark {
+  cohort_label: string;
+  sample_size: number;
+  percentile: number;
+  expected_curve_status: string;
+  explanation: string;
+  position_label: string;
+  peer_average_score: number | null;
+}
+
+export interface AssessmentNarratives {
+  coach_summary: string;
+  member_summary: string;
+  retention_summary: string;
+}
+
+export interface AssessmentAction {
+  key: string;
+  title: string;
+  owner_role: string;
+  priority: string;
+  reason: string;
+  due_in_days: number;
+  suggested_message: string;
+}
+
+export interface AssessmentSummary360 {
+  member: MemberMini;
+  latest_assessment: AssessmentMini | null;
+  goal_type: string;
+  status: string;
+  days_since_last_checkin: number | null;
+  recent_weekly_checkins: number;
+  target_frequency_per_week: number;
+  forecast: AssessmentForecast;
+  diagnosis: AssessmentDiagnosis;
+  benchmark: AssessmentBenchmark;
+  narratives: AssessmentNarratives;
+  next_best_action: AssessmentAction;
+  actions: AssessmentAction[];
+}
+
 export interface AssessmentCreateInput {
   assessment_date?: string;
   height_cm?: number;
@@ -225,6 +305,31 @@ export const assessmentService = {
 
   async profile360(memberId: string): Promise<Profile360> {
     const { data } = await api.get<Profile360>(`/api/v1/assessments/members/${memberId}/profile`);
+    return data;
+  },
+
+  async summary360(memberId: string): Promise<AssessmentSummary360> {
+    const { data } = await api.get<AssessmentSummary360>(`/api/v1/assessments/members/${memberId}/summary-360`);
+    return data;
+  },
+
+  async diagnosis(memberId: string): Promise<AssessmentDiagnosis> {
+    const { data } = await api.get<AssessmentDiagnosis>(`/api/v1/assessments/members/${memberId}/diagnosis`);
+    return data;
+  },
+
+  async forecast(memberId: string): Promise<AssessmentForecast> {
+    const { data } = await api.get<AssessmentForecast>(`/api/v1/assessments/members/${memberId}/forecast`);
+    return data;
+  },
+
+  async benchmark(memberId: string): Promise<AssessmentBenchmark> {
+    const { data } = await api.get<AssessmentBenchmark>(`/api/v1/assessments/members/${memberId}/benchmark`);
+    return data;
+  },
+
+  async actions(memberId: string): Promise<AssessmentAction[]> {
+    const { data } = await api.get<AssessmentAction[]>(`/api/v1/assessments/members/${memberId}/actions`);
     return data;
   },
 

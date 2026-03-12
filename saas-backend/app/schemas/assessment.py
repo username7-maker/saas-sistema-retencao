@@ -232,3 +232,82 @@ class AssessmentDashboardOut(BaseModel):
     overdue_members: list[MemberMiniOut]
     never_assessed_members: list[MemberMiniOut] = Field(default_factory=list)
     upcoming_members: list[MemberMiniOut] = Field(default_factory=list)
+
+class AssessmentFactorOut(BaseModel):
+    key: str
+    label: str
+    score: int
+    reason: str
+
+
+class AssessmentDiagnosisOut(BaseModel):
+    primary_bottleneck: str
+    primary_bottleneck_label: str
+    secondary_bottleneck: str
+    secondary_bottleneck_label: str
+    explanation: str
+    evolution_factors: list[str] = Field(default_factory=list)
+    stagnation_factors: list[str] = Field(default_factory=list)
+    frustration_risk: int = Field(ge=0, le=100)
+    confidence: str
+    factors: list[AssessmentFactorOut] = Field(default_factory=list)
+
+
+class AssessmentForecastOut(BaseModel):
+    goal_type: str
+    probability_30d: int = Field(ge=0, le=100)
+    probability_60d: int = Field(ge=0, le=100)
+    probability_90d: int = Field(ge=0, le=100)
+    corrected_probability_90d: int = Field(ge=0, le=100)
+    likely_days_to_goal: int | None = None
+    current_summary: str
+    corrected_summary: str
+    consistency_score: int = Field(ge=0, le=100)
+    progress_score: int = Field(ge=0, le=100)
+    adherence_score: int = Field(ge=0, le=100)
+    recovery_score: int = Field(ge=0, le=100)
+    overall_score: int = Field(ge=0, le=100)
+    blocked: bool
+    confidence: str
+
+
+class AssessmentBenchmarkOut(BaseModel):
+    cohort_label: str
+    sample_size: int
+    percentile: int = Field(ge=0, le=100)
+    expected_curve_status: str
+    explanation: str
+    position_label: str
+    peer_average_score: float | None = None
+
+
+class AssessmentNarrativesOut(BaseModel):
+    coach_summary: str
+    member_summary: str
+    retention_summary: str
+
+
+class AssessmentActionOut(BaseModel):
+    key: str
+    title: str
+    owner_role: str
+    priority: str
+    reason: str
+    due_in_days: int
+    suggested_message: str
+
+
+class AssessmentSummary360Out(BaseModel):
+    member: MemberMiniOut
+    latest_assessment: AssessmentMiniOut | None = None
+    goal_type: str
+    status: str
+    days_since_last_checkin: int | None = None
+    recent_weekly_checkins: float
+    target_frequency_per_week: int
+    forecast: AssessmentForecastOut
+    diagnosis: AssessmentDiagnosisOut
+    benchmark: AssessmentBenchmarkOut
+    narratives: AssessmentNarrativesOut
+    next_best_action: AssessmentActionOut
+    actions: list[AssessmentActionOut] = Field(default_factory=list)
