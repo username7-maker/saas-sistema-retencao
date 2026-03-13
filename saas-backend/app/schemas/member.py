@@ -52,6 +52,7 @@ class MemberOut(BaseModel):
     risk_level: RiskLevel
     last_checkin_at: datetime | None
     extra_data: dict = Field(default_factory=dict)
+    suggested_action: str | None = None
     created_at: datetime
     updated_at: datetime
 

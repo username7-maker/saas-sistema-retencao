@@ -17,6 +17,7 @@ from app.schemas import (
     OperationalDashboard,
     RetentionDashboard,
     RevenuePoint,
+    WeeklySummary,
 )
 from app.schemas.insights import InsightResponse
 from app.services.ai_insight_service import (
@@ -36,6 +37,7 @@ from app.services.dashboard_service import (
     get_mrr_dashboard,
     get_operational_dashboard,
     get_retention_dashboard,
+    get_weekly_summary,
 )
 
 
@@ -121,6 +123,14 @@ def retention_dashboard(
     page_size: int = Query(20, ge=1, le=100),
 ) -> RetentionDashboard:
     return get_retention_dashboard(db, red_page=red_page, yellow_page=yellow_page, page_size=page_size)
+
+
+@router.get("/weekly-summary", response_model=WeeklySummary)
+def weekly_summary(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> WeeklySummary:
+    return get_weekly_summary(db)
 
 
 @router.get("/insights/executive", response_model=InsightResponse)

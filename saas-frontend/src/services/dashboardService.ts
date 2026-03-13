@@ -11,6 +11,7 @@ import type {
   NPSEvolutionPoint,
   ProjectionPoint,
   RevenuePoint,
+  WeeklySummary,
 } from "../types";
 
 export const dashboardService = {
@@ -79,6 +80,11 @@ export const dashboardService = {
     last_contact_map: Record<string, string>;
   }> {
     const { data } = await api.get("/api/v1/dashboards/retention");
+    return data;
+  },
+
+  async weeklySummary(): Promise<WeeklySummary> {
+    const { data } = await api.get<WeeklySummary>("/api/v1/dashboards/weekly-summary");
     return data;
   },
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.enums import LeadStage
+from app.utils.encryption import EncryptedString
 
 
 class Lead(Base, TimestampMixin, SoftDeleteMixin):
@@ -41,7 +42,7 @@ class Lead(Base, TimestampMixin, SoftDeleteMixin):
     )
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     source: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     stage: Mapped[LeadStage] = mapped_column(
         Enum(LeadStage, name="lead_stage_enum", native_enum=False),

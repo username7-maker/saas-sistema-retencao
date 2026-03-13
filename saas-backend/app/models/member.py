@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.enums import MemberStatus, RiskLevel
+from app.utils.encryption import EncryptedString
 
 
 class Member(Base, TimestampMixin, SoftDeleteMixin):
@@ -35,7 +36,7 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     )
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     cpf_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[MemberStatus] = mapped_column(
         Enum(MemberStatus, name="member_status_enum", native_enum=False),
@@ -77,3 +78,27 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
         cascade="all, delete-orphan",
         order_by="BodyCompositionEvaluation.evaluation_date.desc()",
     )
+
+    @property
+    def suggested_action(self) -> str | None:
+        """Compute a suggested action based on the member's current state."""
+        now = datetime.now(tz=timezone.utc)
+        days_inactive = (
+            (now - self.last_checkin_at).days
+            if self.last_checkin_at
+            else None
+        )
+
+        if self.status == MemberStatus.CANCELLED:
+            return "Ligar para reconquistar"
+        if self.risk_level == RiskLevel.RED:
+            if days_inactive is not None and days_inactive >= 14:
+                return "Ligar urgente — 14+ dias inativo"
+            return "Ligar para resgatar"
+        if self.risk_level == RiskLevel.YELLOW:
+            if self.nps_last_score > 0 and self.nps_last_score < 7:
+                return "Enviar pesquisa de satisfacao"
+            return "Enviar mensagem de incentivo"
+        if self.loyalty_months < 2:
+            return "Acompanhar onboarding"
+        return None

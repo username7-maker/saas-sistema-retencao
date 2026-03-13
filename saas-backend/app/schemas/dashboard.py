@@ -73,6 +73,16 @@ class FinancialDashboard(BaseModel):
     projections: list[ProjectionPoint]
 
 
+class WeeklySummary(BaseModel):
+    checkins_this_week: int
+    checkins_last_week: int
+    checkins_delta_pct: float
+    new_registrations: int
+    new_at_risk: int
+    mrr_at_risk: float
+    total_active: int
+
+
 class RetentionBucket(BaseModel):
     total: int
     items: list[MemberOut]

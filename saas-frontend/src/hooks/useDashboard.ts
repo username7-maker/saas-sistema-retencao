@@ -75,3 +75,11 @@ export function useRetentionDashboard() {
     staleTime: FIVE_MINUTES,
   });
 }
+
+export function useWeeklySummary() {
+  return useQuery({
+    queryKey: ["dashboard", "weekly-summary"],
+    queryFn: dashboardService.weeklySummary,
+    staleTime: FIVE_MINUTES,
+  });
+}

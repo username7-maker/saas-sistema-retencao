@@ -18,13 +18,13 @@ const statusSequence: Task["status"][] = ["todo", "doing", "done"];
 const STATUS_LABELS: Record<Task["status"], string> = {
   todo: "A fazer",
   doing: "Em andamento",
-  done: "Concluída",
+  done: "Concluida",
   cancelled: "Cancelada",
 };
 
 const PRIORITY_LABELS: Record<Task["priority"], string> = {
   low: "Baixa",
-  medium: "Média",
+  medium: "Media",
   high: "Alta",
   urgent: "Urgente",
 };
@@ -179,11 +179,11 @@ function CreateTaskModal({ members, onClose, onSubmit, isPending }: CreateModalP
         <h3 className="mb-4 text-lg font-bold text-lovable-ink">Nova Tarefa</h3>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Título *</label>
-            <Input name="title" required minLength={3} maxLength={160} placeholder="Título da tarefa" />
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Titulo *</label>
+            <Input name="title" required minLength={3} maxLength={160} placeholder="Titulo da tarefa" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Descrição</label>
+            <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Descricao</label>
             <textarea
               name="description"
               rows={2}
@@ -197,7 +197,7 @@ function CreateTaskModal({ members, onClose, onSubmit, isPending }: CreateModalP
               name="member_id"
               className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
             >
-              <option value="">ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Nenhum ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â</option>
+              <option value="">Nenhum</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.full_name}
@@ -214,7 +214,7 @@ function CreateTaskModal({ members, onClose, onSubmit, isPending }: CreateModalP
                 className="w-full rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
               >
                 <option value="low">Baixa</option>
-                <option value="medium">MÃƒÆ’Ã‚Â©dia</option>
+                <option value="medium">Media</option>
                 <option value="high">Alta</option>
                 <option value="urgent">Urgente</option>
               </select>
@@ -352,7 +352,7 @@ export function TasksPage() {
       const label =
         task.member_name ??
         task.lead_name ??
-        (task.member_id ? `Aluno ${task.member_id.slice(0, 8)}` : task.lead_id ? "Lead (CRM)" : "Sem vÃƒÆ’Ã‚Â­nculo");
+        (task.member_id ? `Aluno ${task.member_id.slice(0, 8)}` : task.lead_id ? "Lead (CRM)" : "Sem vinculo");
 
       const current = draft.get(key) ?? {
         key,
@@ -434,7 +434,7 @@ export function TasksPage() {
             <div>
               <h2 className="font-heading text-3xl font-bold text-lovable-ink">Tarefas</h2>
               <p className="text-sm text-lovable-ink-muted">
-                Acompanhamento de onboarding, follow-up e aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes de retenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o por aluno.
+                Acompanhamento de onboarding, follow-up e acoes de retencao por aluno.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -474,7 +474,7 @@ export function TasksPage() {
               ) : null}
               {hiddenFutureCount > 0 ? <Badge variant="neutral">Futuras ocultas: {hiddenFutureCount}</Badge> : null}
               <Button variant={showDone ? "secondary" : "ghost"} size="sm" onClick={() => setShowDone((p) => !p)}>
-                {showDone ? "Ocultar concluÃƒÆ’Ã‚Â­das" : "Mostrar concluÃƒÆ’Ã‚Â­das"}
+                {showDone ? "Ocultar concluidas" : "Mostrar concluidas"}
               </Button>
             </div>
           </div>
@@ -487,7 +487,7 @@ export function TasksPage() {
                   <Input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar por nome do aluno ou tÃ­tulo da tarefa..."
+                    placeholder="Buscar por nome do aluno ou titulo da tarefa..."
                     className="flex-1"
                   />
                   <Button variant="primary" size="sm" onClick={() => setSearch((prev) => prev.trim())}>
@@ -505,7 +505,7 @@ export function TasksPage() {
                     <option value="all">Todas</option>
                     <option value="onboarding">Onboarding</option>
                     <option value="plan_followup">Follow-up</option>
-                    <option value="automation">AutomaÃ§Ã£o</option>
+                    <option value="automation">Automacao</option>
                     <option value="manual">Manual</option>
                   </Select>
                 </div>
@@ -554,8 +554,8 @@ export function TasksPage() {
                           ) : null}
                         </CardTitle>
                         <p className="mt-1 text-xs text-lovable-ink-muted">
-                          {group.tasks.length} tarefa{group.tasks.length !== 1 ? "s" : ""} Ãƒâ€šÃ‚Â· {group.todoCount} a
-                          fazer Ãƒâ€šÃ‚Â· {group.doingCount} em andamento Ãƒâ€šÃ‚Â· {group.doneCount} concluÃƒÆ’Ã‚Â­da
+                          {group.tasks.length} tarefa{group.tasks.length !== 1 ? "s" : ""} - {group.todoCount} a
+                          fazer - {group.doingCount} em andamento - {group.doneCount} concluida
                           {group.doneCount !== 1 ? "s" : ""}
                         </p>
                         {/* Progress bar */}
@@ -565,7 +565,7 @@ export function TasksPage() {
                             style={{ width: `${progress}%` }}
                           />
                         </div>
-                        <p className="mt-0.5 text-xs text-lovable-ink-muted">{progress}% concluÃƒÆ’Ã‚Â­do</p>
+                        <p className="mt-0.5 text-xs text-lovable-ink-muted">{progress}% concluido</p>
                       </div>
                       <Button variant="secondary" size="sm" onClick={() => navigate(groupDestination(group))}>
                         Ver perfil
@@ -604,7 +604,7 @@ export function TasksPage() {
                               {src === "plan_followup" && planType ? (
                                 <Badge variant="neutral">Follow-up {formatPlanLabel(planType)}</Badge>
                               ) : null}
-                              {src === "automation" ? <Badge variant="neutral">AutomaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</Badge> : null}
+                              {src === "automation" ? <Badge variant="neutral">Automacao</Badge> : null}
                               {overdue ? <Badge variant="danger">Atrasada</Badge> : null}
                             </div>
                           </div>
@@ -617,7 +617,7 @@ export function TasksPage() {
                                 className="text-xs font-medium text-lovable-primary hover:underline"
                                 onClick={() => toggleMessage(task.id)}
                               >
-                                {msgExpanded ? "ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â² Ocultar mensagem sugerida" : "ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â¼ Ver mensagem sugerida"}
+                                {msgExpanded ? "Ocultar mensagem sugerida" : "Ver mensagem sugerida"}
                               </button>
                               {msgExpanded ? (
                                 <p className="mt-1 rounded-lg bg-lovable-primary-soft/20 p-2 text-xs text-lovable-ink">
@@ -633,11 +633,11 @@ export function TasksPage() {
                               <span
                                 className={`text-xs ${overdue ? "font-semibold text-lovable-danger" : "text-lovable-ink-muted"}`}
                               >
-                                {overdue ? "ÃƒÂ¢Ã…Â¡Ã‚Â  " : ""}Vencimento: {formatDueDate(task.due_date)}
+                                {overdue ? "Atrasada - " : ""}Vencimento: {formatDueDate(task.due_date)}
                               </span>
                               {task.assigned_to_user_id ? (
                                 <span className="rounded-full bg-lovable-primary/10 px-2 py-0.5 text-[10px] font-medium text-lovable-primary">
-                                  {userNameById.get(task.assigned_to_user_id) ?? "ResponsÃƒÆ’Ã‚Â¡vel"}
+                                  {userNameById.get(task.assigned_to_user_id) ?? "Responsavel"}
                                 </span>
                               ) : null}
                             </div>
@@ -650,7 +650,7 @@ export function TasksPage() {
                                     disabled={updateMutation.isPending}
                                     onClick={() => updateMutation.mutate({ taskId: task.id, status: nextStatus(task.status) })}
                                   >
-                                    AvanÃƒÆ’Ã‚Â§ar
+                                    Avancar
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -701,7 +701,7 @@ export function TasksPage() {
             <p className="mb-4 text-sm text-lovable-ink-muted">
               <strong>{pendingDeleteTask?.title}</strong>
               <br />
-              Esta aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o nÃƒÆ’Ã‚Â£o pode ser desfeita.
+              Esta acao nao pode ser desfeita.
             </p>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setPendingDeleteId(null)} disabled={deleteMutation.isPending}>
@@ -713,7 +713,7 @@ export function TasksPage() {
                 disabled={deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate(pendingDeleteId)}
               >
-                {deleteMutation.isPending ? "Excluindo..." : "Confirmar exclusÃƒÆ’Ã‚Â£o"}
+                {deleteMutation.isPending ? "Excluindo..." : "Confirmar exclusao"}
               </Button>
             </div>
           </div>

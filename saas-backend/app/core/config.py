@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     whatsapp_rate_limit_per_hour: int = 6
     whatsapp_webhook_token: str = ""
 
+    sentry_dsn: str = ""
+
     redis_url: str = ""
     dashboard_cache_ttl_seconds: int = 300
     dashboard_cache_maxsize: int = 512

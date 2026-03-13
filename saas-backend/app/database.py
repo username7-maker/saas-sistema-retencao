@@ -46,6 +46,9 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 _current_gym_id: ContextVar[UUID | None] = ContextVar("current_gym_id", default=None)
+_unscoped_access: ContextVar[bool] = ContextVar("unscoped_access", default=False)
+
+_DENY_GYM_ID = UUID(int=0)  # Impossible UUID — matches no real row
 TENANT_SCOPED_MODELS = (
     User,
     Member,
@@ -83,6 +86,15 @@ def get_current_gym_id() -> UUID | None:
     return _current_gym_id.get()
 
 
+def set_unscoped_access(enabled: bool) -> None:
+    """Allow background jobs to query across all tenants without a gym_id context.
+
+    Must be called explicitly by cross-gym background jobs (e.g. nurturing, booking).
+    All request-scoped code should never call this.
+    """
+    _unscoped_access.set(enabled)
+
+
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_filter(execute_state) -> None:  # type: ignore[no-untyped-def]
     if not execute_state.is_select:
@@ -92,21 +104,14 @@ def _apply_tenant_filter(execute_state) -> None:  # type: ignore[no-untyped-def]
 
     gym_id = get_current_gym_id()
     if gym_id is None:
-        # Warn when querying tenant-scoped tables without gym context.
-        # This catches accidental unscoped queries while allowing legitimate
-        # ones (e.g. listing active gyms, auth login) that don't touch
-        # tenant-scoped models.
-        compiled = execute_state.statement.compile()
-        sql_text = str(compiled)
-        for table_name in _TENANT_SCOPED_TABLE_NAMES:
-            if table_name in sql_text:
-                logger.warning(
-                    "Query on tenant-scoped table '%s' without gym_id context. "
-                    "This may return unfiltered data.",
-                    table_name,
-                )
-                break
-        return
+        if _unscoped_access.get():
+            # Explicit cross-gym access granted (e.g. nurturing/booking background jobs).
+            return
+        # Default-deny: apply impossible gym_id so no tenant rows leak.
+        # Legitimate non-scoped queries (auth login, Gym table) don't touch
+        # TENANT_SCOPED_MODELS so with_loader_criteria is a no-op for them.
+        gym_id = _DENY_GYM_ID
+        logger.debug("No gym_id context — applying deny filter to prevent data leak.")
 
     statement = execute_state.statement
     for model in TENANT_SCOPED_MODELS:

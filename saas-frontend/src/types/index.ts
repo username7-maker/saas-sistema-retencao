@@ -35,6 +35,7 @@ export interface Member {
   risk_level: RiskLevel;
   last_checkin_at: string | null;
   extra_data?: Record<string, unknown>;
+  suggested_action?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -115,6 +116,16 @@ export interface ExecutiveDashboard {
     yellow: number;
     red: number;
   };
+}
+
+export interface WeeklySummary {
+  checkins_this_week: number;
+  checkins_last_week: number;
+  checkins_delta_pct: number;
+  new_registrations: number;
+  new_at_risk: number;
+  mrr_at_risk: number;
+  total_active: number;
 }
 
 export interface HeatmapPoint {

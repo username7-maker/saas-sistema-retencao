@@ -12,8 +12,25 @@ from sqlalchemy import text
 from app.background_jobs.scheduler import build_scheduler
 from app.core.cache import dashboard_cache
 from app.core.config import settings
+from app.core.logging_config import configure_logging, request_id_ctx
 from app.core.security import decode_token
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+
+configure_logging()
+
+if settings.sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+    )
+
 from app.models import User
 from app.routers import (
     admin_objections,
@@ -39,7 +56,7 @@ from app.routers import (
     tasks,
     users,
 )
-from app.core.limiter import RateLimitExceeded, limiter, rate_limit_enabled, rate_limit_exceeded_handler
+from app.core.limiter import RateLimitExceeded, SlowAPIMiddleware, limiter, rate_limit_enabled, rate_limit_exceeded_handler
 from app.services.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -68,11 +85,12 @@ app = FastAPI(
 app.state.limiter = limiter
 if rate_limit_enabled:
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    request_id = str(_uuid_mod.uuid4())[:8]
+    request_id = request_id_ctx.get("") or str(_uuid_mod.uuid4())[:8]
     logger.exception("Erro nao tratado [%s] %s %s", request_id, request.method, request.url.path)
     return JSONResponse(
         status_code=500,
@@ -103,6 +121,19 @@ async def tenant_context_middleware(request: Request, call_next):
         return response
     finally:
         clear_current_gym_id()
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Attach a unique request_id to every request for log correlation."""
+    rid = request.headers.get("X-Request-ID") or str(_uuid_mod.uuid4())[:8]
+    token = request_id_ctx.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        request_id_ctx.reset(token)
 
 
 app.include_router(auth.router, prefix=settings.api_prefix)

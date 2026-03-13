@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
 from app.services.audit_service import log_audit_event
+from app.services.whatsapp_service import render_template, send_whatsapp_sync, suggest_whatsapp_template
 from app.services.automation_engine import (
     create_automation_rule,
     delete_automation_rule,
@@ -18,7 +19,6 @@ from app.services.automation_engine import (
     seed_default_rules,
     update_automation_rule,
 )
-from app.services.whatsapp_service import render_template, send_whatsapp_sync
 
 
 router = APIRouter(prefix="/automations", tags=["automations"])
@@ -188,3 +188,12 @@ def send_whatsapp_endpoint(
     db.commit()
     db.refresh(log)
     return MessageLogOut.model_validate(log)
+
+
+@router.post("/whatsapp/suggest")
+def suggest_whatsapp_endpoint(
+    member_id: UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST)),
+) -> dict:
+    return suggest_whatsapp_template(db, member_id)

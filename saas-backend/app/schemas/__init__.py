@@ -32,6 +32,7 @@ from app.schemas.dashboard import (
     RetentionBucket,
     RetentionDashboard,
     RevenuePoint,
+    WeeklySummary,
 )
 from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
 from app.schemas.imports import ImportErrorEntry, ImportSummary, MissingMemberEntry

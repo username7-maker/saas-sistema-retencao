@@ -4,7 +4,8 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+from app.core.distributed_lock import with_distributed_lock
+from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id, set_unscoped_access
 from app.models import Gym
 from app.models.member import Member
 from app.models.enums import MemberStatus
@@ -22,6 +23,7 @@ from app.services.weekly_briefing_service import generate_and_send_weekly_briefi
 logger = logging.getLogger(__name__)
 
 
+@with_distributed_lock("daily_risk", ttl_seconds=1800)
 def daily_risk_job() -> None:
     db = SessionLocal()
     try:
@@ -37,6 +39,7 @@ def daily_risk_job() -> None:
         db.close()
 
 
+@with_distributed_lock("daily_nps_dispatch", ttl_seconds=1800)
 def daily_nps_dispatch_job() -> None:
     db = SessionLocal()
     try:
@@ -48,6 +51,7 @@ def daily_nps_dispatch_job() -> None:
         db.close()
 
 
+@with_distributed_lock("daily_crm_followup", ttl_seconds=1800)
 def daily_crm_followup_job() -> None:
     db = SessionLocal()
     try:
@@ -59,6 +63,7 @@ def daily_crm_followup_job() -> None:
         db.close()
 
 
+@with_distributed_lock("monthly_reports", ttl_seconds=3600)
 def monthly_reports_job() -> None:
     db = SessionLocal()
     try:
@@ -70,6 +75,7 @@ def monthly_reports_job() -> None:
         db.close()
 
 
+@with_distributed_lock("refresh_dashboard_views", ttl_seconds=600)
 def refresh_dashboard_views_job() -> None:
     db = SessionLocal()
     try:
@@ -78,6 +84,7 @@ def refresh_dashboard_views_job() -> None:
         db.close()
 
 
+@with_distributed_lock("daily_automations", ttl_seconds=1800)
 def daily_automations_job() -> None:
     """Executa todas as regras de automacao ativas para cada academia. Roda apos daily_risk_job."""
     db = SessionLocal()
@@ -90,6 +97,7 @@ def daily_automations_job() -> None:
         db.close()
 
 
+@with_distributed_lock("daily_loyalty_update", ttl_seconds=1800)
 def daily_loyalty_update_job() -> None:
     """Recalcula loyalty_months para todos os membros ativos de todas as academias."""
     today = date.today()
@@ -113,6 +121,7 @@ def daily_loyalty_update_job() -> None:
         db.close()
 
 
+@with_distributed_lock("sunday_briefing", ttl_seconds=1800)
 def sunday_briefing_job() -> None:
     """Envia briefing semanal por WhatsApp para owners/managers de cada academia."""
     db = SessionLocal()
@@ -125,26 +134,33 @@ def sunday_briefing_job() -> None:
         db.close()
 
 
+@with_distributed_lock("nurturing_followup", ttl_seconds=900)
 def nurturing_followup_job() -> None:
     """Executa a regua de nutricao pendente a cada hora."""
     db = SessionLocal()
     try:
+        set_unscoped_access(True)  # Cross-gym: processes all pending sequences
         run_nurturing_followup(db)
     finally:
+        set_unscoped_access(False)
         clear_current_gym_id()
         db.close()
 
 
+@with_distributed_lock("booking_reminder", ttl_seconds=300)
 def booking_reminder_job() -> None:
     """Envia lembretes duraveis para calls confirmadas 1h antes, com varredura a cada 10 minutos."""
     db = SessionLocal()
     try:
+        set_unscoped_access(True)  # Cross-gym: processes bookings across all gyms
         process_booking_reminders(db)
     finally:
+        set_unscoped_access(False)
         clear_current_gym_id()
         db.close()
 
 
+@with_distributed_lock("proposal_followup", ttl_seconds=900)
 def proposal_followup_job() -> None:
     """Cria follow-up manual 24h apos proposta enviada sem conversao."""
     db = SessionLocal()

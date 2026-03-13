@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.enums import RoleEnum
+from app.utils.encryption import EncryptedString
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -33,7 +34,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     password_reset_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
 
     gym = relationship("Gym", back_populates="users")
     assigned_members = relationship("Member", back_populates="assigned_user")

@@ -105,6 +105,15 @@ function MemberCard({ member, lastContactMap, onTimeline, onActionComplete }: Me
         </div>
       )}
 
+      {member.suggested_action && (
+        <div className="mt-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-lovable-primary/10 px-2 py-0.5 text-[10px] font-semibold text-lovable-primary">
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            {member.suggested_action}
+          </span>
+        </div>
+      )}
+
       <p
         className={`mt-2 text-[11px] ${
           hasContact ? "text-lovable-ink-muted" : "font-semibold text-lovable-warning"

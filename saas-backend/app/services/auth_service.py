@@ -41,6 +41,10 @@ def _normalize_gym_slug(raw_slug: str) -> str:
     return slug
 
 
+def _include_all_tenants(statement):
+    return statement.execution_options(include_all_tenants=True)
+
+
 def create_gym(db: Session, *, name: str, slug: str) -> Gym:
     normalized_slug = _normalize_gym_slug(slug)
     existing = db.scalar(select(Gym).where(Gym.slug == normalized_slug))
@@ -56,11 +60,11 @@ def create_gym(db: Session, *, name: str, slug: str) -> Gym:
 
 def create_user(db: Session, payload: UserRegister, *, gym_id: UUID, force_role: RoleEnum | None = None) -> User:
     existing = db.scalar(
-        select(User).where(
+        _include_all_tenants(select(User).where(
             User.email == payload.email,
             User.gym_id == gym_id,
             User.deleted_at.is_(None),
-        )
+        ))
     )
     if existing:
         raise _already_exists_exception()
@@ -87,11 +91,11 @@ def authenticate_user(db: Session, payload: UserLogin) -> User:
         raise _auth_exception()
 
     user = db.scalar(
-        select(User).where(
+        _include_all_tenants(select(User).where(
             User.email == payload.email,
             User.gym_id == gym.id,
             User.deleted_at.is_(None),
-        )
+        ))
     )
     if not user or not verify_password(payload.password, user.hashed_password):
         raise _auth_exception()
@@ -123,7 +127,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
     except (KeyError, ValueError):
         raise _auth_exception()
 
-    user = db.get(User, user_id)
+    user = db.scalar(_include_all_tenants(select(User).where(User.id == user_id)))
     if (
         not user
         or user.deleted_at is not None
@@ -155,12 +159,12 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
         return
 
     user = db.scalar(
-        select(User).where(
+        _include_all_tenants(select(User).where(
             User.email == email,
             User.gym_id == gym.id,
             User.deleted_at.is_(None),
             User.is_active.is_(True),
-        )
+        ))
     )
     if not user:
         return
@@ -191,11 +195,11 @@ def reset_password(db: Session, *, token: str, new_password: str) -> None:
     now = datetime.now(tz=timezone.utc)
 
     user = db.scalar(
-        select(User).where(
+        _include_all_tenants(select(User).where(
             User.password_reset_token_hash == token_hash,
             User.password_reset_expires_at > now,
             User.deleted_at.is_(None),
-        )
+        ))
     )
     if not user:
         raise HTTPException(

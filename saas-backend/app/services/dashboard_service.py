@@ -16,6 +16,7 @@ from app.schemas import (
     NPSEvolutionPoint,
     ProjectionPoint,
     RevenuePoint,
+    WeeklySummary,
 )
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.crm_service import calculate_cac
@@ -328,6 +329,77 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         "avg_yellow_score": round(avg_yellow_score, 1),
         "last_contact_map": last_contact_map,
     }
+    dashboard_cache.set(cache_key, payload)
+    return payload
+
+
+def get_weekly_summary(db: Session) -> WeeklySummary:
+    cache_key = make_cache_key("dashboard_weekly_summary")
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    now = _utcnow()
+    week_ago = now - timedelta(days=7)
+    two_weeks_ago = now - timedelta(days=14)
+
+    checkins_this_week = db.scalar(
+        select(func.count()).select_from(Checkin).where(
+            Checkin.checkin_at >= week_ago, Checkin.checkin_at < now,
+        )
+    ) or 0
+
+    checkins_last_week = db.scalar(
+        select(func.count()).select_from(Checkin).where(
+            Checkin.checkin_at >= two_weeks_ago, Checkin.checkin_at < week_ago,
+        )
+    ) or 0
+
+    new_registrations = db.scalar(
+        select(func.count()).select_from(Member).where(
+            Member.deleted_at.is_(None),
+            Member.join_date >= week_ago.date(),
+        )
+    ) or 0
+
+    new_at_risk = db.scalar(
+        select(func.count()).select_from(Member).where(
+            Member.deleted_at.is_(None),
+            Member.status == MemberStatus.ACTIVE,
+            Member.risk_level.in_([RiskLevel.YELLOW, RiskLevel.RED]),
+            Member.updated_at >= week_ago,
+        )
+    ) or 0
+
+    mrr_at_risk = db.scalar(
+        select(func.sum(Member.monthly_fee)).where(
+            Member.deleted_at.is_(None),
+            Member.status == MemberStatus.ACTIVE,
+            Member.risk_level == RiskLevel.RED,
+        )
+    ) or Decimal("0.00")
+
+    total_active = db.scalar(
+        select(func.count()).select_from(Member).where(
+            Member.deleted_at.is_(None),
+            Member.status == MemberStatus.ACTIVE,
+        )
+    ) or 0
+
+    if checkins_last_week == 0:
+        delta_pct = 100.0 if checkins_this_week > 0 else 0.0
+    else:
+        delta_pct = round(((checkins_this_week - checkins_last_week) / checkins_last_week) * 100, 1)
+
+    payload = WeeklySummary(
+        checkins_this_week=checkins_this_week,
+        checkins_last_week=checkins_last_week,
+        checkins_delta_pct=delta_pct,
+        new_registrations=new_registrations,
+        new_at_risk=new_at_risk,
+        mrr_at_risk=float(mrr_at_risk),
+        total_active=total_active,
+    )
     dashboard_cache.set(cache_key, payload)
     return payload
 

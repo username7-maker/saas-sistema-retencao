@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models import Member, MemberStatus, RiskLevel
 from app.models.message_log import MessageLog
 
 
@@ -151,6 +152,85 @@ async def send_whatsapp_message(
     db.add(log_entry)
     db.flush()
     return log_entry
+
+
+def suggest_whatsapp_template(db: Session, member_id: UUID) -> dict:
+    """Generate a suggested WhatsApp message for a member based on their state."""
+    member = db.get(Member, member_id)
+    if not member:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
+
+    now = datetime.now(tz=timezone.utc)
+    days_inactive = (
+        (now - member.last_checkin_at).days
+        if member.last_checkin_at
+        else None
+    )
+    variables = {
+        "nome": member.full_name.split()[0],
+        "plano": member.plan_name,
+        "dias": str(days_inactive) if days_inactive else "alguns",
+    }
+
+    # Pick the best template
+    if member.status == MemberStatus.CANCELLED:
+        template_name = "risk_red"
+    elif member.risk_level == RiskLevel.RED:
+        if days_inactive is not None and days_inactive >= 7:
+            template_name = "reengagement_7d"
+        else:
+            template_name = "risk_red"
+    elif member.risk_level == RiskLevel.YELLOW:
+        if member.nps_last_score > 0 and member.nps_last_score < 7:
+            template_name = "nps_low"
+        else:
+            template_name = "reengagement_3d"
+    else:
+        template_name = "reengagement_3d"
+
+    message = render_template(template_name, variables)
+
+    # If Claude API is available, personalize
+    if settings.claude_api_key:
+        try:
+            message = _personalize_template_with_ai(member, message, days_inactive)
+        except Exception:
+            logger.exception("Falha ao personalizar template com IA")
+
+    return {
+        "member_id": str(member.id),
+        "member_name": member.full_name,
+        "phone": member.phone,
+        "template_name": template_name,
+        "suggested_message": message,
+        "source": "ai" if settings.claude_api_key else "rule",
+    }
+
+
+def _personalize_template_with_ai(member: Member, base_message: str, days_inactive: int | None) -> str:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=settings.claude_api_key)
+    prompt = (
+        "Voce e um assistente de retencao de uma academia. "
+        "Personalize a mensagem de WhatsApp abaixo mantendo o mesmo tom e objetivo. "
+        "Maximo 200 caracteres. Tom profissional e amigavel. Nao use emoji em excesso.\n\n"
+        f"Aluno: {member.full_name}\n"
+        f"Plano: {member.plan_name}\n"
+        f"Risco: {member.risk_level.value}\n"
+        f"Dias inativo: {days_inactive or 'desconhecido'}\n"
+        f"NPS: {member.nps_last_score}\n\n"
+        f"Mensagem base: {base_message}\n"
+    )
+    response = client.messages.create(
+        model=settings.claude_model,
+        max_tokens=200,
+        temperature=0.3,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    result = response.content[0].text.strip()
+    return result[:500] if result else base_message
 
 
 def send_whatsapp_sync(

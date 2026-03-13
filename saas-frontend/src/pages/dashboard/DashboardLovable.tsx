@@ -7,8 +7,12 @@ import {
   ArrowRight,
   BarChart3,
   Briefcase,
+  CalendarDays,
   Search,
   ShieldAlert,
+  TrendingDown,
+  TrendingUp,
+  UserPlus,
   Users,
   Wallet,
   Zap,
@@ -21,6 +25,7 @@ import {
   useExecutiveDashboard,
   useOperationalDashboard,
   useRetentionDashboard,
+  useWeeklySummary,
 } from "../../hooks/useDashboard";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import {
@@ -178,6 +183,114 @@ function FilterChip({
   );
 }
 
+function WeeklySummaryCard() {
+  const { data, isLoading } = useWeeklySummary();
+
+  if (isLoading) {
+    return (
+      <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
+        <CardHeader>
+          <Skeleton className="h-4 w-48 rounded bg-zinc-800" />
+          <Skeleton className="h-3 w-64 rounded bg-zinc-800" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-16 rounded-xl bg-zinc-800" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const deltaPositive = data.checkins_delta_pct >= 0;
+  const DeltaIcon = deltaPositive ? TrendingUp : TrendingDown;
+
+  const items = [
+    {
+      label: "Check-ins (7d)",
+      value: data.checkins_this_week.toLocaleString("pt-BR"),
+      sub: `${deltaPositive ? "+" : ""}${data.checkins_delta_pct.toFixed(1)}% vs semana anterior`,
+      icon: Zap,
+      tone: deltaPositive ? "text-emerald-400" : "text-amber-400",
+    },
+    {
+      label: "Novos Alunos",
+      value: data.new_registrations.toLocaleString("pt-BR"),
+      sub: "cadastros nos ultimos 7 dias",
+      icon: UserPlus,
+      tone: "text-cyan-400",
+    },
+    {
+      label: "Novos em Risco",
+      value: data.new_at_risk.toLocaleString("pt-BR"),
+      sub: "entraram em risco esta semana",
+      icon: AlertTriangle,
+      tone: data.new_at_risk > 5 ? "text-rose-400" : "text-amber-400",
+    },
+    {
+      label: "MRR em Risco",
+      value: new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(data.mrr_at_risk),
+      sub: `de ${data.total_active} alunos ativos`,
+      icon: Wallet,
+      tone: data.mrr_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
+    },
+  ];
+
+  return (
+    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
+      <CardHeader>
+        <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
+          <CalendarDays size={18} className="text-cyan-300" />
+          Resumo Semanal
+        </CardTitle>
+        <CardDescription className={cn("!text-zinc-400", DASH_H4)}>
+          Comparativo dos ultimos 7 dias com a semana anterior.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {items.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.label}
+                className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <Icon size={14} className={item.tone} />
+                  <span className={cn("uppercase tracking-wider text-zinc-500", DASH_H5)}>{item.label}</span>
+                </div>
+                <p className="text-xl font-bold text-zinc-100">{item.value}</p>
+                <p className={cn("text-zinc-500", DASH_H5)}>{item.sub}</p>
+              </div>
+            );
+          })}
+        </div>
+        {data.checkins_delta_pct < -10 && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+            <DeltaIcon size={14} className="text-amber-400" />
+            <p className={cn("text-amber-200", DASH_H4)}>
+              Queda significativa nos check-ins. Considere acionar campanha de reengajamento.
+            </p>
+          </div>
+        )}
+        {data.new_at_risk > 5 && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2">
+            <AlertTriangle size={14} className="text-rose-400" />
+            <p className={cn("text-rose-200", DASH_H4)}>
+              Aumento de alunos em risco. Priorize ligacoes de retencao esta semana.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function DashboardLovable() {
   const navigate = useNavigate();
   const [activeSource, setActiveSource] = useState<"all" | ActionSource>("all");
@@ -322,6 +435,7 @@ export function DashboardLovable() {
       <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
       <div className="relative space-y-6">
         <RoiSummaryCard />
+        <WeeklySummaryCard />
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {cardsLoading ? (
