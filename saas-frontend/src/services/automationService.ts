@@ -47,6 +47,16 @@ export interface MessageLog {
   created_at: string;
 }
 
+export interface RulePreviewResult {
+  matched_count: number;
+  sample_members: Array<{
+    id: string;
+    full_name: string;
+    risk_level: string;
+    days_without_checkin: number;
+  }>;
+}
+
 export const automationService = {
   async listRules(activeOnly = false): Promise<AutomationRule[]> {
     const { data } = await api.get<AutomationRule[]>("/api/v1/automations/rules", {
@@ -91,6 +101,11 @@ export const automationService = {
     template_name?: string;
   }): Promise<MessageLog> {
     const { data } = await api.post<MessageLog>("/api/v1/automations/whatsapp/send", payload);
+    return data;
+  },
+
+  async previewRule(ruleId: string): Promise<RulePreviewResult> {
+    const { data } = await api.post<RulePreviewResult>(`/api/v1/automations/rules/${ruleId}/preview`);
     return data;
   },
 };

@@ -16,7 +16,9 @@ from app.services.call_script_service import process_proposal_followups
 from app.services.crm_service import run_followup_automation
 from app.services.nurturing_service import run_nurturing_followup
 from app.services.nps_service import run_nps_dispatch
+from app.services.onboarding_score_service import run_daily_onboarding_score
 from app.services.report_service import send_monthly_reports
+from app.services.retention_intelligence_service import run_daily_retention_intelligence
 from app.services.risk import run_daily_risk_processing
 from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
 
@@ -168,6 +170,40 @@ def proposal_followup_job() -> None:
         for gym in _active_gyms(db):
             set_current_gym_id(gym.id)
             process_proposal_followups(db)
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("daily_onboarding_score", ttl_seconds=900)
+def daily_onboarding_score_job() -> None:
+    """Recalcula onboarding score para membros nos primeiros 30 dias."""
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                run_daily_onboarding_score(db)
+            except Exception:
+                logger.exception("Onboarding score job failed for gym %s", gym.id)
+                db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("daily_retention_intelligence", ttl_seconds=1800)
+def daily_retention_intelligence_job() -> None:
+    """Classifica churn e materializa playbooks de retencao. Roda apos daily_risk_job."""
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                run_daily_retention_intelligence(db)
+            except Exception:
+                logger.exception("Retention intelligence job failed for gym %s", gym.id)
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()

@@ -358,6 +358,11 @@ export const assessmentService = {
     return data;
   },
 
+  async updateGoal(memberId: string, goalId: string, payload: MemberGoalCreateInput): Promise<MemberGoal> {
+    const { data } = await api.put<MemberGoal>(`/api/v1/assessments/members/${memberId}/goals/${goalId}`, payload);
+    return data;
+  },
+
   async listGoals(memberId: string): Promise<MemberGoal[]> {
     const { data } = await api.get<MemberGoal[]>(`/api/v1/assessments/members/${memberId}/goals`);
     return data;
@@ -365,6 +370,11 @@ export const assessmentService = {
 
   async createTrainingPlan(memberId: string, payload: TrainingPlanCreateInput): Promise<TrainingPlan> {
     const { data } = await api.post<TrainingPlan>(`/api/v1/assessments/members/${memberId}/training-plans`, payload);
+    return data;
+  },
+
+  async updateTrainingPlan(memberId: string, planId: string, payload: TrainingPlanCreateInput): Promise<TrainingPlan> {
+    const { data } = await api.put<TrainingPlan>(`/api/v1/assessments/members/${memberId}/training-plans/${planId}`, payload);
     return data;
   },
 };

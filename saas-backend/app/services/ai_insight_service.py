@@ -2,6 +2,7 @@ import logging
 import re
 
 from app.core.cache import dashboard_cache, make_cache_key
+from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,9 @@ def generate_executive_insight(dashboard_data: dict) -> str:
 
     prompt = _build_executive_prompt(dashboard_data)
 
-    if not settings.claude_api_key:
+    if not settings.claude_api_key or claude_circuit_breaker.is_open():
+        if claude_circuit_breaker.is_open():
+            logger.info("Circuit breaker aberto para Claude. Usando fallback em generate_executive_insight.")
         insight = _fallback_insight(dashboard_data)
         dashboard_cache.set(cache_key, insight, ttl=INSIGHT_CACHE_TTL_SECONDS)
         return insight
@@ -39,9 +42,11 @@ def generate_executive_insight(dashboard_data: dict) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
         insight = response.content[0].text
+        claude_circuit_breaker.record_success()
         dashboard_cache.set(cache_key, insight, ttl=INSIGHT_CACHE_TTL_SECONDS)
         return insight
     except Exception:
+        claude_circuit_breaker.record_failure()
         logger.exception("Erro ao gerar insight com Claude")
         insight = _fallback_insight(dashboard_data)
         dashboard_cache.set(cache_key, insight, ttl=INSIGHT_CACHE_TTL_SECONDS)

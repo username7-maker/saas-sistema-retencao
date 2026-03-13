@@ -514,6 +514,11 @@ def _run_inactivity_automations(
     existing_manager_alert_tasks: set[tuple] | None = None,
 ) -> list[dict]:
     now = datetime.now(tz=timezone.utc)
+    # BLOQUEIO: nao disparar automacoes de retencao para alunos em onboarding ativo (< 14 dias)
+    join_days = (now.date() - member.join_date).days
+    if join_days < 14:
+        return []
+
     actions: list[dict] = []
 
     def mark_triggered(stage: str) -> None:

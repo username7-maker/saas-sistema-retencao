@@ -4,6 +4,7 @@ import logging
 
 import anthropic
 
+from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.models import Member
 from app.models.assessment import Assessment
@@ -22,6 +23,10 @@ def build_narratives(
     benchmark: dict,
 ) -> dict:
     if not settings.claude_api_key:
+        return _fallback_narratives(member, diagnosis=diagnosis, forecast=forecast, benchmark=benchmark)
+
+    if claude_circuit_breaker.is_open():
+        logger.info("Circuit breaker aberto para Claude. Usando fallback em build_narratives.")
         return _fallback_narratives(member, diagnosis=diagnosis, forecast=forecast, benchmark=benchmark)
 
     try:
@@ -45,12 +50,14 @@ def build_narratives(
             messages=[{"role": "user", "content": prompt}],
         )
         parsed = _parse_claude_json(response.content[0].text.strip())
+        claude_circuit_breaker.record_success()
         return {
             "coach_summary": str(parsed.get("coach_summary") or "")[:280],
             "member_summary": str(parsed.get("member_summary") or "")[:280],
             "retention_summary": str(parsed.get("retention_summary") or "")[:280],
         }
     except Exception:
+        claude_circuit_breaker.record_failure()
         logger.exception("Falha ao gerar narrativas de avaliacao com Claude. Usando fallback.")
         return _fallback_narratives(member, diagnosis=diagnosis, forecast=forecast, benchmark=benchmark)
 

@@ -21,6 +21,7 @@ saas-frontend/*.tsbuildinfo
 node_modules/
 dist/
 .env
+.docker-tmp/
 *.log
 database.db
 

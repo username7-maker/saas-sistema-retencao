@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,3 +43,29 @@ def list_body_composition_evaluations(
             .limit(limit)
         ).all()
     )
+
+
+def update_body_composition_evaluation(
+    db: Session,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+    payload: BodyCompositionEvaluationCreate,
+) -> BodyCompositionEvaluation:
+    get_member_or_404(db, member_id)
+    evaluation = db.scalar(
+        select(BodyCompositionEvaluation).where(
+            BodyCompositionEvaluation.id == evaluation_id,
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.member_id == member_id,
+        )
+    )
+    if not evaluation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bioimpedancia nao encontrada")
+
+    for field, value in payload.model_dump().items():
+        setattr(evaluation, field, value)
+
+    db.add(evaluation)
+    db.flush()
+    return evaluation

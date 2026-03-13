@@ -2,15 +2,18 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
+from app.models.automation_execution_log import AutomationExecutionLog
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
 from app.services.audit_service import log_audit_event
 from app.services.whatsapp_service import render_template, send_whatsapp_sync, suggest_whatsapp_template
 from app.services.automation_engine import (
+    _find_matching_members,
     create_automation_rule,
     delete_automation_rule,
     get_automation_rule,
@@ -188,6 +191,52 @@ def send_whatsapp_endpoint(
     db.commit()
     db.refresh(log)
     return MessageLogOut.model_validate(log)
+
+
+@router.post("/rules/{rule_id}/preview")
+def preview_automation_rule(
+    rule_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> dict:
+    rule = get_automation_rule(db, rule_id)
+    if not rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Regra nao encontrada")
+    members = _find_matching_members(db, rule)
+    return {
+        "rule_id": str(rule.id),
+        "matching_members": len(members),
+        "sample": [
+            {"id": str(m.id), "name": m.full_name, "risk_score": m.risk_score}
+            for m in members[:10]
+        ],
+    }
+
+
+@router.get("/rules/{rule_id}/executions")
+def list_automation_executions(
+    rule_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    limit: int = Query(50, ge=1, le=200),
+) -> list[dict]:
+    logs = list(db.scalars(
+        select(AutomationExecutionLog)
+        .where(AutomationExecutionLog.rule_id == rule_id)
+        .order_by(AutomationExecutionLog.created_at.desc())
+        .limit(limit)
+    ).all())
+    return [
+        {
+            "id": str(log.id),
+            "member_id": str(log.member_id) if log.member_id else None,
+            "action_type": log.action_type,
+            "status": log.status,
+            "details": log.details,
+            "created_at": log.created_at.isoformat(),
+        }
+        for log in logs
+    ]
 
 
 @router.post("/whatsapp/suggest")

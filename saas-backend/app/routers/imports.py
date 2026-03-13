@@ -1,21 +1,55 @@
+import logging
+import threading
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
+from app.core.distributed_lock import with_distributed_lock
 from app.core.limiter import limiter
-from app.database import get_db, set_current_gym_id
+from app.database import SessionLocal, clear_current_gym_id, get_db, set_current_gym_id
 from app.models import RoleEnum, User
 from app.schemas import ImportSummary
 from app.services.audit_service import log_audit_event
 from app.services.import_service import import_checkins_csv, import_members_csv
+from app.services.risk import run_daily_risk_processing
 
 
 router = APIRouter(prefix="/imports", tags=["imports"])
+logger = logging.getLogger(__name__)
 
 _MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
 _ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+
+
+def _queue_risk_recalculation(gym_id) -> None:
+    threading.Thread(
+        target=_run_risk_recalculation_background,
+        args=(gym_id,),
+        daemon=True,
+    ).start()
+
+
+def _run_risk_recalculation_background(gym_id) -> None:
+    @with_distributed_lock("daily_risk", ttl_seconds=1800)
+    def _inner() -> None:
+        db = SessionLocal()
+        try:
+            set_current_gym_id(gym_id)
+            result = run_daily_risk_processing(db)
+            logger.info("Post-import risk recalculation completed for gym %s: %s", gym_id, result)
+        except Exception:
+            logger.exception("Post-import risk recalculation failed for gym %s", gym_id)
+            db.rollback()
+        finally:
+            clear_current_gym_id()
+            db.close()
+
+    try:
+        _inner()
+    except Exception:
+        logger.warning("Post-import risk recalculation skipped - lock already held")
 
 
 @router.post("/members", response_model=ImportSummary)
@@ -48,6 +82,8 @@ async def import_members_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    if summary.imported > 0:
+        _queue_risk_recalculation(current_user.gym_id)
     return summary
 
 
@@ -93,4 +129,6 @@ async def import_checkins_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    if summary.imported > 0 or summary.provisional_members_created > 0:
+        _queue_risk_recalculation(current_user.gym_id)
     return summary

@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta, timezone
 from typing import NamedTuple
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Task, TaskPriority, TaskStatus
@@ -237,6 +238,16 @@ PLAN_FOLLOWUP_PLAYBOOK: dict[str, list[PlaybookStep]] = {
 
 
 def create_onboarding_tasks_for_member(db: Session, member: object) -> None:
+    existing_count = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.member_id == member.id,  # type: ignore[attr-defined]
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == "onboarding",
+        )
+    ) or 0
+    if existing_count > 0:
+        return
+
     base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
     tasks = [
         Task(
@@ -262,6 +273,17 @@ def create_plan_followup_tasks_for_member(db: Session, member: object) -> None:
     steps = PLAN_FOLLOWUP_PLAYBOOK.get(plan_type, [])
     if not steps:
         return
+
+    existing_count = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.member_id == member.id,  # type: ignore[attr-defined]
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == "plan_followup",
+        )
+    ) or 0
+    if existing_count > 0:
+        return
+
     base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
     tasks = [
         Task(

@@ -51,6 +51,37 @@ class TestListMembers:
         compiled = str(stmt)
         assert "extra_data" in compiled
 
+    def test_explicit_gym_filter_builds_query(self):
+        from app.services.member_service import list_members
+
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = 0
+
+        list_members(db, gym_id=GYM_ID, page=1, page_size=20)
+
+        stmt = db.scalars.call_args.args[0]
+        compiled = str(stmt)
+        assert "members.gym_id" in compiled
+
+    def test_plan_cycle_filter_uses_stored_plan_cycle_or_plan_name(self):
+        from app.services.member_service import list_members
+
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = 0
+
+        list_members(db, page=1, page_size=20, plan_cycle="annual")
+
+        stmt = db.scalars.call_args.args[0]
+        compiled = str(stmt)
+        assert "extra_data" in compiled
+        assert "plan_name" in compiled
+
 
 class TestGetMemberOr404:
     def test_raises_404_when_not_found(self):

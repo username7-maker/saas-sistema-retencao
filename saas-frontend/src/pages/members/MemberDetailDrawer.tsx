@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import type { Member } from "../../types";
 import { QuickActions } from "../../components/common/QuickActions";
 import { Badge, Drawer } from "../../components/ui2";
 import { lgpdService } from "../../services/lgpdService";
+import { memberService } from "../../services/memberService";
 import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
 
 export function MemberDetailDrawer({
@@ -18,9 +20,24 @@ export function MemberDetailDrawer({
   const [confirmAnonymize, setConfirmAnonymize] = useState(false);
   const [lgpdLoading, setLgpdLoading] = useState(false);
 
+  const { data: onboardingScore } = useQuery({
+    queryKey: ["onboarding-score", member?.id],
+    queryFn: () => memberService.getOnboardingScore(member!.id),
+    enabled: !!member && member.onboarding_status === "active",
+  });
+
   if (!member) {
     return null;
   }
+
+  const scoreColor = (s: number) => s >= 70 ? "bg-green-500" : s >= 40 ? "bg-yellow-400" : "bg-red-500";
+  const FACTOR_LABELS: Record<string, string> = {
+    checkin_frequency: "Frequência",
+    first_assessment: "1ª Avaliação",
+    task_completion: "Tarefas",
+    consistency: "Consistência",
+    nps_response: "NPS",
+  };
 
   const handleExportLgpd = async () => {
     setLgpdLoading(true);
@@ -103,6 +120,40 @@ export function MemberDetailDrawer({
           <p className="mb-2 text-sm font-semibold text-lovable-ink">Ações Rápidas</p>
           <QuickActions member={member} />
         </div>
+
+        {onboardingScore && (
+          <div className="border-t border-lovable-border pt-3">
+            <p className="mb-2 text-sm font-semibold text-lovable-ink">Score de Onboarding</p>
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex-1 overflow-hidden rounded-full bg-lovable-surface-soft h-3">
+                <div
+                  className={`h-3 rounded-full transition-all ${scoreColor(onboardingScore.score)}`}
+                  style={{ width: `${onboardingScore.score}%` }}
+                />
+              </div>
+              <span className={`text-sm font-bold ${onboardingScore.score >= 70 ? "text-green-600" : onboardingScore.score >= 40 ? "text-yellow-600" : "text-red-600"}`}>
+                {onboardingScore.score}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {(Object.entries(onboardingScore.factors) as [string, number][]).map(([key, val]) => (
+                <div key={key} className="flex items-center gap-2 text-xs">
+                  <span className="w-28 shrink-0 text-lovable-ink-muted">{FACTOR_LABELS[key] ?? key}</span>
+                  <div className="flex-1 overflow-hidden rounded-full bg-lovable-surface-soft h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full ${scoreColor(val)}`}
+                      style={{ width: `${val}%` }}
+                    />
+                  </div>
+                  <span className="w-6 text-right text-lovable-ink-muted">{val}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-lovable-ink-muted">
+              {onboardingScore.checkin_count} check-ins · {onboardingScore.completed_tasks}/{onboardingScore.total_tasks} tarefas · dia {onboardingScore.days_since_join}
+            </p>
+          </div>
+        )}
 
         <div className="border-t border-lovable-border pt-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">LGPD</p>

@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import desc, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.models import Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
@@ -181,7 +182,7 @@ def generate_ai_insights(db: Session, current: Assessment) -> None:
             )
         )
 
-        if not settings.claude_api_key:
+        if not settings.claude_api_key or claude_circuit_breaker.is_open():
             _apply_fallback_analysis(current, previous_assessments)
             db.add(current)
             db.commit()
@@ -192,12 +193,17 @@ def generate_ai_insights(db: Session, current: Assessment) -> None:
 
         prompt = _build_comprehensive_assessment_prompt(current, previous_assessments, goals, constraints)
         client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=800,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        try:
+            response = client.messages.create(
+                model=settings.claude_model,
+                max_tokens=800,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            claude_circuit_breaker.record_success()
+        except Exception:
+            claude_circuit_breaker.record_failure()
+            raise
         text = response.content[0].text.strip()
         parsed = _parse_claude_json(text)
         current.ai_analysis = (parsed.get("analysis") or "")[:2000]

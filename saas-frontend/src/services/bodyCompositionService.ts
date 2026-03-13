@@ -20,4 +20,16 @@ export const bodyCompositionService = {
     );
     return data;
   },
+
+  async update(
+    memberId: string,
+    evaluationId: string,
+    payload: BodyCompositionEvaluationCreate,
+  ): Promise<BodyCompositionEvaluation> {
+    const { data } = await api.put<BodyCompositionEvaluation>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}`,
+      payload,
+    );
+    return data;
+  },
 };

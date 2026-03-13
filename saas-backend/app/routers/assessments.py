@@ -32,6 +32,8 @@ from app.services.assessment_goals_service import (
     create_goal,
     create_training_plan,
     list_goals,
+    update_goal,
+    update_training_plan,
     upsert_constraints,
 )
 from app.services.assessment_intelligence_service import (
@@ -256,6 +258,32 @@ def list_member_goals_endpoint(
     return [MemberGoalOut.model_validate(item) for item in list_goals(db, member_id)]
 
 
+@router.put("/members/{member_id}/goals/{goal_id}", response_model=MemberGoalOut)
+def update_member_goal_endpoint(
+    request: Request,
+    member_id: UUID,
+    goal_id: UUID,
+    payload: MemberGoalCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> MemberGoalOut:
+    goal = update_goal(db, member_id, goal_id, payload.model_dump(exclude_unset=True))
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="member_goal_updated",
+        entity="member_goal",
+        user=current_user,
+        member_id=member_id,
+        entity_id=goal.id,
+        details={"title": goal.title, "target_date": str(goal.target_date) if goal.target_date else None},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return MemberGoalOut.model_validate(goal)
+
+
 @router.post("/members/{member_id}/training-plans", response_model=TrainingPlanOut, status_code=status.HTTP_201_CREATED)
 def create_training_plan_endpoint(
     request: Request,
@@ -269,6 +297,32 @@ def create_training_plan_endpoint(
     log_audit_event(
         db,
         action="training_plan_created",
+        entity="training_plan",
+        user=current_user,
+        member_id=member_id,
+        entity_id=plan.id,
+        details={"name": plan.name, "sessions_per_week": plan.sessions_per_week},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return TrainingPlanOut.model_validate(plan)
+
+
+@router.put("/members/{member_id}/training-plans/{plan_id}", response_model=TrainingPlanOut)
+def update_training_plan_endpoint(
+    request: Request,
+    member_id: UUID,
+    plan_id: UUID,
+    payload: TrainingPlanCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> TrainingPlanOut:
+    plan = update_training_plan(db, member_id, plan_id, current_user.id, payload.model_dump(exclude_unset=True))
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="training_plan_updated",
         entity="training_plan",
         user=current_user,
         member_id=member_id,

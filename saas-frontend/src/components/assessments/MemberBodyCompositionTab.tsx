@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ImageUp, Minus, ScanText } from "lucide-react";
+import { ArrowDown, ArrowUp, FilePlus2, ImageUp, Minus, Pencil, Save, ScanText, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
@@ -15,6 +15,7 @@ import { FormField } from "../ui2/FormField";
 import { Input } from "../ui2/Input";
 import { Skeleton } from "../ui2/Skeleton";
 import { Textarea } from "../ui2/Textarea";
+import { invalidateAssessmentQueries } from "./queryUtils";
 
 const schema = z.object({
   evaluation_date: z.string().min(1, "Data obrigatoria"),
@@ -35,6 +36,32 @@ type DeltaTone = "up" | "down" | "flat";
 
 interface Props {
   memberId: string;
+}
+
+function buildDefaultValues(evaluation?: {
+  evaluation_date: string;
+  weight_kg: number | null;
+  body_fat_percent: number | null;
+  lean_mass_kg: number | null;
+  muscle_mass_kg: number | null;
+  body_water_percent: number | null;
+  visceral_fat_level: number | null;
+  bmi: number | null;
+  basal_metabolic_rate_kcal: number | null;
+  notes: string | null;
+} | null): FormData {
+  return {
+    evaluation_date: evaluation?.evaluation_date ?? new Date().toISOString().split("T")[0],
+    weight_kg: evaluation?.weight_kg ?? null,
+    body_fat_percent: evaluation?.body_fat_percent ?? null,
+    lean_mass_kg: evaluation?.lean_mass_kg ?? null,
+    muscle_mass_kg: evaluation?.muscle_mass_kg ?? null,
+    body_water_percent: evaluation?.body_water_percent ?? null,
+    visceral_fat_level: evaluation?.visceral_fat_level ?? null,
+    bmi: evaluation?.bmi ?? null,
+    basal_metabolic_rate_kcal: evaluation?.basal_metabolic_rate_kcal ?? null,
+    notes: evaluation?.notes ?? "",
+  };
 }
 
 function fmt(value: number | null | undefined, unit = ""): string {
@@ -113,6 +140,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<BodyCompositionOcrResult | null>(null);
+  const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
 
   const { data: evaluations, isLoading } = useQuery({
     queryKey: ["body-composition", memberId],
@@ -127,15 +155,22 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   const bodyFatDelta = delta(toNum(latest?.body_fat_percent), toNum(previous?.body_fat_percent));
   const muscleDelta = delta(toNum(latest?.muscle_mass_kg), toNum(previous?.muscle_mass_kg));
   const visceralDelta = delta(toNum(latest?.visceral_fat_level), toNum(previous?.visceral_fat_level));
+  const editingEvaluation = evaluations?.find((evaluation) => evaluation.id === editingEvaluationId) ?? null;
 
   const mutation = useMutation({
-    mutationFn: (payload: BodyCompositionEvaluationCreate) => bodyCompositionService.create(memberId, payload),
-    onSuccess: () => {
-      toast.success("Avaliacao registrada com sucesso.");
-      void queryClient.invalidateQueries({ queryKey: ["body-composition", memberId] });
-      reset();
+    mutationFn: (payload: BodyCompositionEvaluationCreate) => {
+      if (editingEvaluationId) {
+        return bodyCompositionService.update(memberId, editingEvaluationId, payload);
+      }
+      return bodyCompositionService.create(memberId, payload);
+    },
+    onSuccess: async () => {
+      toast.success(editingEvaluationId ? "Bioimpedancia atualizada com sucesso." : "Avaliacao registrada com sucesso.");
+      await invalidateAssessmentQueries(queryClient, memberId);
+      reset(buildDefaultValues(null));
       setOcrFile(null);
       setOcrResult(null);
+      setEditingEvaluationId(null);
     },
     onError: () => toast.error("Erro ao registrar avaliacao."),
   });
@@ -149,9 +184,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      evaluation_date: new Date().toISOString().split("T")[0],
-    },
+    defaultValues: buildDefaultValues(null),
   });
 
   function onSubmit(data: FormData) {
@@ -228,11 +261,41 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     }
   }
 
+  function startNewEvaluation() {
+    setEditingEvaluationId(null);
+    reset(buildDefaultValues(null));
+    setOcrFile(null);
+    setOcrResult(null);
+  }
+
+  function startEditing(evaluationId: string) {
+    const evaluation = evaluations?.find((item) => item.id === evaluationId);
+    if (!evaluation) {
+      return;
+    }
+    setEditingEvaluationId(evaluationId);
+    reset(buildDefaultValues(evaluation));
+    setOcrFile(null);
+    setOcrResult(null);
+  }
+
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>Resumo de Bioimpedancia</CardTitle>
+          <div className="flex flex-wrap gap-2">
+            {latest ? (
+              <Button type="button" size="sm" variant="secondary" onClick={() => startEditing(latest.id)}>
+                <Pencil size={14} />
+                Editar ultima
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="primary" onClick={startNewEvaluation}>
+              <FilePlus2 size={14} />
+              Adicionar
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {!latest ? (
@@ -251,7 +314,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Registrar Avaliacao de Bioimpedancia</CardTitle>
+            <CardTitle>{editingEvaluation ? "Editar Avaliacao de Bioimpedancia" : "Registrar Avaliacao de Bioimpedancia"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -330,10 +393,18 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 <Textarea rows={3} placeholder="Notas adicionais sobre a avaliacao..." {...register("notes")} />
               </FormField>
 
-              <Button type="submit" variant="primary" size="md" className="w-full" disabled={mutation.isPending}>
-                <ImageUp size={14} />
-                {mutation.isPending ? "Salvando..." : "Salvar Avaliacao"}
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {editingEvaluation ? (
+                  <Button type="button" variant="ghost" size="md" onClick={startNewEvaluation} disabled={mutation.isPending}>
+                    <X size={14} />
+                    Cancelar edicao
+                  </Button>
+                ) : null}
+                <Button type="submit" variant="primary" size="md" disabled={mutation.isPending}>
+                  {editingEvaluation ? <Save size={14} /> : <ImageUp size={14} />}
+                  {mutation.isPending ? "Salvando..." : editingEvaluation ? "Salvar alteracoes" : "Salvar avaliacao"}
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -361,10 +432,16 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
               <Card key={ev.id}>
                 <CardContent className="pt-4">
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-lovable-ink">{fmtDate(ev.evaluation_date)}</span>
-                    <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-lovable-primary">
-                      {ev.source === "tezewa" ? "Tezewa" : "Manual"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-lovable-ink">{fmtDate(ev.evaluation_date)}</span>
+                      <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-lovable-primary">
+                        {ev.source === "tezewa" ? "Tezewa" : "Manual"}
+                      </span>
+                    </div>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => startEditing(ev.id)}>
+                      <Pencil size={14} />
+                      Editar
+                    </Button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">

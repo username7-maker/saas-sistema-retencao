@@ -3,8 +3,8 @@
 Changes phone columns from VARCHAR(32) to TEXT to accommodate encrypted values.
 Encrypts existing plain-text phone data using AES-256-GCM.
 
-Revision ID: 0018
-Revises: 0017
+Revision ID: 20260311_0018
+Revises: 20260310_0017
 Create Date: 2026-03-11
 """
 
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-revision = "0018"
-down_revision = "0017"
+revision = "20260311_0018"
+down_revision = "20260310_0017"
 branch_labels = None
 depends_on = None
 

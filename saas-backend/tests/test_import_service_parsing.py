@@ -202,6 +202,103 @@ def test_extract_plan_name_prefers_real_plan_value() -> None:
     assert import_service._extract_plan_name(row) == "LIVRE MENSAL"
 
 
+def test_extract_plan_metadata_prefers_conditions_for_contract_cycle() -> None:
+    row = {
+        "assinaturas": "LIVRE MENSAL",
+        "assinaturas_condicoes": "PLANO PRO-LIVRE 12 MESES",
+    }
+    plan_name, plan_cycle, source = import_service._extract_plan_metadata(row)
+    assert plan_name == "LIVRE ANUAL"
+    assert plan_cycle == "annual"
+    assert source == "conditions"
+
+
+def test_extract_plan_metadata_uses_dates_when_conditions_are_generic() -> None:
+    row = {
+        "assinaturas": "LIVRE MENSAL",
+        "assinaturas_condicoes": "LIVRE - NORMAL",
+        "dt_primeira_ativacao": "01/02/2026",
+        "dt_prox_renovacao_assinatura": "01/08/2026",
+    }
+    plan_name, plan_cycle, source = import_service._extract_plan_metadata(row)
+    assert plan_name == "LIVRE SEMESTRAL"
+    assert plan_cycle == "semiannual"
+    assert source == "dates"
+
+
+def test_extract_plan_metadata_deduplicates_repeated_plan_labels() -> None:
+    row = {
+        "assinaturas": "LIVRE MENSAL, LIVRE MENSAL",
+        "assinaturas_condicoes": "PLANO PRO-LIVRE 12 MESES,LIVRE - NORMAL",
+    }
+    plan_name, plan_cycle, source = import_service._extract_plan_metadata(row)
+    assert plan_name == "LIVRE ANUAL"
+    assert plan_cycle == "annual"
+    assert source == "conditions"
+
+
+def test_refresh_member_plan_metadata_reclassifies_existing_members() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Reclassificado",
+        email="aluno.reclassificado@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 2, 1),
+        extra_data={
+            "raw_plan_name": "LIVRE MENSAL",
+            "raw_plan_conditions": "LIVRE - NORMAL",
+            "next_plan_renewal_raw": "01/08/2026",
+        },
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    updated = import_service.refresh_member_plan_metadata(db, gym_id=member.gym_id)
+
+    assert updated == 1
+    assert member.plan_name == "LIVRE SEMESTRAL"
+    assert member.extra_data["plan_cycle"] == "semiannual"
+    assert member.extra_data["plan_cycle_source"] == "dates"
+    db.commit.assert_called_once()
+
+
+def test_import_members_csv_updates_existing_duplicate_with_plan_cycle() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "nome,email,assinaturas,assinaturas_condicoes,dt_primeira_ativacao,dt_prox_renovacao_assinatura\n"
+        "Aluno Existente,aluno.existente@example.com,LIVRE MENSAL,PLANO PRO-LIVRE 12 MESES,01/02/2026,01/02/2027\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert summary.imported == 0
+    assert summary.skipped_duplicates == 1
+    assert member.plan_name == "LIVRE ANUAL"
+    assert member.extra_data["plan_cycle"] == "annual"
+    assert member.extra_data["plan_cycle_source"] == "conditions"
+    db.commit.assert_called_once()
+
+
 def test_extract_preferred_shift_uses_schedule_column() -> None:
     row = {"assinaturas_horarios": "Manha"}
     assert import_service._extract_preferred_shift(row) == "Manha"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from uuid import UUID
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -16,12 +17,16 @@ def build_benchmark(
     *,
     goal_type: str,
     overall_score: int,
+    gym_id: UUID,
 ) -> dict:
     latest_by_member: OrderedDict[str, Assessment] = OrderedDict()
     candidate_assessments = list(
         db.scalars(
             select(Assessment)
-            .where(Assessment.deleted_at.is_(None))
+            .where(
+                Assessment.deleted_at.is_(None),
+                Assessment.gym_id == gym_id,
+            )
             .order_by(desc(Assessment.assessment_date))
             .limit(250)
         ).all()

@@ -5,16 +5,20 @@ import { AxiosError } from "axios";
 import toast from "react-hot-toast";
 
 import { AssessmentTimeline } from "../../components/assessments/AssessmentTimeline";
-import { ConstraintsAlert } from "../../components/assessments/ConstraintsAlert";
 import { EvolutionCharts } from "../../components/assessments/EvolutionCharts";
 import { GoalsProgress } from "../../components/assessments/GoalsProgress";
 import { MemberBodyCompositionTab } from "../../components/assessments/MemberBodyCompositionTab";
+import { MemberConstraintsEditor } from "../../components/assessments/MemberConstraintsEditor";
+import { MemberGoalsEditor } from "../../components/assessments/MemberGoalsEditor";
+import { MemberTrainingPlanEditor } from "../../components/assessments/MemberTrainingPlanEditor";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { MemberTimeline360Content } from "../../components/common/MemberTimeline360Content";
 import { Button, Dialog, Textarea } from "../../components/ui2";
 import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
+import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
 
-type ProfileTab = "summary" | "diagnosis" | "evolution" | "constraints" | "goals" | "training" | "actions" | "bioimpedancia";
+type ProfileTab = "summary" | "timeline360" | "diagnosis" | "evolution" | "constraints" | "goals" | "training" | "actions" | "bioimpedancia";
 
 interface InternalNote {
   id: string;
@@ -28,6 +32,7 @@ interface ApiErrorPayload {
 
 const tabs: Array<{ key: ProfileTab; label: string }> = [
   { key: "summary", label: "Resumo" },
+  { key: "timeline360", label: "Timeline 360" },
   { key: "diagnosis", label: "Diagnostico IA" },
   { key: "evolution", label: "Evolucao" },
   { key: "constraints", label: "Restricoes" },
@@ -105,45 +110,6 @@ function formatGoalType(goalType: string): string {
   if (goalType === "muscle_gain") return "Ganho de massa";
   if (goalType === "performance") return "Performance";
   return "Geral";
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "Sem data";
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) return "Sem data";
-  return new Date(parsed).toLocaleDateString("pt-BR");
-}
-
-function computeTrainingStatus(plan: {
-  is_active: boolean;
-  end_date: string | null;
-} | null): { label: string; className: string } {
-  if (!plan) {
-    return { label: "Sem treino", className: "bg-lovable-surface-soft text-lovable-ink-muted" };
-  }
-
-  if (!plan.is_active) {
-    return { label: "Treino vencido", className: "bg-lovable-danger/20 text-lovable-danger" };
-  }
-
-  if (!plan.end_date) {
-    return { label: "Treino ativo", className: "bg-lovable-success/20 text-lovable-success" };
-  }
-
-  const endDate = Date.parse(plan.end_date);
-  if (Number.isNaN(endDate)) {
-    return { label: "Treino ativo", className: "bg-lovable-success/20 text-lovable-success" };
-  }
-
-  const daysToExpire = Math.ceil((endDate - Date.now()) / (1000 * 60 * 60 * 24));
-  if (daysToExpire < 0) {
-    return { label: "Treino vencido", className: "bg-lovable-danger/20 text-lovable-danger" };
-  }
-  if (daysToExpire <= 5) {
-    return { label: `Vence em ${daysToExpire} dia(s)`, className: "bg-lovable-warning/25 text-lovable-warning" };
-  }
-
-  return { label: "Treino ativo", className: "bg-lovable-success/20 text-lovable-success" };
 }
 
 function createNoteId(): string {
@@ -282,6 +248,13 @@ export function MemberProfile360Page() {
     staleTime: 60 * 1000,
   });
 
+  const timelineQuery = useQuery({
+    queryKey: ["member-timeline", memberId],
+    queryFn: () => memberTimelineService.list(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const addNoteMutation = useMutation({
     mutationFn: async () => {
       if (!memberId) {
@@ -393,7 +366,6 @@ export function MemberProfile360Page() {
   const age = getAge(memberExtra);
   const photoUrl = typeof memberExtra.photo_url === "string" ? memberExtra.photo_url : null;
   const daysWithoutCheckin = daysSince(profile.member.last_checkin_at);
-  const trainingStatus = computeTrainingStatus(profile.active_training_plan);
 
   return (
     <section className="space-y-6">
@@ -569,6 +541,16 @@ export function MemberProfile360Page() {
         </div>
       )}
 
+      {activeTab === "timeline360" && (
+        <MemberTimeline360Content
+          member={profile.member}
+          events={timelineQuery.data}
+          isLoading={timelineQuery.isLoading}
+          isError={timelineQuery.isError}
+          showContextCard={false}
+        />
+      )}
+
       {activeTab === "diagnosis" && (
         <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -634,36 +616,21 @@ export function MemberProfile360Page() {
           </section>
         ))}
 
-      {activeTab === "constraints" && <ConstraintsAlert constraints={profile.constraints} />}
+      {activeTab === "constraints" && <MemberConstraintsEditor memberId={memberId} constraints={profile.constraints} />}
 
-      {activeTab === "goals" && <GoalsProgress goals={profile.goals} />}
+      {activeTab === "goals" && (
+        <div className="space-y-4">
+          <MemberGoalsEditor memberId={memberId} goals={profile.goals} defaultAssessmentId={profile.latest_assessment?.id ?? null} />
+          <GoalsProgress goals={profile.goals} />
+        </div>
+      )}
 
       {activeTab === "training" && (
-        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo do treino atual</h3>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${trainingStatus.className}`}>{trainingStatus.label}</span>
-          </div>
-
-          {profile.active_training_plan ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Divisao</p>
-                <p className="mt-1 text-sm font-semibold text-lovable-ink">{profile.active_training_plan.split_type ?? "Nao informado"}</p>
-              </article>
-              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Foco</p>
-                <p className="mt-1 text-sm font-semibold text-lovable-ink">{profile.active_training_plan.objective ?? "Nao informado"}</p>
-              </article>
-              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Vencimento</p>
-                <p className="mt-1 text-sm font-semibold text-lovable-ink">{formatDate(profile.active_training_plan.end_date)}</p>
-              </article>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-lovable-ink-muted">Aluno sem ficha de treino ativa no momento.</p>
-          )}
-        </section>
+        <MemberTrainingPlanEditor
+          memberId={memberId}
+          trainingPlan={profile.active_training_plan}
+          defaultAssessmentId={profile.latest_assessment?.id ?? null}
+        />
       )}
 
       {activeTab === "actions" && (

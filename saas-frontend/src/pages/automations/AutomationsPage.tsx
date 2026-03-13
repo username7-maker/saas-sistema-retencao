@@ -3,12 +3,12 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2, Pencil } from "lucide-react";
+import { Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2, Pencil, Search } from "lucide-react";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { automationService, type AutomationRule } from "../../services/automationService";
+import { automationService, type AutomationRule, type RulePreviewResult } from "../../services/automationService";
 import { Button, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -420,13 +420,17 @@ function RuleCard({
   onToggle,
   onEdit,
   onDelete,
+  onPreview,
   isToggling,
+  isPreviewing,
 }: {
   rule: AutomationRule;
   onToggle: (active: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onPreview: () => void;
   isToggling: boolean;
+  isPreviewing: boolean;
 }) {
   return (
     <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
@@ -452,6 +456,15 @@ function RuleCard({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPreview}
+            disabled={isPreviewing}
+            className="text-lovable-ink-muted transition hover:text-lovable-primary disabled:opacity-50"
+            title="Pré-visualizar membros que seriam impactados"
+          >
+            <Search size={16} />
+          </button>
           <button
             type="button"
             onClick={() => onToggle(!rule.is_active)}
@@ -480,6 +493,47 @@ function RuleCard({
         </div>
       </div>
     </article>
+  );
+}
+
+const RISK_BADGE: Record<string, string> = {
+  red: "bg-red-100 text-red-700",
+  yellow: "bg-yellow-100 text-yellow-700",
+  green: "bg-green-100 text-green-700",
+};
+
+function RulePreviewPanel({ result, onClose }: { result: RulePreviewResult; onClose: () => void }) {
+  return (
+    <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="font-semibold text-lovable-ink">
+          {result.matched_count} membro{result.matched_count !== 1 ? "s" : ""} seriam impactados
+        </p>
+        <button type="button" onClick={onClose} className="text-xs text-lovable-ink-muted hover:text-lovable-ink">
+          Fechar
+        </button>
+      </div>
+      {result.sample_members.length === 0 ? (
+        <p className="text-xs text-lovable-ink-muted">Nenhum membro corresponde aos critérios atuais.</p>
+      ) : (
+        <ul className="space-y-1">
+          {result.sample_members.map((m) => (
+            <li key={m.id} className="flex items-center gap-2 text-xs">
+              <span className={clsx("rounded-full px-1.5 py-0.5 text-[10px] font-bold", RISK_BADGE[m.risk_level] ?? "bg-lovable-surface-soft text-lovable-ink-muted")}>
+                {m.risk_level.toUpperCase()}
+              </span>
+              <span className="text-lovable-ink">{m.full_name}</span>
+              <span className="ml-auto text-lovable-ink-muted">{m.days_without_checkin}d sem check-in</span>
+            </li>
+          ))}
+          {result.matched_count > result.sample_members.length ? (
+            <li className="text-xs text-lovable-ink-muted">
+              +{result.matched_count - result.sample_members.length} mais não exibidos
+            </li>
+          ) : null}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -573,6 +627,8 @@ export function AutomationsPage() {
   const [ruleDrawerOpen, setRuleDrawerOpen] = useState(false);
   const [ruleToEdit, setRuleToEdit] = useState<AutomationRule | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<AutomationRule | null>(null);
+  const [previewRuleId, setPreviewRuleId] = useState<string | null>(null);
+  const [previewResults, setPreviewResults] = useState<Record<string, RulePreviewResult>>({});
 
   const rulesQuery = useQuery({
     queryKey: ["automations", "rules"],
@@ -606,6 +662,28 @@ export function AutomationsPage() {
     },
     onError: () => toast.error("Erro ao criar regras padrão."),
   });
+
+  const previewMutation = useMutation({
+    mutationFn: (ruleId: string) => automationService.previewRule(ruleId),
+    onSuccess: (data, ruleId) => {
+      setPreviewResults((prev) => ({ ...prev, [ruleId]: data }));
+    },
+    onError: () => toast.error("Erro ao pré-visualizar regra."),
+    onSettled: () => setPreviewRuleId(null),
+  });
+
+  const handlePreview = (ruleId: string) => {
+    if (previewResults[ruleId]) {
+      setPreviewResults((prev) => {
+        const next = { ...prev };
+        delete next[ruleId];
+        return next;
+      });
+      return;
+    }
+    setPreviewRuleId(ruleId);
+    previewMutation.mutate(ruleId);
+  };
 
   const handleExecuteAll = async () => {
     setExecuting(true);
@@ -676,17 +754,26 @@ export function AutomationsPage() {
       ) : (
         <div className="space-y-3">
           {rules.map((rule) => (
-            <RuleCard
-              key={rule.id}
-              rule={rule}
-              onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
-              onEdit={() => {
-                setRuleDrawerOpen(false);
-                setRuleToEdit(rule);
-              }}
-              onDelete={() => setRuleToDelete(rule)}
-              isToggling={toggleMutation.isPending}
-            />
+            <div key={rule.id} className="space-y-2">
+              <RuleCard
+                rule={rule}
+                onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
+                onEdit={() => {
+                  setRuleDrawerOpen(false);
+                  setRuleToEdit(rule);
+                }}
+                onDelete={() => setRuleToDelete(rule)}
+                onPreview={() => handlePreview(rule.id)}
+                isToggling={toggleMutation.isPending}
+                isPreviewing={previewMutation.isPending && previewRuleId === rule.id}
+              />
+              {previewResults[rule.id] && (
+                <RulePreviewPanel
+                  result={previewResults[rule.id]}
+                  onClose={() => setPreviewResults((prev: Record<string, RulePreviewResult>) => { const next = { ...prev }; delete next[rule.id]; return next; })}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}

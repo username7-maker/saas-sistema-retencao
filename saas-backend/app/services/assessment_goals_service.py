@@ -97,6 +97,51 @@ def list_goals(db: Session, member_id: UUID) -> list[MemberGoal]:
     )
 
 
+def update_goal(db: Session, member_id: UUID, goal_id: UUID, data: dict) -> MemberGoal:
+    get_member_or_404(db, member_id)
+    goal = db.scalar(
+        select(MemberGoal).where(
+            MemberGoal.id == goal_id,
+            MemberGoal.member_id == member_id,
+            MemberGoal.deleted_at.is_(None),
+        )
+    )
+    if not goal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objetivo nao encontrado")
+
+    assessment_id = data.get("assessment_id")
+    if assessment_id:
+        _validate_assessment_belongs_to_member(db, member_id, assessment_id)
+
+    target_value = _to_decimal(data.get("target_value"))
+    current_value = _to_decimal(data.get("current_value")) or Decimal("0")
+    progress_pct = int(data.get("progress_pct") or _calculate_progress_pct(current_value, target_value))
+    achieved = bool(data.get("achieved"))
+    achieved_at = _normalize_datetime(data.get("achieved_at")) if achieved else None
+    if achieved and progress_pct < 100:
+        progress_pct = 100
+
+    goal.assessment_id = assessment_id
+    goal.title = data.get("title")
+    goal.description = data.get("description")
+    goal.category = data.get("category") or "general"
+    goal.target_value = target_value
+    goal.current_value = current_value
+    goal.unit = data.get("unit")
+    goal.target_date = data.get("target_date")
+    goal.status = data.get("status") or "active"
+    goal.progress_pct = max(0, min(progress_pct, 100))
+    goal.achieved = achieved
+    goal.achieved_at = achieved_at
+    goal.notes = data.get("notes")
+    goal.extra_data = data.get("extra_data") or {}
+
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
 def create_training_plan(db: Session, member_id: UUID, created_by: UUID, data: dict) -> TrainingPlan:
     get_member_or_404(db, member_id)
     assessment_id = data.get("assessment_id")
@@ -133,6 +178,57 @@ def create_training_plan(db: Session, member_id: UUID, created_by: UUID, data: d
         notes=data.get("notes"),
         extra_data=data.get("extra_data") or {},
     )
+    db.add(training_plan)
+    db.commit()
+    db.refresh(training_plan)
+    return training_plan
+
+
+def update_training_plan(db: Session, member_id: UUID, plan_id: UUID, created_by: UUID, data: dict) -> TrainingPlan:
+    get_member_or_404(db, member_id)
+    training_plan = db.scalar(
+        select(TrainingPlan).where(
+            TrainingPlan.id == plan_id,
+            TrainingPlan.member_id == member_id,
+            TrainingPlan.deleted_at.is_(None),
+        )
+    )
+    if not training_plan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Treino nao encontrado")
+
+    assessment_id = data.get("assessment_id")
+    if assessment_id:
+        _validate_assessment_belongs_to_member(db, member_id, assessment_id)
+
+    make_active = bool(data.get("is_active", True))
+    if make_active:
+        active_plans = list(
+            db.scalars(
+                select(TrainingPlan).where(
+                    TrainingPlan.member_id == member_id,
+                    TrainingPlan.deleted_at.is_(None),
+                    TrainingPlan.is_active.is_(True),
+                    TrainingPlan.id != plan_id,
+                )
+            ).all()
+        )
+        for plan in active_plans:
+            plan.is_active = False
+            db.add(plan)
+
+    training_plan.assessment_id = assessment_id
+    training_plan.created_by_user_id = created_by
+    training_plan.name = data.get("name")
+    training_plan.objective = data.get("objective")
+    training_plan.sessions_per_week = data.get("sessions_per_week") or 3
+    training_plan.split_type = data.get("split_type")
+    training_plan.start_date = data.get("start_date") or date.today()
+    training_plan.end_date = data.get("end_date")
+    training_plan.is_active = make_active
+    training_plan.plan_data = data.get("plan_data") or {}
+    training_plan.notes = data.get("notes")
+    training_plan.extra_data = data.get("extra_data") or {}
+
     db.add(training_plan)
     db.commit()
     db.refresh(training_plan)

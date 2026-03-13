@@ -117,6 +117,17 @@ app.add_middleware(
 async def tenant_context_middleware(request: Request, call_next):
     clear_current_gym_id()
     try:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+            if token:
+                try:
+                    payload = decode_token(token)
+                    gym_id_raw = payload.get("gym_id")
+                    if gym_id_raw:
+                        set_current_gym_id(UUID(str(gym_id_raw)))
+                except Exception:
+                    clear_current_gym_id()
         response = await call_next(request)
         return response
     finally:

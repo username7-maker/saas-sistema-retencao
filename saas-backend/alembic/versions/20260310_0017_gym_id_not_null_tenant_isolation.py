@@ -21,6 +21,28 @@ depends_on = None
 _TABLES = ("nurturing_sequences", "diagnosis_errors", "objection_responses")
 
 
+def _drop_gym_fk_constraint(table_name: str) -> None:
+    bind = op.get_bind()
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_class r ON r.oid = c.confrelid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (c.conkey)
+            WHERE c.contype = 'f'
+              AND t.relname = :table_name
+              AND r.relname = 'gyms'
+              AND a.attname = 'gym_id'
+            """
+        ),
+        {"table_name": table_name},
+    ).fetchall()
+    for (constraint_name,) in rows:
+        op.drop_constraint(constraint_name, table_name, type_="foreignkey")
+
+
 def upgrade() -> None:
     # Delete orphaned rows (gym_id IS NULL) before applying NOT NULL constraint.
     # These are records that lost their gym association and represent a data leak risk.
@@ -30,8 +52,7 @@ def upgrade() -> None:
 
     # Change ondelete from SET NULL to CASCADE and make gym_id NOT NULL.
     for table in _TABLES:
-        # Drop existing FK constraint (naming convention: {table}_gym_id_fkey)
-        op.drop_constraint(f"{table}_gym_id_fkey", table, type_="foreignkey")
+        _drop_gym_fk_constraint(table)
         # Alter column to NOT NULL
         op.alter_column(
             table,
@@ -41,7 +62,7 @@ def upgrade() -> None:
         )
         # Recreate FK with CASCADE
         op.create_foreign_key(
-            f"{table}_gym_id_fkey",
+            f"fk_{table}_gym_id_gyms",
             table,
             "gyms",
             ["gym_id"],
@@ -52,7 +73,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for table in _TABLES:
-        op.drop_constraint(f"{table}_gym_id_fkey", table, type_="foreignkey")
+        _drop_gym_fk_constraint(table)
         op.alter_column(
             table,
             "gym_id",
@@ -60,7 +81,7 @@ def downgrade() -> None:
             nullable=True,
         )
         op.create_foreign_key(
-            f"{table}_gym_id_fkey",
+            f"fk_{table}_gym_id_gyms",
             table,
             "gyms",
             ["gym_id"],

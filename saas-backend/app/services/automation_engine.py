@@ -7,6 +7,7 @@ from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Member, MemberStatus, RiskLevel, Task, TaskPriority, TaskStatus
+from app.models.automation_execution_log import AutomationExecutionLog
 from app.models.automation_rule import AutomationAction, AutomationRule, AutomationTrigger
 from app.models.enums import LeadStage
 from app.models.lead import Lead
@@ -207,16 +208,39 @@ def run_automation_rules(db: Session) -> list[dict]:
             try:
                 with db.begin_nested():  # SAVEPOINT: isolates each member so a failure doesn't corrupt the session
                     result = execute_rule_for_member(db, rule, member)
+                    log_entry = AutomationExecutionLog(
+                        gym_id=rule.gym_id,
+                        rule_id=rule.id,
+                        member_id=member.id,
+                        action_type=rule.action_type,
+                        status=result.get("status", "unknown"),
+                        details=result,
+                    )
+                    db.add(log_entry)
                 all_results.append(result)
             except Exception:
                 logger.exception(
                     "Erro ao executar regra %s para membro %s", rule.id, member.id
                 )
-                all_results.append({
+                err_result = {
                     "rule_id": str(rule.id),
                     "member_id": str(member.id),
                     "status": "error",
-                })
+                }
+                try:
+                    log_entry = AutomationExecutionLog(
+                        gym_id=rule.gym_id,
+                        rule_id=rule.id,
+                        member_id=member.id,
+                        action_type=rule.action_type,
+                        status="error",
+                        details=err_result,
+                    )
+                    db.add(log_entry)
+                    db.flush()
+                except Exception:
+                    pass
+                all_results.append(err_result)
 
     db.commit()
     return all_results

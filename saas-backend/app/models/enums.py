@@ -63,3 +63,19 @@ class NPSTrigger(str, enum.Enum):
     MONTHLY = "monthly"
     YELLOW_RISK = "yellow_risk"
     POST_CANCELLATION = "post_cancellation"
+
+
+class OnboardingStatus(str, enum.Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    AT_RISK = "at_risk"
+
+
+class ChurnType(str, enum.Enum):
+    VOLUNTARY_DISSATISFACTION = "voluntary_dissatisfaction"
+    VOLUNTARY_FINANCIAL = "voluntary_financial"
+    VOLUNTARY_RELOCATION = "voluntary_relocation"
+    INVOLUNTARY_INACTIVITY = "involuntary_inactivity"
+    INVOLUNTARY_SEASONAL = "involuntary_seasonal"
+    EARLY_DROPOUT = "early_dropout"
+    UNKNOWN = "unknown"

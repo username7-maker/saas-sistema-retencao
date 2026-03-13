@@ -1,10 +1,16 @@
 ﻿import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, FileUp } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { importExportService } from "../../services/importExportService";
 import type { ImportSummary, MissingMemberEntry } from "../../types";
+import {
+  getIgnoredRowsHint,
+  getImportSummaryNotice,
+  getVisibleImportErrors,
+  isDuplicateOnlyImport,
+} from "./importSummary";
 
 function downloadCsv(filename: string, rows: string[][]): void {
   const content = rows
@@ -94,16 +100,32 @@ function ImportResult({
   allowMissingExport?: boolean;
 }) {
   if (!summary) return null;
-  const visibleErrors = summary.errors.filter((error) => !error.reason.includes("base de alunos importada"));
+  const visibleErrors = getVisibleImportErrors(summary);
+  const notice = getImportSummaryNotice(summary);
+  const ignoredRowsHint = getIgnoredRowsHint(summary);
 
   return (
     <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink">
+      {notice ? (
+        <div
+          className={`mb-3 rounded-lg border px-3 py-2 ${
+            notice.tone === "info"
+              ? "border-sky-300 bg-sky-50 text-sky-950"
+              : "border-emerald-300 bg-emerald-50 text-emerald-950"
+          }`}
+        >
+          <p className="font-semibold">{notice.title}</p>
+          <p className="mt-1 text-[11px] leading-relaxed">{notice.description}</p>
+        </div>
+      ) : null}
+
       <p>Importados: {summary.imported}</p>
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
       <p>Linhas ignoradas: {summary.ignored_rows}</p>
       {summary.provisional_members_created > 0 ? <p>Cadastros provisorios criados: {summary.provisional_members_created}</p> : null}
       <p>Erros tecnicos: {visibleErrors.length}</p>
       {summary.missing_members.length > 0 ? <p>Pendencias de cadastro: {summary.missing_members.length}</p> : null}
+      {ignoredRowsHint ? <p className="mt-2 text-[11px] text-lovable-ink-muted">{ignoredRowsHint}</p> : null}
 
       <CreatedMembersPanel names={summary.provisional_members} />
       <MissingMembersPanel missingMembers={summary.missing_members} />
@@ -171,6 +193,7 @@ function hasInvalidDateRange(dateFrom: string, dateTo: string): boolean {
 }
 
 export function ImportsPage() {
+  const queryClient = useQueryClient();
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
@@ -181,10 +204,24 @@ export function ImportsPage() {
 
   const hasMissingMembers = useMemo(() => (checkinsSummary?.missing_members.length ?? 0) > 0, [checkinsSummary]);
 
+  const refreshImportedDataViews = () => {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["members"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["assessments"] }),
+      queryClient.invalidateQueries({ queryKey: ["member-timeline"] }),
+      queryClient.invalidateQueries({ queryKey: ["risk-alerts"] }),
+      queryClient.invalidateQueries({ queryKey: ["roi-summary"] }),
+      queryClient.invalidateQueries({ queryKey: ["insights"] }),
+      queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    ]);
+  };
+
   const importMembersMutation = useMutation({
     mutationFn: (file: File) => importExportService.importMembers(file),
     onSuccess: (summary) => {
       setMembersSummary(summary);
+      refreshImportedDataViews();
       toast.success("Importacao de alunos concluida.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
@@ -195,6 +232,11 @@ export function ImportsPage() {
       importExportService.importCheckins(file, autoCreate),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
+      refreshImportedDataViews();
+      if (isDuplicateOnlyImport(summary)) {
+        toast.success("Esse arquivo ja tinha sido importado antes. Nenhum check-in novo foi duplicado.");
+        return;
+      }
       if (summary.provisional_members_created > 0) {
         toast.success(`Importacao concluida com ${summary.provisional_members_created} cadastros provisorios.`);
         return;

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Checkin, NPSResponse, RiskAlert, Task
+from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.body_composition import BodyCompositionEvaluation
 
 logger = logging.getLogger(__name__)
@@ -13,18 +14,98 @@ logger = logging.getLogger(__name__)
 def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[dict]:
     events: list[dict] = []
 
+    assessments = db.scalars(
+        select(Assessment)
+        .where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
+        .order_by(Assessment.assessment_date.desc())
+        .limit(10)
+    ).all()
+    for assessment in assessments:
+        parts = []
+        if assessment.weight_kg is not None:
+            parts.append(f"Peso: {assessment.weight_kg} kg")
+        if assessment.body_fat_pct is not None:
+            parts.append(f"Gordura: {assessment.body_fat_pct}%")
+        if assessment.strength_score is not None:
+            parts.append(f"Forca: {assessment.strength_score}")
+        events.append({
+            "type": "assessment",
+            "timestamp": assessment.assessment_date.isoformat(),
+            "title": f"Avaliacao #{assessment.assessment_number}",
+            "detail": " | ".join(parts) if parts else "Avaliacao registrada",
+            "icon": "clipboard-list",
+        })
+
+    constraints = db.scalar(
+        select(MemberConstraints)
+        .where(MemberConstraints.member_id == member_id, MemberConstraints.deleted_at.is_(None))
+        .order_by(MemberConstraints.updated_at.desc())
+        .limit(1)
+    )
+    if constraints:
+        parts = []
+        if constraints.medical_conditions:
+            parts.append(f"Saude: {constraints.medical_conditions}")
+        if constraints.injuries:
+            parts.append(f"Lesoes: {constraints.injuries}")
+        if constraints.contraindications:
+            parts.append(f"Contraindicacoes: {constraints.contraindications}")
+        events.append({
+            "type": "constraints",
+            "timestamp": constraints.updated_at.isoformat(),
+            "title": "Restricoes atualizadas",
+            "detail": " | ".join(parts) if parts else "Restricoes registradas",
+            "icon": "shield-alert",
+        })
+
+    goals = db.scalars(
+        select(MemberGoal)
+        .where(MemberGoal.member_id == member_id, MemberGoal.deleted_at.is_(None))
+        .order_by(MemberGoal.updated_at.desc())
+        .limit(10)
+    ).all()
+    for goal in goals:
+        events.append({
+            "type": "goal",
+            "timestamp": goal.updated_at.isoformat(),
+            "title": f"Objetivo: {goal.title}",
+            "detail": f"Status: {goal.status} | Progresso: {goal.progress_pct}%",
+            "icon": "target",
+        })
+
+    training_plans = db.scalars(
+        select(TrainingPlan)
+        .where(TrainingPlan.member_id == member_id, TrainingPlan.deleted_at.is_(None))
+        .order_by(TrainingPlan.updated_at.desc())
+        .limit(10)
+    ).all()
+    for plan in training_plans:
+        parts = []
+        if plan.objective:
+            parts.append(f"Objetivo: {plan.objective}")
+        parts.append(f"{plan.sessions_per_week}x por semana")
+        if plan.split_type:
+            parts.append(f"Divisao: {plan.split_type}")
+        events.append({
+            "type": "training_plan",
+            "timestamp": plan.updated_at.isoformat(),
+            "title": f"Treino: {plan.name}",
+            "detail": " | ".join(parts),
+            "icon": "dumbbell",
+        })
+
     checkins = db.scalars(
         select(Checkin)
         .where(Checkin.member_id == member_id)
         .order_by(Checkin.checkin_at.desc())
         .limit(limit)
     ).all()
-    for c in checkins:
+    for checkin in checkins:
         events.append({
             "type": "checkin",
-            "timestamp": c.checkin_at.isoformat(),
+            "timestamp": checkin.checkin_at.isoformat(),
             "title": "Check-in",
-            "detail": f"Fonte: {c.source.value if hasattr(c.source, 'value') else c.source}",
+            "detail": f"Fonte: {checkin.source.value if hasattr(checkin.source, 'value') else checkin.source}",
             "icon": "activity",
         })
 
@@ -39,7 +120,7 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         events.append({
             "type": "risk_alert",
             "timestamp": alert.created_at.isoformat(),
-            "title": f"Alerta de Risco - {level.upper()}",
+            "title": f"Alerta de risco - {level.upper()}",
             "detail": f"Score: {alert.score}. {'Resolvido' if alert.resolved else 'Ativo'}",
             "icon": "alert-triangle",
             "level": level,
@@ -82,10 +163,7 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         if source == "onboarding":
             label = "[Onboarding] "
         elif source == "plan_followup":
-            if plan_type:
-                label = f"[Plano {plan_type.capitalize()}] "
-            else:
-                label = "[Plano] "
+            label = f"[Plano {plan_type.capitalize()}] " if plan_type else "[Plano] "
 
         details = [
             f"Status: {status}",
@@ -106,7 +184,14 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         select(AuditLog)
         .where(
             AuditLog.member_id == member_id,
-            AuditLog.action.in_(["whatsapp_sent_manually", "automation_3d", "automation_7d", "automation_10d", "automation_14d", "automation_21d"]),
+            AuditLog.action.in_([
+                "whatsapp_sent_manually",
+                "automation_3d",
+                "automation_7d",
+                "automation_10d",
+                "automation_14d",
+                "automation_21d",
+            ]),
         )
         .order_by(AuditLog.created_at.desc())
         .limit(20)
@@ -121,7 +206,7 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         })
 
     try:
-        bce_list = db.scalars(
+        body_composition_items = db.scalars(
             select(BodyCompositionEvaluation)
             .where(BodyCompositionEvaluation.member_id == member_id)
             .order_by(BodyCompositionEvaluation.evaluation_date.desc())
@@ -130,23 +215,23 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
     except Exception:
         db.rollback()
         logger.warning("Nao foi possivel carregar eventos de bioimpedancia no timeline.")
-        bce_list = []
-    for bce in bce_list:
-        source_label = "Tezewa" if bce.source == "tezewa" else "Manual"
+        body_composition_items = []
+    for body_item in body_composition_items:
+        source_label = "Tezewa" if body_item.source == "tezewa" else "Manual"
         parts = []
-        if bce.weight_kg is not None:
-            parts.append(f"Peso: {bce.weight_kg} kg")
-        if bce.body_fat_percent is not None:
-            parts.append(f"Gordura: {bce.body_fat_percent}%")
-        if bce.muscle_mass_kg is not None:
-            parts.append(f"Músculo: {bce.muscle_mass_kg} kg")
+        if body_item.weight_kg is not None:
+            parts.append(f"Peso: {body_item.weight_kg} kg")
+        if body_item.body_fat_percent is not None:
+            parts.append(f"Gordura: {body_item.body_fat_percent}%")
+        if body_item.muscle_mass_kg is not None:
+            parts.append(f"Musculo: {body_item.muscle_mass_kg} kg")
         events.append({
             "type": "body_composition",
-            "timestamp": bce.evaluation_date.isoformat(),
-            "title": f"Bioimpedância ({source_label})",
-            "detail": " | ".join(parts) if parts else "Avaliação registrada",
-            "icon": "activity",
+            "timestamp": body_item.evaluation_date.isoformat(),
+            "title": f"Bioimpedancia ({source_label})",
+            "detail": " | ".join(parts) if parts else "Avaliacao registrada",
+            "icon": "scan-line",
         })
 
-    events.sort(key=lambda e: e["timestamp"], reverse=True)
+    events.sort(key=lambda event: event["timestamp"], reverse=True)
     return events[:limit]

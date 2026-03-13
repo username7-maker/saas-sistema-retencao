@@ -36,6 +36,8 @@ export interface Member {
   last_checkin_at: string | null;
   extra_data?: Record<string, unknown>;
   suggested_action?: string | null;
+  onboarding_status?: 'active' | 'completed' | 'at_risk' | null;
+  onboarding_score?: number | null;
   created_at: string;
   updated_at: string;
 }

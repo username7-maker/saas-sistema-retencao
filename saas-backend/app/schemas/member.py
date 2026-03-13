@@ -53,6 +53,11 @@ class MemberOut(BaseModel):
     last_checkin_at: datetime | None
     extra_data: dict = Field(default_factory=dict)
     suggested_action: str | None = None
+    onboarding_score: int = 0
+    onboarding_status: str = "active"
+    churn_type: str | None = None
+    is_vip: bool = False
+    retention_stage: str | None = None
     created_at: datetime
     updated_at: datetime
 

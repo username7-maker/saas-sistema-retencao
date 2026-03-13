@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,11 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     )
     last_checkin_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    onboarding_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    onboarding_status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    churn_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    retention_stage: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     gym = relationship("Gym", back_populates="members")
     assigned_user = relationship("User", back_populates="assigned_members")

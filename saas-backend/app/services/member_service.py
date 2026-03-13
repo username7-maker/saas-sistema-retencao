@@ -16,16 +16,29 @@ from app.utils.encryption import encrypt_cpf
 MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
 
 
+def _resolve_gym_id(gym_id: UUID | None = None) -> UUID | None:
+    return gym_id or get_current_gym_id()
+
+
+def _scoped_statement(statement, gym_id: UUID | None):
+    if gym_id is None:
+        return statement
+    return statement.execution_options(include_all_tenants=True)
+
+
 def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None) -> Member:
-    gym_id = gym_id or get_current_gym_id()
+    gym_id = _resolve_gym_id(gym_id)
     if gym_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contexto de academia ausente")
 
     if payload.email:
-        existing_stmt = select(Member).where(
-            Member.email == payload.email,
-            Member.deleted_at.is_(None),
-            Member.gym_id == gym_id,
+        existing_stmt = _scoped_statement(
+            select(Member).where(
+                Member.email == payload.email,
+                Member.deleted_at.is_(None),
+                Member.gym_id == gym_id,
+            ),
+            gym_id,
         )
         existing = db.scalar(existing_stmt)
         if existing:
@@ -57,6 +70,7 @@ def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None
 def list_members(
     db: Session,
     *,
+    gym_id: UUID | None = None,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -67,6 +81,9 @@ def list_members(
     provisional_only: bool | None = None,
 ) -> PaginatedResponse:
     base_filters = [Member.deleted_at.is_(None)]
+    resolved_gym_id = _resolve_gym_id(gym_id)
+    if resolved_gym_id is not None:
+        base_filters.append(Member.gym_id == resolved_gym_id)
     if search:
         base_filters.append(
             or_(Member.full_name.ilike(f"%{search}%"), Member.email.ilike(f"%{search}%"))
@@ -81,7 +98,13 @@ def list_members(
             "semiannual": "semestral",
             "annual": "anual",
         }[plan_cycle]
-        base_filters.append(Member.plan_name.ilike(f"%{plan_label}%"))
+        stored_plan_cycle = func.coalesce(Member.extra_data["plan_cycle"].astext, "")
+        base_filters.append(
+            or_(
+                stored_plan_cycle == plan_cycle,
+                Member.plan_name.ilike(f"%{plan_label}%"),
+            )
+        )
     if min_days_without_checkin is not None:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
         base_filters.append(Member.last_checkin_at.is_not(None))
@@ -93,23 +116,34 @@ def list_members(
         else:
             base_filters.append(provisional_flag != "true")
 
-    stmt = select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc())
-    total = db.scalar(select(func.count()).select_from(Member).where(and_(*base_filters))) or 0
+    stmt = _scoped_statement(
+        select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc()),
+        resolved_gym_id,
+    )
+    total_stmt = _scoped_statement(
+        select(func.count()).select_from(Member).where(and_(*base_filters)),
+        resolved_gym_id,
+    )
+    total = db.scalar(total_stmt) or 0
 
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-def get_member_or_404(db: Session, member_id: UUID) -> Member:
-    member = db.scalar(select(Member).where(Member.id == member_id, Member.deleted_at.is_(None)))
+def get_member_or_404(db: Session, member_id: UUID, gym_id: UUID | None = None) -> Member:
+    filters = [Member.id == member_id, Member.deleted_at.is_(None)]
+    resolved_gym_id = _resolve_gym_id(gym_id)
+    if resolved_gym_id is not None:
+        filters.append(Member.gym_id == resolved_gym_id)
+    member = db.scalar(_scoped_statement(select(Member).where(and_(*filters)), resolved_gym_id))
     if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
     return member
 
 
-def update_member(db: Session, member_id: UUID, payload: MemberUpdate) -> Member:
-    member = get_member_or_404(db, member_id)
+def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: UUID | None = None) -> Member:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
     data = payload.model_dump(exclude_unset=True)
     cpf = data.pop("cpf", None)
     if cpf:
@@ -123,8 +157,8 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate) -> Member
     return member
 
 
-def soft_delete_member(db: Session, member_id: UUID) -> None:
-    member = get_member_or_404(db, member_id)
+def soft_delete_member(db: Session, member_id: UUID, gym_id: UUID | None = None) -> None:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
     member.deleted_at = datetime.now(tz=timezone.utc)
     member.status = MemberStatus.CANCELLED
     db.add(member)

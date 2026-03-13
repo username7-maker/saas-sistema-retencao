@@ -3,6 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token, oauth2_scheme
@@ -31,7 +32,11 @@ def get_current_user(
     except (ValueError, KeyError):
         raise _credentials_exception()
 
-    user = db.get(User, user_id)
+    user = db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .execution_options(include_all_tenants=True)
+    )
     if (
         not user
         or not user.is_active

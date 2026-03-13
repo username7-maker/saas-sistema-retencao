@@ -16,11 +16,39 @@ from app.services.assessment_intelligence_service import sync_assessment_intelli
 logger = logging.getLogger(__name__)
 
 
+def _safe(fn, default=None):
+    """Execute fn() returning default on any error, logging the failure."""
+    try:
+        return fn()
+    except Exception:
+        logger.exception("Falha parcial em Profile 360")
+        return default
+
+
 def get_member_or_404(db: Session, member_id: UUID) -> Member:
     member = db.scalar(select(Member).where(Member.id == member_id, Member.deleted_at.is_(None)))
     if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
     return member
+
+
+def _calculate_next_assessment_due(db: Session, member_id: UUID, assessment_date: datetime) -> date:
+    """Calcula next_assessment_due baseado no tipo de plano do membro."""
+    member = db.scalar(select(Member).where(Member.id == member_id))
+    if not member:
+        return (assessment_date + timedelta(days=90)).date()
+
+    plan = (member.plan_name or "").lower()
+    if "mensal" in plan:
+        return (assessment_date + timedelta(days=30)).date()
+    elif "trimestral" in plan:
+        return (assessment_date + timedelta(days=90)).date()
+    elif "semestral" in plan:
+        return (assessment_date + timedelta(days=90)).date()
+    elif "anual" in plan:
+        return (assessment_date + timedelta(days=120)).date()
+    else:
+        return (assessment_date + timedelta(days=90)).date()
 
 
 def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: dict) -> Assessment:
@@ -41,7 +69,7 @@ def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: di
         evaluator_id=evaluator_id,
         assessment_number=int(previous_count) + 1,
         assessment_date=assessment_date,
-        next_assessment_due=(assessment_date + timedelta(days=90)).date(),
+        next_assessment_due=_calculate_next_assessment_due(db, member_id, assessment_date),
         height_cm=height_cm,
         weight_kg=weight_kg,
         bmi=bmi_value,
@@ -93,26 +121,26 @@ def get_assessment(db: Session, assessment_id: UUID) -> Assessment:
 def get_member_profile_360(db: Session, member_id: UUID) -> dict:
     member = get_member_or_404(db, member_id)
 
-    latest_assessment = db.scalar(
+    latest_assessment = _safe(lambda: db.scalar(
         select(Assessment)
         .where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
         .order_by(desc(Assessment.assessment_date))
         .limit(1)
-    )
-    constraints = db.scalar(
+    ))
+    constraints = _safe(lambda: db.scalar(
         select(MemberConstraints)
         .where(MemberConstraints.member_id == member_id, MemberConstraints.deleted_at.is_(None))
         .order_by(desc(MemberConstraints.created_at))
         .limit(1)
-    )
-    goals = list(
+    ))
+    goals = _safe(lambda: list(
         db.scalars(
             select(MemberGoal)
             .where(MemberGoal.member_id == member_id, MemberGoal.deleted_at.is_(None))
             .order_by(MemberGoal.achieved.asc(), MemberGoal.target_date.asc().nullslast(), MemberGoal.created_at.desc())
         ).all()
-    )
-    active_training_plan = db.scalar(
+    ), default=[])
+    active_training_plan = _safe(lambda: db.scalar(
         select(TrainingPlan)
         .where(
             TrainingPlan.member_id == member_id,
@@ -121,13 +149,13 @@ def get_member_profile_360(db: Session, member_id: UUID) -> dict:
         )
         .order_by(desc(TrainingPlan.start_date))
         .limit(1)
-    )
+    ))
 
     return {
         "member": member,
         "latest_assessment": latest_assessment,
         "constraints": constraints,
-        "goals": goals,
+        "goals": goals if goals is not None else [],
         "active_training_plan": active_training_plan,
         "insight_summary": latest_assessment.ai_analysis if latest_assessment else None,
     }

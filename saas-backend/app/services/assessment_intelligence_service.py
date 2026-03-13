@@ -47,6 +47,7 @@ def get_assessment_summary_360(db: Session, member_id: UUID) -> dict:
         latest_assessment,
         goal_type=goal_type,
         overall_score=forecast["overall_score"],
+        gym_id=member.gym_id,
     )
     narratives = build_narratives(
         member,

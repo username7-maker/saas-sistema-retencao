@@ -39,6 +39,9 @@ PLAN_KEYS = (
     "produto_nome",
     "assinaturas_condicoes",
 )
+PLAN_NAME_SOURCE_KEYS = PLAN_KEYS[:-1]
+PLAN_CONDITION_KEYS = ("assinaturas_condicoes",)
+PLAN_RENEWAL_KEYS = ("dt_prox_renovacao_assinatura", "data_prox_vencimento")
 MONTHLY_FEE_KEYS = ("monthly_fee", "mensalidade", "valor", "valor_mensal", "price")
 JOIN_DATE_KEYS = ("join_date", "data_matricula", "data_adesao", "data_inicio", "start_date", "cadastro", "dt_primeira_ativacao", "conversao")
 LAST_ACCESS_KEYS = ("ult_acesso", "ultimo_acesso", "last_access", "last_checkin_at", "dt_ultimo_login")
@@ -83,6 +86,21 @@ _NAME_PARTICLES = {"da", "de", "do", "das", "dos", "e"}
 _GENERIC_PLAN_VALUES = {"livre", "nao_informado", "nao informado", "nao", "sem_assinatura", "sem plano", "sem_plano"}
 _GENERIC_SHIFT_VALUES = {"livre", "nao_informado", "nao informado", "integral", "full", "all_day"}
 _IGNORABLE_CHECKIN_NAMES = {"passagem liberada manualmente", "registro manual", "catraca liberada manualmente"}
+_PLAN_CYCLE_LABELS = {
+    "monthly": "MENSAL",
+    "semiannual": "SEMESTRAL",
+    "annual": "ANUAL",
+}
+_PLAN_CYCLE_SOURCE_UNKNOWN = "unknown"
+_PLAN_CYCLE_PATTERNS = {
+    "annual": re.compile(r"\b(?:12\s*mes(?:es)?|anual)\b", re.IGNORECASE),
+    "semiannual": re.compile(r"\b(?:6\s*mes(?:es)?|semestral)\b", re.IGNORECASE),
+    "monthly": re.compile(r"\b(?:1\s*mes(?:es)?|mensal(?:idade)?)\b", re.IGNORECASE),
+}
+_PLAN_CYCLE_CLEANUP_PATTERN = re.compile(
+    r"\b(?:1\s*mes(?:es)?|mensal(?:idade)?|6\s*mes(?:es)?|semestral|12\s*mes(?:es)?|anual)\b",
+    re.IGNORECASE,
+)
 
 
 _IMPORT_BATCH_SIZE = 500
@@ -110,13 +128,13 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
         cpf_digits = _digits(_pick_first(row, CPF_KEYS))
 
-        if email and (email in seen_emails or email in lookup["by_email"]):
+        if email and email in seen_emails:
             duplicates += 1
             continue
-        if external_id and (external_id in seen_external_ids or external_id in lookup["by_external_id"]):
+        if external_id and external_id in seen_external_ids:
             duplicates += 1
             continue
-        if cpf_digits and (cpf_digits in seen_cpfs or cpf_digits in lookup["by_cpf"]):
+        if cpf_digits and cpf_digits in seen_cpfs:
             duplicates += 1
             continue
 
@@ -136,10 +154,39 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             )
             continue
 
+        existing_member = _find_existing_member_by_import_keys(lookup, email=email, external_id=external_id, cpf_digits=cpf_digits)
+        if existing_member:
+            if _refresh_existing_member_from_import_row(
+                existing_member,
+                row,
+                email=email,
+                external_id=external_id,
+                cpf_digits=cpf_digits,
+                monthly_fee=monthly_fee,
+                join_date=join_date,
+                last_checkin_at=last_checkin_at,
+            ):
+                db.add(existing_member)
+                pending_count += 1
+            duplicates += 1
+            if email:
+                seen_emails.add(email)
+            if external_id:
+                seen_external_ids.add(external_id)
+            if cpf_digits:
+                seen_cpfs.add(cpf_digits)
+            if pending_count >= _IMPORT_BATCH_SIZE:
+                db.commit()
+                pending_count = 0
+            continue
+
+        plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=join_date)
         extra_data: dict = {"imported": True}
         if external_id:
             extra_data["external_id"] = external_id
         _populate_member_extra_data(extra_data, row)
+        extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
+        extra_data["plan_cycle_source"] = plan_cycle_source
 
         member = Member(
             full_name=full_name,
@@ -147,7 +194,7 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
             cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
             status=_parse_member_status(_pick_first(row, STATUS_KEYS)),
-            plan_name=_extract_plan_name(row),
+            plan_name=plan_name,
             monthly_fee=monthly_fee,
             join_date=join_date,
             loyalty_months=_compute_loyalty_months(join_date),
@@ -812,6 +859,97 @@ def _add_member_to_lookups(member: Member, lookup: dict[str, dict]) -> None:
         lookup["by_name_core"].setdefault(core_key, []).append(member)
 
 
+def _find_existing_member_by_import_keys(
+    lookup: dict[str, dict],
+    *,
+    email: str | None,
+    external_id: str | None,
+    cpf_digits: str | None,
+) -> Member | None:
+    if email:
+        member = lookup["by_email"].get(email)
+        if member:
+            return member
+    if external_id:
+        for candidate in _external_id_candidates(external_id):
+            member = lookup["by_external_id"].get(candidate)
+            if member:
+                return member
+    if cpf_digits:
+        member = lookup["by_cpf"].get(cpf_digits)
+        if member:
+            return member
+    return None
+
+
+def _refresh_existing_member_from_import_row(
+    member: Member,
+    row: dict[str, str],
+    *,
+    email: str | None,
+    external_id: str | None,
+    cpf_digits: str | None,
+    monthly_fee: Decimal,
+    join_date: date,
+    last_checkin_at: datetime | None,
+) -> bool:
+    changed = False
+    extra_data = dict(member.extra_data or {})
+
+    if email and member.email != email:
+        member.email = email
+        changed = True
+    phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
+    if phone and member.phone != phone:
+        member.phone = phone
+        changed = True
+    if cpf_digits and not member.cpf_encrypted:
+        member.cpf_encrypted = encrypt_cpf(cpf_digits)
+        changed = True
+
+    status = _parse_member_status(_pick_first(row, STATUS_KEYS))
+    if member.status != status:
+        member.status = status
+        changed = True
+
+    plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=join_date)
+    if member.plan_name != plan_name:
+        member.plan_name = plan_name
+        changed = True
+    if member.monthly_fee != monthly_fee:
+        member.monthly_fee = monthly_fee
+        changed = True
+    if member.join_date != join_date:
+        member.join_date = join_date
+        member.loyalty_months = _compute_loyalty_months(join_date)
+        changed = True
+
+    preferred_shift = _extract_preferred_shift(row)
+    if member.preferred_shift != preferred_shift:
+        member.preferred_shift = preferred_shift
+        changed = True
+    if last_checkin_at and (member.last_checkin_at is None or last_checkin_at > member.last_checkin_at):
+        member.last_checkin_at = last_checkin_at
+        changed = True
+
+    if external_id:
+        previous_external_id = str(extra_data.get("external_id") or "")
+        if previous_external_id != external_id:
+            extra_data["external_id"] = external_id
+            changed = True
+
+    before_snapshot = dict(extra_data)
+    _populate_member_extra_data(extra_data, row)
+    extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
+    extra_data["plan_cycle_source"] = plan_cycle_source
+    if extra_data != before_snapshot:
+        changed = True
+
+    if changed:
+        member.extra_data = extra_data
+    return changed
+
+
 def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Member | None:
     member_id_raw = _pick_first(row, MEMBER_ID_KEYS)
     if member_id_raw:
@@ -902,13 +1040,16 @@ def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], pa
     _populate_member_extra_data(extra_data, row)
 
     provisional_join_date = parsed.date()
+    plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=provisional_join_date)
+    extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
+    extra_data["plan_cycle_source"] = plan_cycle_source
     member = Member(
         full_name=full_name,
         email=_truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL),
         phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
         cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
         status=MemberStatus.ACTIVE,
-        plan_name=_extract_plan_name(row),
+        plan_name=plan_name,
         monthly_fee=Decimal("0"),
         join_date=provisional_join_date,
         loyalty_months=_compute_loyalty_months(provisional_join_date),
@@ -940,16 +1081,116 @@ def _build_missing_member_entries(counts: Counter[str], plans: dict[str, str | N
 
 
 def _extract_plan_name(row: dict[str, str]) -> str:
-    for key in PLAN_KEYS:
-        raw_value = row.get(key)
-        candidate = _truncate(raw_value, _MAX_MEMBER_PLAN)
+    plan_name, _, _ = _extract_plan_metadata(row)
+    return plan_name
+
+
+def _extract_plan_metadata(row: dict[str, str], join_date: date | None = None) -> tuple[str, str | None, str]:
+    primary_label = _pick_first(row, PLAN_NAME_SOURCE_KEYS)
+    conditions_label = _pick_first(row, PLAN_CONDITION_KEYS)
+    renewal_date = _parse_date(_pick_first(row, PLAN_RENEWAL_KEYS))
+    effective_join_date = join_date or _parse_date(_pick_first(row, JOIN_DATE_KEYS))
+
+    cycle = _infer_plan_cycle_from_text(conditions_label)
+    cycle_source = "conditions"
+    if not cycle:
+        cycle = _infer_plan_cycle_from_dates(effective_join_date, renewal_date)
+        cycle_source = "dates"
+    if not cycle:
+        cycle = _infer_plan_cycle_from_text(primary_label)
+        cycle_source = "plan_name"
+    if not cycle:
+        cycle_source = _PLAN_CYCLE_SOURCE_UNKNOWN
+
+    base_label = _extract_plan_base_label(primary_label, conditions_label, cycle)
+    if cycle and base_label:
+        return _compose_plan_name(base_label, cycle), cycle, cycle_source
+
+    for candidate in (primary_label, conditions_label, _pick_first(row, PLAN_KEYS)):
+        trimmed = _truncate(candidate, _MAX_MEMBER_PLAN)
+        if not trimmed:
+            continue
+        normalized = _normalize_text(trimmed)
+        if normalized in _GENERIC_PLAN_VALUES and not cycle:
+            continue
+        if cycle:
+            cleaned = _clean_plan_base_label(trimmed)
+            if cleaned:
+                return _compose_plan_name(cleaned, cycle), cycle, cycle_source
+        return trimmed, cycle, cycle_source
+    return "Plano Base", cycle, cycle_source
+
+
+def _infer_plan_cycle_from_text(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    normalized = _normalize_text(raw_value)
+    if not normalized:
+        return None
+    for cycle, pattern in _PLAN_CYCLE_PATTERNS.items():
+        if pattern.search(normalized):
+            return cycle
+    return None
+
+
+def _infer_plan_cycle_from_dates(join_date: date | None, renewal_date: date | None) -> str | None:
+    if join_date is None or renewal_date is None:
+        return None
+    delta_days = (renewal_date - join_date).days
+    if 330 <= delta_days <= 380:
+        return "annual"
+    if 150 <= delta_days <= 210:
+        return "semiannual"
+    if 25 <= delta_days <= 45:
+        return "monthly"
+    return None
+
+
+def _extract_plan_base_label(primary_label: str | None, conditions_label: str | None, cycle: str | None) -> str | None:
+    for candidate in (primary_label, conditions_label):
         if not candidate:
             continue
         normalized = _normalize_text(candidate)
-        if normalized in _GENERIC_PLAN_VALUES:
+        if normalized in _GENERIC_PLAN_VALUES and cycle is None:
             continue
-        return candidate
-    return "Plano Base"
+        cleaned = _clean_plan_base_label(candidate)
+        if cleaned:
+            return cleaned
+        trimmed = _truncate(candidate, _MAX_MEMBER_PLAN)
+        if trimmed:
+            return trimmed
+    return None
+
+
+def _clean_plan_base_label(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    cleaned = _PLAN_CYCLE_CLEANUP_PATTERN.sub("", raw_value)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    parts = []
+    seen_parts: set[str] = set()
+    for part in cleaned.split(","):
+        normalized_part = re.sub(r"\s+", " ", part).strip(" -/(),")
+        if not normalized_part:
+            continue
+        dedupe_key = normalized_part.lower()
+        if dedupe_key in seen_parts:
+            continue
+        seen_parts.add(dedupe_key)
+        parts.append(normalized_part)
+    cleaned = (parts[0] if parts else "").strip(" -/(),")
+    return _truncate(cleaned, _MAX_MEMBER_PLAN)
+
+
+def _compose_plan_name(base_label: str, cycle: str) -> str:
+    cycle_label = _PLAN_CYCLE_LABELS[cycle]
+    base = _truncate(base_label, _MAX_MEMBER_PLAN)
+    if not base:
+        return cycle_label.title()
+    if cycle_label in base.upper():
+        return base
+    return _truncate(f"{base} {cycle_label}", _MAX_MEMBER_PLAN) or base
 
 
 def _candidate_plan_match(member: Member, row: dict[str, str]) -> bool:
@@ -1005,6 +1246,52 @@ def _extract_preferred_shift(row: dict[str, str]) -> str | None:
     return candidate
 
 
+def refresh_member_plan_metadata(db: Session, gym_id=None) -> int:
+    filters = [Member.deleted_at.is_(None)]
+    if gym_id is not None:
+        filters.append(Member.gym_id == gym_id)
+
+    members = list(db.scalars(select(Member).where(*filters)).all())
+    updated = 0
+    for member in members:
+        row = _build_plan_row_from_member(member)
+        plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=member.join_date)
+        normalized_cycle = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
+        extra_data = dict(member.extra_data or {})
+
+        if (
+            member.plan_name == plan_name
+            and extra_data.get("plan_cycle") == normalized_cycle
+            and extra_data.get("plan_cycle_source") == plan_cycle_source
+        ):
+            continue
+
+        extra_data["plan_cycle"] = normalized_cycle
+        extra_data["plan_cycle_source"] = plan_cycle_source
+        if not extra_data.get("raw_plan_name") and member.plan_name:
+            extra_data["raw_plan_name"] = _truncate(member.plan_name, 255)
+        member.plan_name = plan_name
+        member.extra_data = extra_data
+        db.add(member)
+        updated += 1
+
+    if updated:
+        db.commit()
+        invalidate_dashboard_cache("members")
+    return updated
+
+
+def _build_plan_row_from_member(member: Member) -> dict[str, str]:
+    extra_data = member.extra_data or {}
+    return {
+        "plan_name": member.plan_name,
+        "assinaturas": str(extra_data.get("raw_plan_name") or ""),
+        "assinaturas_condicoes": str(extra_data.get("raw_plan_conditions") or ""),
+        "dt_prox_renovacao_assinatura": str(extra_data.get("next_plan_renewal_raw") or ""),
+        "data_prox_vencimento": str(extra_data.get("next_due_date_raw") or ""),
+    }
+
+
 def _populate_member_extra_data(extra_data: dict, row: dict[str, str]) -> None:
     metadata_map = {
         "cidade_residencial": "city",
@@ -1017,6 +1304,8 @@ def _populate_member_extra_data(extra_data: dict, row: dict[str, str]) -> None:
         "data_prox_vencimento": "next_due_date_raw",
         "dt_prox_renovacao_assinatura": "next_plan_renewal_raw",
         "dt_ultimo_recebimento": "last_payment_received_raw",
+        "dt_primeira_ativacao": "first_activation_raw",
+        "cadastro": "registration_date_raw",
         "assinaturas": "raw_plan_name",
         "assinatura": "raw_plan_name",
         "assinaturas_condicoes": "raw_plan_conditions",

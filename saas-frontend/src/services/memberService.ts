@@ -35,6 +35,22 @@ export interface MemberUpdatePayload {
   extra_data?: Record<string, unknown>;
 }
 
+export interface OnboardingScoreResult {
+  score: number;
+  status: 'active' | 'completed' | 'at_risk';
+  factors: {
+    checkin_frequency: number;
+    first_assessment: number;
+    task_completion: number;
+    consistency: number;
+    nps_response: number;
+  };
+  days_since_join: number;
+  checkin_count: number;
+  completed_tasks: number;
+  total_tasks: number;
+}
+
 export const memberService = {
   async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
     const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members/", {
@@ -60,5 +76,10 @@ export const memberService = {
 
   async deleteMember(memberId: string): Promise<void> {
     await api.delete(`/api/v1/members/${memberId}`);
+  },
+
+  async getOnboardingScore(memberId: string): Promise<OnboardingScoreResult> {
+    const { data } = await api.get<OnboardingScoreResult>(`/api/v1/members/${memberId}/onboarding-score`);
+    return data;
   },
 };

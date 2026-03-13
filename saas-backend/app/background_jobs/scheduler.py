@@ -6,6 +6,8 @@ from app.background_jobs.jobs import (
     daily_crm_followup_job,
     daily_loyalty_update_job,
     daily_nps_dispatch_job,
+    daily_onboarding_score_job,
+    daily_retention_intelligence_job,
     daily_risk_job,
     monthly_reports_job,
     nurturing_followup_job,
@@ -26,8 +28,12 @@ def build_scheduler() -> BackgroundScheduler:
     # misfire_grace_time=3600: ignore misfires older than 1h (prevents stale duplicate runs)
     _CRON_DEFAULTS = {"coalesce": True, "misfire_grace_time": 3600}
     scheduler.add_job(daily_risk_job, trigger="cron", hour=2, minute=0, id="risk_daily", **_CRON_DEFAULTS)
+    # Retention intelligence runs after risk, before automations
+    scheduler.add_job(daily_retention_intelligence_job, trigger="cron", hour=2, minute=15, id="retention_intelligence_daily", **_CRON_DEFAULTS)
     # Automations run after risk scoring so rules using risk_level have fresh data
     scheduler.add_job(daily_automations_job, trigger="cron", hour=2, minute=30, id="automations_daily", **_CRON_DEFAULTS)
+    # Onboarding score runs in the early morning
+    scheduler.add_job(daily_onboarding_score_job, trigger="cron", hour=1, minute=30, id="onboarding_score_daily", **_CRON_DEFAULTS)
     scheduler.add_job(daily_nps_dispatch_job, trigger="cron", hour=9, minute=0, id="nps_daily", **_CRON_DEFAULTS)
     scheduler.add_job(daily_crm_followup_job, trigger="cron", hour=8, minute=0, id="crm_followup_daily", **_CRON_DEFAULTS)
     scheduler.add_job(monthly_reports_job, trigger="cron", day=1, hour=6, minute=0, id="monthly_reports", **_CRON_DEFAULTS)
