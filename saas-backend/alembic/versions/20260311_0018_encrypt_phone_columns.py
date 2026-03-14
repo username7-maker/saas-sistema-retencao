@@ -52,6 +52,9 @@ def _encrypt(plain: str, key: bytes) -> str:
     return base64.urlsafe_b64encode(nonce + ciphertext).decode("utf-8")
 
 
+_BATCH_SIZE = 500
+
+
 def upgrade() -> None:
     key = _get_encryption_key()
 
@@ -59,8 +62,13 @@ def upgrade() -> None:
     for table in ("members", "leads", "users"):
         op.alter_column(table, "phone", type_=sa.Text(), existing_type=sa.String(32))
 
-    # 2. Encrypt existing phone data in batches
+    # 2. Encrypt existing phone data using bulk UPDATE per batch
+    from psycopg2.extras import execute_values
+
     conn = op.get_bind()
+    raw_conn = conn.connection
+    cursor = raw_conn.cursor()
+
     for table_name in ("members", "leads", "users"):
         t = sa.table(table_name, sa.column("id", sa.Uuid), sa.column("phone", sa.Text))
         rows = conn.execute(
@@ -70,18 +78,28 @@ def upgrade() -> None:
             )
         ).fetchall()
 
-        for row_id, phone_plain in rows:
-            encrypted = _encrypt(phone_plain, key)
-            conn.execute(
-                sa.update(t).where(t.c.id == row_id).values(phone=encrypted)
+        data = [(str(row_id), _encrypt(phone_plain, key)) for row_id, phone_plain in rows]
+        for i in range(0, len(data), _BATCH_SIZE):
+            batch = data[i : i + _BATCH_SIZE]
+            execute_values(
+                cursor,
+                f"UPDATE {table_name} SET phone = v.phone"
+                f" FROM (VALUES %s) AS v(id, phone)"
+                f" WHERE {table_name}.id = v.id::uuid",
+                batch,
             )
+    cursor.close()
 
 
 def downgrade() -> None:
     # NOTE: Downgrade decrypts phone values back to plain text.
     # This requires CPF_ENCRYPTION_KEY to be set.
+    from psycopg2.extras import execute_values
+
     key = _get_encryption_key()
     conn = op.get_bind()
+    raw_conn = conn.connection
+    cursor = raw_conn.cursor()
 
     for table_name in ("members", "leads", "users"):
         t = sa.table(table_name, sa.column("id", sa.Uuid), sa.column("phone", sa.Text))
@@ -92,17 +110,27 @@ def downgrade() -> None:
             )
         ).fetchall()
 
+        data = []
         for row_id, phone_enc in rows:
             try:
                 payload = base64.urlsafe_b64decode(phone_enc.encode("utf-8"))
                 nonce, ciphertext = payload[:12], payload[12:]
                 aesgcm = AESGCM(key)
                 plain = aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
-                conn.execute(
-                    sa.update(t).where(t.c.id == row_id).values(phone=plain)
-                )
+                data.append((str(row_id), plain))
             except Exception:
                 pass  # Already plain text, skip
+
+        for i in range(0, len(data), _BATCH_SIZE):
+            batch = data[i : i + _BATCH_SIZE]
+            execute_values(
+                cursor,
+                f"UPDATE {table_name} SET phone = v.phone"
+                f" FROM (VALUES %s) AS v(id, phone)"
+                f" WHERE {table_name}.id = v.id::uuid",
+                batch,
+            )
+    cursor.close()
 
     for table in ("members", "leads", "users"):
         op.alter_column(table, "phone", type_=sa.String(32), existing_type=sa.Text())

@@ -99,6 +99,14 @@ class TestNpsEvolution:
 
 class TestMemberTimeline:
     def test_builds_timeline(self):
+        assessments = [
+            SimpleNamespace(
+                assessment_date=datetime(2026, 3, 5, tzinfo=timezone.utc),
+                assessment_number=1,
+                weight_kg=75.0, body_fat_pct=18.0, strength_score=70,
+                flexibility_score=None, cardio_score=None,
+            ),
+        ]
         checkins = [
             SimpleNamespace(checkin_at=datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc), source=SimpleNamespace(value="manual")),
         ]
@@ -120,7 +128,12 @@ class TestMemberTimeline:
         bce_list = []
 
         db = MagicMock()
+        # Order matches member_timeline_service: assessments, goals, training_plans,
+        # checkins, risk_alerts, nps_responses, tasks, audit_events, body_composition
         scalars_results = [
+            MagicMock(all=MagicMock(return_value=assessments)),
+            MagicMock(all=MagicMock(return_value=[])),   # goals
+            MagicMock(all=MagicMock(return_value=[])),   # training_plans
             MagicMock(all=MagicMock(return_value=checkins)),
             MagicMock(all=MagicMock(return_value=risk_alerts)),
             MagicMock(all=MagicMock(return_value=nps_items)),
@@ -129,15 +142,17 @@ class TestMemberTimeline:
             MagicMock(all=MagicMock(return_value=bce_list)),
         ]
         db.scalars.side_effect = scalars_results
+        db.scalar.return_value = None  # constraints
 
         from app.services.member_timeline_service import get_member_timeline
         result = get_member_timeline(db, MEMBER_ID)
-        assert len(result) == 4  # 1 checkin + 1 risk + 1 nps + 1 task
+        assert len(result) == 5  # 1 assessment + 1 checkin + 1 risk + 1 nps + 1 task
 
     def test_empty_timeline(self):
         db = MagicMock()
         empty = MagicMock(all=MagicMock(return_value=[]))
-        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty]
+        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty, empty, empty, empty]
+        db.scalar.return_value = None  # constraints
 
         from app.services.member_timeline_service import get_member_timeline
         result = get_member_timeline(db, MEMBER_ID)

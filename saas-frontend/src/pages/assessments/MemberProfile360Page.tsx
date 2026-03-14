@@ -354,7 +354,23 @@ export function MemberProfile360Page() {
 
   const profile = profileQuery.data;
   const assessments = assessmentsQuery.data ?? [];
-  const evolution = evolutionQuery.data;
+  const evolution =
+    evolutionQuery.data ??
+    {
+      labels: [],
+      weight: [],
+      body_fat: [],
+      lean_mass: [],
+      bmi: [],
+      strength: [],
+      flexibility: [],
+      cardio: [],
+      checkins_labels: [],
+      checkins_per_month: [],
+      main_lift_load: [],
+      main_lift_label: null,
+      deltas: {},
+    };
   const assessmentIntelligence = summary360Query.data;
   const memberExtra = profile.member.extra_data ?? {};
   const apiNotes = parseInternalNotes(memberExtra);
@@ -366,6 +382,10 @@ export function MemberProfile360Page() {
   const age = getAge(memberExtra);
   const photoUrl = typeof memberExtra.photo_url === "string" ? memberExtra.photo_url : null;
   const daysWithoutCheckin = daysSince(profile.member.last_checkin_at);
+  const hasStructuredAssessment = Boolean(assessmentIntelligence.latest_assessment);
+  const hasEvolutionData = Boolean(evolution.labels.length);
+  const hasDiagnosisFactors = assessmentIntelligence.diagnosis.factors.length > 0;
+  const hasActions = assessmentIntelligence.actions.length > 0;
 
   return (
     <section className="space-y-6">
@@ -447,7 +467,7 @@ export function MemberProfile360Page() {
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button size="sm" variant="primary" onClick={() => setIsAddNoteOpen(true)}>
-                + Add nota
+                + Adicionar nota
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setIsHistoryOpen(true)}>
                 Historico
@@ -458,6 +478,16 @@ export function MemberProfile360Page() {
         </div>
       </section>
 
+      {!hasStructuredAssessment ? (
+        <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Sem avaliacao estruturada</h3>
+          <p className="mt-1 text-sm text-lovable-ink">
+            Este membro ainda nao tem avaliacao suficiente para diagnostico completo. O Perfil 360 permanece disponivel
+            com defaults seguros, timeline e contexto operacional ate a primeira avaliacao.
+          </p>
+        </section>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Status da meta</p>
@@ -466,23 +496,35 @@ export function MemberProfile360Page() {
               {statusLabel(assessmentIntelligence.status)}
             </span>
           </div>
-          <p className="mt-3 text-2xl font-semibold text-lovable-ink">{assessmentIntelligence.forecast.probability_60d}%</p>
-          <p className="text-xs text-lovable-ink-muted">chance de meta em 60 dias</p>
+          <p className="mt-3 text-2xl font-semibold text-lovable-ink">
+            {hasStructuredAssessment ? `${assessmentIntelligence.forecast.probability_60d}%` : "-"}
+          </p>
+          <p className="text-xs text-lovable-ink-muted">
+            {hasStructuredAssessment ? "chance de meta em 60 dias" : "aguardando avaliacao"}
+          </p>
         </article>
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Gargalo principal</p>
-          <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.primary_bottleneck_label}</p>
+          <p className="mt-3 text-lg font-semibold text-lovable-ink">
+            {hasStructuredAssessment ? assessmentIntelligence.diagnosis.primary_bottleneck_label : "Sem avaliacao estruturada"}
+          </p>
           <p className="mt-1 text-xs text-lovable-ink-muted">Meta: {formatGoalType(assessmentIntelligence.goal_type)}</p>
         </article>
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Risco de frustracao</p>
-          <p className="mt-3 text-2xl font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.frustration_risk}</p>
-          <p className="text-xs text-lovable-ink-muted">score de 0 a 100</p>
+          <p className="mt-3 text-2xl font-semibold text-lovable-ink">
+            {hasStructuredAssessment ? assessmentIntelligence.diagnosis.frustration_risk : "-"}
+          </p>
+          <p className="text-xs text-lovable-ink-muted">{hasStructuredAssessment ? "score de 0 a 100" : "dados insuficientes"}</p>
         </article>
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Benchmark</p>
-          <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.benchmark.position_label}</p>
-          <p className="text-xs text-lovable-ink-muted">{assessmentIntelligence.benchmark.percentile} percentil no cohort</p>
+          <p className="mt-3 text-lg font-semibold text-lovable-ink">
+            {hasStructuredAssessment ? assessmentIntelligence.benchmark.position_label : "Sem benchmark"}
+          </p>
+          <p className="text-xs text-lovable-ink-muted">
+            {hasStructuredAssessment ? `${assessmentIntelligence.benchmark.percentile} percentil no cohort` : "aguardando base comparativa"}
+          </p>
         </article>
       </section>
 
@@ -562,19 +604,27 @@ export function MemberProfile360Page() {
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
                 <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de evolucao</p>
-                <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
-                  {assessmentIntelligence.diagnosis.evolution_factors.map((item) => (
-                    <li key={item}>- {item}</li>
-                  ))}
-                </ul>
+                {assessmentIntelligence.diagnosis.evolution_factors.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
+                    {assessmentIntelligence.diagnosis.evolution_factors.map((item) => (
+                      <li key={item}>- {item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-lovable-ink-muted">Sem sinais suficientes de evolucao registrados.</p>
+                )}
               </article>
               <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
                 <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de estagnacao</p>
-                <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
-                  {assessmentIntelligence.diagnosis.stagnation_factors.map((item) => (
-                    <li key={item}>- {item}</li>
-                  ))}
-                </ul>
+                {assessmentIntelligence.diagnosis.stagnation_factors.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
+                    {assessmentIntelligence.diagnosis.stagnation_factors.map((item) => (
+                      <li key={item}>- {item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-lovable-ink-muted">Sem fatores criticos de estagnacao identificados.</p>
+                )}
               </article>
             </div>
           </article>
@@ -582,17 +632,21 @@ export function MemberProfile360Page() {
           <aside className="space-y-4">
             <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Scores de leitura</h3>
-              <ul className="mt-3 space-y-2">
-                {assessmentIntelligence.diagnosis.factors.map((factor) => (
-                  <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-lovable-ink">{factor.label}</span>
-                      <span className="text-xs font-semibold text-lovable-primary">{factor.score}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
-                  </li>
-                ))}
-              </ul>
+              {hasDiagnosisFactors ? (
+                <ul className="mt-3 space-y-2">
+                  {assessmentIntelligence.diagnosis.factors.map((factor) => (
+                    <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium text-lovable-ink">{factor.label}</span>
+                        <span className="text-xs font-semibold text-lovable-primary">{factor.score}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-lovable-ink-muted">Sem fatores suficientes para pontuar esta leitura.</p>
+              )}
             </article>
 
             <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -608,7 +662,7 @@ export function MemberProfile360Page() {
       )}
 
       {activeTab === "evolution" &&
-        (evolution ? (
+        (hasEvolutionData ? (
           <EvolutionCharts evolution={evolution} />
         ) : (
           <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -637,23 +691,27 @@ export function MemberProfile360Page() {
         <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
           <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Acoes recomendadas</h3>
-            <ul className="mt-4 space-y-3">
-              {assessmentIntelligence.actions.map((action) => (
-                <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
-                      <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+            {hasActions ? (
+              <ul className="mt-4 space-y-3">
+                {assessmentIntelligence.actions.map((action) => (
+                  <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+                      </div>
+                      <span className="rounded-full bg-lovable-primary-soft px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-lovable-primary">
+                        {action.priority}
+                      </span>
                     </div>
-                    <span className="rounded-full bg-lovable-primary-soft px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-lovable-primary">
-                      {action.priority}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-xs text-lovable-primary">{action.suggested_message}</p>
-                  <p className="mt-2 text-[11px] text-lovable-ink-muted">Responsavel sugerido: {action.owner_role} - prazo: D+{action.due_in_days}</p>
-                </li>
-              ))}
-            </ul>
+                    <p className="mt-3 text-xs text-lovable-primary">{action.suggested_message}</p>
+                    <p className="mt-2 text-[11px] text-lovable-ink-muted">Responsavel sugerido: {action.owner_role} - prazo: D+{action.due_in_days}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-sm text-lovable-ink-muted">Sem acoes recomendadas enquanto nao houver dados suficientes.</p>
+            )}
           </article>
           <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Leitura operacional</h3>
@@ -736,4 +794,5 @@ export function MemberProfile360Page() {
     </section>
   );
 }
+
 

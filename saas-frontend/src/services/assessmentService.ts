@@ -235,6 +235,252 @@ export interface AssessmentSummary360 {
   actions: AssessmentAction[];
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function normalizeMemberMini(payload: unknown): MemberMini {
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    full_name: asString(data.full_name, "Aluno sem identificacao"),
+    email: asNullableString(data.email),
+    plan_name: asString(data.plan_name, "Plano nao informado"),
+    risk_level: (asString(data.risk_level, "green") as RiskLevel),
+    risk_score: asNumber(data.risk_score),
+    last_checkin_at: asNullableString(data.last_checkin_at),
+    extra_data: asRecord(data.extra_data),
+  };
+}
+
+function normalizeAssessmentMini(payload: unknown): AssessmentMini | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    assessment_number: asNumber(data.assessment_number),
+    assessment_date: asString(data.assessment_date),
+    next_assessment_due: asNullableString(data.next_assessment_due),
+    weight_kg: asNullableNumber(data.weight_kg),
+    bmi: asNullableNumber(data.bmi),
+    body_fat_pct: asNullableNumber(data.body_fat_pct),
+    strength_score: asNullableNumber(data.strength_score),
+    flexibility_score: asNullableNumber(data.flexibility_score),
+    cardio_score: asNullableNumber(data.cardio_score),
+    ai_analysis: asNullableString(data.ai_analysis),
+  };
+}
+
+function normalizeConstraints(payload: unknown): MemberConstraints | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    gym_id: asString(data.gym_id),
+    member_id: asString(data.member_id),
+    medical_conditions: asNullableString(data.medical_conditions),
+    injuries: asNullableString(data.injuries),
+    medications: asNullableString(data.medications),
+    contraindications: asNullableString(data.contraindications),
+    preferred_training_times: asNullableString(data.preferred_training_times),
+    restrictions: asRecord(data.restrictions),
+    notes: asNullableString(data.notes),
+    created_at: asString(data.created_at),
+    updated_at: asString(data.updated_at),
+  };
+}
+
+function normalizeGoal(payload: unknown): MemberGoal {
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    gym_id: asString(data.gym_id),
+    member_id: asString(data.member_id),
+    assessment_id: asNullableString(data.assessment_id),
+    title: asString(data.title, "Objetivo"),
+    description: asNullableString(data.description),
+    category: asString(data.category, "general"),
+    target_value: asNullableNumber(data.target_value),
+    current_value: asNumber(data.current_value),
+    unit: asNullableString(data.unit),
+    target_date: asNullableString(data.target_date),
+    status: asString(data.status, "active"),
+    progress_pct: asNumber(data.progress_pct),
+    achieved: Boolean(data.achieved),
+    achieved_at: asNullableString(data.achieved_at),
+    notes: asNullableString(data.notes),
+    extra_data: asRecord(data.extra_data),
+    created_at: asString(data.created_at),
+    updated_at: asString(data.updated_at),
+  };
+}
+
+function normalizeTrainingPlan(payload: unknown): TrainingPlan | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    gym_id: asString(data.gym_id),
+    member_id: asString(data.member_id),
+    assessment_id: asNullableString(data.assessment_id),
+    created_by_user_id: asNullableString(data.created_by_user_id),
+    name: asString(data.name, "Plano"),
+    objective: asNullableString(data.objective),
+    sessions_per_week: asNumber(data.sessions_per_week, 3),
+    split_type: asNullableString(data.split_type),
+    start_date: asString(data.start_date),
+    end_date: asNullableString(data.end_date),
+    is_active: data.is_active !== false,
+    plan_data: asRecord(data.plan_data),
+    notes: asNullableString(data.notes),
+    extra_data: asRecord(data.extra_data),
+    created_at: asString(data.created_at),
+    updated_at: asString(data.updated_at),
+  };
+}
+
+function normalizeProfile360(payload: unknown): Profile360 {
+  const data = asRecord(payload);
+  return {
+    member: normalizeMemberMini(data.member),
+    latest_assessment: normalizeAssessmentMini(data.latest_assessment),
+    constraints: normalizeConstraints(data.constraints),
+    goals: Array.isArray(data.goals) ? data.goals.map(normalizeGoal) : [],
+    active_training_plan: normalizeTrainingPlan(data.active_training_plan),
+    insight_summary: asNullableString(data.insight_summary),
+  };
+}
+
+function normalizeAssessmentFactor(payload: unknown): AssessmentFactor {
+  const data = asRecord(payload);
+  return {
+    key: asString(data.key),
+    label: asString(data.label, "Fator"),
+    score: asNumber(data.score),
+    reason: asString(data.reason),
+  };
+}
+
+function normalizeDiagnosis(payload: unknown): AssessmentDiagnosis {
+  const data = asRecord(payload);
+  return {
+    primary_bottleneck: asString(data.primary_bottleneck, "unknown"),
+    primary_bottleneck_label: asString(data.primary_bottleneck_label, "Sem leitura suficiente"),
+    secondary_bottleneck: asString(data.secondary_bottleneck, "unknown"),
+    secondary_bottleneck_label: asString(data.secondary_bottleneck_label, "Sem leitura complementar"),
+    explanation: asString(data.explanation, "Nao ha dados suficientes para diagnostico causal completo."),
+    evolution_factors: asStringArray(data.evolution_factors),
+    stagnation_factors: asStringArray(data.stagnation_factors),
+    frustration_risk: asNumber(data.frustration_risk),
+    confidence: asString(data.confidence, "low"),
+    factors: Array.isArray(data.factors) ? data.factors.map(normalizeAssessmentFactor) : [],
+  };
+}
+
+function normalizeForecast(payload: unknown): AssessmentForecast {
+  const data = asRecord(payload);
+  return {
+    goal_type: asString(data.goal_type, "general"),
+    probability_30d: asNumber(data.probability_30d),
+    probability_60d: asNumber(data.probability_60d),
+    probability_90d: asNumber(data.probability_90d),
+    corrected_probability_90d: asNumber(data.corrected_probability_90d),
+    likely_days_to_goal: asNullableNumber(data.likely_days_to_goal),
+    current_summary: asString(data.current_summary, "Sem previsao consolidada."),
+    corrected_summary: asString(data.corrected_summary, "Ainda nao ha acao corretiva sugerida."),
+    consistency_score: asNumber(data.consistency_score),
+    progress_score: asNumber(data.progress_score),
+    adherence_score: asNumber(data.adherence_score),
+    recovery_score: asNumber(data.recovery_score),
+    overall_score: asNumber(data.overall_score),
+    blocked: Boolean(data.blocked),
+    confidence: asString(data.confidence, "low"),
+  };
+}
+
+function normalizeBenchmark(payload: unknown): AssessmentBenchmark {
+  const data = asRecord(payload);
+  return {
+    cohort_label: asString(data.cohort_label, "Cohort indisponivel"),
+    sample_size: asNumber(data.sample_size),
+    percentile: asNumber(data.percentile),
+    expected_curve_status: asString(data.expected_curve_status, "unknown"),
+    explanation: asString(data.explanation, "Sem benchmark suficiente para comparar."),
+    position_label: asString(data.position_label, "Sem benchmark"),
+    peer_average_score: asNullableNumber(data.peer_average_score),
+  };
+}
+
+function normalizeNarratives(payload: unknown): AssessmentNarratives {
+  const data = asRecord(payload);
+  return {
+    coach_summary: asString(data.coach_summary, "Sem narrativa disponivel para a equipe."),
+    member_summary: asString(data.member_summary, "Sem narrativa disponivel para o aluno."),
+    retention_summary: asString(data.retention_summary, "Sem narrativa disponivel para retencao."),
+  };
+}
+
+function normalizeAction(payload: unknown): AssessmentAction {
+  const data = asRecord(payload);
+  return {
+    key: asString(data.key, "no_action"),
+    title: asString(data.title, "Nenhuma acao recomendada"),
+    owner_role: asString(data.owner_role, "manager"),
+    priority: asString(data.priority, "medium"),
+    reason: asString(data.reason, "Sem dados suficientes para priorizar uma acao."),
+    due_in_days: asNumber(data.due_in_days),
+    suggested_message: asString(data.suggested_message, "Reavalie o aluno quando houver mais contexto."),
+  };
+}
+
+export function normalizeAssessmentSummary360(payload: unknown): AssessmentSummary360 {
+  const data = asRecord(payload);
+  const actions = Array.isArray(data.actions) ? data.actions.map(normalizeAction) : [];
+  const nextBestAction = normalizeAction(data.next_best_action);
+
+  return {
+    member: normalizeMemberMini(data.member),
+    latest_assessment: normalizeAssessmentMini(data.latest_assessment),
+    goal_type: asString(data.goal_type, "general"),
+    status: asString(data.status, "attention"),
+    days_since_last_checkin: asNullableNumber(data.days_since_last_checkin),
+    recent_weekly_checkins: asNumber(data.recent_weekly_checkins),
+    target_frequency_per_week: asNumber(data.target_frequency_per_week, 3),
+    forecast: normalizeForecast(data.forecast),
+    diagnosis: normalizeDiagnosis(data.diagnosis),
+    benchmark: normalizeBenchmark(data.benchmark),
+    narratives: normalizeNarratives(data.narratives),
+    next_best_action: nextBestAction.title === "Nenhuma acao recomendada" && actions.length > 0 ? actions[0] : nextBestAction,
+    actions,
+  };
+}
+
 export interface AssessmentCreateInput {
   assessment_date?: string;
   height_cm?: number;
@@ -305,12 +551,12 @@ export const assessmentService = {
 
   async profile360(memberId: string): Promise<Profile360> {
     const { data } = await api.get<Profile360>(`/api/v1/assessments/members/${memberId}/profile`);
-    return data;
+    return normalizeProfile360(data);
   },
 
   async summary360(memberId: string): Promise<AssessmentSummary360> {
     const { data } = await api.get<AssessmentSummary360>(`/api/v1/assessments/members/${memberId}/summary-360`);
-    return data;
+    return normalizeAssessmentSummary360(data);
   },
 
   async diagnosis(memberId: string): Promise<AssessmentDiagnosis> {

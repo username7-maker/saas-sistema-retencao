@@ -1,14 +1,13 @@
-﻿import { useMemo, useState } from "react";
-import clsx from "clsx";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import clsx from "clsx";
 import { Link } from "react-router-dom";
 
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
 import { Card, CardContent, Input } from "../../components/ui2";
-import type { MemberMini } from "../../services/assessmentService";
-import { assessmentService } from "../../services/assessmentService";
+import { assessmentService, type MemberMini } from "../../services/assessmentService";
 
 type AssessmentFilter = "total" | "assessed_90" | "overdue" | "never" | "upcoming";
 type AssessmentListMember = MemberMini & { next_assessment_due?: string | null };
@@ -22,30 +21,26 @@ type FilterConfig = {
 };
 
 function normalizeText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 function daysOverdue(member: AssessmentListMember): number | null {
   if (!member.next_assessment_due) return null;
   const due = new Date(member.next_assessment_due);
-  if (isNaN(due.getTime())) return null;
+  if (Number.isNaN(due.getTime())) return null;
   const diff = Math.floor((Date.now() - due.getTime()) / 86400000);
   return diff > 0 ? diff : null;
 }
 
 function formatDueDate(isoDate: string): string {
   const date = new Date(isoDate);
-  if (isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("pt-BR");
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("pt-BR");
 }
 
 export function AssessmentsPage() {
   const [activeFilter, setActiveFilter] = useState<AssessmentFilter>("overdue");
   const [searchQuery, setSearchQuery] = useState("");
+
   const dashboardQuery = useQuery({
     queryKey: ["assessments", "dashboard"],
     queryFn: () => assessmentService.dashboard(),
@@ -65,6 +60,7 @@ export function AssessmentsPage() {
   }
 
   const data = dashboardQuery.data;
+
   const filterConfig: Record<AssessmentFilter, FilterConfig> = useMemo(
     () => ({
       total: {
@@ -99,12 +95,13 @@ export function AssessmentsPage() {
         label: "Proximos 7 dias",
         count: data.upcoming_7_days,
         listTitle: "Membros com avaliacao nos proximos 7 dias",
-        emptyMessage: "Nenhum membro com avaliacao prevista para os proximos 7 dias.",
+        emptyMessage: "Nenhum membro com avaliacao prevista nos proximos 7 dias.",
         members: (data.upcoming_members ?? []) as AssessmentListMember[],
       },
     }),
     [data],
   );
+
   const selectedFilter = filterConfig[activeFilter];
   const coverageRatio = data.total_members > 0 ? Math.round((data.assessed_last_90_days / data.total_members) * 100) : 0;
   const overduePressure = data.total_members > 0 ? Math.round((data.overdue_assessments / data.total_members) * 100) : 0;
@@ -119,14 +116,17 @@ export function AssessmentsPage() {
     if (activeFilter === "overdue" || activeFilter === "never") {
       result = [...result].sort((a, b) => {
         if (b.risk_score !== a.risk_score) return b.risk_score - a.risk_score;
-        const da = daysOverdue(a) ?? -1;
-        const db = daysOverdue(b) ?? -1;
-        return db - da;
+        return (daysOverdue(b) ?? -1) - (daysOverdue(a) ?? -1);
       });
     }
 
     return result;
-  }, [searchQuery, selectedFilter.members, activeFilter]);
+  }, [activeFilter, searchQuery, selectedFilter.members]);
+
+  const maxDaysOverdue =
+    activeFilter === "overdue" || activeFilter === "never"
+      ? Math.max(0, ...filteredMembers.map((member) => daysOverdue(member) ?? 0))
+      : 0;
 
   return (
     <section className="space-y-6">
@@ -137,25 +137,33 @@ export function AssessmentsPage() {
           label="Cobertura 90 dias"
           value={`${coverageRatio}%`}
           tone={coverageRatio >= 60 ? "success" : coverageRatio >= 35 ? "warning" : "danger"}
-          tooltip="Percentual da base que recebeu avaliacao nos ultimos 90 dias. Mede cobertura real do acompanhamento."
+          tooltip="Percentual da base com avaliacao nos ultimos 90 dias."
+          onClick={() => setActiveFilter("assessed_90")}
+          active={activeFilter === "assessed_90"}
         />
         <StatCard
           label="Pressao operacional"
           value={`${overduePressure}%`}
           tone={overduePressure >= 30 ? "danger" : overduePressure >= 15 ? "warning" : "success"}
-          tooltip="Parcela da academia com avaliacao atrasada. Quanto maior, maior o risco de perder narrativa de progresso."
+          tooltip="Parcela com avaliacao atrasada."
+          onClick={() => setActiveFilter("overdue")}
+          active={activeFilter === "overdue"}
         />
         <StatCard
-          label="Gap de primeira avaliacao"
+          label="Gap 1a avaliacao"
           value={`${firstAssessmentGap}%`}
           tone={firstAssessmentGap >= 25 ? "danger" : firstAssessmentGap >= 10 ? "warning" : "success"}
-          tooltip="Percentual de alunos que ainda nao passaram pela primeira leitura estruturada de evolucao."
+          tooltip="Alunos que nunca passaram por avaliacao estruturada."
+          onClick={() => setActiveFilter("never")}
+          active={activeFilter === "never"}
         />
         <StatCard
           label="Agenda da semana"
           value={String(data.upcoming_7_days)}
           tone={data.upcoming_7_days === 0 ? "warning" : "neutral"}
-          tooltip="Quantidade de membros com avaliacao prevista nos proximos 7 dias. Serve para distribuir carga da equipe."
+          tooltip="Avaliacoes previstas para os proximos 7 dias."
+          onClick={() => setActiveFilter("upcoming")}
+          active={activeFilter === "upcoming"}
         />
       </section>
 
@@ -202,30 +210,6 @@ export function AssessmentsPage() {
                 placeholder="Buscar por nome do membro..."
               />
             </div>
-
-            <div className="flex min-h-10 flex-wrap gap-2">
-              {Object.entries(filterConfig).map(([key, config]) => {
-                const typedKey = key as AssessmentFilter;
-                return (
-                  <button
-                    key={typedKey}
-                    type="button"
-                    onClick={() => setActiveFilter(typedKey)}
-                    className={clsx(
-                      "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wide transition",
-                      activeFilter === typedKey
-                        ? "border-lovable-primary bg-lovable-primary-soft text-lovable-primary"
-                        : "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted hover:border-lovable-border-strong hover:text-lovable-ink",
-                    )}
-                  >
-                    <span>{config.label}</span>
-                    <span className="rounded-full bg-lovable-surface px-2 py-0.5 text-[10px] text-lovable-ink-muted">
-                      {config.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           <p className="mt-3 text-xs text-lovable-ink-muted">
@@ -235,20 +219,15 @@ export function AssessmentsPage() {
         </CardContent>
       </Card>
 
+      {maxDaysOverdue > 0 ? (
+        <div className="rounded-xl border border-lovable-danger/30 bg-lovable-danger/5 px-4 py-2.5">
+          <p className="text-sm font-semibold text-lovable-danger">Aluno mais atrasado: {maxDaysOverdue} dias - agende hoje</p>
+        </div>
+      ) : null}
+
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">{selectedFilter.listTitle}</h3>
-            {(activeFilter === "overdue" || activeFilter === "never") && (() => {
-              const maxDays = Math.max(0, ...filteredMembers.map((member) => daysOverdue(member) ?? 0));
-              if (maxDays <= 0) return null;
-              return (
-                <p className="mb-2 text-xs font-semibold text-lovable-danger">
-                  Aluno mais atrasado: {maxDays} dias - agende hoje
-                </p>
-              );
-            })()}
-          </div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">{selectedFilter.listTitle}</h3>
           <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-[10px] font-bold text-lovable-primary">
             {filteredMembers.length} exibidos
           </span>
@@ -258,66 +237,71 @@ export function AssessmentsPage() {
           <p className="text-sm text-lovable-ink-muted">{selectedFilter.emptyMessage}</p>
         ) : (
           <ul className="space-y-3">
-            {filteredMembers.map((member) => (
-              <li key={member.id} className="rounded-xl border border-lovable-border px-3 py-3">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-lovable-ink">{member.full_name}</p>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-lovable-ink-muted">
-                      <span>Plano: {member.plan_name}</span>
-                      <span
-                        className={clsx(
-                          "rounded-full px-2 py-0.5 text-[10px] font-bold",
-                          member.risk_level === "red" && "bg-red-100 text-red-700",
-                          member.risk_level === "yellow" && "bg-yellow-100 text-yellow-700",
-                          member.risk_level === "green" && "bg-green-100 text-green-700",
-                          !["red", "yellow", "green"].includes(member.risk_level) && "bg-lovable-surface-soft text-lovable-ink-muted",
-                        )}
-                      >
-                        {member.risk_level === "red" ? "🔴" : member.risk_level === "yellow" ? "🟡" : "🟢"}{" "}
-                        {member.risk_level.toUpperCase()} · {member.risk_score}
-                      </span>
-                    </p>
-                    {(() => {
-                      const overdueDays = daysOverdue(member);
-                      if (overdueDays !== null && overdueDays > 0) {
-                        return (
-                          <span
-                            className={clsx(
-                              "mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              overdueDays > 30 ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700",
-                            )}
-                          >
+            {filteredMembers.map((member) => {
+              const overdueDays = daysOverdue(member);
+              const hasFutureDueDate =
+                member.next_assessment_due !== undefined &&
+                member.next_assessment_due !== null &&
+                !Number.isNaN(new Date(member.next_assessment_due).getTime()) &&
+                new Date(member.next_assessment_due).getTime() > Date.now();
+
+              return (
+                <li
+                  key={member.id}
+                  className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 transition-all hover:border-lovable-ink/20 hover:shadow-sm"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-lovable-ink">{member.full_name}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-lovable-ink-muted">{member.plan_name ?? "—"}</span>
+                        <span
+                          className={clsx(
+                            "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                            member.risk_level === "red"
+                              ? "bg-red-100 text-red-700"
+                              : member.risk_level === "yellow"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-green-100 text-green-700",
+                          )}
+                        >
+                          {member.risk_level === "red" ? "🔴" : member.risk_level === "yellow" ? "🟡" : "🟢"}{" "}
+                          {member.risk_level.toUpperCase()} · {member.risk_score}
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        {overdueDays !== null && overdueDays > 30 ? (
+                          <span className="inline-block rounded-full bg-red-100 px-2.5 py-0.5 text-[10px] font-semibold text-red-700">
                             {overdueDays} dias atrasado
                           </span>
-                        );
-                      }
-                      if (member.next_assessment_due) {
-                        const due = new Date(member.next_assessment_due);
-                        if (!isNaN(due.getTime()) && due.getTime() > Date.now()) {
-                          return <span className="mt-1 inline-flex text-[10px] text-lovable-ink-muted">Proxima: {formatDueDate(member.next_assessment_due)}</span>;
-                        }
-                      }
-                      return null;
-                    })()}
+                        ) : overdueDays !== null && overdueDays > 0 ? (
+                          <span className="inline-block rounded-full bg-orange-100 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700">
+                            {overdueDays} dias atrasado
+                          </span>
+                        ) : hasFutureDueDate && member.next_assessment_due ? (
+                          <span className="text-xs text-lovable-ink-muted">Proxima: {formatDueDate(member.next_assessment_due)}</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 gap-2">
+                      <Link
+                        to={`/assessments/members/${member.id}`}
+                        className="rounded-full border border-lovable-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted transition hover:bg-lovable-surface-soft"
+                      >
+                        Perfil 360
+                      </Link>
+                      <Link
+                        to={`/assessments/new/${member.id}`}
+                        className="rounded-full bg-lovable-primary px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white transition hover:brightness-105"
+                      >
+                        Nova avaliacao
+                      </Link>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Link
-                      to={`/assessments/members/${member.id}`}
-                      className="rounded-full border border-lovable-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface-soft"
-                    >
-                      Perfil 360
-                    </Link>
-                    <Link
-                      to={`/assessments/new/${member.id}`}
-                      className="rounded-full bg-lovable-primary px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white hover:brightness-105"
-                    >
-                      Nova avaliacao
-                    </Link>
-                  </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

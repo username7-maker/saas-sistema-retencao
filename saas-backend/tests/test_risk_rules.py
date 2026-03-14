@@ -64,6 +64,7 @@ def test_automation_14d_generates_in_app_notification(monkeypatch):
         email=None,
         risk_level=RiskLevel.YELLOW,
         risk_score=45,
+        join_date=date.today() - timedelta(days=60),
     )
 
     monkeypatch.setattr(risk_service, "_can_trigger_stage", lambda *_: True)

@@ -36,6 +36,7 @@ class TestCreateOnboardingTasks:
             join_date=date(2026, 3, 1),
         )
         db = MagicMock()
+        db.scalar.return_value = 0
         create_onboarding_tasks_for_member(db, member)
         db.add_all.assert_called_once()
         db.commit.assert_called_once()
@@ -51,6 +52,7 @@ class TestCreatePlanFollowupTasks:
             plan_name="Plano Mensal",
         )
         db = MagicMock()
+        db.scalar.return_value = 0
         create_plan_followup_tasks_for_member(db, member)
         db.add_all.assert_called_once()
 
@@ -61,5 +63,6 @@ class TestCreatePlanFollowupTasks:
             plan_name="Anual Premium",
         )
         db = MagicMock()
+        db.scalar.return_value = 0
         create_plan_followup_tasks_for_member(db, member)
         db.add_all.assert_called_once()
