@@ -61,7 +61,19 @@ def calculate_risk_score(
     nps_points = _nps_points(member.nps_last_score)
     loyalty_discount = min((member.loyalty_months // 6) * 3, 15)
 
-    raw_score = inactivity_points + frequency_points + shift_points + nps_points - loyalty_discount
+    # Alunos novos não devem ser penalizados por inatividade durante o onboarding.
+    # D0–D7: inactivity_points anulados completamente.
+    # D8–D14: inactivity_points reduzidos à metade.
+    join_dt = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)
+    days_since_join = max(0, (now - join_dt).days)
+    if days_since_join <= 7:
+        onboarding_discount = inactivity_points
+    elif days_since_join <= 14:
+        onboarding_discount = inactivity_points // 2
+    else:
+        onboarding_discount = 0
+
+    raw_score = inactivity_points + frequency_points + shift_points + nps_points - loyalty_discount - onboarding_discount
     score = max(0, min(raw_score, 100))
     level = _determine_level(score)
 
@@ -73,6 +85,7 @@ def calculate_risk_score(
         "shift_change_hours": shift_change_hours,
         "nps_points": nps_points,
         "loyalty_discount": loyalty_discount,
+        "onboarding_discount": onboarding_discount,
         "baseline_avg_weekly": round(baseline_avg_weekly, 2),
     }
     return RiskResult(score=score, level=level, reasons=reasons, days_without_checkin=days_without_checkin)
