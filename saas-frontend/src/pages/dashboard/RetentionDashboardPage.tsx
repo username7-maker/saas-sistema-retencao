@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
@@ -12,6 +12,20 @@ import { StatCard } from "../../components/common/StatCard";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
 import { riskAlertService } from "../../services/riskAlertService";
 import type { Member } from "../../types";
+
+type RetentionMember = Member & {
+  churn_type?: string | null;
+  extra_data?: Record<string, unknown> | null;
+};
+
+const CHURN_LABELS: Record<string, { label: string; tone: "danger" | "warning" | "info" | "neutral" }> = {
+  frequencia: { label: "Frequencia", tone: "danger" },
+  frustracao: { label: "Frustracao", tone: "warning" },
+  lifestyle: { label: "Lifestyle / Rotina", tone: "info" },
+  financeiro: { label: "Financeiro", tone: "neutral" },
+};
+
+const CHURN_ORDER = ["frequencia", "frustracao", "lifestyle", "financeiro"];
 
 function daysInactive(lastCheckinAt: string | null): number | null {
   if (!lastCheckinAt) return null;
@@ -27,8 +41,8 @@ function formatLastContact(lastContactMap: Record<string, string>, memberId: str
   if (!iso) return "";
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
   if (days === 0) return "hoje";
-  if (days === 1) return "há 1 dia";
-  return `há ${days} dias`;
+  if (days === 1) return "ha 1 dia";
+  return `ha ${days} dias`;
 }
 
 type ChipColor = "danger" | "warning" | "info";
@@ -42,15 +56,13 @@ function computeRiskChips(member: Member): { label: string; color: ChipColor }[]
   const chips: { label: string; color: ChipColor }[] = [];
   const days = daysInactive(member.last_checkin_at);
   if (days !== null && days >= 7) chips.push({ label: "Inatividade", color: "danger" });
-  // nps_last_score: backend defaults to 0.0 when no NPS response exists, so > 0 is the "scored" guard
   if (member.nps_last_score > 0 && member.nps_last_score < 7) chips.push({ label: "NPS Baixo", color: "warning" });
-  // loyalty_months: backend computes this from join_date; 0 can mean brand-new member
   if (member.loyalty_months < 2) chips.push({ label: "Novo", color: "info" });
   return chips;
 }
 
 interface MemberCardProps {
-  member: Member;
+  member: RetentionMember;
   lastContactMap: Record<string, string>;
   onTimeline: (m: Member) => void;
   onActionComplete: () => void;
@@ -61,6 +73,7 @@ function MemberCard({ member, lastContactMap, onTimeline, onActionComplete }: Me
   const chips = computeRiskChips(member);
   const hasContact = Boolean(lastContactMap[member.id]);
   const lastContactLabel = formatLastContact(lastContactMap, member.id);
+  const churnType = member.churn_type ?? null;
 
   return (
     <li className="rounded-xl border border-lovable-border bg-lovable-surface/50 px-4 py-3 text-sm shadow-sm transition-shadow hover:shadow-panel">
@@ -85,12 +98,18 @@ function MemberCard({ member, lastContactMap, onTimeline, onActionComplete }: Me
                   : "text-lovable-ink-muted"
             }`}
           >
-            {days === 0 ? "Treinou hoje" : `Há ${days} dia${days !== 1 ? "s" : ""} sem treinar`}
+            {days === 0 ? "Treinou hoje" : `Ha ${days} dia${days !== 1 ? "s" : ""} sem treinar`}
           </span>
         ) : (
           <span className="text-xs text-lovable-ink-muted">Sem check-in registrado</span>
         )}
       </div>
+
+      {churnType && CHURN_LABELS[churnType] ? (
+        <span className="mt-1 inline-block rounded-full border border-lovable-border bg-lovable-surface-soft px-2 py-0.5 text-[10px] font-semibold text-lovable-ink-muted">
+          {CHURN_LABELS[churnType].label}
+        </span>
+      ) : null}
 
       {chips.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -119,7 +138,7 @@ function MemberCard({ member, lastContactMap, onTimeline, onActionComplete }: Me
           hasContact ? "text-lovable-ink-muted" : "font-semibold text-lovable-warning"
         }`}
       >
-        {hasContact ? `Último contato: ${lastContactLabel}` : "⚠ Nunca contatado"}
+        {hasContact ? `Ultimo contato: ${lastContactLabel}` : "Nunca contatado"}
       </p>
 
       <div className="mt-3 flex flex-col gap-2">
@@ -141,7 +160,7 @@ interface RiskPanelProps {
   label: string;
   count: number;
   avgScore: number;
-  members: Member[];
+  members: RetentionMember[];
   lastContactMap: Record<string, string>;
   onTimeline: (m: Member) => void;
   onActionComplete: () => void;
@@ -159,6 +178,7 @@ function RiskPanel({
 }: RiskPanelProps) {
   const borderCls = tone === "danger" ? "border-lovable-danger/30" : "border-lovable-warning/30";
   const headingCls = tone === "danger" ? "text-lovable-danger" : "text-lovable-warning";
+  const vipCount = tone === "danger" ? members.filter((m) => m.loyalty_months >= 6 && m.risk_score >= 70).length : 0;
 
   return (
     <section className={`rounded-2xl border ${borderCls} bg-lovable-surface p-4 shadow-panel`}>
@@ -168,13 +188,20 @@ function RiskPanel({
         </h3>
         {count > 0 && (
           <span className="text-xs text-lovable-ink-muted">
-            Score médio:{" "}
+            Score medio:{" "}
             <strong className="text-lovable-ink">{avgScore.toFixed(0)}</strong>
           </span>
         )}
       </div>
+      {vipCount > 0 ? (
+        <div className="mb-3 rounded-xl border border-lovable-warning/40 bg-lovable-warning/5 px-3 py-2">
+          <p className="text-xs font-semibold text-lovable-warning">
+            ⭐ {vipCount} aluno{vipCount !== 1 ? "s" : ""} VIP (6+ meses) em risco critico - priorize o contato
+          </p>
+        </div>
+      ) : null}
       {members.length === 0 ? (
-        <p className="text-sm text-lovable-ink-muted">Nenhum aluno neste nível de risco.</p>
+        <p className="text-sm text-lovable-ink-muted">Nenhum aluno neste nivel de risco.</p>
       ) : (
         <ul className="space-y-3">
           {members.map((m) => (
@@ -207,7 +234,7 @@ export function RetentionDashboardPage() {
   const resolveMutation = useMutation({
     mutationFn: (alertId: string) => {
       setPendingAlertId(alertId);
-      return riskAlertService.resolve(alertId, "Resolvido no dashboard de retenção");
+      return riskAlertService.resolve(alertId, "Resolvido no dashboard de retencao");
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["risk-alerts", "unresolved-red"] });
@@ -224,9 +251,9 @@ export function RetentionDashboardPage() {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
   };
 
-  if (query.isLoading) return <LoadingPanel text="Carregando dashboard de retenção..." />;
-  if (query.isError) return <LoadingPanel text="Erro ao carregar dados de retenção." />;
-  if (!query.data) return <LoadingPanel text="Sem dados de retenção." />;
+  if (query.isLoading) return <LoadingPanel text="Carregando dashboard de retencao..." />;
+  if (query.isError) return <LoadingPanel text="Erro ao carregar dados de retencao." />;
+  if (!query.data) return <LoadingPanel text="Sem dados de retencao." />;
 
   const red = query.data.red ?? { total: 0, items: [] };
   const yellow = query.data.yellow ?? { total: 0, items: [] };
@@ -236,10 +263,35 @@ export function RetentionDashboardPage() {
   const avg_yellow_score = Number(query.data.avg_yellow_score ?? 0);
   const last_contact_map = query.data.last_contact_map ?? {};
   const totalRisk = red.total + yellow.total;
+  const redItems = red.items as RetentionMember[];
+  const yellowItems = yellow.items as RetentionMember[];
 
-  // Build member-id → name map for alert section
+  const churnCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const member of [...redItems, ...yellowItems]) {
+      const churnType = member.churn_type;
+      if (churnType && CHURN_LABELS[churnType]) {
+        counts[churnType] = (counts[churnType] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [redItems, yellowItems]);
+
+  const churnTotal = useMemo(() => Object.values(churnCounts).reduce((sum, value) => sum + value, 0), [churnCounts]);
+
+  const forecast60Avg = useMemo(() => {
+    const values = redItems
+      .map((member) => {
+        const forecast = member.extra_data?.retention_forecast_60d;
+        return typeof forecast === "number" && forecast >= 0 && forecast <= 100 ? forecast : null;
+      })
+      .filter((value): value is number => value !== null);
+    if (values.length === 0) return null;
+    return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  }, [redItems]);
+
   const memberById: Record<string, string> = {};
-  for (const m of [...red.items, ...yellow.items]) {
+  for (const m of [...redItems, ...yellowItems]) {
     memberById[m.id] = m.full_name;
   }
 
@@ -247,9 +299,9 @@ export function RetentionDashboardPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retenção</h2>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retencao</h2>
           <p className="text-sm text-lovable-ink-muted">
-            Alunos em risco, evolução NPS e ações de retenção.
+            Alunos em risco, evolucao NPS e acoes de retencao.
           </p>
         </div>
         <DashboardActions dashboard="retention" />
@@ -263,24 +315,23 @@ export function RetentionDashboardPage() {
             {red.total > 0 && `${red.total} aluno${red.total !== 1 ? "s" : ""} em risco vermelho`}
             {red.total > 0 && yellow.total > 0 && " e "}
             {yellow.total > 0 && `${yellow.total} em risco amarelo`}
-            {" — ação imediata recomendada."}
+            {" - acao imediata recomendada."}
           </p>
         </div>
       )}
 
-      {/* KPI tiles */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <StatCard
           label="Risco Vermelho"
           value={String(red.total)}
           tone="danger"
-          tooltip={red.total > 0 ? `Score médio: ${avg_red_score.toFixed(0)}` : undefined}
+          tooltip={red.total > 0 ? `Score medio: ${avg_red_score.toFixed(0)}` : undefined}
         />
         <StatCard
           label="Risco Amarelo"
           value={String(yellow.total)}
           tone="warning"
-          tooltip={yellow.total > 0 ? `Score médio: ${avg_yellow_score.toFixed(0)}` : undefined}
+          tooltip={yellow.total > 0 ? `Score medio: ${avg_yellow_score.toFixed(0)}` : undefined}
         />
         <StatCard
           label="MRR em Risco"
@@ -288,16 +339,52 @@ export function RetentionDashboardPage() {
           tone="neutral"
           tooltip="Receita mensal dos alunos em risco vermelho e amarelo"
         />
+        <StatCard
+          label="Forecast 60 dias"
+          value={forecast60Avg !== null ? `${forecast60Avg}%` : "-"}
+          tone={forecast60Avg === null ? "neutral" : forecast60Avg < 40 ? "danger" : forecast60Avg < 60 ? "warning" : "success"}
+          tooltip="Probabilidade media de os alunos em risco vermelho permanecerem nos proximos 60 dias."
+        />
       </div>
 
-      {/* Member panels */}
+      {churnTotal > 0 ? (
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
+            Distribuicao de Churn
+          </h3>
+          <div className="space-y-2">
+            {CHURN_ORDER.filter((key) => churnCounts[key]).map((key) => {
+              const pct = churnTotal > 0 ? Math.round((churnCounts[key] / churnTotal) * 100) : 0;
+              const toneClass = {
+                danger: "bg-lovable-danger/20",
+                warning: "bg-lovable-warning/20",
+                info: "bg-lovable-primary/20",
+                neutral: "bg-lovable-surface-soft",
+              }[CHURN_LABELS[key].tone] ?? "bg-lovable-surface-soft";
+
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="w-36 shrink-0 text-xs text-lovable-ink-muted">{CHURN_LABELS[key].label}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-lovable-border">
+                    <div className={`h-2 rounded-full ${toneClass} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="w-16 shrink-0 text-right text-xs font-semibold text-lovable-ink">
+                    {churnCounts[key]} alunos
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-2">
         <RiskPanel
           tone="danger"
           label="Alunos em Vermelho"
           count={red.total}
           avgScore={avg_red_score}
-          members={red.items}
+          members={redItems}
           lastContactMap={last_contact_map}
           onTimeline={setSelectedMember}
           onActionComplete={handleActionComplete}
@@ -307,25 +394,23 @@ export function RetentionDashboardPage() {
           label="Alunos em Amarelo"
           count={yellow.total}
           avgScore={avg_yellow_score}
-          members={yellow.items}
+          members={yellowItems}
           lastContactMap={last_contact_map}
           onTimeline={setSelectedMember}
           onActionComplete={handleActionComplete}
         />
       </div>
 
-      {/* NPS Evolution chart */}
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
-          Evolução NPS
+          Evolucao NPS
         </h3>
         <p className="mb-3 text-xs text-lovable-ink-muted">
-          Score médio de satisfação dos alunos nos últimos meses.
+          Score medio de satisfacao dos alunos nos ultimos meses.
         </p>
         <LineSeriesChart data={nps_trend} xKey="month" yKey="average_score" />
       </section>
 
-      {/* Active alerts */}
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
           Alertas Ativos (Vermelho)
@@ -349,8 +434,8 @@ export function RetentionDashboardPage() {
                         </span>
                       </p>
                       <p className="text-xs text-lovable-ink-muted">
-                        {actionCount} ação
-                        {actionCount !== 1 ? "ões" : ""} registrada
+                        {actionCount} acao
+                        {actionCount !== 1 ? "es" : ""} registrada
                         {actionCount !== 1 ? "s" : ""} ·{" "}
                         {new Date(alert.created_at).toLocaleString("pt-BR")}
                       </p>

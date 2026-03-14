@@ -82,4 +82,9 @@ export const memberService = {
     const { data } = await api.get<OnboardingScoreResult>(`/api/v1/members/${memberId}/onboarding-score`);
     return data;
   },
+
+  async getProfile360(memberId: string): Promise<Record<string, unknown>> {
+    const { data } = await api.get<Record<string, unknown>>(`/api/v1/assessments/members/${memberId}/profile`);
+    return data;
+  },
 };

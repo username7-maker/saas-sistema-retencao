@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -11,13 +11,14 @@ import type { MemberMini } from "../../services/assessmentService";
 import { assessmentService } from "../../services/assessmentService";
 
 type AssessmentFilter = "total" | "assessed_90" | "overdue" | "never" | "upcoming";
+type AssessmentListMember = MemberMini & { next_assessment_due?: string | null };
 
 type FilterConfig = {
   label: string;
   count: number;
   listTitle: string;
   emptyMessage: string;
-  members: MemberMini[];
+  members: AssessmentListMember[];
 };
 
 function normalizeText(value: string): string {
@@ -26,6 +27,20 @@ function normalizeText(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function daysOverdue(member: AssessmentListMember): number | null {
+  if (!member.next_assessment_due) return null;
+  const due = new Date(member.next_assessment_due);
+  if (isNaN(due.getTime())) return null;
+  const diff = Math.floor((Date.now() - due.getTime()) / 86400000);
+  return diff > 0 ? diff : null;
+}
+
+function formatDueDate(isoDate: string): string {
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("pt-BR");
 }
 
 export function AssessmentsPage() {
@@ -57,35 +72,35 @@ export function AssessmentsPage() {
         count: data.total_members,
         listTitle: "Todos os membros (prioridade por risco)",
         emptyMessage: "Nenhum membro encontrado.",
-        members: data.total_members_items ?? [],
+        members: (data.total_members_items ?? []) as AssessmentListMember[],
       },
       assessed_90: {
         label: "Avaliados (90d)",
         count: data.assessed_last_90_days,
         listTitle: "Membros avaliados nos ultimos 90 dias",
         emptyMessage: "Nenhum membro avaliado nos ultimos 90 dias.",
-        members: data.assessed_members ?? [],
+        members: (data.assessed_members ?? []) as AssessmentListMember[],
       },
       overdue: {
         label: "Atrasados",
         count: data.overdue_assessments,
         listTitle: "Membros com avaliacao atrasada",
         emptyMessage: "Nenhum membro atrasado. Otimo trabalho.",
-        members: data.overdue_members ?? [],
+        members: (data.overdue_members ?? []) as AssessmentListMember[],
       },
       never: {
         label: "Nunca avaliados",
         count: data.never_assessed,
         listTitle: "Membros nunca avaliados",
         emptyMessage: "Nenhum membro sem avaliacao.",
-        members: data.never_assessed_members ?? [],
+        members: (data.never_assessed_members ?? []) as AssessmentListMember[],
       },
       upcoming: {
         label: "Proximos 7 dias",
         count: data.upcoming_7_days,
         listTitle: "Membros com avaliacao nos proximos 7 dias",
         emptyMessage: "Nenhum membro com avaliacao prevista para os proximos 7 dias.",
-        members: data.upcoming_members ?? [],
+        members: (data.upcoming_members ?? []) as AssessmentListMember[],
       },
     }),
     [data],
@@ -97,11 +112,21 @@ export function AssessmentsPage() {
 
   const filteredMembers = useMemo(() => {
     const normalized = normalizeText(searchQuery);
-    if (!normalized) {
-      return selectedFilter.members;
+    let result = normalized
+      ? selectedFilter.members.filter((member) => normalizeText(member.full_name).includes(normalized))
+      : [...selectedFilter.members];
+
+    if (activeFilter === "overdue" || activeFilter === "never") {
+      result = [...result].sort((a, b) => {
+        if (b.risk_score !== a.risk_score) return b.risk_score - a.risk_score;
+        const da = daysOverdue(a) ?? -1;
+        const db = daysOverdue(b) ?? -1;
+        return db - da;
+      });
     }
-    return selectedFilter.members.filter((member) => normalizeText(member.full_name).includes(normalized));
-  }, [searchQuery, selectedFilter.members]);
+
+    return result;
+  }, [searchQuery, selectedFilter.members, activeFilter]);
 
   return (
     <section className="space-y-6">
@@ -212,7 +237,18 @@ export function AssessmentsPage() {
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">{selectedFilter.listTitle}</h3>
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">{selectedFilter.listTitle}</h3>
+            {(activeFilter === "overdue" || activeFilter === "never") && (() => {
+              const maxDays = Math.max(0, ...filteredMembers.map((member) => daysOverdue(member) ?? 0));
+              if (maxDays <= 0) return null;
+              return (
+                <p className="mb-2 text-xs font-semibold text-lovable-danger">
+                  Aluno mais atrasado: {maxDays} dias - agende hoje
+                </p>
+              );
+            })()}
+          </div>
           <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-[10px] font-bold text-lovable-primary">
             {filteredMembers.length} exibidos
           </span>
@@ -227,9 +263,43 @@ export function AssessmentsPage() {
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">{member.full_name}</p>
-                    <p className="text-xs text-lovable-ink-muted">
-                      Plano: {member.plan_name} | Risco: {member.risk_level.toUpperCase()} ({member.risk_score})
+                    <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-lovable-ink-muted">
+                      <span>Plano: {member.plan_name}</span>
+                      <span
+                        className={clsx(
+                          "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                          member.risk_level === "red" && "bg-red-100 text-red-700",
+                          member.risk_level === "yellow" && "bg-yellow-100 text-yellow-700",
+                          member.risk_level === "green" && "bg-green-100 text-green-700",
+                          !["red", "yellow", "green"].includes(member.risk_level) && "bg-lovable-surface-soft text-lovable-ink-muted",
+                        )}
+                      >
+                        {member.risk_level === "red" ? "🔴" : member.risk_level === "yellow" ? "🟡" : "🟢"}{" "}
+                        {member.risk_level.toUpperCase()} · {member.risk_score}
+                      </span>
                     </p>
+                    {(() => {
+                      const overdueDays = daysOverdue(member);
+                      if (overdueDays !== null && overdueDays > 0) {
+                        return (
+                          <span
+                            className={clsx(
+                              "mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              overdueDays > 30 ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700",
+                            )}
+                          >
+                            {overdueDays} dias atrasado
+                          </span>
+                        );
+                      }
+                      if (member.next_assessment_due) {
+                        const due = new Date(member.next_assessment_due);
+                        if (!isNaN(due.getTime()) && due.getTime() > Date.now()) {
+                          return <span className="mt-1 inline-flex text-[10px] text-lovable-ink-muted">Proxima: {formatDueDate(member.next_assessment_due)}</span>;
+                        }
+                      }
+                      return null;
+                    })()}
                   </div>
                   <div className="flex gap-2">
                     <Link
