@@ -33,6 +33,21 @@ class PrefetchedCheckinMetrics:
     previous_mode_hour: int | None = None
 
 
+def _member_join_datetime(member: Member, now: datetime) -> datetime | None:
+    join_date = getattr(member, "join_date", None)
+    if join_date is None:
+        return None
+    if isinstance(join_date, datetime):
+        join_dt = join_date
+    else:
+        join_dt = datetime.combine(join_date, time.min, tzinfo=timezone.utc)
+    if join_dt.tzinfo is None:
+        join_dt = join_dt.replace(tzinfo=timezone.utc)
+    if join_dt > now:
+        return now
+    return join_dt
+
+
 def calculate_risk_score(
     db: Session,
     member: Member,
@@ -40,7 +55,8 @@ def calculate_risk_score(
     metrics: PrefetchedCheckinMetrics | None = None,
 ) -> RiskResult:
     now = now or datetime.now(tz=timezone.utc)
-    reference_dt = member.last_checkin_at or datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)
+    join_dt = _member_join_datetime(member, now)
+    reference_dt = member.last_checkin_at or join_dt or now
     if reference_dt.tzinfo is None:
         reference_dt = reference_dt.replace(tzinfo=timezone.utc)
     days_without_checkin = max(0, (now - reference_dt).days)
@@ -64,14 +80,16 @@ def calculate_risk_score(
     # Alunos novos não devem ser penalizados por inatividade durante o onboarding.
     # D0–D7: inactivity_points anulados completamente.
     # D8–D14: inactivity_points reduzidos à metade.
-    join_dt = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)
-    days_since_join = max(0, (now - join_dt).days)
-    if days_since_join <= 7:
-        onboarding_discount = inactivity_points
-    elif days_since_join <= 14:
-        onboarding_discount = inactivity_points // 2
-    else:
+    if join_dt is None:
         onboarding_discount = 0
+    else:
+        days_since_join = max(0, (now - join_dt).days)
+        if days_since_join <= 7:
+            onboarding_discount = inactivity_points
+        elif days_since_join <= 14:
+            onboarding_discount = inactivity_points // 2
+        else:
+            onboarding_discount = 0
 
     raw_score = inactivity_points + frequency_points + shift_points + nps_points - loyalty_discount - onboarding_discount
     score = max(0, min(raw_score, 100))
@@ -528,8 +546,9 @@ def _run_inactivity_automations(
 ) -> list[dict]:
     now = datetime.now(tz=timezone.utc)
     # BLOQUEIO: nao disparar automacoes de retencao para alunos em onboarding ativo (< 14 dias)
-    join_days = (now.date() - member.join_date).days
-    if join_days < 14:
+    join_dt = _member_join_datetime(member, now)
+    join_days = max(0, (now - join_dt).days) if join_dt is not None else None
+    if join_days is not None and join_days < 14:
         return []
 
     actions: list[dict] = []

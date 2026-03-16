@@ -81,6 +81,17 @@ Defina `VITE_API_BASE_URL` apontando para o backend.
 
 ## Deploy
 
+### Docker Compose
+
+1. Copie `.env.example` da raiz para `.env`.
+2. Defina:
+   - `FRONTEND_URL` com a URL publica do frontend
+   - `CORS_ORIGINS` em formato JSON com as origens permitidas do frontend
+   - `VITE_API_BASE_URL` com a URL publica do backend consumida no build do frontend
+   - `VITE_WS_BASE_URL` opcional; se vazio, o frontend deriva a URL websocket a partir de `VITE_API_BASE_URL`
+3. Rode `docker compose up --build`.
+4. O compose sobe a API com `ENABLE_SCHEDULER=false` e um servico `worker` separado com `python -m app.worker`.
+
 ### Supabase (PostgreSQL)
 
 1. Crie projeto no Supabase.

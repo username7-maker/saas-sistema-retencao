@@ -15,6 +15,14 @@ from app.services.assessment_intelligence_service import sync_assessment_intelli
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_ASSESSMENT_DUE_DAYS = 90
+_ASSESSMENT_DUE_BY_PLAN_KEYWORD = {
+    "mensal": 30,
+    "trimestral": 90,
+    "semestral": 90,
+    "anual": 120,
+}
+
 
 def _safe(fn, default=None):
     """Execute fn() returning default on any error, logging the failure."""
@@ -36,19 +44,14 @@ def _calculate_next_assessment_due(db: Session, member_id: UUID, assessment_date
     """Calcula next_assessment_due baseado no tipo de plano do membro."""
     member = db.scalar(select(Member).where(Member.id == member_id))
     if not member:
-        return (assessment_date + timedelta(days=90)).date()
+        return (assessment_date + timedelta(days=_DEFAULT_ASSESSMENT_DUE_DAYS)).date()
 
     plan = (member.plan_name or "").lower()
-    if "mensal" in plan:
-        return (assessment_date + timedelta(days=30)).date()
-    elif "trimestral" in plan:
-        return (assessment_date + timedelta(days=90)).date()
-    elif "semestral" in plan:
-        return (assessment_date + timedelta(days=60)).date()
-    elif "anual" in plan:
-        return (assessment_date + timedelta(days=90)).date()
-    else:
-        return (assessment_date + timedelta(days=90)).date()
+    due_days = next(
+        (days for keyword, days in _ASSESSMENT_DUE_BY_PLAN_KEYWORD.items() if keyword in plan),
+        _DEFAULT_ASSESSMENT_DUE_DAYS,
+    )
+    return (assessment_date + timedelta(days=due_days)).date()
 
 
 def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: dict) -> Assessment:

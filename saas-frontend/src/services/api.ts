@@ -2,7 +2,8 @@ import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
 import { tokenStorage } from "./storage";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const apiBaseEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+const API_BASE_URL = apiBaseEnv || "http://127.0.0.1:8000";
 
 interface RetriableRequestConfig extends AxiosRequestConfig {
   _retry?: boolean;

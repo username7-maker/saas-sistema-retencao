@@ -66,12 +66,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     scheduler = None
     if settings.enable_scheduler:
+        logger.info("Scheduler enabled in API process; starting scheduler in API lifespan.")
         scheduler = build_scheduler()
         scheduler.start()
+    else:
+        logger.info("Scheduler disabled in API process; dedicated worker must run scheduled jobs.")
     try:
         yield
     finally:
         if scheduler:
+            logger.info("Scheduler shutting down in API process.")
             scheduler.shutdown(wait=False)
 
 

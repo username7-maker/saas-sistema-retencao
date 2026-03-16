@@ -38,8 +38,10 @@ export function OperationalDashboardPage() {
     const token = tokenStorage.getAccessToken();
     if (!token) return;
 
-    const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-    const wsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined) ?? apiBase.replace(/^http/, "ws");
+    const apiBaseEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+    const wsBaseEnv = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
+    const apiBase = apiBaseEnv || "http://127.0.0.1:8000";
+    const wsBase = wsBaseEnv || apiBase.replace(/^http/, "ws");
     const wsUrl = `${wsBase.replace(/\/$/, "")}/ws/updates?token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(wsUrl);
 

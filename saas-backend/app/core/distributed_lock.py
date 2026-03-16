@@ -15,10 +15,8 @@ from app.core.config import settings
 
 try:
     from redis import Redis
-    from redis.exceptions import RedisError
 except ImportError:
     Redis = None  # type: ignore[assignment,misc]
-    RedisError = Exception  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +69,8 @@ def with_distributed_lock(
 
             try:
                 acquired = redis.set(lock_key, lock_value, nx=True, ex=ttl_seconds)
-            except RedisError:
-                logger.warning("Distributed lock: Redis error acquiring lock %s. Running job anyway.", lock_name)
+            except Exception:
+                logger.exception("Distributed lock: failed acquiring lock %s. Running job anyway.", lock_name)
                 return func(*args, **kwargs)
 
             if not acquired:
@@ -92,8 +90,8 @@ def with_distributed_lock(
                     end
                     """
                     redis.eval(_release_script, 1, lock_key, lock_value)
-                except RedisError:
-                    logger.warning("Distributed lock: failed to release lock %s (will auto-expire).", lock_name)
+                except Exception:
+                    logger.exception("Distributed lock: failed to release lock %s (will auto-expire).", lock_name)
 
         return wrapper
 
