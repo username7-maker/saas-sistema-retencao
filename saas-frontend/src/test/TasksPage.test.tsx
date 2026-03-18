@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,12 @@ import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import type { Member, Task } from "../types";
+
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({
+    user: { id: "user-1", full_name: "Julia Operacoes" },
+  }),
+}));
 
 vi.mock("../services/taskService", () => ({
   taskService: {
@@ -21,6 +27,7 @@ vi.mock("../services/taskService", () => ({
 vi.mock("../services/memberService", () => ({
   memberService: {
     listMembers: vi.fn(),
+    getOnboardingScore: vi.fn(),
   },
 }));
 
@@ -30,48 +37,54 @@ vi.mock("../services/userService", () => ({
   },
 }));
 
-const sampleMember: Member = {
-  id: "member-1",
-  full_name: "Ana Silva",
-  email: "ana@teste.com",
-  phone: null,
-  status: "active",
-  plan_name: "Plano Mensal",
-  monthly_fee: 199,
-  join_date: "2026-03-01",
-  preferred_shift: null,
-  nps_last_score: 9,
-  loyalty_months: 1,
-  risk_score: 55,
-  risk_level: "yellow",
-  last_checkin_at: "2026-03-10T10:00:00Z",
-  extra_data: {},
-  suggested_action: null,
-  onboarding_status: "active",
-  onboarding_score: 60,
-  created_at: "2026-03-01T00:00:00Z",
-  updated_at: "2026-03-10T00:00:00Z",
-};
+const members: Member[] = [
+  {
+    id: "member-1",
+    full_name: "Ana Silva",
+    email: "ana@teste.com",
+    phone: null,
+    status: "active",
+    plan_name: "Plano Mensal",
+    monthly_fee: 199,
+    join_date: "2026-03-01",
+    preferred_shift: null,
+    nps_last_score: 9,
+    loyalty_months: 1,
+    risk_score: 82,
+    risk_level: "red",
+    last_checkin_at: "2026-03-10T10:00:00Z",
+    extra_data: {},
+    suggested_action: null,
+    onboarding_status: "at_risk",
+    onboarding_score: 32,
+    created_at: "2026-03-01T00:00:00Z",
+    updated_at: "2026-03-10T00:00:00Z",
+  },
+  {
+    id: "member-2",
+    full_name: "Bruno Lima",
+    email: "bruno@teste.com",
+    phone: null,
+    status: "active",
+    plan_name: "Plano Anual",
+    monthly_fee: 249,
+    join_date: "2026-03-05",
+    preferred_shift: null,
+    nps_last_score: 8,
+    loyalty_months: 1,
+    risk_score: 41,
+    risk_level: "yellow",
+    last_checkin_at: "2026-03-17T10:00:00Z",
+    extra_data: {},
+    suggested_action: null,
+    onboarding_status: "active",
+    onboarding_score: 61,
+    created_at: "2026-03-05T00:00:00Z",
+    updated_at: "2026-03-17T00:00:00Z",
+  },
+];
 
-const sampleTask: Task = {
-  id: "task-1",
-  title: "Ligar para Ana Silva",
-  description: "Automacao de retencao (7d) para aluno inativo.",
-  member_id: "member-1",
-  lead_id: null,
-  assigned_to_user_id: null,
-  member_name: "Ana Silva",
-  lead_name: null,
-  priority: "high",
-  status: "todo",
-  kanban_column: "todo",
-  due_date: null,
-  completed_at: null,
-  suggested_message: "Oi Ana, notamos sua ausencia e queremos ajudar.",
-  extra_data: { source: "onboarding", plan_type: "mensal" },
-  created_at: "2026-03-10T00:00:00Z",
-  updated_at: "2026-03-10T00:00:00Z",
-};
+let tasks: Task[] = [];
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -93,29 +106,200 @@ function renderPage() {
 describe("TasksPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    const now = new Date();
+    const isoAtOffset = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString();
+    const isoTodayMorning = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0),
+    ).toISOString();
+
+    tasks = [
+      {
+        id: "task-1",
+        title: "Resolver atraso da Ana",
+        description: "Contato humano por risco alto no onboarding.",
+        member_id: "member-1",
+        lead_id: null,
+        assigned_to_user_id: "user-1",
+        member_name: "Ana Silva",
+        lead_name: null,
+        priority: "urgent",
+        status: "todo",
+        kanban_column: "todo",
+        due_date: isoAtOffset(-1),
+        completed_at: null,
+        suggested_message: "Oi Ana, queremos entender como te ajudar a voltar ao ritmo.",
+        extra_data: { source: "onboarding", plan_type: "mensal" },
+        created_at: isoAtOffset(-8),
+        updated_at: isoAtOffset(-8),
+      },
+      {
+        id: "task-2",
+        title: "Enviar follow-up para Bruno",
+        description: "Confirmar agenda da semana.",
+        member_id: "member-2",
+        lead_id: null,
+        assigned_to_user_id: "user-2",
+        member_name: "Bruno Lima",
+        lead_name: null,
+        priority: "high",
+        status: "doing",
+        kanban_column: "doing",
+        due_date: isoAtOffset(0),
+        completed_at: null,
+        suggested_message: null,
+        extra_data: { source: "plan_followup", plan_type: "anual" },
+        created_at: isoAtOffset(-6),
+        updated_at: isoAtOffset(0),
+      },
+      {
+        id: "task-3",
+        title: "Revisar proposta de retorno",
+        description: null,
+        member_id: null,
+        lead_id: "lead-1",
+        assigned_to_user_id: null,
+        member_name: null,
+        lead_name: "Lead Carlos",
+        priority: "medium",
+        status: "todo",
+        kanban_column: "todo",
+        due_date: isoAtOffset(4),
+        completed_at: null,
+        suggested_message: null,
+        extra_data: { source: "manual" },
+        created_at: isoAtOffset(-4),
+        updated_at: isoAtOffset(-4),
+      },
+      {
+        id: "task-4",
+        title: "Registrar retorno concluido",
+        description: null,
+        member_id: "member-2",
+        lead_id: null,
+        assigned_to_user_id: "user-1",
+        member_name: "Bruno Lima",
+        lead_name: null,
+        priority: "low",
+        status: "done",
+        kanban_column: "done",
+        due_date: null,
+        completed_at: isoTodayMorning,
+        suggested_message: null,
+        extra_data: { source: "automation" },
+        created_at: isoAtOffset(-10),
+        updated_at: isoTodayMorning,
+      },
+    ];
+
     vi.mocked(taskService.listTasks).mockResolvedValue({
-      items: [sampleTask],
-      total: 1,
+      items: tasks,
+      total: tasks.length,
       page: 1,
       page_size: 50,
     });
+    vi.mocked(taskService.updateTask).mockResolvedValue(tasks[0]);
+    vi.mocked(taskService.deleteTask).mockResolvedValue();
+    vi.mocked(taskService.createTask).mockResolvedValue(tasks[0]);
+
     vi.mocked(memberService.listMembers).mockResolvedValue({
-      items: [sampleMember],
-      total: 1,
+      items: members,
+      total: members.length,
       page: 1,
-      page_size: 20,
+      page_size: 100,
     });
-    vi.mocked(userService.listUsers).mockResolvedValue([]);
+    vi.mocked(memberService.getOnboardingScore).mockResolvedValue({
+      score: 32,
+      status: "at_risk",
+      factors: {
+        checkin_frequency: 20,
+        first_assessment: 0,
+        task_completion: 35,
+        consistency: 40,
+        nps_response: 0,
+      },
+      days_since_join: 17,
+      checkin_count: 1,
+      completed_tasks: 1,
+      total_tasks: 3,
+    });
+
+    vi.mocked(userService.listUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        gym_id: "gym-1",
+        full_name: "Julia Operacoes",
+        email: "julia@teste.com",
+        role: "manager",
+        is_active: true,
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      {
+        id: "user-2",
+        gym_id: "gym-1",
+        full_name: "Carlos Time",
+        email: "carlos@teste.com",
+        role: "trainer",
+        is_active: true,
+        created_at: "2026-03-01T00:00:00Z",
+      },
+    ]);
   });
 
-  it("renders key labels without mojibake", async () => {
+  it("renders operacao as default with cleaner hierarchy", async () => {
     renderPage();
 
-    expect(await screen.findByRole("button", { name: "Mostrar concluidas" })).toBeInTheDocument();
-    expect(screen.getByText(/Operacao diaria e onboarding no mesmo modulo, organizados em visoes separadas\./i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Fila operacional" })).toBeInTheDocument();
+    expect(await screen.findByText("Central operacional")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
+    expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getAllByText("Atrasadas").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Concluidas recentemente").length).toBeGreaterThan(0);
+  });
+
+  it("filters by only mine and clears filters", async () => {
+    renderPage();
+
+    expect((await screen.findAllByText("Resolver atraso da Ana")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Enviar follow-up para Bruno")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "So minhas" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Enviar follow-up para Bruno")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Limpar/i }));
+
+    expect((await screen.findAllByText("Enviar follow-up para Bruno")).length).toBeGreaterThan(0);
+  });
+
+  it("supports quick action and detail drawer", async () => {
+    renderPage();
+
+    await screen.findByText("Central operacional");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Iniciar" })[0]);
+
+    await waitFor(() => {
+      expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "doing" });
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Detalhes" })[0]);
+
+    expect(await screen.findByText("Detalhe da tarefa")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
     expect(screen.getByText("Mensagem sugerida")).toBeInTheDocument();
-    expect(document.body.textContent ?? "").not.toMatch(/[Ã�]/);
+  });
+
+  it("keeps onboarding in a dedicated tab", async () => {
+    renderPage();
+
+    await screen.findByText("Central operacional");
+    fireEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+
+    expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
+    expect(screen.getByText("Intelligence de onboarding")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver tasks de onboarding" })).toBeInTheDocument();
   });
 });

@@ -1,10 +1,25 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
 import { AxiosError } from "axios";
 import toast from "react-hot-toast";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
+import { AssessmentRegistrationComposer } from "../../components/assessments/AssessmentRegistrationComposer";
 import { AssessmentTimeline } from "../../components/assessments/AssessmentTimeline";
+import { AssessmentWorkspaceOverview } from "../../components/assessments/AssessmentWorkspaceOverview";
+import {
+  ASSESSMENT_WORKSPACE_TABS,
+  daysSince,
+  formatDateTime,
+  getAge,
+  getInitials,
+  normalizeAssessmentWorkspaceTab,
+  riskBadgeVariant,
+  riskLabel,
+  statusBadgeVariant,
+  statusLabel,
+  type AssessmentWorkspaceTab,
+} from "../../components/assessments/assessmentWorkspaceUtils";
 import { EvolutionCharts } from "../../components/assessments/EvolutionCharts";
 import { GoalsProgress } from "../../components/assessments/GoalsProgress";
 import { MemberBodyCompositionTab } from "../../components/assessments/MemberBodyCompositionTab";
@@ -13,12 +28,11 @@ import { MemberGoalsEditor } from "../../components/assessments/MemberGoalsEdito
 import { MemberTrainingPlanEditor } from "../../components/assessments/MemberTrainingPlanEditor";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { MemberTimeline360Content } from "../../components/common/MemberTimeline360Content";
-import { Button, Dialog, Textarea } from "../../components/ui2";
+import { Badge, Button, Card, CardContent, Dialog, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "../../components/ui2";
+import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
 import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
-
-type ProfileTab = "summary" | "timeline360" | "diagnosis" | "evolution" | "constraints" | "goals" | "training" | "actions" | "bioimpedancia";
 
 interface InternalNote {
   id: string;
@@ -28,88 +42,6 @@ interface InternalNote {
 
 interface ApiErrorPayload {
   detail?: string;
-}
-
-const tabs: Array<{ key: ProfileTab; label: string }> = [
-  { key: "summary", label: "Resumo" },
-  { key: "timeline360", label: "Timeline 360" },
-  { key: "diagnosis", label: "Diagnostico IA" },
-  { key: "evolution", label: "Evolucao" },
-  { key: "constraints", label: "Restricoes" },
-  { key: "goals", label: "Objetivos" },
-  { key: "training", label: "Treino" },
-  { key: "actions", label: "Acoes" },
-  { key: "bioimpedancia", label: "Bioimpedancia" },
-];
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "AL";
-}
-
-function normalizeDate(value: unknown): Date | null {
-  if (typeof value !== "string") return null;
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) return null;
-  return new Date(parsed);
-}
-
-function getAge(extraData: Record<string, unknown> | undefined): number | null {
-  if (!extraData) return null;
-
-  const directAge = extraData.age;
-  if (typeof directAge === "number" && Number.isFinite(directAge) && directAge > 0) {
-    return Math.floor(directAge);
-  }
-
-  const birthDate = normalizeDate(extraData.birth_date);
-  if (!birthDate) return null;
-
-  const now = new Date();
-  let age = now.getFullYear() - birthDate.getFullYear();
-  const monthDiff = now.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
-    age -= 1;
-  }
-  return age >= 0 ? age : null;
-}
-
-function daysSince(dateValue: string | null | undefined): number | null {
-  if (!dateValue) return null;
-  const parsed = Date.parse(dateValue);
-  if (Number.isNaN(parsed)) return null;
-  return Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24));
-}
-
-function riskBadgeClass(riskLevel: string): string {
-  if (riskLevel === "red") return "bg-lovable-danger/20 text-lovable-danger";
-  if (riskLevel === "yellow") return "bg-lovable-warning/25 text-lovable-warning";
-  return "bg-lovable-success/20 text-lovable-success";
-}
-
-function riskLabel(riskLevel: string): string {
-  if (riskLevel === "red") return "Risco de cancelamento: Alto";
-  if (riskLevel === "yellow") return "Risco de cancelamento: Medio";
-  return "Risco de cancelamento: Baixo";
-}
-
-function statusBadgeClass(status: AssessmentSummary360["status"]): string {
-  if (status === "critical") return "bg-lovable-danger/20 text-lovable-danger";
-  if (status === "attention") return "bg-lovable-warning/25 text-lovable-warning";
-  return "bg-lovable-success/20 text-lovable-success";
-}
-
-function statusLabel(status: AssessmentSummary360["status"]): string {
-  if (status === "critical") return "Meta em risco";
-  if (status === "attention") return "Atencao operacional";
-  return "Na curva esperada";
-}
-
-function formatGoalType(goalType: string): string {
-  if (goalType === "fat_loss") return "Perda de gordura";
-  if (goalType === "muscle_gain") return "Ganho de massa";
-  if (goalType === "performance") return "Performance";
-  return "Geral";
 }
 
 function createNoteId(): string {
@@ -158,18 +90,12 @@ function getLocalNotesStorageKey(memberId: string): string {
 }
 
 function parseInternalNotesFromStorage(memberId: string): InternalNote[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
+  if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(getLocalNotesStorageKey(memberId));
-  if (!raw) {
-    return [];
-  }
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
+    if (!Array.isArray(parsed)) return [];
     const notes: InternalNote[] = [];
     for (const entry of parsed) {
       if (!entry || typeof entry !== "object") continue;
@@ -193,32 +119,177 @@ function parseInternalNotesFromStorage(memberId: string): InternalNote[] {
 }
 
 function persistInternalNotesToStorage(memberId: string, notes: InternalNote[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
+  if (typeof window === "undefined") return;
   window.localStorage.setItem(getLocalNotesStorageKey(memberId), JSON.stringify(notes));
 }
 
-function formatDateTime(value: string): string {
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) return "-";
-  return new Date(parsed).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function openTabWithSearchParams(
+  current: URLSearchParams,
+  nextTab: AssessmentWorkspaceTab,
+  setSearchParams: ReturnType<typeof useSearchParams>[1],
+) {
+  const next = new URLSearchParams(current);
+  next.set("tab", nextTab);
+  setSearchParams(next, { replace: true });
+}
+
+function DetailMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{label}</p>
+      <p className="mt-2 text-lg font-semibold text-lovable-ink">{value}</p>
+      <p className="mt-1 text-xs text-lovable-ink-muted">{helper}</p>
+    </div>
+  );
+}
+
+function NotesSummaryCard({
+  latestNote,
+  notesCount,
+  onAdd,
+  onHistory,
+}: {
+  latestNote: InternalNote | null;
+  notesCount: number;
+  onAdd: () => void;
+  onHistory: () => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Notas internas</p>
+            <p className="text-sm text-lovable-ink-muted">Contexto da equipe e observacoes comportamentais.</p>
+          </div>
+          <Badge variant="neutral">{notesCount} nota(s)</Badge>
+        </div>
+        {latestNote ? (
+          <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+            <p className="text-sm text-lovable-ink">{latestNote.text}</p>
+            <p className="mt-2 text-xs text-lovable-ink-muted">{formatDateTime(latestNote.created_at)}</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-lovable-border px-4 py-4 text-sm text-lovable-ink-muted">
+            Nenhuma nota registrada ainda.
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" onClick={onAdd}>
+            + Adicionar nota
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onHistory}>
+            Historico
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ContextSupportPanel({ summary }: { summary: AssessmentSummary360 }) {
+  const hasDiagnosisFactors = summary.diagnosis.factors.length > 0;
+  const hasActions = summary.actions.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="space-y-4 pt-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Leitura causal</p>
+            <p className="mt-2 text-lg font-semibold text-lovable-ink">{summary.diagnosis.primary_bottleneck_label}</p>
+            <p className="mt-1 text-sm text-lovable-ink-muted">
+              Secundario: {summary.diagnosis.secondary_bottleneck_label}
+            </p>
+            <p className="mt-3 text-sm text-lovable-ink">{summary.diagnosis.explanation}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <DetailMetric
+              label="Risco de frustracao"
+              value={String(summary.diagnosis.frustration_risk)}
+              helper={`Confianca: ${summary.diagnosis.confidence}`}
+            />
+            <DetailMetric
+              label="Benchmark"
+              value={summary.benchmark.position_label}
+              helper={`${summary.benchmark.percentile} percentil no cohort`}
+            />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Fatores avaliados</p>
+            {hasDiagnosisFactors ? (
+              <ul className="mt-3 space-y-2">
+                {summary.diagnosis.factors.map((factor) => (
+                  <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-lovable-ink">{factor.label}</p>
+                      <Badge variant="neutral">{factor.score}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-lovable-ink-muted">Sem fatores suficientes para detalhar esta leitura.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-4 pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Acoes recomendadas</p>
+              <p className="text-sm text-lovable-ink-muted">Desdobramentos sugeridos a partir da leitura atual.</p>
+            </div>
+            <Badge variant={statusBadgeVariant(summary.status)}>{statusLabel(summary.status)}</Badge>
+          </div>
+          {hasActions ? (
+            <ul className="space-y-3">
+              {summary.actions.map((action) => (
+                <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+                    </div>
+                    <Badge variant="neutral">{action.priority}</Badge>
+                  </div>
+                  <p className="mt-3 text-xs text-lovable-primary">{action.suggested_message}</p>
+                  <p className="mt-2 text-[11px] text-lovable-ink-muted">
+                    Responsavel sugerido: {action.owner_role} - prazo: D+{action.due_in_days}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-lovable-ink-muted">Sem acoes recomendadas enquanto nao houver dados suficientes.</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export function MemberProfile360Page() {
   const { memberId } = useParams<{ memberId: string }>();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>("summary");
   const [noteDraft, setNoteDraft] = useState("");
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  const activeTab = normalizeAssessmentWorkspaceTab(searchParams.get("tab"));
 
   const profileQuery = useQuery({
     queryKey: ["assessments", "profile360", memberId],
@@ -255,15 +326,18 @@ export function MemberProfile360Page() {
     staleTime: 60 * 1000,
   });
 
+  const bodyCompositionQuery = useQuery({
+    queryKey: ["body-composition", memberId],
+    queryFn: () => bodyCompositionService.list(memberId ?? "", 5),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const addNoteMutation = useMutation({
     mutationFn: async () => {
-      if (!memberId) {
-        throw new Error("MEMBRO_INVALIDO");
-      }
+      if (!memberId) throw new Error("MEMBRO_INVALIDO");
       const text = noteDraft.trim();
-      if (!text) {
-        throw new Error("NOTA_VAZIA");
-      }
+      if (!text) throw new Error("NOTA_VAZIA");
 
       const freshMember = await memberService.getMember(memberId);
       const currentExtra = (freshMember.extra_data ?? {}) as Record<string, unknown>;
@@ -294,14 +368,10 @@ export function MemberProfile360Page() {
         persistInternalNotesToStorage(memberId, parsedUpdatedNotes);
       }
       queryClient.setQueryData(["assessments", "profile360", memberId], (current: unknown) => {
-        if (!current || typeof current !== "object") {
-          return current;
-        }
+        if (!current || typeof current !== "object") return current;
         const currentObj = current as Record<string, unknown>;
         const currentMember = currentObj.member;
-        if (!currentMember || typeof currentMember !== "object") {
-          return current;
-        }
+        if (!currentMember || typeof currentMember !== "object") return current;
         return {
           ...currentObj,
           member: {
@@ -313,7 +383,6 @@ export function MemberProfile360Page() {
       toast.success("Nota adicionada.");
       setNoteDraft("");
       setIsAddNoteOpen(false);
-      // Evita sobrescrever a nota recem salva quando o backend nao retorna extra_data no payload de profile.
       void queryClient.invalidateQueries({ queryKey: ["members"] });
     },
     onError: (error: unknown) => {
@@ -341,22 +410,21 @@ export function MemberProfile360Page() {
   }
 
   if (profileQuery.isLoading || assessmentsQuery.isLoading || evolutionQuery.isLoading || summary360Query.isLoading) {
-    return <LoadingPanel text="Carregando perfil 360..." />;
+    return <LoadingPanel text="Carregando workspace de avaliacao..." />;
   }
 
   if (profileQuery.isError || assessmentsQuery.isError || evolutionQuery.isError || summary360Query.isError) {
-    return <LoadingPanel text="Erro ao carregar perfil 360. Tente novamente." />;
+    return <LoadingPanel text="Erro ao carregar o workspace de avaliacao. Tente novamente." />;
   }
 
   if (!profileQuery.data || !summary360Query.data) {
-    return <LoadingPanel text="Perfil 360 indisponivel." />;
+    return <LoadingPanel text="Workspace de avaliacao indisponivel." />;
   }
 
   const profile = profileQuery.data;
   const assessments = assessmentsQuery.data ?? [];
   const evolution =
-    evolutionQuery.data ??
-    {
+    evolutionQuery.data ?? {
       labels: [],
       weight: [],
       body_fat: [],
@@ -372,46 +440,47 @@ export function MemberProfile360Page() {
       deltas: {},
     };
   const assessmentIntelligence = summary360Query.data;
+  const latestBodyComposition = bodyCompositionQuery.data?.[0] ?? null;
+
   const memberExtra = profile.member.extra_data ?? {};
   const apiNotes = parseInternalNotes(memberExtra);
-  const localNotes = memberId ? parseInternalNotesFromStorage(memberId) : [];
+  const localNotes = parseInternalNotesFromStorage(memberId);
   const notes = apiNotes.length > 0 ? apiNotes : localNotes;
   const latestNote = notes[0] ?? null;
   const previousNotes = notes.slice(1);
-
   const age = getAge(memberExtra);
   const photoUrl = typeof memberExtra.photo_url === "string" ? memberExtra.photo_url : null;
   const daysWithoutCheckin = daysSince(profile.member.last_checkin_at);
   const hasStructuredAssessment = Boolean(assessmentIntelligence.latest_assessment);
   const hasEvolutionData = Boolean(evolution.labels.length);
-  const hasDiagnosisFactors = assessmentIntelligence.diagnosis.factors.length > 0;
-  const hasActions = assessmentIntelligence.actions.length > 0;
+
+  const openTab = (tab: AssessmentWorkspaceTab) => openTabWithSearchParams(searchParams, tab, setSearchParams);
 
   return (
     <section className="space-y-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Perfil 360</h2>
-          <p className="text-sm text-lovable-ink-muted">Visao integrada para decisao rapida de treino e retencao.</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Workspace principal</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Avaliacao do aluno</h2>
+          <p className="text-sm text-lovable-ink-muted">
+            Leitura rapida, registro, evolucao e contexto operacional em uma unica jornada.
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             to="/assessments"
-            className="rounded-full border border-lovable-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface-soft"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-lovable-border px-3 text-xs font-semibold text-lovable-ink hover:bg-lovable-surface-soft"
           >
-            Voltar
+            Voltar para fila
           </Link>
-          <Link
-            to={`/assessments/new/${memberId}`}
-            className="rounded-full bg-lovable-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:brightness-105"
-          >
-            Nova avaliacao
-          </Link>
+          <Button size="sm" variant="primary" onClick={() => openTab("registro")}>
+            Registrar avaliacao
+          </Button>
         </div>
       </header>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="flex gap-4">
             <div className="h-20 w-20 overflow-hidden rounded-2xl border border-lovable-border bg-lovable-surface-soft">
               {photoUrl ? (
@@ -423,58 +492,56 @@ export function MemberProfile360Page() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <p className="text-2xl font-semibold text-lovable-ink">{profile.member.full_name}</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full bg-lovable-surface-soft px-3 py-1 text-xs font-semibold text-lovable-ink-muted">
-                  {age !== null ? `${age} anos` : "Idade nao informada"}
-                </span>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${riskBadgeClass(profile.member.risk_level)}`}>
-                  {riskLabel(profile.member.risk_level)}
-                </span>
-                <span className="rounded-full bg-lovable-surface-soft px-3 py-1 text-xs font-semibold text-lovable-ink-muted">
-                  {daysWithoutCheckin === null
-                    ? "Sem check-in registrado"
-                    : daysWithoutCheckin === 0
-                      ? "Ultimo check-in: hoje"
-                      : `${daysWithoutCheckin} dia(s) desde ultimo check-in`}
-                </span>
-              </div>
-              <p className="text-sm text-lovable-ink-muted">
-                Plano: {profile.member.plan_name}
-                {profile.member.email ? ` | ${profile.member.email}` : ""}
-              </p>
-              <article className="rounded-lg border border-lovable-border bg-lovable-surface-soft px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">
-                  Ultima nota registrada
+            <div className="space-y-3">
+              <div>
+                <p className="text-2xl font-semibold text-lovable-ink">{profile.member.full_name}</p>
+                <p className="text-sm text-lovable-ink-muted">
+                  Plano: {profile.member.plan_name}
+                  {profile.member.email ? ` - ${profile.member.email}` : ""}
                 </p>
-                {latestNote ? (
-                  <>
-                    <p className="mt-1 text-xs text-lovable-ink">{latestNote.text}</p>
-                    <p className="mt-1 text-[10px] text-lovable-ink-muted">{formatDateTime(latestNote.created_at)}</p>
-                  </>
-                ) : (
-                  <p className="mt-1 text-xs text-lovable-ink-muted">Nenhuma nota registrada.</p>
-                )}
-              </article>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={riskBadgeVariant(profile.member.risk_level)}>{riskLabel(profile.member.risk_level)}</Badge>
+                <Badge variant={statusBadgeVariant(assessmentIntelligence.status)}>{statusLabel(assessmentIntelligence.status)}</Badge>
+                <Badge variant="neutral">{age !== null ? `${age} anos` : "Idade nao informada"}</Badge>
+                <Badge variant="neutral">
+                  {daysWithoutCheckin === null
+                    ? "Sem check-in"
+                    : daysWithoutCheckin === 0
+                      ? "Check-in hoje"
+                      : `${daysWithoutCheckin} dia(s) sem check-in`}
+                </Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <DetailMetric
+                  label="Chance em 60 dias"
+                  value={`${assessmentIntelligence.forecast.probability_60d}%`}
+                  helper={`Meta: ${assessmentIntelligence.goal_type}`}
+                />
+                <DetailMetric
+                  label="Ultima avaliacao"
+                  value={assessmentIntelligence.latest_assessment ? "Registrada" : "Pendente"}
+                  helper={
+                    assessmentIntelligence.latest_assessment
+                      ? formatDateTime(assessmentIntelligence.latest_assessment.assessment_date)
+                      : "Sem historico estruturado"
+                  }
+                />
+                <DetailMetric
+                  label="Proxima acao"
+                  value={assessmentIntelligence.next_best_action.title}
+                  helper={assessmentIntelligence.next_best_action.reason}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Notas internas dos professores</p>
-            <p className="mt-2 text-xs text-lovable-ink-muted">
-              Registre observacoes comportamentais e acompanhe o historico cronologico das notas.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" variant="primary" onClick={() => setIsAddNoteOpen(true)}>
-                + Adicionar nota
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setIsHistoryOpen(true)}>
-                Historico
-              </Button>
-            </div>
-            <p className="mt-3 text-[11px] text-lovable-ink-muted">{notes.length} nota(s) registrada(s).</p>
-          </div>
+          <NotesSummaryCard
+            latestNote={latestNote}
+            notesCount={notes.length}
+            onAdd={() => setIsAddNoteOpen(true)}
+            onHistory={() => setIsHistoryOpen(true)}
+          />
         </div>
       </section>
 
@@ -482,257 +549,117 @@ export function MemberProfile360Page() {
         <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Sem avaliacao estruturada</h3>
           <p className="mt-1 text-sm text-lovable-ink">
-            Este membro ainda nao tem avaliacao suficiente para diagnostico completo. O Perfil 360 permanece disponivel
-            com defaults seguros, timeline e contexto operacional ate a primeira avaliacao.
+            Este aluno ainda nao tem dados suficientes para leitura completa. O workspace continua funcional para registro, contexto, metas, treino e bioimpedancia.
           </p>
         </section>
       ) : null}
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Status da meta</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(assessmentIntelligence.status)}`}>
-              {statusLabel(assessmentIntelligence.status)}
-            </span>
-          </div>
-          <p className="mt-3 text-2xl font-semibold text-lovable-ink">
-            {hasStructuredAssessment ? `${assessmentIntelligence.forecast.probability_60d}%` : "-"}
-          </p>
-          <p className="text-xs text-lovable-ink-muted">
-            {hasStructuredAssessment ? "chance de meta em 60 dias" : "aguardando avaliacao"}
-          </p>
-        </article>
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Gargalo principal</p>
-          <p className="mt-3 text-lg font-semibold text-lovable-ink">
-            {hasStructuredAssessment ? assessmentIntelligence.diagnosis.primary_bottleneck_label : "Sem avaliacao estruturada"}
-          </p>
-          <p className="mt-1 text-xs text-lovable-ink-muted">Meta: {formatGoalType(assessmentIntelligence.goal_type)}</p>
-        </article>
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Risco de frustracao</p>
-          <p className="mt-3 text-2xl font-semibold text-lovable-ink">
-            {hasStructuredAssessment ? assessmentIntelligence.diagnosis.frustration_risk : "-"}
-          </p>
-          <p className="text-xs text-lovable-ink-muted">{hasStructuredAssessment ? "score de 0 a 100" : "dados insuficientes"}</p>
-        </article>
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Benchmark</p>
-          <p className="mt-3 text-lg font-semibold text-lovable-ink">
-            {hasStructuredAssessment ? assessmentIntelligence.benchmark.position_label : "Sem benchmark"}
-          </p>
-          <p className="text-xs text-lovable-ink-muted">
-            {hasStructuredAssessment ? `${assessmentIntelligence.benchmark.percentile} percentil no cohort` : "aguardando base comparativa"}
-          </p>
-        </article>
-      </section>
+      <Tabs value={activeTab} onValueChange={(value) => openTab(value as AssessmentWorkspaceTab)} className="space-y-4">
+        <TabsList className="flex flex-wrap gap-1">
+          {ASSESSMENT_WORKSPACE_TABS.map((tab) => (
+            <TabsTrigger key={tab.key} value={tab.key}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      <section className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
-        <article className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Narrativa para a equipe</p>
-          <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.coach_summary}</p>
-          <p className="mt-3 text-xs text-lovable-ink-muted">{assessmentIntelligence.forecast.current_summary}</p>
-          <p className="mt-1 text-xs text-lovable-ink-muted">{assessmentIntelligence.forecast.corrected_summary}</p>
-        </article>
-        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Proxima melhor acao</p>
-          <p className="mt-2 text-base font-semibold text-lovable-ink">{assessmentIntelligence.next_best_action.title}</p>
-          <p className="mt-1 text-sm text-lovable-ink-muted">{assessmentIntelligence.next_best_action.reason}</p>
-          <p className="mt-3 text-xs text-lovable-primary">{assessmentIntelligence.next_best_action.suggested_message}</p>
-        </article>
-      </section>
+        <TabsContent value="overview">
+          <AssessmentWorkspaceOverview
+            profile={profile}
+            summary={assessmentIntelligence}
+            assessments={assessments}
+            latestBodyComposition={latestBodyComposition}
+            onOpenTab={openTab}
+          />
+        </TabsContent>
 
-      {profile.insight_summary ? (
-        <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Insight da avaliacao</h3>
-          <p className="mt-1 text-sm text-lovable-ink">{profile.insight_summary}</p>
-        </section>
-      ) : null}
+        <TabsContent value="registro">
+          <AssessmentRegistrationComposer memberId={memberId} onSaved={() => openTab("overview")} />
+        </TabsContent>
 
-      <nav className="flex flex-wrap gap-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider ${
-              activeTab === tab.key
-                ? "bg-lovable-primary-soft text-lovable-primary"
-                : "bg-lovable-surface-soft text-lovable-ink-muted hover:bg-lovable-surface-soft"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === "summary" && (
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <AssessmentTimeline assessments={assessments} />
-          <section className="space-y-4 rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
-              <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.member_summary}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para retencao</p>
-              <p className="mt-2 text-sm text-lovable-ink">{assessmentIntelligence.narratives.retention_summary}</p>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {activeTab === "timeline360" && (
-        <MemberTimeline360Content
-          member={profile.member}
-          events={timelineQuery.data}
-          isLoading={timelineQuery.isLoading}
-          isError={timelineQuery.isError}
-          showContextCard={false}
-        />
-      )}
-
-      {activeTab === "diagnosis" && (
-        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Diagnostico causal</h3>
-            <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.diagnosis.primary_bottleneck_label}</p>
-            <p className="mt-1 text-sm text-lovable-ink-muted">Secundario: {assessmentIntelligence.diagnosis.secondary_bottleneck_label}</p>
-            <p className="mt-3 text-sm text-lovable-ink">{assessmentIntelligence.diagnosis.explanation}</p>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de evolucao</p>
-                {assessmentIntelligence.diagnosis.evolution_factors.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
-                    {assessmentIntelligence.diagnosis.evolution_factors.map((item) => (
-                      <li key={item}>- {item}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-sm text-lovable-ink-muted">Sem sinais suficientes de evolucao registrados.</p>
-                )}
-              </article>
-              <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Fatores de estagnacao</p>
-                {assessmentIntelligence.diagnosis.stagnation_factors.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-sm text-lovable-ink">
-                    {assessmentIntelligence.diagnosis.stagnation_factors.map((item) => (
-                      <li key={item}>- {item}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-sm text-lovable-ink-muted">Sem fatores criticos de estagnacao identificados.</p>
-                )}
-              </article>
-            </div>
-          </article>
-
-          <aside className="space-y-4">
-            <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Scores de leitura</h3>
-              {hasDiagnosisFactors ? (
-                <ul className="mt-3 space-y-2">
-                  {assessmentIntelligence.diagnosis.factors.map((factor) => (
-                    <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-lovable-ink">{factor.label}</span>
-                        <span className="text-xs font-semibold text-lovable-primary">{factor.score}</span>
-                      </div>
-                      <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-lovable-ink-muted">Sem fatores suficientes para pontuar esta leitura.</p>
-              )}
-            </article>
-
-            <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Benchmark</h3>
-              <p className="mt-3 text-lg font-semibold text-lovable-ink">{assessmentIntelligence.benchmark.position_label}</p>
-              <p className="mt-1 text-sm text-lovable-ink-muted">{assessmentIntelligence.benchmark.explanation}</p>
-              <p className="mt-3 text-xs text-lovable-ink-muted">
-                {assessmentIntelligence.benchmark.sample_size} perfis analisados - media do cohort {assessmentIntelligence.benchmark.peer_average_score ?? "-"}
-              </p>
-            </article>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "evolution" &&
-        (hasEvolutionData ? (
-          <EvolutionCharts evolution={evolution} />
-        ) : (
-          <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <p className="text-sm text-lovable-ink-muted">Sem dados de evolucao.</p>
-          </section>
-        ))}
-
-      {activeTab === "constraints" && <MemberConstraintsEditor memberId={memberId} constraints={profile.constraints} />}
-
-      {activeTab === "goals" && (
-        <div className="space-y-4">
-          <MemberGoalsEditor memberId={memberId} goals={profile.goals} defaultAssessmentId={profile.latest_assessment?.id ?? null} />
-          <GoalsProgress goals={profile.goals} />
-        </div>
-      )}
-
-      {activeTab === "training" && (
-        <MemberTrainingPlanEditor
-          memberId={memberId}
-          trainingPlan={profile.active_training_plan}
-          defaultAssessmentId={profile.latest_assessment?.id ?? null}
-        />
-      )}
-
-      {activeTab === "actions" && (
-        <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Acoes recomendadas</h3>
-            {hasActions ? (
-              <ul className="mt-4 space-y-3">
-                {assessmentIntelligence.actions.map((action) => (
-                  <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
-                        <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
-                      </div>
-                      <span className="rounded-full bg-lovable-primary-soft px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-lovable-primary">
-                        {action.priority}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-xs text-lovable-primary">{action.suggested_message}</p>
-                    <p className="mt-2 text-[11px] text-lovable-ink-muted">Responsavel sugerido: {action.owner_role} - prazo: D+{action.due_in_days}</p>
-                  </li>
-                ))}
-              </ul>
+        <TabsContent value="evolucao">
+          <div className="space-y-4">
+            {hasEvolutionData ? (
+              <EvolutionCharts evolution={evolution} />
             ) : (
-              <p className="mt-4 text-sm text-lovable-ink-muted">Sem acoes recomendadas enquanto nao houver dados suficientes.</p>
+              <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+                <p className="text-sm text-lovable-ink-muted">Sem dados de evolucao consolidados ainda.</p>
+              </section>
             )}
-          </article>
-          <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Leitura operacional</h3>
-            <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Consistencia atual</p>
-                <p className="mt-1 text-xl font-semibold text-lovable-ink">
-                  {assessmentIntelligence.recent_weekly_checkins.toFixed(1)} / {assessmentIntelligence.target_frequency_per_week}x semana
-                </p>
-              </div>
-              <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">Cenario corrigido</p>
-                <p className="mt-1 text-xl font-semibold text-lovable-ink">{assessmentIntelligence.forecast.corrected_probability_90d}%</p>
-                <p className="text-xs text-lovable-ink-muted">chance de meta em 90 dias se a equipe corrigir o gargalo dominante</p>
-              </div>
-            </div>
-          </article>
-        </section>
-      )}
 
-      {activeTab === "bioimpedancia" && memberId && <MemberBodyCompositionTab memberId={memberId} />}
+            <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+              <AssessmentTimeline assessments={assessments} />
+              <Card>
+                <CardContent className="space-y-4 pt-5">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Ritmo operacional</p>
+                    <p className="mt-2 text-sm text-lovable-ink-muted">
+                      Compare a evolucao das metricas com o historico 360 e os registros de acompanhamento.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <DetailMetric
+                      label="Check-ins recentes"
+                      value={assessmentIntelligence.recent_weekly_checkins.toFixed(1)}
+                      helper={`Meta semanal: ${assessmentIntelligence.target_frequency_per_week}x`}
+                    />
+                    <DetailMetric
+                      label="Cenario corrigido"
+                      value={`${assessmentIntelligence.forecast.corrected_probability_90d}%`}
+                      helper="chance em 90 dias com ajuste do gargalo dominante"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <MemberTimeline360Content
+              member={profile.member}
+              events={timelineQuery.data}
+              isLoading={timelineQuery.isLoading}
+              isError={timelineQuery.isError}
+              showContextCard={false}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="plano">
+          <div className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+              <MemberGoalsEditor
+                memberId={memberId}
+                goals={profile.goals}
+                defaultAssessmentId={profile.latest_assessment?.id ?? null}
+              />
+              <MemberTrainingPlanEditor
+                memberId={memberId}
+                trainingPlan={profile.active_training_plan}
+                defaultAssessmentId={profile.latest_assessment?.id ?? null}
+              />
+            </div>
+            <GoalsProgress goals={profile.goals} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="contexto">
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="space-y-4">
+              <MemberConstraintsEditor memberId={memberId} constraints={profile.constraints} />
+              <NotesSummaryCard
+                latestNote={latestNote}
+                notesCount={notes.length}
+                onAdd={() => setIsAddNoteOpen(true)}
+                onHistory={() => setIsHistoryOpen(true)}
+              />
+            </div>
+            <ContextSupportPanel summary={assessmentIntelligence} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="bioimpedancia">
+          <MemberBodyCompositionTab memberId={memberId} />
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={isAddNoteOpen}
@@ -745,7 +672,7 @@ export function MemberProfile360Page() {
             value={noteDraft}
             onChange={(event) => setNoteDraft(event.target.value)}
             rows={5}
-            placeholder="Ex: Odeia esteira, prefere bike. Tem medo de agachamento livre. Gosta de ser corrigido."
+            placeholder="Ex: Prefere bike a esteira. Precisa de mais acompanhamento na adesao ao treino."
           />
           <div className="flex justify-end gap-2">
             <Button
@@ -794,5 +721,3 @@ export function MemberProfile360Page() {
     </section>
   );
 }
-
-

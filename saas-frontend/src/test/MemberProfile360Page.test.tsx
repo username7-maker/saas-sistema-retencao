@@ -10,6 +10,7 @@ import {
   type EvolutionData,
   type Profile360,
 } from "../services/assessmentService";
+import { bodyCompositionService } from "../services/bodyCompositionService";
 import { memberTimelineService } from "../services/memberTimelineService";
 import { memberService } from "../services/memberService";
 import type { Member } from "../types";
@@ -56,9 +57,16 @@ vi.mock("../services/assessmentService", async () => {
       list: vi.fn(),
       evolution: vi.fn(),
       summary360: vi.fn(),
+      create: vi.fn(),
     },
   };
 });
+
+vi.mock("../services/bodyCompositionService", () => ({
+  bodyCompositionService: {
+    list: vi.fn(),
+  },
+}));
 
 vi.mock("../services/memberTimelineService", () => ({
   memberTimelineService: {
@@ -130,7 +138,7 @@ const minimalMember: Member = {
   updated_at: "2026-03-10T00:00:00Z",
 };
 
-function renderPage() {
+function renderPage(initialEntry = "/assessments/members/member-1") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -140,7 +148,7 @@ function renderPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/assessments/members/member-1"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/assessments/members/:memberId" element={<MemberProfile360Page />} />
         </Routes>
@@ -162,23 +170,31 @@ describe("MemberProfile360Page", () => {
         goal_type: "fat_loss",
       }),
     );
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
     vi.mocked(memberTimelineService.list).mockResolvedValue([]);
     vi.mocked(memberService.getMember).mockResolvedValue(minimalMember);
     vi.mocked(memberService.updateMember).mockResolvedValue(minimalMember);
   });
 
-  it("renders safely with sparse intelligence payload", async () => {
+  it("renders the unified workspace with overview as default", async () => {
     renderPage();
 
-    expect(await screen.findAllByText("Sem avaliacao estruturada")).toHaveLength(2);
-    expect(screen.getByText("Sem benchmark")).toBeInTheDocument();
-    expect(screen.getByText("dados insuficientes")).toBeInTheDocument();
-    expect(screen.queryByText(/algo deu errado/i)).not.toBeInTheDocument();
+    expect(await screen.findByText("Workspace principal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visao geral" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Registrar avaliacao" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Plano e objetivos" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restricoes e contexto" })).toBeInTheDocument();
+    expect(screen.getAllByText("Sem avaliacao estruturada").length).toBeGreaterThan(0);
+    expect(screen.getByText("Leitura rapida para a equipe")).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Diagnostico IA" }));
-    expect(await screen.findByText("Sem sinais suficientes de evolucao registrados.")).toBeInTheDocument();
+  it("supports tab navigation through query params and preserves editors", async () => {
+    renderPage("/assessments/members/member-1?tab=plano");
 
-    fireEvent.click(screen.getByRole("button", { name: "Acoes" }));
-    expect(await screen.findByText("Sem acoes recomendadas enquanto nao houver dados suficientes.")).toBeInTheDocument();
+    expect(await screen.findByText("Goals editor mock")).toBeInTheDocument();
+    expect(screen.getByText("Training plan editor mock")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Bioimpedancia" }));
+    expect(await screen.findByText("Body composition mock")).toBeInTheDocument();
   });
 });
