@@ -200,7 +200,52 @@ export interface ImportSummary {
   errors: ImportErrorEntry[];
 }
 
-export type EvaluationSource = "tezewa" | "manual";
+export type EvaluationSource = "tezewa" | "manual" | "ocr_receipt" | "device_import" | "actuar_sync";
+export type ActuarSyncMode = "disabled" | "http_api" | "csv_export" | "assisted_rpa";
+export type ActuarSyncStatus = "disabled" | "pending" | "exported" | "synced" | "failed" | "skipped";
+export type ActuarSyncAttemptStatus = "pending" | "processing" | "exported" | "synced" | "failed" | "skipped" | "disabled";
+export type OcrWarningSeverity = "warning" | "critical";
+
+export interface BodyCompositionRangeValue {
+  min: number | null;
+  max: number | null;
+}
+
+export interface BodyCompositionOcrWarning {
+  field: string | null;
+  message: string;
+  severity: OcrWarningSeverity;
+}
+
+export interface BodyCompositionTrainingFocus {
+  primary_goal: string;
+  secondary_goal: string;
+  suggested_focuses: string[];
+  cautions: string[];
+}
+
+export interface BodyCompositionSyncAttempt {
+  id: string;
+  gym_id: string;
+  body_composition_evaluation_id: string;
+  sync_mode: ActuarSyncMode;
+  provider: string;
+  status: ActuarSyncAttemptStatus;
+  error: string | null;
+  payload_snapshot_json: Record<string, unknown> | unknown[] | null;
+  created_at: string;
+}
+
+export interface BodyCompositionActuarSyncStatus {
+  evaluation_id: string;
+  sync_mode: ActuarSyncMode;
+  sync_status: ActuarSyncStatus;
+  external_id: string | null;
+  last_synced_at: string | null;
+  last_error: string | null;
+  can_retry: boolean;
+  attempts: BodyCompositionSyncAttempt[];
+}
 
 export interface BodyCompositionEvaluation {
   id: string;
@@ -208,16 +253,50 @@ export interface BodyCompositionEvaluation {
   member_id: string;
   evaluation_date: string;
   weight_kg: number | null;
+  body_fat_kg: number | null;
   body_fat_percent: number | null;
+  waist_hip_ratio: number | null;
+  fat_free_mass_kg: number | null;
+  inorganic_salt_kg: number | null;
+  protein_kg: number | null;
+  body_water_kg: number | null;
   lean_mass_kg: number | null;
   muscle_mass_kg: number | null;
+  skeletal_muscle_kg: number | null;
   body_water_percent: number | null;
   visceral_fat_level: number | null;
   bmi: number | null;
   basal_metabolic_rate_kcal: number | null;
+  target_weight_kg: number | null;
+  weight_control_kg: number | null;
+  muscle_control_kg: number | null;
+  fat_control_kg: number | null;
+  total_energy_kcal: number | null;
+  physical_age: number | null;
+  health_score: number | null;
   source: EvaluationSource;
   notes: string | null;
   report_file_url: string | null;
+  raw_ocr_text: string | null;
+  ocr_confidence: number | null;
+  ocr_warnings_json: BodyCompositionOcrWarning[] | null;
+  needs_review: boolean;
+  reviewed_manually: boolean;
+  device_model: string | null;
+  device_profile: string | null;
+  parsed_from_image: boolean;
+  ocr_source_file_ref: string | null;
+  measured_ranges_json: Record<string, BodyCompositionRangeValue> | null;
+  ai_coach_summary: string | null;
+  ai_member_friendly_summary: string | null;
+  ai_risk_flags_json: string[] | null;
+  ai_training_focus_json: BodyCompositionTrainingFocus | null;
+  ai_generated_at: string | null;
+  actuar_sync_status: ActuarSyncStatus;
+  actuar_sync_mode: ActuarSyncMode;
+  actuar_external_id: string | null;
+  actuar_last_synced_at: string | null;
+  actuar_last_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -225,16 +304,43 @@ export interface BodyCompositionEvaluation {
 export interface BodyCompositionEvaluationCreate {
   evaluation_date: string;
   weight_kg?: number | null;
+  body_fat_kg?: number | null;
   body_fat_percent?: number | null;
+  waist_hip_ratio?: number | null;
+  fat_free_mass_kg?: number | null;
+  inorganic_salt_kg?: number | null;
+  protein_kg?: number | null;
+  body_water_kg?: number | null;
   lean_mass_kg?: number | null;
   muscle_mass_kg?: number | null;
+  skeletal_muscle_kg?: number | null;
   body_water_percent?: number | null;
   visceral_fat_level?: number | null;
   bmi?: number | null;
   basal_metabolic_rate_kcal?: number | null;
+  target_weight_kg?: number | null;
+  weight_control_kg?: number | null;
+  muscle_control_kg?: number | null;
+  fat_control_kg?: number | null;
+  total_energy_kcal?: number | null;
+  physical_age?: number | null;
+  health_score?: number | null;
   source?: EvaluationSource;
   notes?: string | null;
+  report_file_url?: string | null;
+  raw_ocr_text?: string | null;
+  ocr_confidence?: number | null;
+  ocr_warnings_json?: BodyCompositionOcrWarning[] | null;
+  needs_review?: boolean;
+  reviewed_manually?: boolean;
+  device_model?: string | null;
+  device_profile?: string | null;
+  parsed_from_image?: boolean;
+  ocr_source_file_ref?: string | null;
+  measured_ranges_json?: Record<string, BodyCompositionRangeValue> | null;
 }
+
+export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate;
 
 export interface SalesHistoryItem {
   kind: string;

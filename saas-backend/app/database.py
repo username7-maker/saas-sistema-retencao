@@ -13,6 +13,8 @@ from app.models import (
     Assessment,
     AuditLog,
     AutomationRule,
+    BodyCompositionEvaluation,
+    BodyCompositionSyncAttempt,
     Checkin,
     DiagnosisError,
     Goal,
@@ -70,6 +72,8 @@ TENANT_SCOPED_MODELS = (
     NurturingSequence,
     DiagnosisError,
     TrainingPlan,
+    BodyCompositionEvaluation,
+    BodyCompositionSyncAttempt,
 )
 _TENANT_SCOPED_TABLE_NAMES = frozenset(m.__tablename__ for m in TENANT_SCOPED_MODELS)
 

@@ -3,7 +3,7 @@ import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -13,8 +13,21 @@ from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
-from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
+from app.schemas.body_composition import (
+    BodyCompositionActuarSyncStatusRead,
+    BodyCompositionEvaluationCreate,
+    BodyCompositionEvaluationRead,
+    BodyCompositionImageOcrPayload,
+    BodyCompositionImageParseResultRead,
+    BodyCompositionEvaluationUpdate,
+)
 from app.services.audit_service import log_audit_event
+from app.services.body_composition_actuar_sync_service import (
+    get_body_composition_sync_status,
+    run_body_composition_sync_background,
+    schedule_body_composition_sync_retry,
+)
+from app.services.body_composition_image_parse_service import parse_body_composition_image
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     list_body_composition_evaluations,
@@ -222,15 +235,39 @@ def list_body_composition_endpoint(
     return list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
 
 
+@router.post("/{member_id}/body-composition/parse-image", response_model=BodyCompositionImageParseResultRead)
+async def parse_body_composition_image_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    file: UploadFile = File(...),
+    device_profile: str = Form("tezewa_receipt_v1"),
+    local_ocr_result: str | None = Form(default=None),
+) -> BodyCompositionImageParseResultRead:
+    get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    parsed_local_ocr = BodyCompositionImageOcrPayload.model_validate_json(local_ocr_result) if local_ocr_result else None
+    image_bytes = await file.read()
+    return parse_body_composition_image(
+        image_bytes=image_bytes,
+        media_type=file.content_type,
+        device_profile=device_profile,
+        local_ocr_result=parsed_local_ocr,
+    )
+
+
 @router.post("/{member_id}/body-composition", response_model=BodyCompositionEvaluationRead, status_code=status.HTTP_201_CREATED)
 def create_body_composition_endpoint(
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
+    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
+    evaluation, sync_attempt = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
     db.commit()
+    db.refresh(evaluation)
+    if sync_attempt is not None:
+        background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
     return evaluation
 
 
@@ -238,13 +275,62 @@ def create_body_composition_endpoint(
 def update_body_composition_endpoint(
     member_id: UUID,
     evaluation_id: UUID,
-    payload: BodyCompositionEvaluationCreate,
+    payload: BodyCompositionEvaluationUpdate,
+    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
+    evaluation, sync_attempt = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
     db.commit()
+    db.refresh(evaluation)
+    if sync_attempt is not None:
+        background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
     return evaluation
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/retry-actuar-sync",
+    response_model=BodyCompositionActuarSyncStatusRead,
+)
+def retry_body_composition_actuar_sync_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> BodyCompositionActuarSyncStatusRead:
+    evaluation, attempt = schedule_body_composition_sync_retry(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    db.commit()
+    background_tasks.add_task(run_body_composition_sync_background, evaluation.id, attempt.id, True)
+    return get_body_composition_sync_status(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+
+
+@router.get(
+    "/{member_id}/body-composition/{evaluation_id}/actuar-sync-status",
+    response_model=BodyCompositionActuarSyncStatusRead,
+)
+def get_body_composition_actuar_sync_status_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> BodyCompositionActuarSyncStatusRead:
+    return get_body_composition_sync_status(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
 
 
 class ContactLogCreate(BaseModel):

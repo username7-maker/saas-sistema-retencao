@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     claude_api_key: str = ""
     claude_model: str = "claude-3-5-haiku-latest"
     claude_max_tokens: int = 250
+    body_composition_image_ai_enabled: bool = False
+    claude_vision_model: str = "claude-3-5-sonnet-latest"
+    body_composition_image_ai_timeout_seconds: int = 20
 
     whatsapp_api_url: str = ""
     whatsapp_api_token: str = ""
@@ -44,6 +47,13 @@ class Settings(BaseSettings):
     redis_url: str = ""
     dashboard_cache_ttl_seconds: int = 300
     dashboard_cache_maxsize: int = 512
+    actuar_enabled: bool = False
+    actuar_sync_mode: str = "disabled"
+    actuar_base_url: str = ""
+    actuar_api_key: str = ""
+    actuar_username: str = ""
+    actuar_password: str = ""
+    actuar_timeout_seconds: int = 15
 
     cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
@@ -73,7 +83,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in raw.split(",") if origin.strip()]
         return DEFAULT_CORS_ORIGINS.copy()
 
-    @field_validator("debug", "enable_scheduler", mode="before")
+    @field_validator("debug", "enable_scheduler", "actuar_enabled", "body_composition_image_ai_enabled", mode="before")
     @classmethod
     def parse_bool_flags(cls, value: bool | str | int | None) -> bool:
         if isinstance(value, bool):

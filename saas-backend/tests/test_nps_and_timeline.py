@@ -125,7 +125,15 @@ class TestMemberTimeline:
             ),
         ]
         audit_events = []
-        bce_list = []
+        bce_list = [
+            SimpleNamespace(
+                evaluation_date=date(2026, 3, 6),
+                source="ocr_receipt",
+                ai_risk_flags_json=["percentual de gordura acima da faixa", "gordura visceral acima da faixa"],
+                health_score=62,
+                actuar_sync_status="pending",
+            ),
+        ]
 
         db = MagicMock()
         # Order matches member_timeline_service: assessments, goals, training_plans,
@@ -146,7 +154,10 @@ class TestMemberTimeline:
 
         from app.services.member_timeline_service import get_member_timeline
         result = get_member_timeline(db, MEMBER_ID)
-        assert len(result) == 5  # 1 assessment + 1 checkin + 1 risk + 1 nps + 1 task
+        assert len(result) == 6  # 1 assessment + 1 checkin + 1 risk + 1 nps + 1 task + 1 bioimpedancia
+        assert result[0]["title"] == "Bioimpedancia registrada"
+        assert "health score 62" in result[0]["detail"]
+        assert "sync pendente" in result[0]["detail"]
 
     def test_empty_timeline(self):
         db = MagicMock()

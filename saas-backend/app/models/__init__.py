@@ -2,6 +2,7 @@ from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.models.body_composition import BodyCompositionEvaluation
+from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
 from app.models.diagnosis_error import DiagnosisError
 from app.models.automation_rule import AutomationRule
 from app.models.base import Base
@@ -39,6 +40,7 @@ __all__ = [
     "Assessment",
     "AutomationExecutionLog",
     "BodyCompositionEvaluation",
+    "BodyCompositionSyncAttempt",
     "AutomationRule",
     "Base",
     "Checkin",

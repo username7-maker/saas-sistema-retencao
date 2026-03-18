@@ -1,11 +1,16 @@
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.body_composition import BodyCompositionEvaluation
-from app.schemas.body_composition import BodyCompositionEvaluationCreate
+from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
+from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationUpdate
+from app.services.body_composition_actuar_sync_service import (
+    get_body_composition_evaluation_or_404,
+    prepare_body_composition_sync_attempt,
+)
+from app.services.body_composition_ai_service import generate_body_composition_ai
 from app.services.member_service import get_member_or_404
 
 
@@ -14,16 +19,21 @@ def create_body_composition_evaluation(
     gym_id: UUID,
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
-) -> BodyCompositionEvaluation:
-    get_member_or_404(db, member_id)
+) -> tuple[BodyCompositionEvaluation, BodyCompositionSyncAttempt | None]:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    evaluation_data = payload.model_dump()
+    evaluation_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     evaluation = BodyCompositionEvaluation(
         gym_id=gym_id,
         member_id=member_id,
-        **payload.model_dump(),
+        **evaluation_data,
     )
     db.add(evaluation)
     db.flush()
-    return evaluation
+    _apply_ai_payload(db, member=member, evaluation=evaluation)
+    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
+    db.flush()
+    return evaluation, sync_attempt
 
 
 def list_body_composition_evaluations(
@@ -50,22 +60,39 @@ def update_body_composition_evaluation(
     gym_id: UUID,
     member_id: UUID,
     evaluation_id: UUID,
-    payload: BodyCompositionEvaluationCreate,
-) -> BodyCompositionEvaluation:
-    get_member_or_404(db, member_id)
-    evaluation = db.scalar(
-        select(BodyCompositionEvaluation).where(
-            BodyCompositionEvaluation.id == evaluation_id,
-            BodyCompositionEvaluation.gym_id == gym_id,
-            BodyCompositionEvaluation.member_id == member_id,
-        )
-    )
-    if not evaluation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bioimpedancia nao encontrada")
+    payload: BodyCompositionEvaluationUpdate,
+) -> tuple[BodyCompositionEvaluation, BodyCompositionSyncAttempt | None]:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
-    for field, value in payload.model_dump().items():
+    update_data = payload.model_dump()
+    update_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
+    for field, value in update_data.items():
         setattr(evaluation, field, value)
 
-    db.add(evaluation)
+    _apply_ai_payload(db, member=member, evaluation=evaluation)
+    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
     db.flush()
-    return evaluation
+    return evaluation, sync_attempt
+
+
+def _resolve_reviewed_manually(payload: BodyCompositionEvaluationCreate | BodyCompositionEvaluationUpdate) -> bool:
+    source = payload.source
+    if source == "manual":
+        return True
+    if source == "ocr_receipt":
+        return bool(payload.reviewed_manually)
+    return bool(payload.reviewed_manually)
+
+
+def _apply_ai_payload(db: Session, *, member, evaluation: BodyCompositionEvaluation) -> None:
+    ai_payload = generate_body_composition_ai(db, member=member, evaluation=evaluation)
+    evaluation.ai_coach_summary = ai_payload["coach_summary"]
+    evaluation.ai_member_friendly_summary = ai_payload["member_friendly_summary"]
+    evaluation.ai_risk_flags_json = ai_payload["risk_flags"]
+    evaluation.ai_training_focus_json = ai_payload["training_focus"]
+    generated_at = ai_payload.get("generated_at")
+    if isinstance(generated_at, str):
+        from datetime import datetime
+
+        evaluation.ai_generated_at = datetime.fromisoformat(generated_at)

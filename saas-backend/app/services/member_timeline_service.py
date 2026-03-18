@@ -31,6 +31,32 @@ def _scalar_or_none(db: Session, statement):
         return None
 
 
+def _body_composition_source_label(source: str | None) -> str:
+    if source == "manual":
+        return "Manual"
+    if source == "ocr_receipt":
+        return "OCR da foto"
+    if source == "device_import":
+        return "Importado"
+    if source == "actuar_sync":
+        return "Actuar / sincronizado"
+    return "Tezewa (legado)"
+
+
+def _body_composition_sync_label(sync_status: str | None) -> str:
+    if sync_status == "synced":
+        return "sync OK"
+    if sync_status == "exported":
+        return "sync exportado"
+    if sync_status == "failed":
+        return "sync falhou"
+    if sync_status == "pending":
+        return "sync pendente"
+    if sync_status == "skipped":
+        return "sync ignorado"
+    return "sync desabilitado"
+
+
 def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[dict]:
     events: list[dict] = []
 
@@ -260,21 +286,21 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         logger.warning("Nao foi possivel carregar eventos de bioimpedancia no timeline.")
         body_composition_items = []
     for body_item in body_composition_items:
-        source_label = "Tezewa" if getattr(body_item, "source", None) == "tezewa" else "Manual"
         parts = []
-        weight_kg = getattr(body_item, "weight_kg", None)
-        body_fat_percent = getattr(body_item, "body_fat_percent", None)
-        muscle_mass_kg = getattr(body_item, "muscle_mass_kg", None)
-        if weight_kg is not None:
-            parts.append(f"Peso: {weight_kg} kg")
-        if body_fat_percent is not None:
-            parts.append(f"Gordura: {body_fat_percent}%")
-        if muscle_mass_kg is not None:
-            parts.append(f"Musculo: {muscle_mass_kg} kg")
+        risk_flags = getattr(body_item, "ai_risk_flags_json", None) or []
+        if isinstance(risk_flags, list):
+            for flag in risk_flags[:2]:
+                if flag:
+                    parts.append(str(flag))
+        health_score = getattr(body_item, "health_score", None)
+        if health_score is not None:
+            parts.append(f"health score {health_score}")
+        parts.append(_body_composition_sync_label(getattr(body_item, "actuar_sync_status", None)))
         events.append({
             "type": "body_composition",
             "timestamp": body_item.evaluation_date.isoformat(),
-            "title": f"Bioimpedancia ({source_label})",
+            "title": "Bioimpedancia registrada",
+            "subtitle": _body_composition_source_label(getattr(body_item, "source", None)),
             "detail": " | ".join(parts) if parts else "Avaliacao registrada",
             "icon": "scan-line",
         })
