@@ -11,7 +11,7 @@ import { userService } from "../../services/userService";
 import type { Member } from "../../types";
 import { TasksOnboardingTab } from "../../components/tasks/TasksOnboardingTab";
 import { TasksOperationalView } from "../../components/tasks/TasksOperationalView";
-import type { SourceFilter } from "../../components/tasks/taskUtils";
+import { isOnboardingActiveMember, type SourceFilter } from "../../components/tasks/taskUtils";
 
 type WorkspaceTab = "operations" | "onboarding";
 
@@ -35,13 +35,14 @@ export function TasksPage() {
   const { user } = useAuth();
 
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("operations");
+  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
 
   const tasksQuery = useQuery({
-    queryKey: ["tasks"],
-    queryFn: taskService.listTasks,
+    queryKey: ["tasks", page],
+    queryFn: () => taskService.listTasks({ page, page_size: 50 }),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -88,9 +89,9 @@ export function TasksPage() {
   const tasks = tasksQuery.data?.items ?? [];
   const members = membersQuery.data ?? [];
   const users = usersQuery.data ?? [];
-  const onboardingCount = members.filter(
-    (member) => member.status === "active" && (member.onboarding_status === "active" || member.onboarding_status === "at_risk"),
-  ).length;
+  const totalTasks = tasksQuery.data?.total ?? 0;
+  const pageSize = tasksQuery.data?.page_size ?? 50;
+  const onboardingCount = members.filter((member) => isOnboardingActiveMember(member)).length;
 
   function openOnboardingQueue() {
     setSourcePreset("onboarding");
@@ -128,7 +129,7 @@ export function TasksPage() {
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="neutral">Tasks: {tasks.length}</Badge>
+            <Badge variant="neutral">Tasks: {totalTasks}</Badge>
             <Badge variant="warning">Onboarding ativo: {onboardingCount}</Badge>
           </div>
         </div>
@@ -145,6 +146,9 @@ export function TasksPage() {
           ) : (
             <TasksOperationalView
               tasks={tasks}
+              totalTasks={totalTasks}
+              currentPage={page}
+              pageSize={pageSize}
               members={members}
               users={users}
               currentUserId={user?.id ?? null}
@@ -157,6 +161,7 @@ export function TasksPage() {
               isDeleting={deleteMutation.isPending}
               onCreateOpen={() => setCreateOpen(true)}
               onCreateClose={() => setCreateOpen(false)}
+              onPageChange={setPage}
               onCreateTask={(payload) => createMutation.mutate(payload)}
               onUpdateTask={(taskId, payload) => updateMutation.mutate({ taskId, payload })}
               onDeleteTask={(taskId) => deleteMutation.mutate(taskId)}

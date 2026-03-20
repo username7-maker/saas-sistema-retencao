@@ -496,7 +496,7 @@ export function MemberProfile360Page() {
 
   const memberTasksQuery = useQuery({
     queryKey: ["tasks", "member-workspace", memberId],
-    queryFn: taskService.listTasks,
+    queryFn: () => taskService.listAllTasks(),
     enabled: Boolean(memberId) && (activeTab === "acoes" || isCreateTaskOpen),
     staleTime: 60 * 1000,
   });

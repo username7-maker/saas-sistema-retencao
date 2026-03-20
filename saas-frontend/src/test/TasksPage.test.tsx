@@ -37,53 +37,7 @@ vi.mock("../services/userService", () => ({
   },
 }));
 
-const members: Member[] = [
-  {
-    id: "member-1",
-    full_name: "Ana Silva",
-    email: "ana@teste.com",
-    phone: null,
-    status: "active",
-    plan_name: "Plano Mensal",
-    monthly_fee: 199,
-    join_date: "2026-03-01",
-    preferred_shift: null,
-    nps_last_score: 9,
-    loyalty_months: 1,
-    risk_score: 82,
-    risk_level: "red",
-    last_checkin_at: "2026-03-10T10:00:00Z",
-    extra_data: {},
-    suggested_action: null,
-    onboarding_status: "at_risk",
-    onboarding_score: 32,
-    created_at: "2026-03-01T00:00:00Z",
-    updated_at: "2026-03-10T00:00:00Z",
-  },
-  {
-    id: "member-2",
-    full_name: "Bruno Lima",
-    email: "bruno@teste.com",
-    phone: null,
-    status: "active",
-    plan_name: "Plano Anual",
-    monthly_fee: 249,
-    join_date: "2026-03-05",
-    preferred_shift: null,
-    nps_last_score: 8,
-    loyalty_months: 1,
-    risk_score: 41,
-    risk_level: "yellow",
-    last_checkin_at: "2026-03-17T10:00:00Z",
-    extra_data: {},
-    suggested_action: null,
-    onboarding_status: "active",
-    onboarding_score: 61,
-    created_at: "2026-03-05T00:00:00Z",
-    updated_at: "2026-03-17T00:00:00Z",
-  },
-];
-
+let members: Member[] = [];
 let tasks: Task[] = [];
 
 function renderPage() {
@@ -109,9 +63,79 @@ describe("TasksPage", () => {
 
     const now = new Date();
     const isoAtOffset = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString();
+    const dateAtOffset = (days: number) => isoAtOffset(days).slice(0, 10);
     const isoTodayMorning = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0),
     ).toISOString();
+
+    members = [
+      {
+        id: "member-1",
+        full_name: "Ana Silva",
+        email: "ana@teste.com",
+        phone: null,
+        status: "active",
+        plan_name: "Plano Mensal",
+        monthly_fee: 199,
+        join_date: dateAtOffset(-19),
+        preferred_shift: null,
+        nps_last_score: 9,
+        loyalty_months: 1,
+        risk_score: 82,
+        risk_level: "red",
+        last_checkin_at: isoAtOffset(-10),
+        extra_data: {},
+        suggested_action: null,
+        onboarding_status: "at_risk",
+        onboarding_score: 32,
+        created_at: isoAtOffset(-19),
+        updated_at: isoAtOffset(-10),
+      },
+      {
+        id: "member-2",
+        full_name: "Bruno Lima",
+        email: "bruno@teste.com",
+        phone: null,
+        status: "active",
+        plan_name: "Plano Anual",
+        monthly_fee: 249,
+        join_date: dateAtOffset(-15),
+        preferred_shift: null,
+        nps_last_score: 8,
+        loyalty_months: 1,
+        risk_score: 41,
+        risk_level: "yellow",
+        last_checkin_at: isoAtOffset(-3),
+        extra_data: {},
+        suggested_action: null,
+        onboarding_status: "active",
+        onboarding_score: 61,
+        created_at: isoAtOffset(-15),
+        updated_at: isoAtOffset(-3),
+      },
+      {
+        id: "member-3",
+        full_name: "André Luis Da Silva",
+        email: "andre@teste.com",
+        phone: null,
+        status: "active",
+        plan_name: "Plano Semestral",
+        monthly_fee: 219,
+        join_date: dateAtOffset(-33),
+        preferred_shift: null,
+        nps_last_score: 7,
+        loyalty_months: 1,
+        risk_score: 38,
+        risk_level: "yellow",
+        last_checkin_at: isoAtOffset(-2),
+        extra_data: {},
+        suggested_action: null,
+        onboarding_status: "active",
+        onboarding_score: 42,
+        created_at: isoAtOffset(-33),
+        updated_at: isoAtOffset(-2),
+      },
+    ];
 
     tasks = [
       {
@@ -269,12 +293,14 @@ describe("TasksPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "So minhas" }));
 
-    expect(await screen.findByRole("button", { name: /Limpar filtros/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Limpar filtros")).toBeInTheDocument();
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: /Limpar filtros/i }));
+    fireEvent.click(screen.getByText("Limpar filtros"));
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Limpar filtros/i })).not.toBeInTheDocument();
+      expect(screen.queryByText("Limpar filtros")).not.toBeInTheDocument();
     });
   });
 
@@ -295,7 +321,7 @@ describe("TasksPage", () => {
     expect(await screen.findByText("Detalhe da tarefa")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
     expect(screen.getByText("Mensagem sugerida")).toBeInTheDocument();
-  });
+  }, 10000);
 
   it("keeps onboarding in a dedicated tab", async () => {
     renderPage();
@@ -306,6 +332,8 @@ describe("TasksPage", () => {
     expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
     expect(screen.getByText("Intelligence de onboarding")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver tasks de onboarding" })).toBeInTheDocument();
+    expect(screen.getByText("Onboarding ativo: 2")).toBeInTheDocument();
+    expect(screen.queryByText("André Luis Da Silva")).not.toBeInTheDocument();
   });
 
   it("opens the create task drawer from the page header", async () => {

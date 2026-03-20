@@ -28,27 +28,27 @@ export interface UpdateTaskPayload {
 const PAGE_SIZE = 50;
 
 export const taskService = {
-  async listTasks(): Promise<PaginatedResponse<Task>> {
-    return taskService.listAllTasks();
+  async listTasks(params?: { page?: number; page_size?: number }): Promise<PaginatedResponse<Task>> {
+    const { page = 1, page_size = PAGE_SIZE } = params ?? {};
+    const { data } = await api.get<PaginatedResponse<Task>>("/api/v1/tasks/", {
+      params: { page, page_size },
+    });
+    return data;
   },
 
   async listAllTasks(): Promise<PaginatedResponse<Task>> {
-    const first = await api
-      .get<PaginatedResponse<Task>>("/api/v1/tasks", { params: { page: 1, page_size: PAGE_SIZE } })
-      .then((r) => r.data);
+    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE });
 
     if (first.total <= PAGE_SIZE) return first;
 
     const totalPages = Math.ceil(first.total / PAGE_SIZE);
-    const rest = await Promise.all(
-      Array.from({ length: totalPages - 1 }, (_, i) =>
-        api
-          .get<PaginatedResponse<Task>>("/api/v1/tasks", { params: { page: i + 2, page_size: PAGE_SIZE } })
-          .then((r) => r.data.items),
-      ),
-    );
+    const rest: Task[] = [];
+    for (let page = 2; page <= totalPages; page += 1) {
+      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE });
+      rest.push(...response.items);
+    }
 
-    return { ...first, items: [...first.items, ...rest.flat()] };
+    return { ...first, items: [...first.items, ...rest] };
   },
 
   async createTask(payload: CreateTaskPayload): Promise<Task> {

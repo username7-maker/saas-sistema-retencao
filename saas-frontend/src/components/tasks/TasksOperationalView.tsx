@@ -26,6 +26,9 @@ import {
 
 interface TasksOperationalViewProps {
   tasks: Task[];
+  totalTasks: number;
+  currentPage: number;
+  pageSize: number;
   members: Member[];
   users: StaffUser[];
   currentUserId: string | null;
@@ -38,6 +41,7 @@ interface TasksOperationalViewProps {
   isDeleting: boolean;
   onCreateOpen: () => void;
   onCreateClose: () => void;
+  onPageChange: (page: number) => void;
   onCreateTask: (payload: CreateTaskPayload) => void;
   onUpdateTask: (taskId: string, payload: UpdateTaskPayload) => void;
   onDeleteTask: (taskId: string) => void;
@@ -78,6 +82,9 @@ function ToggleChip({
 
 export function TasksOperationalView({
   tasks,
+  totalTasks,
+  currentPage,
+  pageSize,
   members,
   users,
   currentUserId,
@@ -90,6 +97,7 @@ export function TasksOperationalView({
   isDeleting,
   onCreateOpen,
   onCreateClose,
+  onPageChange,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
@@ -101,6 +109,7 @@ export function TasksOperationalView({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const todayKey = useMemo(() => getTodayKey(), []);
   const deferredSearch = useDeferredValue(filters.search);
@@ -163,7 +172,8 @@ export function TasksOperationalView({
   );
 
   const activeFilterCount = countActiveFilters(filters);
-  const noTasksAtAll = tasks.length === 0;
+  const noTasksAtAll = totalTasks === 0;
+  const totalPages = Math.max(1, Math.ceil(totalTasks / pageSize));
 
   function handleFilterChange<K extends keyof OperationalFilters>(key: K, value: OperationalFilters[K]) {
     setFilters((previous) => ({ ...previous, [key]: value }));
@@ -188,6 +198,10 @@ export function TasksOperationalView({
 
   function handleComplete(taskId: string) {
     onUpdateTask(taskId, { status: "done" });
+  }
+
+  function toggleGroup(groupKey: string) {
+    setExpandedGroups((previous) => ({ ...previous, [groupKey]: !previous[groupKey] }));
   }
 
   const kpiItems = [
@@ -347,12 +361,43 @@ export function TasksOperationalView({
         </div>
       ) : (
         <div className="space-y-4">
+          <div className="flex flex-col gap-2 rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3 text-sm text-lovable-ink-muted md:flex-row md:items-center md:justify-between">
+            <p>
+              Mostrando <span className="font-semibold text-lovable-ink">{tasks.length}</span> tarefas nesta pagina de um total de{" "}
+              <span className="font-semibold text-lovable-ink">{totalTasks}</span>.
+            </p>
+            {totalPages > 1 ? (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+                  Anterior
+                </Button>
+                <span className="text-xs font-medium uppercase tracking-wide text-lovable-ink-muted">
+                  Pagina {currentPage} de {totalPages}
+                </span>
+                <Button size="sm" variant="ghost" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+                  Proxima
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
           {groups.map((group) => (
             <section key={group.key} className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-4">
-              <SectionHeader title={group.label} subtitle={group.description} count={group.tasks.length} />
+              <SectionHeader
+                title={group.label}
+                subtitle={group.description}
+                count={group.tasks.length}
+                actions={
+                  group.tasks.length > 8 ? (
+                    <Button size="sm" variant="ghost" onClick={() => toggleGroup(group.key)}>
+                      {expandedGroups[group.key] ? "Recolher" : `Mostrar mais ${group.tasks.length - 8}`}
+                    </Button>
+                  ) : null
+                }
+              />
 
               <div className="space-y-2">
-                {group.tasks.map((task) => (
+                {(expandedGroups[group.key] ? group.tasks : group.tasks.slice(0, 8)).map((task) => (
                   <TaskListItem
                     key={task.id}
                     task={task}

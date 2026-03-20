@@ -133,6 +133,12 @@ export function getDateKey(value: string | null): string | null {
   return value && value.length >= 10 ? value.slice(0, 10) : null;
 }
 
+function getDaysBetween(dateKey: string, todayKey: string): number {
+  const left = new Date(`${dateKey}T00:00:00Z`).getTime();
+  const right = new Date(`${todayKey}T00:00:00Z`).getTime();
+  return Math.floor((right - left) / 86_400_000);
+}
+
 export function formatDueDate(value: string | null): string {
   const key = getDateKey(value);
   if (!key) return "Sem prazo";
@@ -184,9 +190,7 @@ export function isRecentlyCancelled(task: Task, todayKey: string): boolean {
 }
 
 function dayDiff(dateKey: string, todayKey: string): number {
-  const left = new Date(`${dateKey}T00:00:00Z`).getTime();
-  const right = new Date(`${todayKey}T00:00:00Z`).getTime();
-  return Math.floor(Math.abs(right - left) / 86_400_000);
+  return Math.abs(getDaysBetween(dateKey, todayKey));
 }
 
 function daysUntil(task: Task, todayKey: string): number | null {
@@ -411,7 +415,12 @@ export function getMainActionLabel(task: Task): string {
 }
 
 export function isOnboardingActiveMember(member: Member): boolean {
-  return member.status === "active" && (member.onboarding_status === "active" || member.onboarding_status === "at_risk");
+  if (member.status !== "active") return false;
+  const joinKey = getDateKey(member.join_date);
+  if (!joinKey) return false;
+  const daysSinceJoin = getDaysBetween(joinKey, getTodayKey());
+  if (daysSinceJoin < 0 || daysSinceJoin > 30) return false;
+  return member.onboarding_status === "active" || member.onboarding_status === "at_risk";
 }
 
 export function memberToPlaybook(member: Member): OnboardingPlaybookKey {

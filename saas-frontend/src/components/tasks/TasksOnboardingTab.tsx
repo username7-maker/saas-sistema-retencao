@@ -210,8 +210,13 @@ export function TasksOnboardingTab({
   const filteredMembers = useMemo(() => {
     const groupMembers = playbookGroups[activePlaybook];
     const query = search.trim().toLowerCase();
-    if (!query) return groupMembers;
-    return groupMembers.filter((member) => member.full_name.toLowerCase().includes(query));
+    const sortedMembers = [...groupMembers].sort((left, right) => {
+      const scoreDiff = (left.onboarding_score ?? 0) - (right.onboarding_score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(right.join_date).getTime() - new Date(left.join_date).getTime();
+    });
+    if (!query) return sortedMembers;
+    return sortedMembers.filter((member) => member.full_name.toLowerCase().includes(query));
   }, [activePlaybook, playbookGroups, search]);
 
   const selectedMember = filteredMembers.find((member) => member.id === selectedMemberId) ?? filteredMembers[0] ?? null;
@@ -322,7 +327,7 @@ export function TasksOnboardingTab({
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
                   {filteredMembers.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-lovable-border p-6 text-center">
                       <Activity size={22} className="mx-auto text-lovable-ink-muted/30" />
