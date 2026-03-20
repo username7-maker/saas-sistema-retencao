@@ -35,8 +35,11 @@ def _build_xlsx_bytes(headers: list[str], rows: list[list[object]]) -> bytes:
         cells_xml: list[str] = []
         for col_idx, value in enumerate(row_values):
             cell_ref = f"{col_name(col_idx)}{row_idx}"
-            sst_id = shared_id(value)
-            cells_xml.append(f'<c r="{cell_ref}" t="s"><v>{sst_id}</v></c>')
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                cells_xml.append(f'<c r="{cell_ref}"><v>{value}</v></c>')
+            else:
+                sst_id = shared_id(value)
+                cells_xml.append(f'<c r="{cell_ref}" t="s"><v>{sst_id}</v></c>')
         sheet_rows_xml.append(f'<row r="{row_idx}">{"".join(cells_xml)}</row>')
 
     sheet_xml = (
@@ -466,4 +469,48 @@ def test_import_checkins_csv_auto_creates_missing_members(monkeypatch) -> None:
     assert summary.provisional_members == ["Mateus Dalsant Zonatto"]
     assert summary.missing_members == []
     assert summary.errors == []
+    assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
+
+
+def test_import_checkins_csv_accepts_turnstile_xlsx_with_data_entrada_serial() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Diego Rafagnin De Oliverira",
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        cpf_encrypted=None,
+        extra_data={"external_id": "0001"},
+    )
+
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    xlsx_content = _build_xlsx_bytes(
+        headers=[
+            "Data Entrada",
+            "Hora Entrada",
+            "Data Saída",
+            "Hora Saída",
+            "Tipo Cadastro",
+            "Cliente",
+            "Assinatura",
+            "CPF",
+        ],
+        rows=[
+            [46097.834181909726, "20:01", 46097.83567262732, "20:03", "Cliente", "Diego Rafagnin De Oliverira", "LIVRE MENSAL", ""],
+        ],
+    )
+
+    summary = import_service.import_checkins_csv(db, xlsx_content, filename="Acessos.xlsx")
+
+    assert summary.imported == 1
+    assert summary.errors == []
+    assert summary.skipped_duplicates == 0
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)

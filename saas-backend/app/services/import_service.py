@@ -58,9 +58,20 @@ STATUS_KEYS = ("status", "situacao", "state")
 EXTERNAL_ID_KEYS = ("external_id", "matricula", "codigo", "member_code", "id_aluno", "id_externo", "codigo_acesso")
 
 MEMBER_ID_KEYS = ("member_id", "id_membro", "aluno_id", "member_uuid")
-CHECKIN_AT_KEYS = ("checkin_at", "data_checkin", "checkin", "data_hora", "datetime", "timestamp", "hora", "data")
-CHECKIN_DATE_KEYS = ("checkin_date", "data_checkin", "data", "date")
-CHECKIN_TIME_KEYS = ("checkin_time", "hora_checkin", "hora", "time")
+CHECKIN_AT_KEYS = (
+    "checkin_at",
+    "data_checkin",
+    "checkin",
+    "data_hora",
+    "datetime",
+    "timestamp",
+    "hora",
+    "data",
+    "data_entrada",
+    "data_hora_entrada",
+)
+CHECKIN_DATE_KEYS = ("checkin_date", "data_checkin", "data", "date", "data_entrada", "data_saida")
+CHECKIN_TIME_KEYS = ("checkin_time", "hora_checkin", "hora", "time", "hora_entrada", "hora_saida")
 CHECKIN_SOURCE_KEYS = ("source", "origem", "tipo")
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y")
@@ -253,14 +264,7 @@ def import_checkins_csv(
         date_raw = _pick_first(row, CHECKIN_DATE_KEYS)
         time_raw = _pick_first(row, CHECKIN_TIME_KEYS)
         checkin_raw = _pick_first(row, CHECKIN_AT_KEYS)
-        if not checkin_raw and date_raw and time_raw:
-            checkin_raw = f"{date_raw} {time_raw}"
-        elif not checkin_raw:
-            checkin_raw = date_raw
-
-        parsed = _parse_datetime(checkin_raw)
-        if not parsed and date_raw and time_raw:
-            parsed = _parse_datetime(f"{date_raw} {time_raw}")
+        parsed = _parse_checkin_datetime(checkin_raw=checkin_raw, date_raw=date_raw, time_raw=time_raw)
         if not parsed:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
             continue
@@ -720,6 +724,42 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_time(value: str | None) -> time | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    serial = _parse_excel_serial(raw)
+    if serial is not None and 0 <= serial < 1:
+        return _excel_serial_to_datetime(serial).time()
+
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(raw, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_checkin_datetime(*, checkin_raw: str | None, date_raw: str | None, time_raw: str | None) -> datetime | None:
+    if date_raw and time_raw:
+        parsed_date = _parse_date(date_raw)
+        parsed_time = _parse_time(time_raw)
+        if parsed_date and parsed_time:
+            return datetime.combine(parsed_date, parsed_time, tzinfo=timezone.utc)
+
+    candidate = checkin_raw or date_raw
+    parsed = _parse_datetime(candidate)
+    if parsed:
+        return parsed
+
+    if date_raw and time_raw:
+        return _parse_datetime(f"{date_raw} {time_raw}")
+    return None
+
+
 def _parse_member_status(raw_value: str | None) -> MemberStatus:
     key = _normalize_header(raw_value or "")
     mapping = {
@@ -754,6 +794,8 @@ def _parse_excel_serial(raw_value: str) -> float | None:
         serial = float(cleaned)
     except ValueError:
         return None
+    if 0 <= serial < 1:
+        return serial
     # Only accept serials within a plausible date range (~1995 to 2050).
     if not (_EXCEL_SERIAL_MIN <= serial <= _EXCEL_SERIAL_MAX):
         return None
