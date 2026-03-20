@@ -1,12 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
+from app.schemas import PaginatedResponse
 from app.schemas.assessment import (
     AssessmentActionOut,
     AssessmentBenchmarkOut,
@@ -16,6 +17,7 @@ from app.schemas.assessment import (
     AssessmentForecastOut,
     AssessmentMiniOut,
     AssessmentOut,
+    AssessmentQueueItemOut,
     AssessmentSummary360Out,
     EvolutionOut,
     MemberConstraintsOut,
@@ -27,7 +29,7 @@ from app.schemas.assessment import (
     TrainingPlanCreate,
     TrainingPlanOut,
 )
-from app.services.assessment_analytics_service import get_assessments_dashboard
+from app.services.assessment_analytics_service import get_assessments_dashboard, get_assessments_queue
 from app.services.assessment_goals_service import (
     create_goal,
     create_training_plan,
@@ -67,11 +69,30 @@ def assessments_dashboard_endpoint(
         overdue_assessments=payload["overdue_assessments"],
         never_assessed=payload["never_assessed"],
         upcoming_7_days=payload["upcoming_7_days"],
+        attention_now=[AssessmentQueueItemOut.model_validate(item) for item in payload.get("attention_now", [])],
         total_members_items=[MemberMiniOut.model_validate(item) for item in payload.get("total_members_items", [])],
         assessed_members=[MemberMiniOut.model_validate(item) for item in payload.get("assessed_members", [])],
         overdue_members=[MemberMiniOut.model_validate(item) for item in payload["overdue_members"]],
         never_assessed_members=[MemberMiniOut.model_validate(item) for item in payload.get("never_assessed_members", [])],
         upcoming_members=[MemberMiniOut.model_validate(item) for item in payload.get("upcoming_members", [])],
+    )
+
+
+@router.get("/queue", response_model=PaginatedResponse[AssessmentQueueItemOut])
+def assessments_queue_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    search: str | None = Query(default=None),
+    bucket: Literal["all", "overdue", "never", "week", "upcoming", "covered"] = Query(default="all"),
+) -> PaginatedResponse[AssessmentQueueItemOut]:
+    return get_assessments_queue(
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        bucket=bucket,
     )
 
 

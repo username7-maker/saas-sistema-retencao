@@ -1,16 +1,249 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Literal
 
-from sqlalchemy import desc, distinct, func, or_, select
+from sqlalchemy import and_, case, desc, distinct, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
+from app.database import get_current_gym_id
 from app.models import Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
+from app.schemas import PaginatedResponse
+from app.schemas.assessment import AssessmentQueueItemOut
 
 logger = logging.getLogger(__name__)
+
+
+AssessmentQueueBucket = Literal["all", "overdue", "never", "week", "upcoming", "covered"]
+AssessmentMemberBucket = Literal["overdue", "never", "week", "upcoming", "covered"]
+
+
+def _resolve_gym_id(gym_id=None):
+    return gym_id or get_current_gym_id()
+
+
+def _scoped_statement(statement, gym_id):
+    if gym_id is None:
+        return statement
+    return statement.execution_options(include_all_tenants=True)
+
+
+def _latest_assessment_subquery():
+    ranked_assessments = (
+        select(
+            Assessment.member_id.label("member_id"),
+            Assessment.assessment_date.label("assessment_date"),
+            Assessment.next_assessment_due.label("next_assessment_due"),
+            func.row_number()
+            .over(
+                partition_by=Assessment.member_id,
+                order_by=(Assessment.assessment_date.desc(), Assessment.updated_at.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(Assessment.deleted_at.is_(None))
+        .subquery()
+    )
+
+    return (
+        select(
+            ranked_assessments.c.member_id.label("member_id"),
+            ranked_assessments.c.assessment_date.label("last_assessment_date"),
+            ranked_assessments.c.next_assessment_due.label("next_assessment_due"),
+        )
+        .where(ranked_assessments.c.row_number == 1)
+        .subquery()
+    )
+
+
+def _queue_conditions(last_assessment_date_col, next_assessment_due_col, *, cutoff_90, today, next_7):
+    never = last_assessment_date_col.is_(None)
+    overdue = and_(
+        last_assessment_date_col.is_not(None),
+        or_(
+            last_assessment_date_col < cutoff_90,
+            and_(next_assessment_due_col.is_not(None), next_assessment_due_col < today),
+        ),
+    )
+    week = and_(
+        last_assessment_date_col.is_not(None),
+        last_assessment_date_col >= cutoff_90,
+        next_assessment_due_col.is_not(None),
+        next_assessment_due_col >= today,
+        next_assessment_due_col <= next_7,
+    )
+    upcoming = and_(
+        last_assessment_date_col.is_not(None),
+        last_assessment_date_col >= cutoff_90,
+        next_assessment_due_col.is_not(None),
+        next_assessment_due_col > next_7,
+    )
+    covered = and_(
+        last_assessment_date_col.is_not(None),
+        last_assessment_date_col >= cutoff_90,
+        next_assessment_due_col.is_(None),
+    )
+    return {
+        "never": never,
+        "overdue": overdue,
+        "week": week,
+        "upcoming": upcoming,
+        "covered": covered,
+    }
+
+
+def _coverage_label(bucket: AssessmentMemberBucket) -> str:
+    if bucket == "never":
+        return "Nenhuma avaliacao registrada"
+    if bucket == "overdue":
+        return "Cobertura vencida"
+    if bucket == "week":
+        return "Avaliacao prevista nesta semana"
+    if bucket == "upcoming":
+        return "Planejamento futuro"
+    return "Base coberta recentemente"
+
+
+def _due_label(bucket: AssessmentMemberBucket, next_assessment_due, today):
+    if bucket == "never":
+        return "Primeira avaliacao pendente"
+    if next_assessment_due:
+        if next_assessment_due < today:
+            return f"Atrasada desde {next_assessment_due.strftime('%d/%m/%Y')}"
+        if next_assessment_due == today:
+            return "Vence hoje"
+        if next_assessment_due <= today + timedelta(days=7):
+            return f"Janela ate {next_assessment_due.strftime('%d/%m/%Y')}"
+        return f"Proxima janela em {next_assessment_due.strftime('%d/%m/%Y')}"
+    if bucket == "overdue":
+        return "Fora da janela ideal de 90 dias"
+    return "Sem proxima janela definida"
+
+
+def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
+    bucket = getattr(row, "queue_bucket")
+    next_assessment_due = getattr(row, "next_assessment_due")
+    return AssessmentQueueItemOut(
+        id=getattr(row, "id"),
+        full_name=getattr(row, "full_name"),
+        email=getattr(row, "email"),
+        plan_name=getattr(row, "plan_name"),
+        risk_level=getattr(row, "risk_level"),
+        risk_score=int(getattr(row, "risk_score") or 0),
+        last_checkin_at=getattr(row, "last_checkin_at"),
+        next_assessment_due=next_assessment_due,
+        queue_bucket=bucket,
+        coverage_label=_coverage_label(bucket),
+        due_label=_due_label(bucket, next_assessment_due, today),
+        urgency_score=int(getattr(row, "urgency_score") or 0),
+    )
+
+
+def get_assessments_queue(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    search: str | None = None,
+    bucket: AssessmentQueueBucket = "all",
+    gym_id=None,
+) -> PaginatedResponse[AssessmentQueueItemOut]:
+    now = datetime.now(tz=timezone.utc)
+    cutoff_90 = now - timedelta(days=90)
+    today = now.date()
+    next_7 = today + timedelta(days=7)
+    resolved_gym_id = _resolve_gym_id(gym_id)
+
+    latest_assessment_subquery = _latest_assessment_subquery()
+    last_assessment_date_col = latest_assessment_subquery.c.last_assessment_date
+    next_assessment_due_col = latest_assessment_subquery.c.next_assessment_due
+    queue_conditions = _queue_conditions(
+        last_assessment_date_col,
+        next_assessment_due_col,
+        cutoff_90=cutoff_90,
+        today=today,
+        next_7=next_7,
+    )
+
+    queue_bucket_expr = case(
+        (queue_conditions["never"], literal("never")),
+        (queue_conditions["overdue"], literal("overdue")),
+        (queue_conditions["week"], literal("week")),
+        (queue_conditions["upcoming"], literal("upcoming")),
+        else_=literal("covered"),
+    )
+    bucket_priority_expr = case(
+        (queue_conditions["never"], 0),
+        (queue_conditions["overdue"], 1),
+        (queue_conditions["week"], 2),
+        (queue_conditions["upcoming"], 3),
+        else_=4,
+    )
+    urgency_score_expr = func.coalesce(Member.risk_score, 0) + case(
+        (queue_conditions["never"], 300),
+        (queue_conditions["overdue"], 240),
+        (queue_conditions["week"], 180),
+        (queue_conditions["upcoming"], 120),
+        else_=60,
+    )
+
+    filters = [Member.deleted_at.is_(None)]
+    if resolved_gym_id is not None:
+        filters.append(Member.gym_id == resolved_gym_id)
+    if search:
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Member.full_name.ilike(search_value),
+                Member.email.ilike(search_value),
+                Member.plan_name.ilike(search_value),
+            )
+        )
+    if bucket != "all":
+        filters.append(queue_conditions[bucket])
+
+    base_stmt = (
+        select(
+            Member.id.label("id"),
+            Member.full_name.label("full_name"),
+            Member.email.label("email"),
+            Member.plan_name.label("plan_name"),
+            Member.risk_level.label("risk_level"),
+            Member.risk_score.label("risk_score"),
+            Member.last_checkin_at.label("last_checkin_at"),
+            Member.updated_at.label("updated_at"),
+            next_assessment_due_col.label("next_assessment_due"),
+            queue_bucket_expr.label("queue_bucket"),
+            urgency_score_expr.label("urgency_score"),
+        )
+        .select_from(Member)
+        .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+        .where(and_(*filters))
+    )
+
+    total_stmt = _scoped_statement(
+        select(func.count(Member.id))
+        .select_from(Member)
+        .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+        .where(and_(*filters)),
+        resolved_gym_id,
+    )
+    total = int(db.scalar(total_stmt) or 0)
+
+    offset = (page - 1) * page_size
+    stmt = _scoped_statement(
+        base_stmt
+        .order_by(bucket_priority_expr, Member.risk_score.desc(), Member.updated_at.desc(), Member.full_name.asc())
+        .offset(offset)
+        .limit(page_size),
+        resolved_gym_id,
+    )
+    rows = db.execute(stmt).all()
+    items = [_serialize_queue_item(row, today) for row in rows]
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 def get_assessments_dashboard(db: Session) -> dict:
@@ -18,48 +251,61 @@ def get_assessments_dashboard(db: Session) -> dict:
     cutoff_90 = now - timedelta(days=90)
     today = now.date()
     next_7 = today + timedelta(days=7)
+    resolved_gym_id = _resolve_gym_id()
 
-    total_members = db.scalar(select(func.count(Member.id)).where(Member.deleted_at.is_(None))) or 0
+    base_member_filters = [Member.deleted_at.is_(None)]
+    if resolved_gym_id is not None:
+        base_member_filters.append(Member.gym_id == resolved_gym_id)
+
+    total_members = db.scalar(
+        _scoped_statement(select(func.count(Member.id)).where(and_(*base_member_filters)), resolved_gym_id)
+    ) or 0
     assessed_last_90_days = db.scalar(
-        select(func.count(distinct(Assessment.member_id))).where(
-            Assessment.deleted_at.is_(None),
-            Assessment.assessment_date >= cutoff_90,
+        _scoped_statement(
+            select(func.count(distinct(Assessment.member_id))).where(
+                Assessment.deleted_at.is_(None),
+                Assessment.assessment_date >= cutoff_90,
+            ),
+            resolved_gym_id,
         )
     ) or 0
     assessed_total = db.scalar(
-        select(func.count(distinct(Assessment.member_id))).where(Assessment.deleted_at.is_(None))
+        _scoped_statement(
+            select(func.count(distinct(Assessment.member_id))).where(Assessment.deleted_at.is_(None)),
+            resolved_gym_id,
+        )
     ) or 0
     never_assessed = max(int(total_members) - int(assessed_total), 0)
 
-    latest_assessment_subquery = (
-        select(
-            Assessment.member_id.label("member_id"),
-            func.max(Assessment.assessment_date).label("last_assessment_date"),
-        )
-        .where(Assessment.deleted_at.is_(None))
-        .group_by(Assessment.member_id)
-        .subquery()
-    )
+    latest_assessment_subquery = _latest_assessment_subquery()
 
     overdue_assessments = db.scalar(
-        select(func.count(Member.id))
-        .select_from(Member)
-        .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-        .where(
-            Member.deleted_at.is_(None),
-            or_(
-                latest_assessment_subquery.c.last_assessment_date.is_(None),
-                latest_assessment_subquery.c.last_assessment_date < cutoff_90,
+        _scoped_statement(
+            select(func.count(Member.id))
+            .select_from(Member)
+            .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .where(
+                and_(
+                    *base_member_filters,
+                    or_(
+                        latest_assessment_subquery.c.last_assessment_date.is_(None),
+                        latest_assessment_subquery.c.last_assessment_date < cutoff_90,
+                    ),
+                )
             ),
+            resolved_gym_id,
         )
     ) or 0
 
     upcoming_7_days = db.scalar(
-        select(func.count(distinct(Assessment.member_id))).where(
-            Assessment.deleted_at.is_(None),
-            Assessment.next_assessment_due.is_not(None),
-            Assessment.next_assessment_due >= today,
-            Assessment.next_assessment_due <= next_7,
+        _scoped_statement(
+            select(func.count(distinct(Assessment.member_id))).where(
+                Assessment.deleted_at.is_(None),
+                Assessment.next_assessment_due.is_not(None),
+                Assessment.next_assessment_due >= today,
+                Assessment.next_assessment_due <= next_7,
+            ),
+            resolved_gym_id,
         )
     ) or 0
 
@@ -67,52 +313,70 @@ def get_assessments_dashboard(db: Session) -> dict:
 
     total_members_items = list(
         db.scalars(
-            select(Member)
-            .where(Member.deleted_at.is_(None))
-            .order_by(*member_ordering)
-            .limit(20)
+            _scoped_statement(
+                select(Member)
+                .where(and_(*base_member_filters))
+                .order_by(*member_ordering)
+                .limit(20),
+                resolved_gym_id,
+            )
         ).all()
     )
 
     assessed_members = list(
         db.scalars(
-            select(Member)
-            .join(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(
-                Member.deleted_at.is_(None),
-                latest_assessment_subquery.c.last_assessment_date >= cutoff_90,
+            _scoped_statement(
+                select(Member)
+                .join(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .where(
+                    and_(
+                        *base_member_filters,
+                        latest_assessment_subquery.c.last_assessment_date >= cutoff_90,
+                    )
+                )
+                .order_by(latest_assessment_subquery.c.last_assessment_date.desc(), *member_ordering)
+                .limit(20),
+                resolved_gym_id,
             )
-            .order_by(latest_assessment_subquery.c.last_assessment_date.desc(), *member_ordering)
-            .limit(20)
         ).all()
     )
 
     overdue_members = list(
         db.scalars(
-            select(Member)
-            .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(
-                Member.deleted_at.is_(None),
-                or_(
-                    latest_assessment_subquery.c.last_assessment_date.is_(None),
-                    latest_assessment_subquery.c.last_assessment_date < cutoff_90,
-                ),
+            _scoped_statement(
+                select(Member)
+                .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .where(
+                    and_(
+                        *base_member_filters,
+                        or_(
+                            latest_assessment_subquery.c.last_assessment_date.is_(None),
+                            latest_assessment_subquery.c.last_assessment_date < cutoff_90,
+                        ),
+                    )
+                )
+                .order_by(*member_ordering)
+                .limit(20),
+                resolved_gym_id,
             )
-            .order_by(*member_ordering)
-            .limit(20)
         ).all()
     )
 
     never_assessed_members = list(
         db.scalars(
-            select(Member)
-            .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(
-                Member.deleted_at.is_(None),
-                latest_assessment_subquery.c.last_assessment_date.is_(None),
+            _scoped_statement(
+                select(Member)
+                .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .where(
+                    and_(
+                        *base_member_filters,
+                        latest_assessment_subquery.c.last_assessment_date.is_(None),
+                    )
+                )
+                .order_by(*member_ordering)
+                .limit(20),
+                resolved_gym_id,
             )
-            .order_by(*member_ordering)
-            .limit(20)
         ).all()
     )
 
@@ -128,11 +392,14 @@ def get_assessments_dashboard(db: Session) -> dict:
     )
     upcoming_members = list(
         db.scalars(
-            select(Member)
-            .join(upcoming_members_subquery, upcoming_members_subquery.c.member_id == Member.id)
-            .where(Member.deleted_at.is_(None))
-            .order_by(*member_ordering)
-            .limit(20)
+            _scoped_statement(
+                select(Member)
+                .join(upcoming_members_subquery, upcoming_members_subquery.c.member_id == Member.id)
+                .where(and_(*base_member_filters))
+                .order_by(*member_ordering)
+                .limit(20),
+                resolved_gym_id,
+            )
         ).all()
     )
 
@@ -142,6 +409,7 @@ def get_assessments_dashboard(db: Session) -> dict:
         "overdue_assessments": int(overdue_assessments),
         "never_assessed": int(never_assessed),
         "upcoming_7_days": int(upcoming_7_days),
+        "attention_now": get_assessments_queue(db, page=1, page_size=6, bucket="all", gym_id=resolved_gym_id).items,
         "total_members_items": total_members_items,
         "assessed_members": assessed_members,
         "overdue_members": overdue_members,

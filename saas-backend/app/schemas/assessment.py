@@ -196,6 +196,21 @@ class MemberMiniOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AssessmentQueueItemOut(BaseModel):
+    id: UUID
+    full_name: str
+    email: str | None = None
+    plan_name: str
+    risk_level: RiskLevel
+    risk_score: int
+    last_checkin_at: datetime | None = None
+    next_assessment_due: date | None = None
+    queue_bucket: str
+    coverage_label: str
+    due_label: str
+    urgency_score: int
+
+
 class Profile360Out(BaseModel):
     member: MemberMiniOut
     latest_assessment: AssessmentMiniOut | None
@@ -227,6 +242,7 @@ class AssessmentDashboardOut(BaseModel):
     overdue_assessments: int
     never_assessed: int
     upcoming_7_days: int
+    attention_now: list[AssessmentQueueItemOut] = Field(default_factory=list)
     total_members_items: list[MemberMiniOut] = Field(default_factory=list)
     assessed_members: list[MemberMiniOut] = Field(default_factory=list)
     overdue_members: list[MemberMiniOut]

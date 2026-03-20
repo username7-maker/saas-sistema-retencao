@@ -3,6 +3,7 @@ from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCo
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentDashboardOut,
+    AssessmentQueueItemOut,
     AssessmentMiniOut,
     AssessmentOut,
     EvolutionOut,
@@ -74,6 +75,7 @@ __all__ = [
     "BodyCompositionEvaluationCreate",
     "BodyCompositionEvaluationRead",
     "AssessmentDashboardOut",
+    "AssessmentQueueItemOut",
     "AssessmentMiniOut",
     "AssessmentOut",
     "AuditLogOut",

@@ -1,32 +1,37 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AssessmentsPage } from "../pages/assessments/AssessmentsPage";
-import { assessmentService, type AssessmentDashboard } from "../services/assessmentService";
+import {
+  assessmentService,
+  type AssessmentDashboard,
+  type AssessmentQueueItem,
+  type AssessmentQueueResponse,
+} from "../services/assessmentService";
 
-function memberWithDue<T extends string | null>(
+function createQueueItem(
   id: string,
-  full_name: string,
-  plan_name: string,
-  risk_level: "green" | "yellow" | "red",
-  risk_score: number,
-  next_assessment_due: T,
-  email = `${id}@teste.com`,
-  last_checkin_at: string | null = null,
-) {
+  fullName: string,
+  bucket: AssessmentQueueItem["queue_bucket"],
+  risk: AssessmentQueueItem["risk_level"],
+  dueLabel: string,
+): AssessmentQueueItem {
   return {
     id,
-    full_name,
-    email,
-    plan_name,
-    risk_level,
-    risk_score,
-    last_checkin_at,
-    extra_data: {},
-    next_assessment_due,
-  } as unknown as AssessmentDashboard["total_members_items"][number];
+    full_name: fullName,
+    email: `${id}@teste.com`,
+    plan_name: "Plano Mensal",
+    risk_level: risk,
+    risk_score: risk === "red" ? 82 : 45,
+    last_checkin_at: "2026-03-18T10:00:00Z",
+    next_assessment_due: bucket === "never" ? null : "2026-03-24",
+    queue_bucket: bucket,
+    coverage_label: bucket === "never" ? "Nenhuma avaliacao registrada" : "Cobertura vencida",
+    due_label: dueLabel,
+    urgency_score: bucket === "never" ? 380 : 310,
+  };
 }
 
 vi.mock("../services/assessmentService", async () => {
@@ -36,34 +41,54 @@ vi.mock("../services/assessmentService", async () => {
     assessmentService: {
       ...actual.assessmentService,
       dashboard: vi.fn(),
+      queue: vi.fn(),
     },
   };
 });
 
 const dashboard: AssessmentDashboard = {
-  total_members: 5,
-  assessed_last_90_days: 3,
-  overdue_assessments: 2,
-  never_assessed: 1,
-  upcoming_7_days: 1,
-  total_members_items: [
-    memberWithDue("member-1", "Ana Silva", "Plano Mensal", "red", 81, "2026-03-10T00:00:00Z", "ana@teste.com", "2026-03-10T10:00:00Z"),
-    memberWithDue("member-2", "Bruno Lima", "Plano Anual", "yellow", 51, "2026-03-19T00:00:00Z", "bruno@teste.com", "2026-03-17T10:00:00Z"),
-    memberWithDue("member-3", "Carla Nunes", "Plano Mensal", "yellow", 42, null, "carla@teste.com"),
+  total_members: 7300,
+  assessed_last_90_days: 2200,
+  overdue_assessments: 180,
+  never_assessed: 320,
+  upcoming_7_days: 41,
+  attention_now: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente")],
+  total_members_items: [],
+  assessed_members: [],
+  overdue_members: [],
+  never_assessed_members: [],
+  upcoming_members: [],
+};
+
+const queueAllPage1: AssessmentQueueResponse = {
+  items: [
+    createQueueItem("member-1", "Ana Silva", "overdue", "red", "Atrasada desde 10/03/2026"),
+    createQueueItem("member-2", "Bruno Lima", "week", "yellow", "Janela ate 24/03/2026"),
   ],
-  assessed_members: [
-    memberWithDue("member-1", "Ana Silva", "Plano Mensal", "red", 81, "2026-03-10T00:00:00Z", "ana@teste.com", "2026-03-10T10:00:00Z"),
-    memberWithDue("member-2", "Bruno Lima", "Plano Anual", "yellow", 51, "2026-03-19T00:00:00Z", "bruno@teste.com", "2026-03-17T10:00:00Z"),
-  ],
-  overdue_members: [
-    memberWithDue("member-1", "Ana Silva", "Plano Mensal", "red", 81, "2026-03-10T00:00:00Z", "ana@teste.com", "2026-03-10T10:00:00Z"),
-  ],
-  never_assessed_members: [
-    memberWithDue("member-3", "Carla Nunes", "Plano Mensal", "yellow", 42, null, "carla@teste.com"),
-  ],
-  upcoming_members: [
-    memberWithDue("member-2", "Bruno Lima", "Plano Anual", "yellow", 51, "2026-03-19T00:00:00Z", "bruno@teste.com", "2026-03-17T10:00:00Z"),
-  ],
+  total: 3,
+  page: 1,
+  page_size: 2,
+};
+
+const queueAllPage2: AssessmentQueueResponse = {
+  items: [createQueueItem("member-4", "Diego Alves", "covered", "green", "Sem proxima janela definida")],
+  total: 3,
+  page: 2,
+  page_size: 2,
+};
+
+const queueNever: AssessmentQueueResponse = {
+  items: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente")],
+  total: 1,
+  page: 1,
+  page_size: 50,
+};
+
+const queueSearch: AssessmentQueueResponse = {
+  items: [createQueueItem("member-5", "Erick Andrade", "upcoming", "yellow", "Proxima janela em 28/03/2026")],
+  total: 1,
+  page: 1,
+  page_size: 50,
 };
 
 function renderPage() {
@@ -86,27 +111,63 @@ describe("AssessmentsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assessmentService.dashboard).mockResolvedValue(dashboard);
+    vi.mocked(assessmentService.queue).mockImplementation(async (params) => {
+      if (params?.search === "Erick") {
+        return queueSearch;
+      }
+      if (params?.bucket === "never") {
+        return queueNever;
+      }
+      if (params?.page === 2) {
+        return queueAllPage2;
+      }
+      return queueAllPage1;
+    });
   });
 
-  it("renders the operational assessments queue by default", async () => {
+  it("renders dashboard summary and paginated queue", async () => {
     renderPage();
 
-    expect(await screen.findByText("Central operacional")).toBeInTheDocument();
-    expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
-    expect(screen.getAllByText("Atrasadas").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Nunca avaliados").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Esta semana").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Avaliações" })).toBeInTheDocument();
+    expect(screen.getByText("Precisa de atenção agora")).toBeInTheDocument();
+    expect(screen.getByText("Fila operacional")).toBeInTheDocument();
+    expect(screen.getByText("Ana Silva")).toBeInTheDocument();
     expect(screen.getAllByText("Abrir workspace").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Registrar avaliacao").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Registrar avaliação").length).toBeGreaterThan(0);
+    expect(screen.getByText("Página 1 de 2")).toBeInTheDocument();
   });
 
-  it("filters the queue for never assessed members", async () => {
+  it("changes bucket and resets the queue to matching results", async () => {
     renderPage();
 
-    await screen.findByText("Central operacional");
+    await screen.findByText("Ana Silva");
     fireEvent.click(screen.getByRole("button", { name: "Nunca avaliados" }));
 
-    expect(screen.getAllByText("Carla Nunes").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Carla Nunes")).length).toBeGreaterThan(0);
     expect(screen.queryByText("Ana Silva")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(assessmentService.queue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ bucket: "never", page: 1 }),
+      );
+    });
+  });
+
+  it("uses server-side search and paginates through the queue", async () => {
+    renderPage();
+
+    await screen.findByText("Ana Silva");
+    fireEvent.click(screen.getByRole("button", { name: /^Próxima$/i }));
+    expect(await screen.findByText("Diego Alves")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Buscar por nome, e-mail ou plano do aluno..."), {
+      target: { value: "Erick" },
+    });
+
+    expect((await screen.findAllByText("Erick Andrade")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(assessmentService.queue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: "Erick", page: 1 }),
+      );
+    });
   });
 });

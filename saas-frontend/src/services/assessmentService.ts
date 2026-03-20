@@ -148,11 +148,37 @@ export interface AssessmentDashboard {
   overdue_assessments: number;
   never_assessed: number;
   upcoming_7_days: number;
+  attention_now: AssessmentQueueItem[];
   total_members_items: MemberMini[];
   assessed_members: MemberMini[];
   overdue_members: MemberMini[];
   never_assessed_members: MemberMini[];
   upcoming_members: MemberMini[];
+}
+
+export type AssessmentQueueBucket = "overdue" | "never" | "week" | "upcoming" | "covered";
+export type AssessmentQueueFilter = "all" | AssessmentQueueBucket;
+
+export interface AssessmentQueueItem {
+  id: string;
+  full_name: string;
+  email: string | null;
+  plan_name: string;
+  risk_level: RiskLevel;
+  risk_score: number;
+  last_checkin_at: string | null;
+  next_assessment_due: string | null;
+  queue_bucket: AssessmentQueueBucket;
+  coverage_label: string;
+  due_label: string;
+  urgency_score: number;
+}
+
+export interface AssessmentQueueResponse {
+  items: AssessmentQueueItem[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface AssessmentFactor {
@@ -270,6 +296,51 @@ function normalizeMemberMini(payload: unknown): MemberMini {
     risk_score: asNumber(data.risk_score),
     last_checkin_at: asNullableString(data.last_checkin_at),
     extra_data: asRecord(data.extra_data),
+  };
+}
+
+function normalizeAssessmentQueueItem(payload: unknown): AssessmentQueueItem {
+  const data = asRecord(payload);
+  return {
+    id: asString(data.id),
+    full_name: asString(data.full_name, "Aluno sem identificacao"),
+    email: asNullableString(data.email),
+    plan_name: asString(data.plan_name, "Plano nao informado"),
+    risk_level: asString(data.risk_level, "green") as RiskLevel,
+    risk_score: asNumber(data.risk_score),
+    last_checkin_at: asNullableString(data.last_checkin_at),
+    next_assessment_due: asNullableString(data.next_assessment_due),
+    queue_bucket: asString(data.queue_bucket, "covered") as AssessmentQueueBucket,
+    coverage_label: asString(data.coverage_label, "Sem cobertura operacional"),
+    due_label: asString(data.due_label, "Sem janela definida"),
+    urgency_score: asNumber(data.urgency_score),
+  };
+}
+
+function normalizeAssessmentQueueResponse(payload: unknown): AssessmentQueueResponse {
+  const data = asRecord(payload);
+  return {
+    items: Array.isArray(data.items) ? data.items.map(normalizeAssessmentQueueItem) : [],
+    total: asNumber(data.total),
+    page: asNumber(data.page, 1),
+    page_size: asNumber(data.page_size, 50),
+  };
+}
+
+function normalizeAssessmentDashboard(payload: unknown): AssessmentDashboard {
+  const data = asRecord(payload);
+  return {
+    total_members: asNumber(data.total_members),
+    assessed_last_90_days: asNumber(data.assessed_last_90_days),
+    overdue_assessments: asNumber(data.overdue_assessments),
+    never_assessed: asNumber(data.never_assessed),
+    upcoming_7_days: asNumber(data.upcoming_7_days),
+    attention_now: Array.isArray(data.attention_now) ? data.attention_now.map(normalizeAssessmentQueueItem) : [],
+    total_members_items: Array.isArray(data.total_members_items) ? data.total_members_items.map(normalizeMemberMini) : [],
+    assessed_members: Array.isArray(data.assessed_members) ? data.assessed_members.map(normalizeMemberMini) : [],
+    overdue_members: Array.isArray(data.overdue_members) ? data.overdue_members.map(normalizeMemberMini) : [],
+    never_assessed_members: Array.isArray(data.never_assessed_members) ? data.never_assessed_members.map(normalizeMemberMini) : [],
+    upcoming_members: Array.isArray(data.upcoming_members) ? data.upcoming_members.map(normalizeMemberMini) : [],
   };
 }
 
@@ -543,10 +614,29 @@ export interface TrainingPlanCreateInput {
   extra_data?: Record<string, unknown>;
 }
 
+export interface AssessmentQueueParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  bucket?: AssessmentQueueFilter;
+}
+
 export const assessmentService = {
   async dashboard(): Promise<AssessmentDashboard> {
     const { data } = await api.get<AssessmentDashboard>("/api/v1/assessments/dashboard");
-    return data;
+    return normalizeAssessmentDashboard(data);
+  },
+
+  async queue(params: AssessmentQueueParams = {}): Promise<AssessmentQueueResponse> {
+    const { data } = await api.get<AssessmentQueueResponse>("/api/v1/assessments/queue", {
+      params: {
+        page: params.page ?? 1,
+        page_size: params.page_size ?? 50,
+        search: params.search?.trim() ? params.search.trim() : undefined,
+        bucket: params.bucket ?? "all",
+      },
+    });
+    return normalizeAssessmentQueueResponse(data);
   },
 
   async profile360(memberId: string): Promise<Profile360> {
