@@ -13,6 +13,8 @@ import {
 import { bodyCompositionService } from "../services/bodyCompositionService";
 import { memberTimelineService } from "../services/memberTimelineService";
 import { memberService } from "../services/memberService";
+import { taskService } from "../services/taskService";
+import { userService } from "../services/userService";
 import type { Member } from "../types";
 
 vi.mock("../components/assessments/AssessmentTimeline", () => ({
@@ -78,6 +80,19 @@ vi.mock("../services/memberService", () => ({
   memberService: {
     getMember: vi.fn(),
     updateMember: vi.fn(),
+  },
+}));
+
+vi.mock("../services/taskService", () => ({
+  taskService: {
+    listTasks: vi.fn(),
+    createTask: vi.fn(),
+  },
+}));
+
+vi.mock("../services/userService", () => ({
+  userService: {
+    listUsers: vi.fn(),
   },
 }));
 
@@ -174,18 +189,60 @@ describe("MemberProfile360Page", () => {
     vi.mocked(memberTimelineService.list).mockResolvedValue([]);
     vi.mocked(memberService.getMember).mockResolvedValue(minimalMember);
     vi.mocked(memberService.updateMember).mockResolvedValue(minimalMember);
+    vi.mocked(taskService.listTasks).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 50,
+    });
+    vi.mocked(taskService.createTask).mockResolvedValue({
+      id: "task-1",
+      title: "Ligar para Ana",
+      description: null,
+      member_id: "member-1",
+      lead_id: null,
+      assigned_to_user_id: null,
+      member_name: "Ana Silva",
+      lead_name: null,
+      priority: "high",
+      status: "todo",
+      kanban_column: "todo",
+      due_date: "2026-03-20T00:00:00Z",
+      completed_at: null,
+      suggested_message: null,
+      extra_data: {},
+      created_at: "2026-03-19T10:00:00Z",
+      updated_at: "2026-03-19T10:00:00Z",
+    });
+    vi.mocked(userService.listUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        gym_id: "gym-1",
+        full_name: "Julia Operacoes",
+        email: "julia@teste.com",
+        role: "manager",
+        is_active: true,
+        created_at: "2026-03-01T00:00:00Z",
+      },
+    ]);
   });
 
   it("renders the unified workspace with overview as default", async () => {
     renderPage();
 
-    expect(await screen.findByText("Workspace principal")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /voltar/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nova Avaliacao" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver Tarefas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Visao geral" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Registrar avaliacao" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Plano e objetivos" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restricoes e contexto" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Acoes" })).toBeInTheDocument();
     expect(screen.getAllByText("Sem avaliacao estruturada").length).toBeGreaterThan(0);
-    expect(screen.getByText("Leitura rapida para a equipe")).toBeInTheDocument();
+    expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
+    expect(screen.getByText("Diagnostico IA")).toBeInTheDocument();
+    expect(screen.getByText("Notas internas")).toBeInTheDocument();
   });
 
   it("supports tab navigation through query params and preserves editors", async () => {
@@ -196,5 +253,13 @@ describe("MemberProfile360Page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Bioimpedancia" }));
     expect(await screen.findByText("Body composition mock")).toBeInTheDocument();
+  });
+
+  it("renders the actions tab with empty state and create CTA", async () => {
+    renderPage("/assessments/members/member-1?tab=acoes");
+
+    expect(await screen.findByText("Acoes do aluno")).toBeInTheDocument();
+    expect(screen.getByText("Nenhuma tarefa relacionada")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /nova tarefa/i }).length).toBeGreaterThan(0);
   });
 });

@@ -1,7 +1,8 @@
 import clsx from "clsx";
-import { ArrowRight, CheckCheck, Clock3, UserRound } from "lucide-react";
+import { Check, Clock3, Pencil, TriangleAlert, UserRound } from "lucide-react";
 
-import { Badge, Button } from "../ui2";
+import { StatusBadge } from "../ui";
+import { Button } from "../ui2";
 import type { Task } from "../../types";
 import {
   PRIORITY_LABELS,
@@ -9,10 +10,7 @@ import {
   formatDueDate,
   getAssigneeLabel,
   getPriorityAccentClass,
-  getPriorityBadgeVariant,
-  getStatusBadgeVariant,
   getTaskContextLabel,
-  getTaskSourceContext,
   isOverdue,
 } from "./taskUtils";
 
@@ -21,47 +19,69 @@ interface TaskListItemProps {
   todayKey: string;
   userNameById: Map<string, string>;
   onOpenDetails: (task: Task) => void;
-  onStart: (taskId: string) => void;
   onComplete: (taskId: string) => void;
   isUpdating: boolean;
 }
+
+const PRIORITY_BADGE_MAP = {
+  low: { label: PRIORITY_LABELS.low, variant: "success" as const },
+  medium: { label: PRIORITY_LABELS.medium, variant: "neutral" as const },
+  high: { label: PRIORITY_LABELS.high, variant: "warning" as const },
+  urgent: { label: PRIORITY_LABELS.urgent, variant: "danger" as const },
+};
+
+const STATUS_BADGE_MAP = {
+  todo: { label: STATUS_LABELS.todo, variant: "neutral" as const },
+  doing: { label: STATUS_LABELS.doing, variant: "warning" as const },
+  done: { label: STATUS_LABELS.done, variant: "success" as const },
+  cancelled: { label: STATUS_LABELS.cancelled, variant: "danger" as const },
+};
 
 export function TaskListItem({
   task,
   todayKey,
   userNameById,
   onOpenDetails,
-  onStart,
   onComplete,
   isUpdating,
 }: TaskListItemProps) {
   const overdue = isOverdue(task, todayKey);
   const assigneeLabel = getAssigneeLabel(task, userNameById);
+  const canComplete = task.status === "todo" || task.status === "doing";
+
+  function handleOpenDetails() {
+    onOpenDetails(task);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    handleOpenDetails();
+  }
 
   return (
     <article
+      role="button"
+      tabIndex={0}
+      onClick={handleOpenDetails}
+      onKeyDown={handleKeyDown}
       className={clsx(
-        "rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3 transition hover:border-lovable-primary/30 hover:bg-lovable-surface-soft",
+        "rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2.5 text-left transition hover:border-lovable-border-strong hover:bg-lovable-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lovable-primary/30",
         "border-l-4",
         getPriorityAccentClass(task.priority),
         overdue && "bg-rose-500/5",
       )}
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-semibold text-lovable-ink">{task.title}</p>
-            <Badge variant={getPriorityBadgeVariant(task.priority)}>{PRIORITY_LABELS[task.priority]}</Badge>
-            <Badge variant={getStatusBadgeVariant(task.status)}>{STATUS_LABELS[task.status]}</Badge>
+            <StatusBadge status={task.priority} map={PRIORITY_BADGE_MAP} />
+            <StatusBadge status={task.status} map={STATUS_BADGE_MAP} />
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-lovable-ink-muted">
-            <span>{getTaskContextLabel(task)}</span>
-            <span>{getTaskSourceContext(task)}</span>
-            <span className={clsx("inline-flex items-center gap-1", overdue && "font-semibold text-lovable-danger")}>
-              <Clock3 size={12} />
-              {overdue ? "Atrasada - " : ""}{formatDueDate(task.due_date)}
-            </span>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-lovable-ink-muted">
+            <span className="truncate">{getTaskContextLabel(task)}</span>
             <span className="inline-flex items-center gap-1">
               <UserRound size={12} />
               {assigneeLabel}
@@ -70,24 +90,57 @@ export function TaskListItem({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {task.status === "todo" ? (
-            <Button size="sm" variant="secondary" disabled={isUpdating} onClick={() => onStart(task.id)}>
-              <ArrowRight size={14} />
-              Iniciar
+          <span
+            className={clsx(
+              "hidden items-center gap-1 text-xs text-lovable-ink-muted sm:inline-flex",
+              overdue && "font-semibold text-lovable-danger",
+            )}
+          >
+            {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
+            {formatDueDate(task.due_date)}
+          </span>
+
+          {canComplete ? (
+            <Button
+              size="sm"
+              variant="primary"
+              className="w-8 rounded-lg px-0"
+              title="Concluir tarefa"
+              aria-label={`Concluir ${task.title}`}
+              disabled={isUpdating}
+              onClick={(event) => {
+                event.stopPropagation();
+                onComplete(task.id);
+              }}
+            >
+              <Check size={14} />
             </Button>
           ) : null}
 
-          {(task.status === "todo" || task.status === "doing") ? (
-            <Button size="sm" variant="primary" disabled={isUpdating} onClick={() => onComplete(task.id)}>
-              <CheckCheck size={14} />
-              Concluir
-            </Button>
-          ) : null}
-
-          <Button size="sm" variant="ghost" onClick={() => onOpenDetails(task)}>
-            Detalhes
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-8 rounded-lg px-0"
+            title="Editar tarefa"
+            aria-label={`Editar ${task.title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenDetails();
+            }}
+          >
+            <Pencil size={14} />
           </Button>
         </div>
+      </div>
+
+      <div
+        className={clsx(
+          "mt-2 inline-flex items-center gap-1 text-xs text-lovable-ink-muted sm:hidden",
+          overdue && "font-semibold text-lovable-danger",
+        )}
+      >
+        {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
+        {formatDueDate(task.due_date)}
       </div>
     </article>
   );

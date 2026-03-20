@@ -14,6 +14,7 @@ export type AssessmentWorkspaceTab =
   | "evolucao"
   | "plano"
   | "contexto"
+  | "acoes"
   | "bioimpedancia";
 
 export const ASSESSMENT_WORKSPACE_TABS: Array<{ key: AssessmentWorkspaceTab; label: string }> = [
@@ -22,6 +23,7 @@ export const ASSESSMENT_WORKSPACE_TABS: Array<{ key: AssessmentWorkspaceTab; lab
   { key: "evolucao", label: "Evolucao" },
   { key: "plano", label: "Plano e objetivos" },
   { key: "contexto", label: "Restricoes e contexto" },
+  { key: "acoes", label: "Acoes" },
   { key: "bioimpedancia", label: "Bioimpedancia" },
 ];
 
@@ -33,6 +35,7 @@ export function normalizeAssessmentWorkspaceTab(value: string | null | undefined
     normalized === "evolucao" ||
     normalized === "plano" ||
     normalized === "contexto" ||
+    normalized === "acoes" ||
     normalized === "bioimpedancia"
   ) {
     return normalized;

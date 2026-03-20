@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Dumbbell,
   FileText,
   Globe,
   HelpCircle,
@@ -57,14 +58,14 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/operational", label: "Operacional", icon: Activity },
       { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, badge: "new" },
       { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
+      { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert },
     ],
   },
   {
-    label: "Gestao",
+    label: "Gestão",
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2 },
-      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
+      { to: "/assessments", label: "Avaliações", icon: ClipboardList },
       { to: "/crm", label: "CRM", icon: Users, badge: "6" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare },
     ],
@@ -80,8 +81,8 @@ const navGroups: NavGroup[] = [
   {
     label: "Sistema",
     items: [
-      { to: "/automations", label: "Automacoes", icon: Bot },
-      { to: "/imports", label: "Importacoes", icon: Upload },
+      { to: "/automations", label: "Automações", icon: Bot },
+      { to: "/imports", label: "Importações", icon: Upload },
       { to: "/audit", label: "Auditoria", icon: ScrollText },
     ],
   },
@@ -135,6 +136,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
+              title={group.label}
               className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
             >
               {group.label}
@@ -149,6 +151,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                       key={item.to}
                       to={item.to}
                       onClick={onNavigate}
+                      title={item.label}
                       className={({ isActive }) =>
                         cn(
                           "flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition",
@@ -230,7 +233,7 @@ export function LovableLayout() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-lovable-border-strong bg-lovable-bg text-sm font-semibold text-lovable-ink">
-                      #
+                      <Dumbbell size={16} />
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-lovable-ink">AI GYM OS</p>
@@ -286,21 +289,6 @@ export function LovableLayout() {
           </div>
 
           <div className="space-y-3 px-4 pb-4">
-            <div className="rounded-xl border border-lovable-border bg-lovable-surface/75 p-3">
-              <span className="inline-flex rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                New
-              </span>
-              <p className="mt-2 text-sm font-semibold text-lovable-ink">Retencao Program</p>
-              <p className="mt-1 text-xs text-lovable-ink-muted">Automacao para recuperar alunos inativos em lotes.</p>
-              <button
-                type="button"
-                onClick={() => navigate("/automations")}
-                className="mt-3 inline-flex items-center rounded-lg border border-lovable-border-strong bg-lovable-surface-soft px-2.5 py-1.5 text-xs font-semibold text-lovable-ink transition hover:border-lovable-border-strong/90 hover:bg-lovable-surface"
-              >
-                Abrir automacoes
-              </button>
-            </div>
-
             <div className="space-y-1 text-sm">
               <button
                 type="button"
@@ -382,14 +370,16 @@ export function LovableLayout() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => void logout()}
-                  className="inline-flex items-center gap-1 rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-rose-400"
+                  title="Sair"
+                  aria-label="Sair"
+                  className="!px-2 !text-lovable-ink-muted hover:!bg-lovable-surface-soft hover:!text-lovable-ink"
                 >
                   <LogOut size={14} />
-                  Sair
-                </button>
+                </Button>
               </div>
             </div>
           </div>

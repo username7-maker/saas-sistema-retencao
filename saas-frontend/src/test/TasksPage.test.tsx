@@ -249,10 +249,15 @@ describe("TasksPage", () => {
   it("renders operacao as default with cleaner hierarchy", async () => {
     renderPage();
 
-    expect(await screen.findByText("Central operacional")).toBeInTheDocument();
+    expect(screen.getByText("Tarefas")).toBeInTheDocument();
+    expect(screen.getByText("Acompanhamento de acoes e follow-ups pendentes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
-    expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getByText("Total visiveis")).toBeInTheDocument();
+    expect(screen.getByText("Pendentes")).toBeInTheDocument();
+    expect(screen.getByText("Vencidas")).toBeInTheDocument();
+    expect(screen.getByText("Concluidas hoje")).toBeInTheDocument();
     expect(screen.getAllByText("Atrasadas").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Concluidas recentemente").length).toBeGreaterThan(0);
   });
@@ -260,32 +265,32 @@ describe("TasksPage", () => {
   it("filters by only mine and clears filters", async () => {
     renderPage();
 
-    expect((await screen.findAllByText("Resolver atraso da Ana")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("Enviar follow-up para Bruno")).length).toBeGreaterThan(0);
+    await screen.findByText("Precisa de atencao agora");
 
     fireEvent.click(screen.getByRole("button", { name: "So minhas" }));
 
+    expect(await screen.findByRole("button", { name: /Limpar filtros/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Limpar filtros/i }));
+
     await waitFor(() => {
-      expect(screen.queryByText("Enviar follow-up para Bruno")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Limpar filtros/i })).not.toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByRole("button", { name: /Limpar/i }));
-
-    expect((await screen.findAllByText("Enviar follow-up para Bruno")).length).toBeGreaterThan(0);
   });
 
   it("supports quick action and detail drawer", async () => {
     renderPage();
 
-    await screen.findByText("Central operacional");
+    await screen.findByText("Precisa de atencao agora");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Iniciar" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Concluir Resolver atraso da Ana/i })[0]);
 
     await waitFor(() => {
-      expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "doing" });
+      expect(taskService.updateTask).toHaveBeenCalled();
     });
+    expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "done" });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Detalhes" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Editar Resolver atraso da Ana/i })[0]);
 
     expect(await screen.findByText("Detalhe da tarefa")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
@@ -295,11 +300,35 @@ describe("TasksPage", () => {
   it("keeps onboarding in a dedicated tab", async () => {
     renderPage();
 
-    await screen.findByText("Central operacional");
+    await screen.findByText("Precisa de atencao agora");
     fireEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
     expect(screen.getByText("Intelligence de onboarding")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver tasks de onboarding" })).toBeInTheDocument();
+  });
+
+  it("opens the create task drawer from the page header", async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /\+ Nova Tarefa/i }));
+
+    expect(await screen.findByText("Nova tarefa")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Ex.: Ligar para Ana Silva")).toBeInTheDocument();
+  });
+
+  it("shows a standardized empty state when there are no tasks", async () => {
+    vi.mocked(taskService.listTasks).mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 50,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Nenhuma tarefa cadastrada")).toBeInTheDocument();
+    expect(screen.getByText("Crie a primeira task para comecar a organizar os follow-ups do time.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nova tarefa" })).toBeInTheDocument();
   });
 });

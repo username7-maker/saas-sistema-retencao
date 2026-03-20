@@ -7,18 +7,18 @@ import {
   ArrowRight,
   BarChart3,
   Briefcase,
-  CalendarDays,
-  Search,
   ShieldAlert,
   TrendingDown,
   TrendingUp,
   UserPlus,
-  Users,
   Wallet,
-  Zap,
 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { AiInsightCard } from "../../components/common/AiInsightCard";
+import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
+import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
+import { Button, Skeleton, cn } from "../../components/ui2";
 import {
   useChurnDashboard,
   useCommercialDashboard,
@@ -27,30 +27,11 @@ import {
   useRetentionDashboard,
   useWeeklySummary,
 } from "../../hooks/useDashboard";
-import { AiInsightCard } from "../../components/common/AiInsightCard";
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Skeleton,
-  cn,
-} from "../../components/ui2";
-import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
 import { buildLovableDashboardViewModel } from "./dashboardAdapters";
 
 type ActionSource = "retention" | "commercial" | "operational";
 type ActionPriority = "high" | "medium";
-type ChartRange = "all" | "6m" | "3m" | "custom";
-
-const DASH_H2 = "text-[16px] leading-[1.25]";
-const DASH_H3 = "text-[14px] leading-[1.3]";
-const DASH_H4 = "text-[12px] leading-[1.35]";
-const DASH_H5 = "text-[10px] leading-[1.4]";
+type ChartRange = "all" | "6m" | "3m";
 
 interface ActionRow {
   id: string;
@@ -69,6 +50,17 @@ const SOURCE_META: Record<ActionSource, { label: string; icon: LucideIcon }> = {
   operational: { label: "Operacional", icon: Activity },
 };
 
+const SOURCE_BADGE_MAP = {
+  retention: { label: SOURCE_META.retention.label, variant: "danger" as const },
+  commercial: { label: SOURCE_META.commercial.label, variant: "warning" as const },
+  operational: { label: SOURCE_META.operational.label, variant: "success" as const },
+};
+
+const PRIORITY_BADGE_MAP = {
+  high: { label: "Alta", variant: "danger" as const },
+  medium: { label: "Media", variant: "warning" as const },
+};
+
 function currency(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -77,11 +69,8 @@ function currency(value: number): string {
   }).format(value);
 }
 
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
+function percent(value: number): string {
+  return `${value.toFixed(1)}%`;
 }
 
 function formatDateLabel(value: string): string {
@@ -92,12 +81,6 @@ function formatDateLabel(value: string): string {
     month: "short",
     year: "2-digit",
   });
-}
-
-function parseChartMonth(value: string): Date | null {
-  const normalized = value.match(/^\d{4}-\d{2}$/) ? `${value}-01` : value;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDateTime(value: string | null): string {
@@ -113,194 +96,141 @@ function formatDateTime(value: string | null): string {
   });
 }
 
-function MetricCard({
-  label,
-  value,
-  helper,
-  icon: Icon,
-  badge,
+function DashboardZone({
+  children,
+  className,
 }: {
-  label: string;
-  value: string;
-  helper: string;
-  icon: LucideIcon;
-  badge: string;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <CardDescription className={cn("flex items-center gap-2 uppercase tracking-[0.18em] !text-zinc-400", DASH_H5)}>
-            <Icon size={14} className="text-zinc-500" />
-            {label}
-          </CardDescription>
-          <span className={cn("rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-emerald-300", DASH_H5)}>
-            {badge}
-          </span>
+    <section className={cn("rounded-2xl border border-zinc-800 bg-zinc-900/65 p-4 shadow-none", className)}>
+      {children}
+    </section>
+  );
+}
+
+function ZoneHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h2 className="font-heading text-lg font-bold text-zinc-100">{title}</h2>
+        {subtitle ? <p className="mt-1 text-sm text-zinc-400">{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+function KpiStripSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+          <Skeleton className="h-3 w-20 rounded bg-zinc-800" />
+          <Skeleton className="mt-3 h-8 w-24 rounded bg-zinc-800" />
         </div>
-        <CardTitle className="text-4xl !text-zinc-100">{value}</CardTitle>
-        <p className={cn("text-zinc-400", DASH_H4)}>{helper}</p>
-      </CardHeader>
-    </Card>
+      ))}
+    </div>
   );
 }
 
-function CardSkeleton() {
-  return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-      <CardHeader>
-        <Skeleton className="h-3 w-32 rounded bg-zinc-800" />
-        <Skeleton className="h-10 w-24 rounded bg-zinc-800" />
-        <Skeleton className="h-3 w-40 rounded bg-zinc-800" />
-      </CardHeader>
-    </Card>
-  );
-}
+function WeeklySummaryMini() {
+  const weeklySummary = useWeeklySummary();
 
-function FilterChip({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-3 py-1 font-semibold uppercase tracking-wider transition",
-        active
-          ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-200"
-          : "border-zinc-700 bg-zinc-900/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
-        DASH_H4,
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function WeeklySummaryCard() {
-  const { data, isLoading } = useWeeklySummary();
-
-  if (isLoading) {
+  if (weeklySummary.isLoading) {
     return (
-      <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-        <CardHeader>
-          <Skeleton className="h-4 w-48 rounded bg-zinc-800" />
-          <Skeleton className="h-3 w-64 rounded bg-zinc-800" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-16 rounded-xl bg-zinc-800" />
-            ))}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+            <Skeleton className="h-3 w-24 rounded bg-zinc-800" />
+            <Skeleton className="mt-3 h-6 w-20 rounded bg-zinc-800" />
+            <Skeleton className="mt-2 h-3 w-28 rounded bg-zinc-800" />
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
     );
   }
 
-  if (!data) return null;
+  if (!weeklySummary.data) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-500">
+        Resumo semanal indisponivel no momento.
+      </div>
+    );
+  }
 
-  const deltaPositive = data.checkins_delta_pct >= 0;
+  const deltaPositive = weeklySummary.data.checkins_delta_pct >= 0;
+  const deltaTone = deltaPositive ? "text-emerald-400" : "text-amber-400";
   const DeltaIcon = deltaPositive ? TrendingUp : TrendingDown;
 
   const items = [
     {
-      label: "Check-ins (7d)",
-      value: data.checkins_this_week.toLocaleString("pt-BR"),
-      sub: `${deltaPositive ? "+" : ""}${data.checkins_delta_pct.toFixed(1)}% vs semana anterior`,
-      icon: Zap,
-      tone: deltaPositive ? "text-emerald-400" : "text-amber-400",
+      label: "Check-ins 7d",
+      value: weeklySummary.data.checkins_this_week.toLocaleString("pt-BR"),
+      helper: `${deltaPositive ? "+" : ""}${weeklySummary.data.checkins_delta_pct.toFixed(1)}% vs semana anterior`,
+      icon: DeltaIcon,
+      tone: deltaTone,
     },
     {
-      label: "Novos Alunos",
-      value: data.new_registrations.toLocaleString("pt-BR"),
-      sub: "cadastros nos ultimos 7 dias",
+      label: "Novos alunos",
+      value: weeklySummary.data.new_registrations.toLocaleString("pt-BR"),
+      helper: "cadastros nos ultimos 7 dias",
       icon: UserPlus,
       tone: "text-cyan-400",
     },
     {
-      label: "Novos em Risco",
-      value: data.new_at_risk.toLocaleString("pt-BR"),
-      sub: "entraram em risco esta semana",
+      label: "Novos em risco",
+      value: weeklySummary.data.new_at_risk.toLocaleString("pt-BR"),
+      helper: "entraram em risco esta semana",
       icon: AlertTriangle,
-      tone: data.new_at_risk > 5 ? "text-rose-400" : "text-amber-400",
+      tone: weeklySummary.data.new_at_risk > 5 ? "text-rose-400" : "text-amber-400",
     },
     {
-      label: "MRR em Risco",
-      value: new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(data.mrr_at_risk),
-      sub: `de ${data.total_active} alunos ativos`,
+      label: "MRR em risco",
+      value: currency(weeklySummary.data.mrr_at_risk),
+      helper: `de ${weeklySummary.data.total_active} alunos ativos`,
       icon: Wallet,
-      tone: data.mrr_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
+      tone: weeklySummary.data.mrr_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
     },
   ];
 
   return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-      <CardHeader>
-        <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
-          <CalendarDays size={18} className="text-cyan-300" />
-          Resumo Semanal
-        </CardTitle>
-        <CardDescription className={cn("!text-zinc-400", DASH_H4)}>
-          Comparativo dos ultimos 7 dias com a semana anterior.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.label}
-                className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <Icon size={14} className={item.tone} />
-                  <span className={cn("uppercase tracking-wider text-zinc-500", DASH_H5)}>{item.label}</span>
-                </div>
-                <p className="text-xl font-bold text-zinc-100">{item.value}</p>
-                <p className={cn("text-zinc-500", DASH_H5)}>{item.sub}</p>
+    <div className="space-y-3">
+      <SectionHeader
+        title="Resumo semanal"
+        subtitle="Recorte rapido dos ultimos 7 dias para apoiar a leitura dos KPIs."
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Icon size={14} className={item.tone} />
+                <p className="text-[11px] uppercase tracking-widest text-zinc-500">{item.label}</p>
               </div>
-            );
-          })}
-        </div>
-        {data.checkins_delta_pct < -10 && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-            <DeltaIcon size={14} className="text-amber-400" />
-            <p className={cn("text-amber-200", DASH_H4)}>
-              Queda significativa nos check-ins. Considere acionar campanha de reengajamento.
-            </p>
-          </div>
-        )}
-        {data.new_at_risk > 5 && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2">
-            <AlertTriangle size={14} className="text-rose-400" />
-            <p className={cn("text-rose-200", DASH_H4)}>
-              Aumento de alunos em risco. Priorize ligacoes de retencao esta semana.
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              <p className="mt-3 text-xl font-bold text-zinc-100">{item.value}</p>
+              <p className="mt-1 text-xs text-zinc-500">{item.helper}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
 export function DashboardLovable() {
   const navigate = useNavigate();
-  const [activeSource, setActiveSource] = useState<"all" | ActionSource>("all");
-  const [search, setSearch] = useState("");
   const [chartRange, setChartRange] = useState<ChartRange>("6m");
-  const [customStartDate, setCustomStartDate] = useState("");
-  const [customEndDate, setCustomEndDate] = useState("");
-  const [appliedCustomStartDate, setAppliedCustomStartDate] = useState("");
-  const [appliedCustomEndDate, setAppliedCustomEndDate] = useState("");
-  const [customRangeError, setCustomRangeError] = useState<string | null>(null);
 
   const executive = useExecutiveDashboard();
   const commercial = useCommercialDashboard();
@@ -361,511 +291,272 @@ export function DashboardLovable() {
     });
   }, [commercial.data?.stale_leads, operational.data?.inactive_7d_items, retention.data?.red.items]);
 
-  const filteredRows = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return actionRows.filter((row) => {
-      const matchesSource = activeSource === "all" || row.source === activeSource;
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        row.name.toLowerCase().includes(normalizedSearch) ||
-        row.subtitle.toLowerCase().includes(normalizedSearch) ||
-        row.status.toLowerCase().includes(normalizedSearch);
-      return matchesSource && matchesSearch;
-    });
-  }, [actionRows, activeSource, search]);
-
-  const visibleRows = filteredRows.slice(0, 18);
-  const sourceCounters = {
-    retention: actionRows.filter((row) => row.source === "retention").length,
-    commercial: actionRows.filter((row) => row.source === "commercial").length,
-    operational: actionRows.filter((row) => row.source === "operational").length,
-  };
+  const visibleRows = useMemo(() => actionRows.slice(0, 8), [actionRows]);
 
   const chartData = useMemo(() => {
     const points = viewModel.retentionChart;
-    if (chartRange === "custom") {
-      if (!appliedCustomStartDate && !appliedCustomEndDate) return points;
-
-      const start = appliedCustomStartDate ? new Date(`${appliedCustomStartDate}T00:00:00`) : null;
-      const end = appliedCustomEndDate ? new Date(`${appliedCustomEndDate}T23:59:59.999`) : null;
-      if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) return points;
-      if (start && end && start > end) return [];
-
-      return points.filter((point) => {
-        const pointDate = parseChartMonth(point.month);
-        if (!pointDate) return false;
-
-        const monthStart = new Date(pointDate.getFullYear(), pointDate.getMonth(), 1, 0, 0, 0, 0);
-        const monthEnd = new Date(pointDate.getFullYear(), pointDate.getMonth() + 1, 0, 23, 59, 59, 999);
-        return (!start || monthEnd >= start) && (!end || monthStart <= end);
-      });
-    }
-
     if (chartRange === "3m") return points.slice(-3);
     if (chartRange === "6m") return points.slice(-6);
     return points;
-  }, [chartRange, appliedCustomStartDate, appliedCustomEndDate, viewModel.retentionChart]);
+  }, [chartRange, viewModel.retentionChart]);
 
-  const invalidCustomRange =
-    chartRange === "custom" &&
-    customStartDate.length > 0 &&
-    customEndDate.length > 0 &&
-    new Date(`${customStartDate}T00:00:00`) > new Date(`${customEndDate}T23:59:59.999`);
+  const kpiItems = [
+    {
+      label: "Total membros",
+      value: executive.data?.total_members?.toLocaleString("pt-BR") ?? "0",
+      tone: "neutral" as const,
+    },
+    {
+      label: "Ativos",
+      value: executive.data?.active_members?.toLocaleString("pt-BR") ?? "0",
+      tone: "success" as const,
+    },
+    {
+      label: "Churn",
+      value: percent(executive.data?.churn_rate ?? 0),
+      tone: (executive.data?.churn_rate ?? 0) > 5 ? "danger" as const : "warning" as const,
+    },
+    {
+      label: "Receita",
+      value: currency(executive.data?.mrr ?? 0),
+      tone: "success" as const,
+    },
+  ];
 
-  function applyCustomRange() {
-    if (invalidCustomRange) {
-      setCustomRangeError("Periodo invalido: a data final deve ser maior ou igual a data inicial.");
-      return;
-    }
-
-    setAppliedCustomStartDate(customStartDate);
-    setAppliedCustomEndDate(customEndDate);
-    setCustomRangeError(null);
-  }
-
-  const cardsLoading = executive.isLoading || commercial.isLoading || operational.isLoading || retention.isLoading;
-  const alertsLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
-  const insightLoading = executive.isLoading || commercial.isLoading || operational.isLoading || retention.isLoading || churn.isLoading;
+  const kpiLoading = executive.isLoading;
   const chartLoading = churn.isLoading || retention.isLoading;
-  const actionsLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
+  const actionLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
 
   return (
     <section className="relative overflow-hidden rounded-[30px] border border-zinc-800/80 bg-zinc-950 p-4 text-zinc-100 shadow-[0_28px_120px_-40px_rgba(0,0,0,0.95)] sm:p-6">
       <div className="pointer-events-none absolute -left-28 top-16 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
       <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+
       <div className="relative space-y-6">
-        <RoiSummaryCard />
-        <WeeklySummaryCard />
+        <PageHeader
+          title="Dashboard"
+          subtitle="Visao geral operacional e estrategica da academia"
+        />
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {cardsLoading ? (
-            <>
-              <CardSkeleton />
-              <CardSkeleton />
-              <CardSkeleton />
-              <CardSkeleton />
-            </>
-          ) : (
-            <>
-              <MetricCard
-                label="Receita Mensal"
-                value={currency(viewModel.cards.revenue)}
-                helper="Crescimento consolidado dos ultimos ciclos."
-                icon={Wallet}
-                badge="+12.5%"
-              />
-              <MetricCard
-                label="Leads no Pipeline"
-                value={compactNumber(viewModel.cards.leads)}
-                helper="Acompanhe oportunidades para conversao."
-                icon={Users}
-                badge="-3.1%"
-              />
-              <MetricCard
-                label="Check-ins em Tempo Real"
-                value={compactNumber(viewModel.cards.checkins)}
-                helper="Fluxo operacional em monitoramento continuo."
-                icon={Zap}
-                badge="+8.4%"
-              />
-              <MetricCard
-                label="Risco Alto"
-                value={compactNumber(viewModel.cards.highRiskMembers)}
-                helper="Casos criticos que exigem acao imediata."
-                icon={AlertTriangle}
-                badge="ALERTA"
-              />
-            </>
-          )}
-        </div>
+        <DashboardZone>
+          <div className="space-y-4">
+            {kpiLoading ? <KpiStripSkeleton /> : <KPIStrip items={kpiItems} />}
+            <WeeklySummaryMini />
+          </div>
+        </DashboardZone>
 
-        <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-          <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-            <CardHeader>
-              <CardTitle className={cn("!text-zinc-100", DASH_H2)}>Alertas Prioritarios</CardTitle>
-              <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Acione rapidamente os pontos que mais impactam churn.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {alertsLoading ? (
-                <>
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
-                </>
-              ) : viewModel.alerts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-700 p-4 text-sm text-zinc-400">
-                  Nenhum alerta critico no momento.
+        <div className="grid gap-4 lg:grid-cols-2">
+          <DashboardZone>
+            <ZoneHeader
+              title="Churn e NPS"
+              subtitle="Evolucao consolidada do churn e do NPS medio."
+              actions={
+                <div className="flex items-center gap-1">
+                  {[
+                    { value: "all", label: "Tudo" },
+                    { value: "6m", label: "6M" },
+                    { value: "3m", label: "3M" },
+                  ].map((option) => (
+                    <Button
+                      key={option.value}
+                      size="sm"
+                      variant={chartRange === option.value ? "secondary" : "ghost"}
+                      className="rounded-lg"
+                      onClick={() => setChartRange(option.value as ChartRange)}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              }
+            />
+
+            <div className="h-80">
+              {chartLoading ? (
+                <Skeleton className="h-full w-full rounded-xl bg-zinc-800" />
+              ) : chartData.length === 0 ? (
+                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-700">
+                  <EmptyState
+                    icon={BarChart3}
+                    title="Sem dados para o periodo"
+                    description="Ajuste o intervalo ou aguarde mais historico para visualizar a evolucao."
+                  />
                 </div>
               ) : (
-                viewModel.alerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={() => navigate(alert.href)}
-                    className="w-full rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 text-left transition hover:border-zinc-600 hover:bg-zinc-900"
-                  >
-                    <div className="mb-1.5 flex items-center justify-between gap-3">
-                      <p className={cn("font-semibold text-zinc-100", DASH_H3)}>{alert.title}</p>
-                      <Badge variant={alert.tone === "danger" ? "danger" : alert.tone === "warning" ? "warning" : "neutral"}>
-                        {alert.tone === "danger" ? "alta" : alert.tone === "warning" ? "media" : "info"}
-                      </Badge>
-                    </div>
-                    <p className={cn("text-zinc-400", DASH_H4)}>{alert.description}</p>
-                  </button>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="!border-zinc-800 !bg-gradient-to-br !from-zinc-900/80 !to-zinc-900/40 !shadow-none">
-            <CardHeader>
-              <CardTitle className={cn("!text-zinc-100", DASH_H2)}>Insight da Semana</CardTitle>
-              <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Resumo automatico com base no consolidado dos modulos.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {insightLoading ? (
-                <>
-                  <Skeleton className="h-4 w-full rounded bg-zinc-800" />
-                  <Skeleton className="h-4 w-5/6 rounded bg-zinc-800" />
-                  <Skeleton className="h-10 w-full rounded-xl bg-zinc-800" />
-                </>
-              ) : (
-                <>
-                  <p className={cn("leading-relaxed text-zinc-100", DASH_H3)}>{viewModel.insight}</p>
-                  <button
-                    type="button"
-                    onClick={() => navigate("/dashboard/retention")}
-                    className={cn("inline-flex w-full items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800", DASH_H3)}
-                  >
-                    Ver plano de retencao
-                    <ArrowRight size={15} />
-                  </button>
-                </>
-              )}
-              <AiInsightCard dashboard="executive" theme="dark" />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[1.15fr_1.2fr]">
-          <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-            <CardHeader className="flex-row items-start justify-between gap-3">
-              <div>
-                <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
-                  <BarChart3 size={18} className="text-emerald-300" />
-                  Churn e NPS
-                </CardTitle>
-                <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Comparativo mensal de churn e NPS.</CardDescription>
-              </div>
-              <div className="flex gap-1 rounded-xl border border-zinc-700 bg-zinc-900 p-1">
-                <FilterChip active={chartRange === "3m"} label="3m" onClick={() => setChartRange("3m")} />
-                <FilterChip active={chartRange === "6m"} label="6m" onClick={() => setChartRange("6m")} />
-                <FilterChip active={chartRange === "all"} label="Tudo" onClick={() => setChartRange("all")} />
-                <FilterChip active={chartRange === "custom"} label="Personalizado" onClick={() => setChartRange("custom")} />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {chartRange === "custom" ? (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                    Data inicial
-                    <Input
-                      type="date"
-                      value={customStartDate}
-                      onChange={(event) => {
-                        setCustomStartDate(event.target.value);
-                        setCustomRangeError(null);
-                      }}
-                      className="h-9 border-zinc-700 bg-zinc-900/70 text-zinc-100 [color-scheme:dark]"
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.48} />
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.04} />
+                      </linearGradient>
+                      <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.34} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis
+                      dataKey="month"
+                      tickFormatter={formatDateLabel}
+                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
                     />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                    Data final
-                    <Input
-                      type="date"
-                      value={customEndDate}
-                      onChange={(event) => {
-                        setCustomEndDate(event.target.value);
-                        setCustomRangeError(null);
+                    <YAxis tick={{ fill: "#a1a1aa", fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: 12,
+                        border: "1px solid #3f3f46",
+                        background: "rgba(24,24,27,0.95)",
+                        color: "#f4f4f5",
                       }}
-                      className="h-9 border-zinc-700 bg-zinc-900/70 text-zinc-100 [color-scheme:dark]"
+                      formatter={(value, key) => {
+                        const parsedValue = typeof value === "number" ? value : Number(value);
+                        if (!Number.isFinite(parsedValue)) return ["-", String(key)];
+                        if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
+                        return [parsedValue.toFixed(2), "NPS medio"];
+                      }}
+                      labelFormatter={(label) => formatDateLabel(String(label))}
                     />
-                  </label>
-                  <div className="flex items-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustomStartDate("");
-                        setCustomEndDate("");
-                        setAppliedCustomStartDate("");
-                        setAppliedCustomEndDate("");
-                        setCustomRangeError(null);
-                      }}
-                      className="h-9 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100"
-                    >
-                      Limpar periodo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={applyCustomRange}
-                      className="h-9 w-full rounded-xl border border-emerald-500/50 bg-emerald-500/20 px-3 text-xs font-semibold uppercase tracking-wider text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/30"
-                    >
-                      Confirmar
-                    </button>
-                  </div>
-                </div>
-              ) : null}
+                    <Area
+                      type="monotone"
+                      dataKey="nps_avg"
+                      name="NPS medio"
+                      stroke="#4ade80"
+                      fill="url(#npsGradient)"
+                      strokeWidth={2.5}
+                      connectNulls
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="churn_rate"
+                      name="Churn"
+                      stroke="#f59e0b"
+                      fill="url(#churnGradient)"
+                      strokeWidth={2.1}
+                      connectNulls
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </DashboardZone>
 
-              {customRangeError || invalidCustomRange ? (
-                <p className="text-xs text-rose-400">{customRangeError ?? "Periodo invalido: a data final deve ser maior ou igual a data inicial."}</p>
-              ) : null}
+          <DashboardZone>
+            <ZoneHeader
+              title="Leitura executiva"
+              subtitle="Resumo curto para orientar a proxima decisao operacional."
+            />
 
-              <div className={cn(chartRange === "custom" ? "h-72" : "h-80")}>
-                {chartLoading ? (
-                  <Skeleton className="h-full w-full rounded-xl bg-zinc-800" />
-                ) : chartData.length === 0 ? (
-                  <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-700 text-sm text-zinc-400">
-                    Sem dados para o período selecionado.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.48} />
-                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0.04} />
-                        </linearGradient>
-                        <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.34} />
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                      <XAxis
-                        dataKey="month"
-                        tickFormatter={formatDateLabel}
-                        tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: 12,
-                          border: "1px solid #3f3f46",
-                          background: "rgba(24,24,27,0.95)",
-                          color: "#f4f4f5",
-                        }}
-                        formatter={(value, key) => {
-                          const parsedValue = typeof value === "number" ? value : Number(value);
-                          if (!Number.isFinite(parsedValue)) return ["-", String(key)];
-                          if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
-                          return [parsedValue.toFixed(2), "NPS medio"];
-                        }}
-                        labelFormatter={(label) => formatDateLabel(String(label))}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="nps_avg"
-                        name="NPS medio"
-                        stroke="#4ade80"
-                        fill="url(#npsGradient)"
-                        strokeWidth={2.5}
-                        connectNulls
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="churn_rate"
-                        name="Churn"
-                        stroke="#f59e0b"
-                        fill="url(#churnGradient)"
-                        strokeWidth={2.1}
-                        connectNulls
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-            <CardHeader>
-              <CardTitle className={cn("!text-zinc-100", DASH_H2)}>Action Center</CardTitle>
-              <CardDescription className={cn("!text-zinc-400", DASH_H4)}>
-                Filtros por origem e busca rapida para reproduzir o comportamento do dashboard referencia.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 sm:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveSource("all")}
-                  className={cn(
-                    "rounded-xl border p-3 text-left transition",
-                    activeSource === "all"
-                      ? "border-emerald-400/60 bg-emerald-400/12"
-                      : "border-zinc-700 bg-zinc-900/70 hover:border-zinc-500",
-                  )}
-                >
-                  <p className={cn("uppercase tracking-wider text-zinc-500", DASH_H4)}>Total</p>
-                  <p className="mt-1 text-2xl font-bold text-zinc-100">{actionRows.length}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSource("operational")}
-                  className={cn(
-                    "rounded-xl border p-3 text-left transition",
-                    activeSource === "operational"
-                      ? "border-emerald-400/60 bg-emerald-400/12"
-                      : "border-zinc-700 bg-zinc-900/70 hover:border-zinc-500",
-                  )}
-                >
-                  <p className={cn("uppercase tracking-wider text-zinc-500", DASH_H4)}>Inativos 7d</p>
-                  <p className="mt-1 text-2xl font-bold text-zinc-100">{sourceCounters.operational}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSource("commercial")}
-                  className={cn(
-                    "rounded-xl border p-3 text-left transition",
-                    activeSource === "commercial"
-                      ? "border-emerald-400/60 bg-emerald-400/12"
-                      : "border-zinc-700 bg-zinc-900/70 hover:border-zinc-500",
-                  )}
-                >
-                  <p className={cn("uppercase tracking-wider text-zinc-500", DASH_H4)}>Leads sem contato</p>
-                  <p className="mt-1 text-2xl font-bold text-zinc-100">{sourceCounters.commercial}</p>
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-1.5">
-                  <FilterChip
-                    active={activeSource === "all"}
-                    label={`Tudo (${actionRows.length})`}
-                    onClick={() => setActiveSource("all")}
-                  />
-                  <FilterChip
-                    active={activeSource === "retention"}
-                    label={`Retencao (${sourceCounters.retention})`}
-                    onClick={() => setActiveSource("retention")}
-                  />
-                  <FilterChip
-                    active={activeSource === "commercial"}
-                    label={`Comercial (${sourceCounters.commercial})`}
-                    onClick={() => setActiveSource("commercial")}
-                  />
-                  <FilterChip
-                    active={activeSource === "operational"}
-                    label={`Operacional (${sourceCounters.operational})`}
-                    onClick={() => setActiveSource("operational")}
-                  />
-                </div>
-                <div className="relative w-full max-w-xs">
-                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Buscar por nome ou status"
-                    className="border-zinc-700 bg-zinc-900/70 pl-9 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-zinc-500/20"
-                  />
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/60">
-                <table className="min-w-full divide-y divide-zinc-800">
-                  <thead className="bg-zinc-900/90">
-                    <tr>
-                      <th className={cn("px-4 py-3 text-left font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Nome</th>
-                      <th className={cn("px-4 py-3 text-left font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Origem</th>
-                      <th className={cn("px-4 py-3 text-left font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Status</th>
-                      <th className={cn("px-4 py-3 text-left font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Prioridade</th>
-                      <th className={cn("px-4 py-3 text-left font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Ultimo evento</th>
-                      <th className={cn("px-4 py-3 text-right font-semibold uppercase tracking-wider text-zinc-500", DASH_H5)}>Acao</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800">
-                    {actionsLoading ? (
-                      [0, 1, 2, 3, 4].map((row) => (
-                        <tr key={row}>
-                          <td colSpan={6} className="px-4 py-3">
-                            <Skeleton className="h-6 w-full rounded bg-zinc-800" />
-                          </td>
-                        </tr>
-                      ))
-                    ) : visibleRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-500">
-                          Nenhum resultado para o filtro aplicado.
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleRows.map((row) => {
-                        const SourceIcon = SOURCE_META[row.source].icon;
-                        return (
-                          <tr key={row.id} className="transition hover:bg-zinc-900/70">
-                            <td className="px-4 py-3">
-                              <p className={cn("font-semibold text-zinc-100", DASH_H3)}>{row.name}</p>
-                              <p className={cn("text-zinc-500", DASH_H4)}>{row.subtitle}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={cn("inline-flex items-center gap-1.5 font-semibold text-zinc-400", DASH_H4)}>
-                                <SourceIcon size={13} />
-                                {SOURCE_META[row.source].label}
-                              </span>
-                            </td>
-                            <td className={cn("px-4 py-3 text-zinc-300", DASH_H3)}>{row.status}</td>
-                            <td className="px-4 py-3">
-                              <Badge variant={row.priority === "high" ? "danger" : "warning"}>
-                                {row.priority === "high" ? "Alta" : "Media"}
-                              </Badge>
-                            </td>
-                            <td className={cn("px-4 py-3 text-zinc-500", DASH_H4)}>{formatDateTime(row.lastEventAt)}</td>
-                            <td className="px-4 py-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => navigate(row.href)}
-                                className={cn("inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 font-semibold uppercase tracking-wider text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800", DASH_H4)}
-                              >
-                                Abrir
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
+            <div className="space-y-4">
+              {viewModel.alerts[0] ? (
+                <div className="flex items-start gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+                  <AlertTriangle
+                    size={16}
+                    className={cn(
+                      "mt-0.5",
+                      viewModel.alerts[0].tone === "danger"
+                        ? "text-rose-400"
+                        : viewModel.alerts[0].tone === "warning"
+                          ? "text-amber-400"
+                          : "text-zinc-400",
                     )}
-                  </tbody>
-                </table>
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-100">{viewModel.alerts[0].title}</p>
+                    <p className="mt-1 text-sm text-zinc-400">{viewModel.alerts[0].description}</p>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4">
+                <p className="text-sm leading-relaxed text-zinc-100">{viewModel.insight}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => navigate("/dashboard/retention")}>
+                    Ver plano de retencao
+                    <ArrowRight size={14} />
+                  </Button>
+                </div>
               </div>
 
-              {!actionsLoading && filteredRows.length > visibleRows.length ? (
-                <p className={cn("text-zinc-500", DASH_H4)}>
-                  Mostrando {visibleRows.length} de {filteredRows.length} registros.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
+              <AiInsightCard dashboard="executive" />
+            </div>
+          </DashboardZone>
         </div>
 
-        {!insightLoading && !viewModel.hasData ? (
-          <Card className="!border-zinc-700 !bg-zinc-900/60 !shadow-none">
-            <CardContent className="flex flex-col items-start gap-3 py-6">
-              <p className={cn("text-zinc-400", DASH_H3)}>
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <DashboardZone>
+            <SectionHeader
+              title="Acoes prioritarias"
+              subtitle={
+                actionRows.length > visibleRows.length
+                  ? `Mostrando ${visibleRows.length} de ${actionRows.length} itens priorizados da fila.`
+                  : "Fila operacional consolidada e ordenada por prioridade."
+              }
+              count={visibleRows.length}
+            />
+
+            {actionLoading ? (
+              <SkeletonList rows={6} cols={4} />
+            ) : visibleRows.length === 0 ? (
+              <EmptyState
+                icon={AlertTriangle}
+                title="Nenhuma acao prioritaria no momento"
+                description="A fila esta sob controle. Volte mais tarde para acompanhar novas oportunidades."
+              />
+            ) : (
+              <div className="space-y-2">
+                {visibleRows.map((row) => {
+                  const SourceIcon = SOURCE_META[row.source].icon;
+
+                  return (
+                    <div
+                      key={row.id}
+                      className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 lg:flex-row lg:items-center lg:justify-between"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-zinc-100">{row.name}</p>
+                          <StatusBadge status={row.source} map={SOURCE_BADGE_MAP} />
+                          <StatusBadge status={row.priority} map={PRIORITY_BADGE_MAP} />
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">{row.subtitle}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+                          <span className="inline-flex items-center gap-1.5">
+                            <SourceIcon size={12} />
+                            {row.status}
+                          </span>
+                          <span>Ultimo evento: {formatDateTime(row.lastEventAt)}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center">
+                        <Button size="sm" variant="ghost" onClick={() => navigate(row.href)}>
+                          Abrir
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </DashboardZone>
+
+          <div className="space-y-4">
+            <RoiSummaryCard />
+          </div>
+        </div>
+
+        {!executive.isLoading && !viewModel.hasData ? (
+          <DashboardZone className="border-zinc-700 bg-zinc-900/60">
+            <div className="flex flex-col items-start gap-3 py-2">
+              <p className="text-sm text-zinc-400">
                 Sem dados suficientes para preencher o dashboard. Importe membros e check-ins para ativar o painel.
               </p>
-              <Button
-                onClick={() => navigate("/imports")}
-                className="!bg-emerald-500 !text-zinc-950 hover:brightness-110"
-              >
-                Importar dados agora
-              </Button>
-            </CardContent>
-          </Card>
+              <Button onClick={() => navigate("/imports")}>Importar dados agora</Button>
+            </div>
+          </DashboardZone>
         ) : null}
       </div>
     </section>

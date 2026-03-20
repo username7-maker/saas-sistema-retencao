@@ -1,18 +1,16 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderSearch } from "lucide-react";
+import { Filter, FolderSearch, Inbox, SearchX, SlidersHorizontal } from "lucide-react";
 
-import { Button, Dialog, Card, CardContent } from "../ui2";
+import { EmptyState, FilterBar, KPIStrip, SectionHeader, SkeletonList } from "../ui";
+import { Button, Dialog, Select, Tabs, TabsList, TabsTrigger } from "../ui2";
 import type { CreateTaskPayload, UpdateTaskPayload } from "../../services/taskService";
 import type { StaffUser } from "../../services/userService";
 import type { Member, Task } from "../../types";
-import { TaskCreateDrawer } from "./TaskCreateDrawer";
+import { CreateTaskModal } from "../../pages/tasks/CreateTaskModal";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { TaskListItem } from "./TaskListItem";
-import { TasksEmptyState } from "./TasksEmptyState";
-import { TasksFiltersBar } from "./TasksFiltersBar";
 import { TasksFocusSection } from "./TasksFocusSection";
-import { TasksOperationalHeader } from "./TasksOperationalHeader";
 import {
   DEFAULT_OPERATIONAL_FILTERS,
   type OperationalFilters,
@@ -33,16 +31,49 @@ interface TasksOperationalViewProps {
   currentUserId: string | null;
   sourcePreset: SourceFilter | null;
   sourcePresetToken: number;
+  isLoading: boolean;
+  createOpen: boolean;
   isCreating: boolean;
   isUpdating: boolean;
   isDeleting: boolean;
+  onCreateOpen: () => void;
+  onCreateClose: () => void;
   onCreateTask: (payload: CreateTaskPayload) => void;
   onUpdateTask: (taskId: string, payload: UpdateTaskPayload) => void;
   onDeleteTask: (taskId: string) => void;
 }
 
-function hasFilters(filters: OperationalFilters): boolean {
-  return JSON.stringify(filters) !== JSON.stringify(DEFAULT_OPERATIONAL_FILTERS);
+function countActiveFilters(filters: OperationalFilters): number {
+  let count = 0;
+
+  if (filters.search.trim()) count += 1;
+  if (filters.status !== DEFAULT_OPERATIONAL_FILTERS.status) count += 1;
+  if (filters.priority !== DEFAULT_OPERATIONAL_FILTERS.priority) count += 1;
+  if (filters.assignee !== DEFAULT_OPERATIONAL_FILTERS.assignee) count += 1;
+  if (filters.source !== DEFAULT_OPERATIONAL_FILTERS.source) count += 1;
+  if (filters.plan !== DEFAULT_OPERATIONAL_FILTERS.plan) count += 1;
+  if (filters.onlyMine) count += 1;
+  if (filters.overdueOnly) count += 1;
+  if (filters.dueTodayOnly) count += 1;
+  if (filters.unassignedOnly) count += 1;
+
+  return count;
+}
+
+function ToggleChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button size="sm" variant={active ? "secondary" : "ghost"} onClick={onClick} className="rounded-lg">
+      {label}
+    </Button>
+  );
 }
 
 export function TasksOperationalView({
@@ -52,9 +83,13 @@ export function TasksOperationalView({
   currentUserId,
   sourcePreset,
   sourcePresetToken,
+  isLoading,
+  createOpen,
   isCreating,
   isUpdating,
   isDeleting,
+  onCreateOpen,
+  onCreateClose,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
@@ -64,7 +99,6 @@ export function TasksOperationalView({
   const [filters, setFilters] = useState<OperationalFilters>(DEFAULT_OPERATIONAL_FILTERS);
   const [viewMode, setViewMode] = useState<OperationalViewMode>("due");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
@@ -128,6 +162,9 @@ export function TasksOperationalView({
     [pendingDeleteId, tasks],
   );
 
+  const activeFilterCount = countActiveFilters(filters);
+  const noTasksAtAll = tasks.length === 0;
+
   function handleFilterChange<K extends keyof OperationalFilters>(key: K, value: OperationalFilters[K]) {
     setFilters((previous) => ({ ...previous, [key]: value }));
   }
@@ -149,33 +186,133 @@ export function TasksOperationalView({
     navigate("/crm");
   }
 
-  function handleStart(taskId: string) {
-    onUpdateTask(taskId, { status: "doing" });
-  }
-
   function handleComplete(taskId: string) {
     onUpdateTask(taskId, { status: "done" });
   }
 
-  const hasActiveFilters = hasFilters(filters);
-  const noTasksAtAll = tasks.length === 0;
+  const kpiItems = [
+    { label: "Total visiveis", value: filteredTasks.length, tone: "neutral" as const },
+    { label: "Pendentes", value: stats.open, tone: "warning" as const },
+    { label: "Vencidas", value: stats.overdue, tone: "danger" as const },
+    { label: "Concluidas hoje", value: stats.completedToday, tone: "success" as const },
+  ];
 
   return (
-    <div className="space-y-4">
-      <TasksOperationalHeader stats={stats} onCreateTask={() => setCreateOpen(true)} />
+    <div className="space-y-6">
+      <KPIStrip items={kpiItems} />
 
-      <TasksFiltersBar
-        filters={filters}
-        hasActiveFilters={hasActiveFilters}
-        advancedOpen={advancedOpen}
-        viewMode={viewMode}
-        users={users}
-        onViewModeChange={setViewMode}
-        onAdvancedToggle={() => setAdvancedOpen((value) => !value)}
-        onReset={handleResetFilters}
-        onSearchChange={(value) => handleFilterChange("search", value)}
-        onFilterChange={handleFilterChange}
-      />
+      <section className="space-y-3">
+        <FilterBar
+          search={{
+            value: filters.search,
+            onChange: (value) => handleFilterChange("search", value),
+            placeholder: "Buscar por titulo, aluno ou lead...",
+          }}
+          filters={[
+            {
+              key: "status",
+              label: "Status",
+              value: filters.status,
+              onChange: (value) => handleFilterChange("status", value as OperationalFilters["status"]),
+              options: [
+                { value: "all", label: "Todos os status" },
+                { value: "todo", label: "A fazer" },
+                { value: "doing", label: "Em andamento" },
+                { value: "done", label: "Concluidas" },
+                { value: "cancelled", label: "Canceladas" },
+              ],
+            },
+            {
+              key: "priority",
+              label: "Prioridade",
+              value: filters.priority,
+              onChange: (value) => handleFilterChange("priority", value as OperationalFilters["priority"]),
+              options: [
+                { value: "all", label: "Todas as prioridades" },
+                { value: "low", label: "Baixa" },
+                { value: "medium", label: "Media" },
+                { value: "high", label: "Alta" },
+                { value: "urgent", label: "Critica" },
+              ],
+            },
+            {
+              key: "source",
+              label: "Origem",
+              value: filters.source,
+              onChange: (value) => handleFilterChange("source", value as SourceFilter),
+              options: [
+                { value: "all", label: "Todas as origens" },
+                { value: "manual", label: "Manual" },
+                { value: "onboarding", label: "Onboarding" },
+                { value: "plan_followup", label: "Follow-up" },
+                { value: "automation", label: "Automacao" },
+              ],
+            },
+          ]}
+          activeCount={activeFilterCount}
+          onClear={handleResetFilters}
+        />
+
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <ToggleChip active={filters.onlyMine} label="So minhas" onClick={() => handleFilterChange("onlyMine", !filters.onlyMine)} />
+            <ToggleChip active={filters.overdueOnly} label="Atrasadas" onClick={() => handleFilterChange("overdueOnly", !filters.overdueOnly)} />
+            <ToggleChip active={filters.dueTodayOnly} label="Vence hoje" onClick={() => handleFilterChange("dueTodayOnly", !filters.dueTodayOnly)} />
+            <ToggleChip active={filters.unassignedOnly} label="Sem responsavel" onClick={() => handleFilterChange("unassignedOnly", !filters.unassignedOnly)} />
+
+            <Button
+              size="sm"
+              variant={advancedOpen ? "secondary" : "ghost"}
+              onClick={() => setAdvancedOpen((value) => !value)}
+              className="rounded-lg"
+            >
+              <SlidersHorizontal size={14} />
+              Filtros avancados
+            </Button>
+          </div>
+
+          <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as OperationalViewMode)}>
+            <TabsList>
+              <TabsTrigger value="due">Por prazo</TabsTrigger>
+              <TabsTrigger value="status">Por status</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {advancedOpen ? (
+          <div className="grid gap-3 rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-4 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Responsavel</label>
+              <Select value={filters.assignee} onChange={(event) => handleFilterChange("assignee", event.target.value)}>
+                <option value="all">Todos</option>
+                <option value="unassigned">Sem responsavel</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Plano</label>
+              <Select value={filters.plan} onChange={(event) => handleFilterChange("plan", event.target.value as OperationalFilters["plan"])}>
+                <option value="all">Todos</option>
+                <option value="mensal">Mensal</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </Select>
+            </div>
+
+            <div className="flex items-end">
+              <p className="inline-flex items-center gap-2 text-xs text-lovable-ink-muted">
+                <Filter size={13} />
+                Ajustes adicionais sem poluir a fila principal.
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <TasksFocusSection
         tasks={attentionTasks}
@@ -183,69 +320,64 @@ export function TasksOperationalView({
         userNameById={userNameById}
         isUpdating={isUpdating}
         onOpenDetails={openTaskDetails}
-        onStart={handleStart}
         onComplete={handleComplete}
       />
 
-      {noTasksAtAll ? (
-        <TasksEmptyState
-          title="Sem tarefas ainda"
-          description="Crie a primeira task para começar a organizar a operacao diaria."
-          actionLabel="Nova tarefa"
-          onAction={() => setCreateOpen(true)}
-        />
+      {isLoading ? (
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3">
+          <SkeletonList rows={8} cols={4} />
+        </div>
+      ) : noTasksAtAll ? (
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4">
+          <EmptyState
+            icon={Inbox}
+            title="Nenhuma tarefa cadastrada"
+            description="Crie a primeira task para comecar a organizar os follow-ups do time."
+            action={{ label: "Nova tarefa", onClick: onCreateOpen }}
+          />
+        </div>
       ) : groups.length === 0 ? (
-        <TasksEmptyState
-          title="Nenhum resultado para os filtros"
-          description="Tente limpar a busca ou afrouxar os filtros para reencontrar tarefas."
-          actionLabel="Limpar filtros"
-          onAction={handleResetFilters}
-          mode="search"
-        />
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4">
+          <EmptyState
+            icon={SearchX}
+            title="Nenhum resultado para os filtros"
+            description="Tente limpar a busca ou afrouxar os filtros para reencontrar tarefas."
+            action={{ label: "Limpar filtros", onClick: handleResetFilters }}
+          />
+        </div>
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (
-            <Card key={group.key}>
-              <CardContent className="space-y-3 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-lovable-ink">{group.label}</p>
-                    <p className="text-sm text-lovable-ink-muted">{group.description}</p>
-                  </div>
-                  <div className="rounded-full bg-lovable-surface-soft px-3 py-1 text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
-                    {group.tasks.length} item{group.tasks.length !== 1 ? "s" : ""}
-                  </div>
-                </div>
+            <section key={group.key} className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-4">
+              <SectionHeader title={group.label} subtitle={group.description} count={group.tasks.length} />
 
-                <div className="space-y-2">
-                  {group.tasks.map((task) => (
-                    <TaskListItem
-                      key={task.id}
-                      task={task}
-                      todayKey={todayKey}
-                      userNameById={userNameById}
-                      isUpdating={isUpdating}
-                      onOpenDetails={openTaskDetails}
-                      onStart={handleStart}
-                      onComplete={handleComplete}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+              <div className="space-y-2">
+                {group.tasks.map((task) => (
+                  <TaskListItem
+                    key={task.id}
+                    task={task}
+                    todayKey={todayKey}
+                    userNameById={userNameById}
+                    isUpdating={isUpdating}
+                    onOpenDetails={openTaskDetails}
+                    onComplete={handleComplete}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
 
-      <TaskCreateDrawer
+      <CreateTaskModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={onCreateClose}
         members={members}
         users={users}
         isPending={isCreating}
         onSubmit={(payload) => {
           onCreateTask(payload);
-          setCreateOpen(false);
+          onCreateClose();
         }}
       />
 

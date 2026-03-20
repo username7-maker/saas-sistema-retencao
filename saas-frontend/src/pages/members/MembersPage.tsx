@@ -1,17 +1,47 @@
-﻿import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, UserPlus, X, Edit2, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Edit2, Eye, Trash2, Users } from "lucide-react";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 
+import { EmptyState, FilterBar, KPIStrip, PageHeader, SkeletonList, StatusBadge } from "../../components/ui";
+import {
+  Badge,
+  Button,
+  Dialog,
+  Pagination,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableInner,
+  TableRow,
+} from "../../components/ui2";
 import { memberService } from "../../services/memberService";
 import type { MemberPlanCycle } from "../../services/memberService";
 import type { Member, RiskLevel } from "../../types";
-import { Badge, Button, Card, CardContent, Dialog, Input, Pagination, Select } from "../../components/ui2";
 import { AddMemberDrawer } from "./AddMemberDrawer";
 import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
 import { PAGE_SIZE, RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
 import type { MemberQueryFilters } from "./memberUtils";
+
+function formatCurrency(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatCheckinDate(value: string | null): string {
+  return value ? new Date(value).toLocaleDateString("pt-BR") : "Nunca";
+}
+
+function isCurrentMonth(value: string): boolean {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const now = new Date();
+  return parsed.getMonth() === now.getMonth() && parsed.getFullYear() === now.getFullYear();
+}
 
 export function MembersPage() {
   const queryClient = useQueryClient();
@@ -45,14 +75,21 @@ export function MembersPage() {
     onError: () => toast.error("Erro ao remover membro"),
   });
 
-  const handleSearch = () => {
-    setPage(1);
-    setFilters((prev) => ({ ...prev, search: search.trim() || undefined }));
-  };
-
   const handleFilterChange = <K extends keyof MemberQueryFilters>(key: K, value: MemberQueryFilters[K] | undefined) => {
     setPage(1);
     setFilters((prev) => ({ ...prev, [key]: value === "" ? undefined : value }));
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setPage(1);
+    setFilters((prev) => ({ ...prev, search: value.trim() || undefined }));
+  };
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setPage(1);
+    setFilters({});
   };
 
   const openDetail = (member: Member) => {
@@ -69,190 +106,219 @@ export function MembersPage() {
   const pageStart = data && data.total > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
   const pageEnd = data ? Math.min(page * PAGE_SIZE, data.total) : 0;
 
+  const kpiItems = useMemo(() => {
+    const items = data?.items ?? [];
+    const totalMembers = data?.total ?? 0;
+    const activeMembers = items.filter((member) => member.status === "active").length;
+    const redRiskMembers = items.filter((member) => member.risk_level === "red").length;
+    const newThisMonth = items.filter((member) => isCurrentMonth(member.join_date)).length;
+
+    return [
+      { label: "Total de membros", value: totalMembers, tone: "neutral" as const },
+      { label: "Ativos", value: activeMembers, tone: "success" as const },
+      { label: "Risco vermelho", value: redRiskMembers, tone: "danger" as const },
+      { label: "Novos no mês", value: newThisMonth, tone: "warning" as const },
+    ];
+  }, [data]);
+
+  const activeFilterCount = [
+    filters.search,
+    filters.status,
+    filters.risk_level,
+    filters.plan_cycle,
+  ].filter((value) => value !== undefined && value !== "").length;
+
   return (
     <div className="space-y-6">
-      <div className="px-1">
-        <p className="text-sm text-lovable-ink-muted">
+      <PageHeader
+        title="Membros"
+        subtitle="Gestão e acompanhamento da base de alunos"
+        actions={
+          <Button variant="primary" onClick={() => setAddOpen(true)}>
+            + Adicionar Membro
+          </Button>
+        }
+      />
+
+      <KPIStrip items={kpiItems} />
+
+      <div className="space-y-2">
+        <FilterBar
+          search={{
+            value: search,
+            onChange: handleSearchChange,
+            placeholder: "Buscar por nome ou email...",
+          }}
+          filters={[
+            {
+              key: "status",
+              label: "Status",
+              value: filters.status ?? "",
+              onChange: (value) => handleFilterChange("status", value as Member["status"] | undefined),
+              options: [
+                { value: "", label: "Todos os status" },
+                { value: "active", label: "Ativo" },
+                { value: "paused", label: "Pausado" },
+                { value: "cancelled", label: "Cancelado" },
+              ],
+            },
+            {
+              key: "risk_level",
+              label: "Risco",
+              value: filters.risk_level ?? "",
+              onChange: (value) => handleFilterChange("risk_level", value as RiskLevel | undefined),
+              options: [
+                { value: "", label: "Todos os riscos" },
+                { value: "green", label: "Verde" },
+                { value: "yellow", label: "Amarelo" },
+                { value: "red", label: "Vermelho" },
+              ],
+            },
+            {
+              key: "plan_cycle",
+              label: "Plano",
+              value: filters.plan_cycle ?? "",
+              onChange: (value) => handleFilterChange("plan_cycle", value as MemberPlanCycle | undefined),
+              options: [
+                { value: "", label: "Todos os planos" },
+                { value: "monthly", label: "Mensal" },
+                { value: "semiannual", label: "Semestral" },
+                { value: "annual", label: "Anual" },
+              ],
+            },
+          ]}
+          activeCount={activeFilterCount}
+          onClear={clearAllFilters}
+        />
+        <p className="px-1 text-sm text-lovable-ink-muted">
           {data ? `${data.total} membros cadastrados` : "Carregando membros..."}
         </p>
       </div>
 
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex min-w-[220px] flex-1 gap-2">
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    handleSearch();
-                  }
-                }}
-                placeholder="Buscar por nome ou email..."
-                className="flex-1"
-              />
-              <Button variant="primary" size="sm" onClick={handleSearch}>
-                <Search size={14} />
-              </Button>
-              {filters.search ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSearch("");
-                    setPage(1);
-                    setFilters((prev) => ({ ...prev, search: undefined }));
-                  }}
-                >
-                  <X size={14} />
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="w-full md:w-56">
-              <Select
-                value={filters.status ?? ""}
-                onChange={(event) => handleFilterChange("status", event.target.value as Member["status"] | undefined)}
-              >
-                <option value="">Todos os status</option>
-                <option value="active">Ativo</option>
-                <option value="paused">Pausado</option>
-                <option value="cancelled">Cancelado</option>
-              </Select>
-            </div>
-
-            <div className="w-full md:w-56">
-              <Select
-                value={filters.risk_level ?? ""}
-                onChange={(event) => handleFilterChange("risk_level", event.target.value as RiskLevel | undefined)}
-              >
-                <option value="">Todos os riscos</option>
-                <option value="green">Verde</option>
-                <option value="yellow">Amarelo</option>
-                <option value="red">Vermelho</option>
-              </Select>
-            </div>
-
-            <div className="w-full md:w-56">
-              <Select
-                value={filters.plan_cycle ?? ""}
-                onChange={(event) => handleFilterChange("plan_cycle", event.target.value as MemberPlanCycle | undefined)}
-              >
-                <option value="">Todos os planos</option>
-                <option value="monthly">Mensal</option>
-                <option value="semiannual">Semestral</option>
-                <option value="annual">Anual</option>
-              </Select>
-            </div>
-
-            <div className="w-full md:w-56">
-              <Select
-                value={
-                  filters.provisional_only === undefined
-                    ? ""
-                    : filters.provisional_only
-                      ? "true"
-                      : "false"
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  handleFilterChange(
-                    "provisional_only",
-                    value === "" ? undefined : value === "true",
-                  );
-                }}
-              >
-                <option value="">Todos os cadastros</option>
-                <option value="true">Apenas provisórios</option>
-                <option value="false">Apenas definitivos</option>
-              </Select>
-            </div>
-
-            <div className="w-full md:w-auto">
-              <Button variant="primary" onClick={() => setAddOpen(true)}>
-                + Adicionar Membro
-              </Button>
-            </div>
+      <Table>
+        {isLoading ? (
+          <div className="px-5 py-2">
+            <SkeletonList rows={8} cols={5} />
           </div>
-        </CardContent>
-      </Card>
+        ) : isError ? (
+          <div className="flex items-center justify-center py-12 text-lovable-danger">
+            Erro ao carregar membros. Tente novamente.
+          </div>
+        ) : !data?.items.length ? (
+          <EmptyState
+            icon={Users}
+            title="Nenhum membro encontrado"
+            description="Tente ajustar os filtros ou adicione um novo membro"
+            action={{ label: "Adicionar Membro", onClick: () => setAddOpen(true) }}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <TableInner>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>Membro</TableHeaderCell>
+                  <TableHeaderCell>Plano</TableHeaderCell>
+                  <TableHeaderCell>Operação</TableHeaderCell>
+                  <TableHeaderCell>Último check-in</TableHeaderCell>
+                  <TableHeaderCell className="w-[140px]">Ações</TableHeaderCell>
+                </tr>
+              </TableHead>
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 text-lovable-ink-muted">Carregando membros...</div>
-          ) : isError ? (
-            <div className="flex items-center justify-center py-12 text-lovable-danger">Erro ao carregar membros. Tente novamente.</div>
-          ) : !data?.items.length ? (
-            <div className="flex flex-col items-center justify-center py-12 text-lovable-ink-muted">
-              <UserPlus size={40} className="mb-3 opacity-40" />
-              <p>Nenhum membro encontrado</p>
-              {filters.search ? <p className="mt-1 text-xs">Tente buscar com outro termo</p> : null}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-lovable-border bg-lovable-surface-soft">
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Nome</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Plano</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Risco</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Ultimo Check-in</th>
-                    <th className="px-4 py-3 text-left font-semibold text-lovable-ink-muted">Acoes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.items.map((member) => (
-                    <tr
-                      key={member.id}
-                      className="cursor-pointer border-b border-lovable-border/50 transition hover:bg-lovable-surface-soft/40"
-                      onClick={() => openDetail(member)}
-                    >
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-lovable-ink">{member.full_name}</p>
-                          <p className="text-xs text-lovable-ink-muted">{member.email ?? "Sem email"}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="text-lovable-ink">{member.plan_name}</p>
-                          <p className="text-xs text-lovable-ink-muted">
-                            {member.monthly_fee.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={STATUS_VARIANTS[member.status]}>{STATUS_LABELS[member.status]}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Badge variant={RISK_VARIANTS[member.risk_level]}>{RISK_LABELS[member.risk_level]}</Badge>
-                          <span className="text-xs text-lovable-ink-muted">{member.risk_score} pts</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-lovable-ink-muted">
-                        {member.last_checkin_at ? new Date(member.last_checkin_at).toLocaleDateString("pt-BR") : "Nunca"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                          <Button variant="ghost" size="sm" onClick={(event) => openEdit(member, event)} title="Editar">
-                            <Edit2 size={14} />
-                          </Button>
-                          <Button variant="danger" size="sm" onClick={() => setMemberToDelete(member)} title="Excluir">
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
+              <TableBody>
+                {data.items.map((member) => (
+                  <TableRow
+                    key={member.id}
+                    className="cursor-pointer"
+                    onClick={() => openDetail(member)}
+                  >
+                    <TableCell>
+                      <div className="min-w-0">
+                        <Link
+                          to={`/assessments/members/${member.id}`}
+                          className="block truncate font-medium text-lovable-ink transition hover:text-lovable-brand hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {member.full_name}
+                        </Link>
+                        <p className="mt-1 truncate text-xs text-lovable-ink-muted">{member.email ?? "Sem email"}</p>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <div>
+                        <p className="font-medium text-lovable-ink">{member.plan_name}</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">{formatCurrency(member.monthly_fee)}</p>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge
+                          status={member.status}
+                          map={{
+                            active: { label: STATUS_LABELS.active, variant: STATUS_VARIANTS.active },
+                            paused: { label: STATUS_LABELS.paused, variant: STATUS_VARIANTS.paused },
+                            cancelled: { label: STATUS_LABELS.cancelled, variant: STATUS_VARIANTS.cancelled },
+                          }}
+                        />
+                        <StatusBadge
+                          status={member.risk_level}
+                          map={{
+                            green: { label: RISK_LABELS.green, variant: RISK_VARIANTS.green },
+                            yellow: { label: RISK_LABELS.yellow, variant: RISK_VARIANTS.yellow },
+                            red: { label: RISK_LABELS.red, variant: RISK_VARIANTS.red },
+                          }}
+                        />
+                        <Badge variant="neutral" className="px-2 py-0.5 text-[11px] normal-case tracking-normal">
+                          {member.risk_score} pts
+                        </Badge>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="text-sm text-lovable-ink-muted">{formatCheckinDate(member.last_checkin_at)}</span>
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openDetail(member)}
+                          title="Ver detalhes"
+                          aria-label={`Ver detalhes de ${member.full_name}`}
+                          className="px-2"
+                        >
+                          <Eye size={14} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => openEdit(member, event)}
+                          title="Editar"
+                          aria-label={`Editar ${member.full_name}`}
+                          className="px-2"
+                        >
+                          <Edit2 size={14} />
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => setMemberToDelete(member)}
+                          title="Excluir"
+                          aria-label={`Excluir ${member.full_name}`}
+                          className="px-2"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </TableInner>
+          </div>
+        )}
 
         {data && data.total > PAGE_SIZE ? (
           <div className="flex flex-col gap-3 border-t border-lovable-border px-4 py-3 md:flex-row md:items-center md:justify-between">
@@ -262,7 +328,7 @@ export function MembersPage() {
             <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} onPageChange={setPage} />
           </div>
         ) : null}
-      </Card>
+      </Table>
 
       <AddMemberDrawer open={addOpen} onClose={() => setAddOpen(false)} />
       <MemberDetailDrawer member={selectedMember} open={detailOpen} onClose={() => setDetailOpen(false)} />
@@ -298,4 +364,3 @@ export function MembersPage() {
     </div>
   );
 }
-

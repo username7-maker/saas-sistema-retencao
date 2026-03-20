@@ -18,6 +18,20 @@ body {
   background: hsl(var(--lovable-bg));
 }
 
+button,
+a,
+[role="button"] {
+  transition-property: background-color, border-color, color, opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+:focus-visible {
+  outline: 2px solid hsl(var(--lovable-primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 * {
   box-sizing: border-box;
 }

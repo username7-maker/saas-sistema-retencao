@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
-import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
+import { PageHeader, SkeletonList } from "../../components/ui";
+import { Badge, Button, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
 import { useAuth } from "../../hooks/useAuth";
 import { memberService } from "../../services/memberService";
 import { taskService, type CreateTaskPayload, type UpdateTaskPayload } from "../../services/taskService";
@@ -35,6 +35,7 @@ export function TasksPage() {
   const { user } = useAuth();
 
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("operations");
+  const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
 
@@ -84,15 +85,7 @@ export function TasksPage() {
     onError: () => toast.error("Erro ao excluir tarefa."),
   });
 
-  if (tasksQuery.isLoading) {
-    return <LoadingPanel text="Carregando tarefas..." />;
-  }
-
-  if (tasksQuery.isError || !tasksQuery.data) {
-    return <LoadingPanel text="Erro ao carregar tarefas. Tente novamente." />;
-  }
-
-  const tasks = tasksQuery.data.items;
+  const tasks = tasksQuery.data?.items ?? [];
   const members = membersQuery.data ?? [];
   const users = usersQuery.data ?? [];
   const onboardingCount = members.filter(
@@ -106,45 +99,69 @@ export function TasksPage() {
   }
 
   return (
-    <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="space-y-6">
-      <section className="space-y-4">
-        <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <h1 className="font-heading text-3xl font-bold text-lovable-ink">Tasks</h1>
-            <p className="mt-1 text-sm text-lovable-ink-muted">
-              Fila operacional e onboarding preservado em visoes separadas, mais claras e menos caoticas.
-            </p>
-          </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Tarefas"
+        subtitle="Acompanhamento de acoes e follow-ups pendentes"
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setWorkspaceTab("operations");
+              setCreateOpen(true);
+            }}
+          >
+            + Nova Tarefa
+          </Button>
+        }
+      />
+
+      <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="operations" className="min-w-[150px]">
+              Operacao
+            </TabsTrigger>
+            <TabsTrigger value="onboarding" className="min-w-[150px]">
+              Onboarding
+            </TabsTrigger>
+          </TabsList>
 
           <div className="flex flex-wrap items-center gap-2">
-            <TabsList className="w-full sm:w-auto">
-              <TabsTrigger value="operations" className="min-w-[150px]">
-                Operacao
-              </TabsTrigger>
-              <TabsTrigger value="onboarding" className="min-w-[150px]">
-                Onboarding
-              </TabsTrigger>
-            </TabsList>
             <Badge variant="neutral">Tasks: {tasks.length}</Badge>
             <Badge variant="warning">Onboarding ativo: {onboardingCount}</Badge>
           </div>
-        </header>
+        </div>
 
         <TabsContent value="operations">
-          <TasksOperationalView
-            tasks={tasks}
-            members={members}
-            users={users}
-            currentUserId={user?.id ?? null}
-            sourcePreset={sourcePreset}
-            sourcePresetToken={sourcePresetToken}
-            isCreating={createMutation.isPending}
-            isUpdating={updateMutation.isPending}
-            isDeleting={deleteMutation.isPending}
-            onCreateTask={(payload) => createMutation.mutate(payload)}
-            onUpdateTask={(taskId, payload) => updateMutation.mutate({ taskId, payload })}
-            onDeleteTask={(taskId) => deleteMutation.mutate(taskId)}
-          />
+          {tasksQuery.isLoading ? (
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3">
+              <SkeletonList rows={8} cols={4} />
+            </div>
+          ) : tasksQuery.isError || !tasksQuery.data ? (
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-10 text-center text-sm text-lovable-danger">
+              Erro ao carregar tarefas. Tente novamente.
+            </div>
+          ) : (
+            <TasksOperationalView
+              tasks={tasks}
+              members={members}
+              users={users}
+              currentUserId={user?.id ?? null}
+              sourcePreset={sourcePreset}
+              sourcePresetToken={sourcePresetToken}
+              isLoading={false}
+              createOpen={createOpen}
+              isCreating={createMutation.isPending}
+              isUpdating={updateMutation.isPending}
+              isDeleting={deleteMutation.isPending}
+              onCreateOpen={() => setCreateOpen(true)}
+              onCreateClose={() => setCreateOpen(false)}
+              onCreateTask={(payload) => createMutation.mutate(payload)}
+              onUpdateTask={(taskId, payload) => updateMutation.mutate({ taskId, payload })}
+              onDeleteTask={(taskId) => deleteMutation.mutate(taskId)}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="onboarding">
@@ -156,7 +173,7 @@ export function TasksPage() {
             onOpenOnboardingQueue={openOnboardingQueue}
           />
         </TabsContent>
-      </section>
-    </Tabs>
+      </Tabs>
+    </div>
   );
 }

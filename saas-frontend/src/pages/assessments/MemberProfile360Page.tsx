@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
+import { AlertTriangle, ArrowLeft, Clock3, ListTodo, TriangleAlert } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -14,7 +15,6 @@ import {
   getAge,
   getInitials,
   normalizeAssessmentWorkspaceTab,
-  riskBadgeVariant,
   riskLabel,
   statusBadgeVariant,
   statusLabel,
@@ -26,13 +26,25 @@ import { MemberBodyCompositionTab } from "../../components/assessments/MemberBod
 import { MemberConstraintsEditor } from "../../components/assessments/MemberConstraintsEditor";
 import { MemberGoalsEditor } from "../../components/assessments/MemberGoalsEditor";
 import { MemberTrainingPlanEditor } from "../../components/assessments/MemberTrainingPlanEditor";
-import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { EmptyState, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { MemberTimeline360Content } from "../../components/common/MemberTimeline360Content";
-import { Badge, Button, Card, CardContent, Dialog, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "../../components/ui2";
+import { Badge, Button, Card, CardContent, Dialog, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "../../components/ui2";
+import { CreateTaskModal } from "../tasks/CreateTaskModal";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
 import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
+import { taskService, type CreateTaskPayload } from "../../services/taskService";
+import { userService } from "../../services/userService";
+import type { Task } from "../../types";
+import {
+  formatDueDate,
+  getTaskOperationalScore,
+  getTodayKey,
+  isOverdue,
+  PRIORITY_LABELS,
+  STATUS_LABELS,
+} from "../../components/tasks/taskUtils";
 
 interface InternalNote {
   id: string;
@@ -43,6 +55,32 @@ interface InternalNote {
 interface ApiErrorPayload {
   detail?: string;
 }
+
+const MEMBER_STATUS_MAP = {
+  active: { label: "Ativo", variant: "success" as const },
+  paused: { label: "Pausado", variant: "warning" as const },
+  cancelled: { label: "Cancelado", variant: "danger" as const },
+};
+
+const RISK_STATUS_MAP = {
+  green: { label: "Estavel", variant: "success" as const },
+  yellow: { label: "Atencao", variant: "warning" as const },
+  red: { label: "Risco alto", variant: "danger" as const },
+};
+
+const TASK_PRIORITY_MAP = {
+  low: { label: PRIORITY_LABELS.low, variant: "success" as const },
+  medium: { label: PRIORITY_LABELS.medium, variant: "neutral" as const },
+  high: { label: PRIORITY_LABELS.high, variant: "warning" as const },
+  urgent: { label: PRIORITY_LABELS.urgent, variant: "danger" as const },
+};
+
+const TASK_STATUS_MAP = {
+  todo: { label: STATUS_LABELS.todo, variant: "neutral" as const },
+  doing: { label: STATUS_LABELS.doing, variant: "warning" as const },
+  done: { label: STATUS_LABELS.done, variant: "success" as const },
+  cancelled: { label: STATUS_LABELS.cancelled, variant: "danger" as const },
+};
 
 function createNoteId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -133,15 +171,7 @@ function openTabWithSearchParams(
   setSearchParams(next, { replace: true });
 }
 
-function DetailMetric({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-}) {
+function DetailMetric({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
     <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{label}</p>
@@ -280,6 +310,129 @@ function ContextSupportPanel({ summary }: { summary: AssessmentSummary360 }) {
   );
 }
 
+function ProfileHeaderSkeleton() {
+  return (
+    <section className="space-y-6">
+      <Skeleton className="h-4 w-20" />
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="flex gap-4">
+            <Skeleton className="h-24 w-24 rounded-2xl" />
+            <div className="min-w-0 flex-1 space-y-3">
+              <Skeleton className="h-8 w-56" />
+              <Skeleton className="h-4 w-72" />
+              <div className="flex flex-wrap gap-2">
+                <Skeleton className="h-6 w-20 rounded-full" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Skeleton className="h-20 rounded-xl" />
+                <Skeleton className="h-20 rounded-xl" />
+                <Skeleton className="h-20 rounded-xl" />
+              </div>
+            </div>
+          </div>
+          <Card>
+            <CardContent className="pt-5">
+              <SkeletonList rows={3} cols={2} />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <SkeletonList rows={8} cols={3} />
+      </section>
+    </section>
+  );
+}
+
+function MemberTaskRow({ task, todayKey }: { task: Task; todayKey: string }) {
+  const overdue = isOverdue(task, todayKey);
+
+  return (
+    <li className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-lovable-ink">{task.title}</p>
+            <StatusBadge status={task.priority} map={TASK_PRIORITY_MAP} />
+            <StatusBadge status={task.status} map={TASK_STATUS_MAP} />
+          </div>
+          {task.description ? <p className="mt-1 text-xs text-lovable-ink-muted">{task.description}</p> : null}
+        </div>
+
+        <div
+          className={`inline-flex shrink-0 items-center gap-1 text-xs ${
+            overdue ? "font-semibold text-lovable-danger" : "text-lovable-ink-muted"
+          }`}
+        >
+          {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
+          {formatDueDate(task.due_date)}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function MemberTasksPanel({
+  tasks,
+  todayKey,
+  isLoading,
+  isError,
+  isCreating,
+  onRetry,
+  onCreate,
+}: {
+  tasks: Task[];
+  todayKey: string;
+  isLoading: boolean;
+  isError: boolean;
+  isCreating: boolean;
+  onRetry: () => void;
+  onCreate: () => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <SectionHeader
+          title="Acoes do aluno"
+          subtitle="Tarefas e follow-ups diretamente relacionados a este perfil."
+          count={tasks.length}
+          actions={
+            <Button size="sm" variant="primary" onClick={onCreate} disabled={isCreating}>
+              + Nova Tarefa
+            </Button>
+          }
+        />
+
+        {isLoading ? (
+          <SkeletonList rows={6} cols={4} />
+        ) : isError ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="Nao foi possivel carregar as tarefas"
+            description="Tente novamente para ver as acoes relacionadas a este aluno."
+            action={{ label: "Tentar novamente", onClick: onRetry }}
+          />
+        ) : tasks.length === 0 ? (
+          <EmptyState
+            icon={ListTodo}
+            title="Nenhuma tarefa relacionada"
+            description="Crie uma tarefa para acompanhar este aluno de forma operacional."
+            action={{ label: "Nova Tarefa", onClick: onCreate }}
+          />
+        ) : (
+          <ul className="space-y-3">
+            {tasks.map((task) => (
+              <MemberTaskRow key={task.id} task={task} todayKey={todayKey} />
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function MemberProfile360Page() {
   const { memberId } = useParams<{ memberId: string }>();
   const queryClient = useQueryClient();
@@ -288,12 +441,20 @@ export function MemberProfile360Page() {
   const [noteDraft, setNoteDraft] = useState("");
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
 
   const activeTab = normalizeAssessmentWorkspaceTab(searchParams.get("tab"));
 
   const profileQuery = useQuery({
     queryKey: ["assessments", "profile360", memberId],
     queryFn: () => assessmentService.profile360(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
+  const memberQuery = useQuery({
+    queryKey: ["members", memberId],
+    queryFn: () => memberService.getMember(memberId ?? ""),
     enabled: Boolean(memberId),
     staleTime: 60 * 1000,
   });
@@ -331,6 +492,20 @@ export function MemberProfile360Page() {
     queryFn: () => bodyCompositionService.list(memberId ?? "", 5),
     enabled: Boolean(memberId),
     staleTime: 60 * 1000,
+  });
+
+  const memberTasksQuery = useQuery({
+    queryKey: ["tasks", "member-workspace", memberId],
+    queryFn: taskService.listTasks,
+    enabled: Boolean(memberId) && (activeTab === "acoes" || isCreateTaskOpen),
+    staleTime: 60 * 1000,
+  });
+
+  const usersQuery = useQuery({
+    queryKey: ["users", "member-workspace-task-create"],
+    queryFn: userService.listUsers,
+    enabled: isCreateTaskOpen,
+    staleTime: 10 * 60 * 1000,
   });
 
   const addNoteMutation = useMutation({
@@ -405,23 +580,77 @@ export function MemberProfile360Page() {
     },
   });
 
+  const createTaskMutation = useMutation({
+    mutationFn: (payload: CreateTaskPayload) => taskService.createTask(payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks", "member-workspace", memberId] });
+      toast.success("Tarefa criada.");
+      setIsCreateTaskOpen(false);
+    },
+    onError: () => {
+      toast.error("Erro ao criar tarefa.");
+    },
+  });
+
+  function openTab(tab: AssessmentWorkspaceTab) {
+    openTabWithSearchParams(searchParams, tab, setSearchParams);
+  }
+
+  async function handleRetryWorkspace() {
+    await Promise.all([
+      profileQuery.refetch(),
+      memberQuery.refetch(),
+      assessmentsQuery.refetch(),
+      evolutionQuery.refetch(),
+      summary360Query.refetch(),
+    ]);
+  }
+
   if (!memberId) {
-    return <LoadingPanel text="Membro nao informado." />;
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Membro nao informado"
+        description="Volte para a fila de avaliacoes e selecione um aluno para abrir o workspace."
+      />
+    );
   }
 
-  if (profileQuery.isLoading || assessmentsQuery.isLoading || evolutionQuery.isLoading || summary360Query.isLoading) {
-    return <LoadingPanel text="Carregando workspace de avaliacao..." />;
+  if (
+    profileQuery.isLoading ||
+    memberQuery.isLoading ||
+    assessmentsQuery.isLoading ||
+    evolutionQuery.isLoading ||
+    summary360Query.isLoading
+  ) {
+    return <ProfileHeaderSkeleton />;
   }
 
-  if (profileQuery.isError || assessmentsQuery.isError || evolutionQuery.isError || summary360Query.isError) {
-    return <LoadingPanel text="Erro ao carregar o workspace de avaliacao. Tente novamente." />;
-  }
-
-  if (!profileQuery.data || !summary360Query.data) {
-    return <LoadingPanel text="Workspace de avaliacao indisponivel." />;
+  if (
+    profileQuery.isError ||
+    memberQuery.isError ||
+    assessmentsQuery.isError ||
+    evolutionQuery.isError ||
+    summary360Query.isError ||
+    !profileQuery.data ||
+    !summary360Query.data ||
+    !memberQuery.data
+  ) {
+    return (
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-6 shadow-panel">
+        <EmptyState
+          icon={AlertTriangle}
+          title="Nao foi possivel carregar o perfil do aluno"
+          description="Tente novamente para abrir o workspace completo de avaliacao."
+          action={{ label: "Tentar novamente", onClick: () => void handleRetryWorkspace() }}
+        />
+      </section>
+    );
   }
 
   const profile = profileQuery.data;
+  const member = memberQuery.data;
   const assessments = assessmentsQuery.data ?? [];
   const evolution =
     evolutionQuery.data ?? {
@@ -442,81 +671,87 @@ export function MemberProfile360Page() {
   const assessmentIntelligence = summary360Query.data;
   const latestBodyComposition = bodyCompositionQuery.data?.[0] ?? null;
 
-  const memberExtra = profile.member.extra_data ?? {};
-  const apiNotes = parseInternalNotes(memberExtra);
+  const mergedExtra = {
+    ...(profile.member.extra_data ?? {}),
+    ...(member.extra_data ?? {}),
+  };
+  const apiNotes = parseInternalNotes(mergedExtra);
   const localNotes = parseInternalNotesFromStorage(memberId);
   const notes = apiNotes.length > 0 ? apiNotes : localNotes;
   const latestNote = notes[0] ?? null;
   const previousNotes = notes.slice(1);
-  const age = getAge(memberExtra);
-  const photoUrl = typeof memberExtra.photo_url === "string" ? memberExtra.photo_url : null;
-  const daysWithoutCheckin = daysSince(profile.member.last_checkin_at);
+  const age = getAge(mergedExtra);
+  const photoUrl = typeof mergedExtra.photo_url === "string" ? mergedExtra.photo_url : null;
+  const daysWithoutCheckin = daysSince(member.last_checkin_at ?? profile.member.last_checkin_at ?? null);
+  const daysActive = daysSince(member.join_date);
   const hasStructuredAssessment = Boolean(assessmentIntelligence.latest_assessment);
   const hasEvolutionData = Boolean(evolution.labels.length);
+  const todayKey = getTodayKey();
 
-  const openTab = (tab: AssessmentWorkspaceTab) => openTabWithSearchParams(searchParams, tab, setSearchParams);
+  const memberTasks = (memberTasksQuery.data?.items ?? [])
+    .filter((task) => task.member_id === memberId)
+    .sort((left, right) => getTaskOperationalScore(right, member, todayKey) - getTaskOperationalScore(left, member, todayKey));
+
+  const secondaryMeta = [member.plan_name, age !== null ? `${age} anos` : null, daysActive !== null ? `${daysActive} dias ativo` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Workspace principal</p>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Avaliacao do aluno</h2>
-          <p className="text-sm text-lovable-ink-muted">
-            Leitura rapida, registro, evolucao e contexto operacional em uma unica jornada.
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          to="/assessments"
+          className="inline-flex items-center gap-2 text-sm font-medium text-lovable-ink-muted transition hover:text-lovable-ink"
+        >
+          <ArrowLeft size={14} />
+          Voltar
+        </Link>
+
         <div className="flex flex-wrap gap-2">
-          <Link
-            to="/assessments"
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-lovable-border px-3 text-xs font-semibold text-lovable-ink hover:bg-lovable-surface-soft"
-          >
-            Voltar para fila
-          </Link>
+          <Button size="sm" variant="secondary" onClick={() => openTab("acoes")}>
+            Ver Tarefas
+          </Button>
           <Button size="sm" variant="primary" onClick={() => openTab("registro")}>
-            Registrar avaliacao
+            Nova Avaliacao
           </Button>
         </div>
-      </header>
+      </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="flex gap-4">
-            <div className="h-20 w-20 overflow-hidden rounded-2xl border border-lovable-border bg-lovable-surface-soft">
+            <div className="h-24 w-24 overflow-hidden rounded-2xl border border-lovable-border bg-lovable-surface-soft">
               {photoUrl ? (
                 <img src={photoUrl} alt={profile.member.full_name} className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-xl font-bold text-lovable-ink-muted">
+                <div className="flex h-full w-full items-center justify-center font-heading text-2xl font-bold text-lovable-ink-muted">
                   {getInitials(profile.member.full_name)}
                 </div>
               )}
             </div>
 
-            <div className="space-y-3">
+            <div className="min-w-0 flex-1 space-y-3">
               <div>
-                <p className="text-2xl font-semibold text-lovable-ink">{profile.member.full_name}</p>
-                <p className="text-sm text-lovable-ink-muted">
-                  Plano: {profile.member.plan_name}
-                  {profile.member.email ? ` - ${profile.member.email}` : ""}
-                </p>
+                <h1 className="font-heading text-2xl font-bold text-lovable-ink">{profile.member.full_name}</h1>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <StatusBadge status={member.status} map={MEMBER_STATUS_MAP} />
+                  <StatusBadge status={profile.member.risk_level} map={RISK_STATUS_MAP} />
+                </div>
+                {secondaryMeta ? <p className="mt-2 text-sm text-lovable-ink-muted">{secondaryMeta}</p> : null}
+                {member.email ? <p className="text-sm text-lovable-ink-muted">{member.email}</p> : null}
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={riskBadgeVariant(profile.member.risk_level)}>{riskLabel(profile.member.risk_level)}</Badge>
-                <Badge variant={statusBadgeVariant(assessmentIntelligence.status)}>{statusLabel(assessmentIntelligence.status)}</Badge>
-                <Badge variant="neutral">{age !== null ? `${age} anos` : "Idade nao informada"}</Badge>
-                <Badge variant="neutral">
-                  {daysWithoutCheckin === null
-                    ? "Sem check-in"
-                    : daysWithoutCheckin === 0
-                      ? "Check-in hoje"
-                      : `${daysWithoutCheckin} dia(s) sem check-in`}
-                </Badge>
-              </div>
+
               <div className="grid gap-3 md:grid-cols-3">
                 <DetailMetric
-                  label="Chance em 60 dias"
-                  value={`${assessmentIntelligence.forecast.probability_60d}%`}
-                  helper={`Meta: ${assessmentIntelligence.goal_type}`}
+                  label="Check-in"
+                  value={
+                    daysWithoutCheckin === null
+                      ? "Sem registro"
+                      : daysWithoutCheckin === 0
+                        ? "Hoje"
+                        : `${daysWithoutCheckin} dias`
+                  }
+                  helper={daysWithoutCheckin !== null && daysWithoutCheckin >= 7 ? "Requer atencao operacional" : "Ritmo recente do aluno"}
                 />
                 <DetailMetric
                   label="Ultima avaliacao"
@@ -536,12 +771,23 @@ export function MemberProfile360Page() {
             </div>
           </div>
 
-          <NotesSummaryCard
-            latestNote={latestNote}
-            notesCount={notes.length}
-            onAdd={() => setIsAddNoteOpen(true)}
-            onHistory={() => setIsHistoryOpen(true)}
-          />
+          <Card>
+            <CardContent className="space-y-4 pt-5">
+              <SectionHeader title="Status atual" subtitle="Leitura operacional consolidada para a equipe." />
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={statusBadgeVariant(assessmentIntelligence.status)}>{statusLabel(assessmentIntelligence.status)}</Badge>
+                <Badge variant="neutral">{riskLabel(profile.member.risk_level)}</Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <DetailMetric
+                  label="Chance em 60 dias"
+                  value={`${assessmentIntelligence.forecast.probability_60d}%`}
+                  helper={`Meta: ${assessmentIntelligence.goal_type}`}
+                />
+                <DetailMetric label="Risco" value={`${profile.member.risk_score}`} helper="pontuacao operacional do aluno" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </section>
 
@@ -549,19 +795,22 @@ export function MemberProfile360Page() {
         <section className="rounded-2xl border border-lovable-border bg-lovable-primary-soft p-4 shadow-panel">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">Sem avaliacao estruturada</h3>
           <p className="mt-1 text-sm text-lovable-ink">
-            Este aluno ainda nao tem dados suficientes para leitura completa. O workspace continua funcional para registro, contexto, metas, treino e bioimpedancia.
+            Este aluno ainda nao tem dados suficientes para leitura completa. O workspace continua funcional para registro,
+            contexto, metas, treino, tarefas e bioimpedancia.
           </p>
         </section>
       ) : null}
 
       <Tabs value={activeTab} onValueChange={(value) => openTab(value as AssessmentWorkspaceTab)} className="space-y-4">
-        <TabsList className="flex flex-wrap gap-1">
-          {ASSESSMENT_WORKSPACE_TABS.map((tab) => (
-            <TabsTrigger key={tab.key} value={tab.key}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="min-w-max flex-nowrap gap-1">
+            {ASSESSMENT_WORKSPACE_TABS.map((tab) => (
+              <TabsTrigger key={tab.key} value={tab.key} className="whitespace-nowrap">
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <TabsContent value="overview">
           <AssessmentWorkspaceOverview
@@ -569,6 +818,10 @@ export function MemberProfile360Page() {
             summary={assessmentIntelligence}
             assessments={assessments}
             latestBodyComposition={latestBodyComposition}
+            latestNote={latestNote}
+            notesCount={notes.length}
+            onAddNote={() => setIsAddNoteOpen(true)}
+            onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenTab={openTab}
           />
         </TabsContent>
@@ -656,10 +909,32 @@ export function MemberProfile360Page() {
           </div>
         </TabsContent>
 
+        <TabsContent value="acoes">
+          <MemberTasksPanel
+            tasks={memberTasks}
+            todayKey={todayKey}
+            isLoading={memberTasksQuery.isLoading}
+            isError={memberTasksQuery.isError}
+            isCreating={createTaskMutation.isPending}
+            onRetry={() => void memberTasksQuery.refetch()}
+            onCreate={() => setIsCreateTaskOpen(true)}
+          />
+        </TabsContent>
+
         <TabsContent value="bioimpedancia">
           <MemberBodyCompositionTab memberId={memberId} />
         </TabsContent>
       </Tabs>
+
+      <CreateTaskModal
+        open={isCreateTaskOpen}
+        onClose={() => setIsCreateTaskOpen(false)}
+        members={[member]}
+        users={usersQuery.data ?? []}
+        isPending={createTaskMutation.isPending}
+        initialMemberId={member.id}
+        onSubmit={(payload) => createTaskMutation.mutate(payload)}
+      />
 
       <Dialog
         open={isAddNoteOpen}

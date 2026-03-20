@@ -95,7 +95,7 @@ describe("AssessmentsPage", () => {
     expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
     expect(screen.getAllByText("Atrasadas").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Nunca avaliados").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Hoje e esta semana").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Esta semana").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Abrir workspace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Registrar avaliacao").length).toBeGreaterThan(0);
   });

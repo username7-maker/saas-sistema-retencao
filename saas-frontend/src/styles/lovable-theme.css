@@ -12,8 +12,11 @@
   --lovable-success: 160 84% 39%;
   --lovable-warning: 38 92% 50%;
   --lovable-danger: 0 84% 60%;
+  --lovable-info: 210 100% 56%;
   --lovable-brand: #f59e0b;
   --lovable-muted: #71717a;
+  --shadow-lovable: 0 1px 3px hsl(var(--lovable-border) / 0.4), 0 1px 2px hsl(var(--lovable-border) / 0.24);
+  --shadow-panel: 0 4px 24px hsl(var(--lovable-ink) / 0.06);
 }
 
 .dark {
@@ -30,6 +33,7 @@
   --lovable-success: 160 84% 39%;
   --lovable-warning: 38 92% 50%;
   --lovable-danger: 0 84% 60%;
+  --lovable-info: 210 100% 60%;
   --lovable-brand: #f59e0b;
   --lovable-muted: #a1a1aa;
 }
