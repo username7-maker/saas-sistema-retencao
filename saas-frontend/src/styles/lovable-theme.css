@@ -1,48 +1,68 @@
 :root {
-  --lovable-bg: 220 16% 96%;
-  --lovable-bg-muted: 220 14% 92%;
+  --lovable-bg: 228 27% 96%;
+  --lovable-bg-muted: 228 24% 93%;
   --lovable-surface: 0 0% 100%;
-  --lovable-surface-soft: 220 14% 95%;
-  --lovable-border: 220 10% 85%;
-  --lovable-border-strong: 220 10% 72%;
-  --lovable-ink: 240 10% 8%;
-  --lovable-ink-muted: 240 6% 42%;
-  --lovable-primary: 36 93% 50%;
-  --lovable-primary-soft: 38 92% 88%;
-  --lovable-success: 160 84% 39%;
-  --lovable-warning: 38 92% 50%;
-  --lovable-danger: 0 84% 60%;
+  --lovable-surface-soft: 228 26% 97%;
+  --lovable-border: 233 19% 86%;
+  --lovable-border-strong: 252 28% 70%;
+  --lovable-ink: 235 28% 13%;
+  --lovable-ink-muted: 233 13% 46%;
+  --lovable-primary: 267 84% 64%;
+  --lovable-primary-soft: 268 88% 94%;
+  --lovable-success: 160 84% 38%;
+  --lovable-warning: 36 92% 57%;
+  --lovable-danger: 347 83% 59%;
   --lovable-info: 210 100% 56%;
-  --lovable-brand: #f59e0b;
+  --lovable-sidebar: 232 36% 10%;
+  --lovable-topbar: 230 26% 11%;
+  --lovable-elevated: 230 24% 14%;
+  --lovable-chart-grid: 232 18% 82%;
+  --lovable-chart-stroke: 267 84% 64%;
+  --lovable-brand: #8b5cf6;
   --lovable-muted: #71717a;
-  --shadow-lovable: 0 1px 3px hsl(var(--lovable-border) / 0.4), 0 1px 2px hsl(var(--lovable-border) / 0.24);
-  --shadow-panel: 0 4px 24px hsl(var(--lovable-ink) / 0.06);
+  --shadow-lovable:
+    0 24px 80px -36px hsl(241 100% 8% / 0.38),
+    0 10px 24px -18px hsl(256 79% 55% / 0.18);
+  --shadow-panel:
+    0 26px 90px -42px hsl(241 100% 8% / 0.44),
+    inset 0 1px 0 hsl(0 0% 100% / 0.4);
 }
 
 .dark {
-  --lovable-bg: 240 10% 4%;
-  --lovable-bg-muted: 240 7% 7%;
-  --lovable-surface: 240 6% 10%;
-  --lovable-surface-soft: 240 6% 13%;
-  --lovable-border: 240 5% 16%;
-  --lovable-border-strong: 240 5% 24%;
-  --lovable-ink: 0 0% 98%;
-  --lovable-ink-muted: 240 5% 65%;
-  --lovable-primary: 36 93% 50%;
-  --lovable-primary-soft: 36 70% 20%;
-  --lovable-success: 160 84% 39%;
-  --lovable-warning: 38 92% 50%;
-  --lovable-danger: 0 84% 60%;
+  --lovable-bg: 233 42% 6%;
+  --lovable-bg-muted: 232 34% 8%;
+  --lovable-surface: 230 25% 10%;
+  --lovable-surface-soft: 230 22% 13%;
+  --lovable-border: 232 19% 18%;
+  --lovable-border-strong: 259 44% 34%;
+  --lovable-ink: 220 30% 96%;
+  --lovable-ink-muted: 232 12% 68%;
+  --lovable-primary: 267 88% 66%;
+  --lovable-primary-soft: 265 48% 17%;
+  --lovable-success: 160 84% 42%;
+  --lovable-warning: 36 92% 57%;
+  --lovable-danger: 347 83% 63%;
   --lovable-info: 210 100% 60%;
-  --lovable-brand: #f59e0b;
+  --lovable-sidebar: 233 39% 8%;
+  --lovable-topbar: 232 29% 9%;
+  --lovable-elevated: 232 24% 12%;
+  --lovable-chart-grid: 232 18% 22%;
+  --lovable-chart-stroke: 267 88% 66%;
+  --lovable-brand: #8b5cf6;
   --lovable-muted: #a1a1aa;
+  --shadow-lovable:
+    0 30px 120px -48px hsl(240 100% 2% / 0.9),
+    0 12px 34px -20px hsl(271 91% 65% / 0.2);
+  --shadow-panel:
+    0 26px 80px -38px hsl(240 100% 2% / 0.92),
+    inset 0 1px 0 hsl(0 0% 100% / 0.04);
 }
 
 body {
   background:
-    radial-gradient(circle at 12% 4%, hsl(var(--lovable-success) / 0.2) 0%, transparent 34%),
-    radial-gradient(circle at 84% 8%, hsl(var(--lovable-success) / 0.12) 0%, transparent 38%),
-    radial-gradient(circle at 52% 110%, hsl(var(--lovable-primary) / 0.1) 0%, transparent 42%),
+    radial-gradient(circle at 10% 4%, hsl(var(--lovable-info) / 0.16) 0%, transparent 30%),
+    radial-gradient(circle at 86% 6%, hsl(var(--lovable-primary) / 0.18) 0%, transparent 28%),
+    radial-gradient(circle at 52% 108%, hsl(var(--lovable-success) / 0.1) 0%, transparent 34%),
     hsl(var(--lovable-bg));
   color: hsl(var(--lovable-ink));
   -webkit-font-smoothing: antialiased;

@@ -104,7 +104,12 @@ function DashboardZone({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-2xl border border-zinc-800 bg-zinc-900/65 p-4 shadow-none", className)}>
+    <section
+      className={cn(
+        "rounded-[26px] border border-lovable-border bg-lovable-surface/92 p-5 shadow-panel backdrop-blur-xl",
+        className,
+      )}
+    >
       {children}
     </section>
   );
@@ -122,8 +127,8 @@ function ZoneHeader({
   return (
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h2 className="font-heading text-lg font-bold text-zinc-100">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm text-zinc-400">{subtitle}</p> : null}
+        <h2 className="font-heading text-lg font-bold tracking-tight text-lovable-ink">{title}</h2>
+        {subtitle ? <p className="mt-1 text-sm text-lovable-ink-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
@@ -134,9 +139,9 @@ function KpiStripSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
-          <Skeleton className="h-3 w-20 rounded bg-zinc-800" />
-          <Skeleton className="mt-3 h-8 w-24 rounded bg-zinc-800" />
+        <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
+          <Skeleton className="h-3 w-20 rounded" />
+          <Skeleton className="mt-3 h-8 w-24 rounded" />
         </div>
       ))}
     </div>
@@ -150,10 +155,10 @@ function WeeklySummaryMini() {
     return (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
-            <Skeleton className="h-3 w-24 rounded bg-zinc-800" />
-            <Skeleton className="mt-3 h-6 w-20 rounded bg-zinc-800" />
-            <Skeleton className="mt-2 h-3 w-28 rounded bg-zinc-800" />
+          <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
+            <Skeleton className="h-3 w-24 rounded" />
+            <Skeleton className="mt-3 h-6 w-20 rounded" />
+            <Skeleton className="mt-2 h-3 w-28 rounded" />
           </div>
         ))}
       </div>
@@ -162,7 +167,7 @@ function WeeklySummaryMini() {
 
   if (!weeklySummary.data) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-500">
+      <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/75 px-4 py-3 text-sm text-lovable-ink-muted">
         Resumo semanal indisponivel no momento.
       </div>
     );
@@ -213,13 +218,13 @@ function WeeklySummaryMini() {
         {items.map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+            <div key={item.label} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
               <div className="flex items-center gap-2">
                 <Icon size={14} className={item.tone} />
-                <p className="text-[11px] uppercase tracking-widest text-zinc-500">{item.label}</p>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-lovable-ink-muted">{item.label}</p>
               </div>
-              <p className="mt-3 text-xl font-bold text-zinc-100">{item.value}</p>
-              <p className="mt-1 text-xs text-zinc-500">{item.helper}</p>
+              <p className="mt-3 font-display text-xl font-bold tracking-tight text-lovable-ink">{item.value}</p>
+              <p className="mt-1 text-xs text-lovable-ink-muted">{item.helper}</p>
             </div>
           );
         })}
@@ -328,9 +333,9 @@ export function DashboardLovable() {
   const actionLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
 
   return (
-    <section className="relative overflow-hidden rounded-[30px] border border-zinc-800/80 bg-zinc-950 p-4 text-zinc-100 shadow-[0_28px_120px_-40px_rgba(0,0,0,0.95)] sm:p-6">
-      <div className="pointer-events-none absolute -left-28 top-16 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+    <section className="relative overflow-hidden rounded-[34px] border border-lovable-border bg-[linear-gradient(180deg,hsl(var(--lovable-surface)/0.98),hsl(var(--lovable-bg-muted)/0.92))] p-4 text-lovable-ink shadow-panel backdrop-blur-2xl sm:p-6">
+      <div className="pointer-events-none absolute -left-28 top-10 h-80 w-80 rounded-full bg-[hsl(var(--lovable-primary)/0.2)] blur-[140px]" />
+      <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-[hsl(var(--lovable-info)/0.14)] blur-[140px]" />
 
       <div className="relative space-y-6">
         <PageHeader
@@ -373,9 +378,9 @@ export function DashboardLovable() {
 
             <div className="h-80">
               {chartLoading ? (
-                <Skeleton className="h-full w-full rounded-xl bg-zinc-800" />
+                <Skeleton className="h-full w-full rounded-[22px]" />
               ) : chartData.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-700">
+                <div className="flex h-full items-center justify-center rounded-[22px] border border-dashed border-lovable-border">
                   <EmptyState
                     icon={BarChart3}
                     title="Sem dados para o periodo"
@@ -387,29 +392,34 @@ export function DashboardLovable() {
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.48} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.04} />
+                        <stop offset="5%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.42} />
+                        <stop offset="95%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.02} />
                       </linearGradient>
                       <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.34} />
-                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                        <stop offset="5%" stopColor="hsl(var(--lovable-info))" stopOpacity={0.28} />
+                        <stop offset="95%" stopColor="hsl(var(--lovable-info))" stopOpacity={0.01} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.55)" />
                     <XAxis
                       dataKey="month"
                       tickFormatter={formatDateLabel}
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                      tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
                       axisLine={false}
                       tickLine={false}
                     />
-                    <YAxis tick={{ fill: "#a1a1aa", fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
                     <Tooltip
                       contentStyle={{
                         borderRadius: 12,
-                        border: "1px solid #3f3f46",
-                        background: "rgba(24,24,27,0.95)",
-                        color: "#f4f4f5",
+                        border: "1px solid hsl(var(--lovable-border))",
+                        background: "hsl(var(--lovable-surface) / 0.96)",
+                        color: "hsl(var(--lovable-ink))",
+                        boxShadow: "var(--shadow-panel)",
                       }}
                       formatter={(value, key) => {
                         const parsedValue = typeof value === "number" ? value : Number(value);
@@ -423,7 +433,7 @@ export function DashboardLovable() {
                       type="monotone"
                       dataKey="nps_avg"
                       name="NPS medio"
-                      stroke="#4ade80"
+                      stroke="hsl(var(--lovable-primary))"
                       fill="url(#npsGradient)"
                       strokeWidth={2.5}
                       connectNulls
@@ -432,7 +442,7 @@ export function DashboardLovable() {
                       type="monotone"
                       dataKey="churn_rate"
                       name="Churn"
-                      stroke="#f59e0b"
+                      stroke="hsl(var(--lovable-info))"
                       fill="url(#churnGradient)"
                       strokeWidth={2.1}
                       connectNulls
@@ -451,7 +461,7 @@ export function DashboardLovable() {
 
             <div className="space-y-4">
               {viewModel.alerts[0] ? (
-                <div className="flex items-start gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+                <div className="flex items-start gap-2 rounded-[22px] border border-lovable-border bg-lovable-surface/84 px-4 py-3 shadow-panel">
                   <AlertTriangle
                     size={16}
                     className={cn(
@@ -460,18 +470,18 @@ export function DashboardLovable() {
                         ? "text-rose-400"
                         : viewModel.alerts[0].tone === "warning"
                           ? "text-amber-400"
-                          : "text-zinc-400",
+                          : "text-lovable-ink-muted",
                     )}
                   />
                   <div>
-                    <p className="text-sm font-semibold text-zinc-100">{viewModel.alerts[0].title}</p>
-                    <p className="mt-1 text-sm text-zinc-400">{viewModel.alerts[0].description}</p>
+                    <p className="text-sm font-semibold text-lovable-ink">{viewModel.alerts[0].title}</p>
+                    <p className="mt-1 text-sm text-lovable-ink-muted">{viewModel.alerts[0].description}</p>
                   </div>
                 </div>
               ) : null}
 
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4">
-                <p className="text-sm leading-relaxed text-zinc-100">{viewModel.insight}</p>
+              <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/90 px-4 py-4 shadow-panel">
+                <p className="text-sm leading-relaxed text-lovable-ink">{viewModel.insight}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => navigate("/dashboard/retention")}>
                     Ver plano de retencao
@@ -513,16 +523,16 @@ export function DashboardLovable() {
                   return (
                     <div
                       key={row.id}
-                      className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 lg:flex-row lg:items-center lg:justify-between"
+                      className="flex flex-col gap-3 rounded-[22px] border border-lovable-border bg-lovable-surface/88 px-4 py-3 shadow-panel lg:flex-row lg:items-center lg:justify-between"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-zinc-100">{row.name}</p>
+                          <p className="truncate text-sm font-semibold text-lovable-ink">{row.name}</p>
                           <StatusBadge status={row.source} map={SOURCE_BADGE_MAP} />
                           <StatusBadge status={row.priority} map={PRIORITY_BADGE_MAP} />
                         </div>
-                        <p className="mt-1 text-xs text-zinc-400">{row.subtitle}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+                        <p className="mt-1 text-xs text-lovable-ink-muted">{row.subtitle}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-lovable-ink-muted">
                           <span className="inline-flex items-center gap-1.5">
                             <SourceIcon size={12} />
                             {row.status}
@@ -549,9 +559,9 @@ export function DashboardLovable() {
         </div>
 
         {!executive.isLoading && !viewModel.hasData ? (
-          <DashboardZone className="border-zinc-700 bg-zinc-900/60">
+          <DashboardZone className="bg-lovable-surface/86">
             <div className="flex flex-col items-start gap-3 py-2">
-              <p className="text-sm text-zinc-400">
+              <p className="text-sm text-lovable-ink-muted">
                 Sem dados suficientes para preencher o dashboard. Importe membros e check-ins para ativar o painel.
               </p>
               <Button onClick={() => navigate("/imports")}>Importar dados agora</Button>

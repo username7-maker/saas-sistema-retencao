@@ -72,7 +72,7 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
           search={search}
           trailing={
             canClear ? (
-              <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-lg px-2 text-xs text-lovable-ink-muted">
+              <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-xl px-2 text-xs text-lovable-ink-muted">
                 <X size={14} />
                 Limpar filtros
               </Button>
@@ -80,7 +80,7 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
           }
         />
       ) : canClear ? (
-        <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-lg px-2 text-xs text-lovable-ink-muted">
+        <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-xl px-2 text-xs text-lovable-ink-muted">
           <X size={14} />
           Limpar filtros
         </Button>

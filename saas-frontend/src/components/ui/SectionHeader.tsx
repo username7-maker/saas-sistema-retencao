@@ -14,9 +14,9 @@ export function SectionHeader({ title, subtitle, actions, count }: SectionHeader
     <div className="mb-4 flex items-center justify-between gap-3">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold uppercase tracking-widest text-lovable-ink-muted">{title}</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">{title}</p>
           {typeof count === "number" ? (
-            <Badge variant="neutral" className="px-2 py-0.5 text-[11px] normal-case tracking-normal">
+            <Badge variant="neutral" size="sm" className="normal-case tracking-normal">
               {count}
             </Badge>
           ) : null}

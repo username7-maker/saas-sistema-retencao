@@ -44,10 +44,10 @@ export function RoiSummaryCard() {
   const hasData = data && data.total_automated > 0;
 
   return (
-    <Card className="border-l-4 border-l-lovable-success bg-gradient-to-r from-lovable-surface to-lovable-success/5">
+    <Card className="border border-lovable-border bg-[linear-gradient(135deg,hsl(var(--lovable-surface)),hsl(var(--lovable-surface-soft)))]">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
-          <TrendingUp size={18} className="text-lovable-success" />
+          <TrendingUp size={18} className="text-lovable-primary" />
           ROI das Automacoes
         </CardTitle>
         <CardDescription>

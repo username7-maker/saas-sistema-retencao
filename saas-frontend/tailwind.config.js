@@ -34,8 +34,8 @@ export default {
         display: ["'Space Grotesk'", "sans-serif"],
       },
       boxShadow: {
-        panel: "0 16px 40px -24px rgba(245, 138, 27, 0.28)",
-        lovable: "0 16px 40px -24px rgba(15, 15, 15, 0.45)",
+        panel: "var(--shadow-panel)",
+        lovable: "var(--shadow-lovable)",
       },
       keyframes: {
         rise: {

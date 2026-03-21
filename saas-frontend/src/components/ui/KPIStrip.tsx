@@ -33,8 +33,8 @@ function getTrendVariant(trend?: KPIItem["trend"]): "neutral" | "success" | "dan
 function KPIItemCard({ item }: { item: KPIItem }) {
   const tone = item.tone ?? "neutral";
   const sharedClassName = cn(
-    "rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3 text-left transition",
-    item.onClick ? "hover:border-lovable-border-strong hover:bg-lovable-surface-soft" : undefined,
+    "rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 text-left shadow-panel backdrop-blur-xl transition",
+    item.onClick ? "hover:-translate-y-0.5 hover:border-lovable-border-strong hover:bg-lovable-surface" : undefined,
   );
 
   const content = (
@@ -43,13 +43,13 @@ function KPIItemCard({ item }: { item: KPIItem }) {
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2">
             <span className={cn("h-2 w-2 rounded-full", toneAccentClasses[tone])} aria-hidden="true" />
-            <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">{item.label}</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-lovable-ink-muted">{item.label}</p>
           </div>
-          <p className="font-display text-2xl font-bold text-lovable-ink">{item.value}</p>
+          <p className="font-display text-2xl font-bold tracking-tight text-lovable-ink">{item.value}</p>
         </div>
 
         {item.trend ? (
-          <Badge variant={getTrendVariant(item.trend)} className="px-2 py-0.5 text-[11px] normal-case tracking-normal">
+          <Badge variant={getTrendVariant(item.trend)} size="sm" className="normal-case tracking-normal">
             {formatTrendValue(item.trend.value)}
           </Badge>
         ) : null}
@@ -70,7 +70,7 @@ function KPIItemCard({ item }: { item: KPIItem }) {
 
 export function KPIStrip({ items }: KPIStripProps) {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((item, index) => (
         <KPIItemCard key={`${item.label}-${index}`} item={item} />
       ))}

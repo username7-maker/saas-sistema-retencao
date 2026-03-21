@@ -98,7 +98,7 @@ export function Dialog({ open, onClose, title, description, children, size = "sm
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-lovable-ink/40"
+        className="absolute inset-0 bg-[hsl(var(--lovable-bg)/0.72)] backdrop-blur-sm"
         onClick={onClose}
         aria-label="Fechar dialog"
       />
@@ -110,7 +110,7 @@ export function Dialog({ open, onClose, title, description, children, size = "sm
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full rounded-2xl bg-lovable-surface p-5 shadow-panel outline-none transition duration-200 ease-out",
+          "relative z-10 w-full rounded-[24px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel outline-none transition duration-200 ease-out backdrop-blur-xl",
           "scale-100 opacity-100",
           sizeClasses[size],
         )}

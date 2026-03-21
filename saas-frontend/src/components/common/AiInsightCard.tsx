@@ -30,7 +30,7 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
 
   if (query.isLoading) {
     return (
-      <div className="animate-pulse rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+      <div className="animate-pulse rounded-[24px] border border-lovable-border bg-lovable-surface/92 p-4 shadow-panel">
         <div className="h-4 w-32 rounded bg-lovable-border" />
         <div className="mt-3 space-y-2">
           <div className="h-3 w-full rounded bg-lovable-border" />
@@ -42,7 +42,7 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
 
   if (query.isError || !query.data) {
     return (
-      <article className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+      <article className="rounded-[24px] border border-lovable-border bg-lovable-surface/92 p-4 shadow-panel">
         <div className="flex items-center gap-2 text-lovable-ink-muted">
           <AlertTriangle size={16} />
           <span className="text-xs">Insights indisponiveis no momento.</span>
@@ -52,7 +52,7 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
   }
 
   return (
-    <article className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4 shadow-sm">
+    <article className="rounded-[24px] border border-lovable-border bg-lovable-surface/92 p-4 shadow-panel">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Sparkles size={16} className="text-lovable-primary" />
@@ -63,7 +63,7 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
         <button
           type="button"
           onClick={() => void queryClient.invalidateQueries({ queryKey: ["insights", dashboard] })}
-          className="rounded-md p-1 text-lovable-ink-muted transition-colors hover:bg-lovable-surface hover:text-lovable-ink"
+          className="rounded-lg p-1.5 text-lovable-ink-muted transition-colors hover:bg-lovable-surface-soft hover:text-lovable-ink"
           title="Atualizar insight"
         >
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : ""} />

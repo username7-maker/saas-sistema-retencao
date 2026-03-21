@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 .dark {
@@ -16,6 +16,11 @@ body {
   margin: 0;
   font-family: "Plus Jakarta Sans", sans-serif;
   background: hsl(var(--lovable-bg));
+}
+
+::selection {
+  background: hsl(var(--lovable-primary) / 0.28);
+  color: hsl(var(--lovable-ink));
 }
 
 button,
@@ -30,6 +35,35 @@ a,
   outline: 2px solid hsl(var(--lovable-primary));
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+html {
+  scrollbar-color: hsl(var(--lovable-border-strong)) transparent;
+}
+
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+body::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--lovable-border));
+  background-clip: padding-box;
+}
+
+body::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--lovable-border-strong));
+  background-clip: padding-box;
 }
 
 * {

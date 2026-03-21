@@ -16,10 +16,10 @@ interface StatCardProps {
 }
 
 const toneStyles: Record<NonNullable<StatCardProps["tone"]>, string> = {
-  neutral: "from-lovable-ink to-[hsl(var(--lovable-ink)/0.8)]",
-  success: "from-lovable-primary to-[hsl(var(--lovable-primary)/0.7)]",
-  warning: "from-lovable-warning to-[hsl(var(--lovable-warning)/0.7)]",
-  danger: "from-lovable-danger to-[hsl(var(--lovable-danger)/0.7)]",
+  neutral: "border-lovable-border-strong/40 bg-[linear-gradient(180deg,hsl(var(--lovable-surface-soft)),hsl(var(--lovable-surface)))]",
+  success: "border-[hsl(var(--lovable-success)/0.22)] bg-[linear-gradient(180deg,hsl(var(--lovable-surface-soft)),hsl(var(--lovable-surface)))]",
+  warning: "border-[hsl(var(--lovable-warning)/0.22)] bg-[linear-gradient(180deg,hsl(var(--lovable-surface-soft)),hsl(var(--lovable-surface)))]",
+  danger: "border-[hsl(var(--lovable-danger)/0.22)] bg-[linear-gradient(180deg,hsl(var(--lovable-surface-soft)),hsl(var(--lovable-surface)))]",
 };
 
 export function StatCard({ label, value, tone = "neutral", trend, tooltip, onClick, active = false }: StatCardProps) {
@@ -40,9 +40,9 @@ export function StatCard({ label, value, tone = "neutral", trend, tooltip, onCli
   return (
     <article
       className={clsx(
-        "group relative rounded-2xl bg-gradient-to-br p-5 text-white shadow-panel transition hover:-translate-y-1",
+        "group relative rounded-[24px] border p-5 text-lovable-ink shadow-panel transition hover:-translate-y-1",
         toneStyles[tone],
-        active && "ring-2 ring-white/80",
+        active && "ring-2 ring-[hsl(var(--lovable-primary)/0.7)]",
         onClick && "cursor-pointer",
       )}
       onClick={onClick}
@@ -58,18 +58,18 @@ export function StatCard({ label, value, tone = "neutral", trend, tooltip, onCli
       aria-pressed={onClick ? active : undefined}
       title={tooltip}
     >
-      <p className="text-xs uppercase tracking-[0.2em] text-white/70">{label}</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-lovable-ink-muted">{label}</p>
 
       <div className="mt-3 flex items-end justify-between gap-2">
-        <p className="text-3xl font-heading font-bold">{value}</p>
+        <p className="text-3xl font-heading font-bold text-lovable-ink">{value}</p>
 
         {trend && (
           <div
             className={clsx(
               "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              isTrendPositive && "bg-emerald-400/20 text-emerald-200",
-              isTrendNegative && "bg-rose-400/20 text-rose-200",
-              !isTrendPositive && !isTrendNegative && "bg-white/10 text-white/60",
+              isTrendPositive && "bg-emerald-400/20 text-emerald-300",
+              isTrendNegative && "bg-rose-400/20 text-rose-300",
+              !isTrendPositive && !isTrendNegative && "bg-lovable-surface-soft text-lovable-ink-muted",
             )}
           >
             {trendDirection === "up" && <TrendingUp size={12} />}
@@ -84,11 +84,11 @@ export function StatCard({ label, value, tone = "neutral", trend, tooltip, onCli
       </div>
 
       {trend?.label && (
-        <p className="mt-1 text-[10px] text-white/50">{trend.label}</p>
+        <p className="mt-1 text-[10px] text-lovable-ink-muted">{trend.label}</p>
       )}
 
       {tooltip && (
-        <div className="pointer-events-none absolute inset-x-0 -bottom-12 z-10 mx-2 rounded-lg bg-lovable-ink px-3 py-2 text-xs text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-x-0 -bottom-12 z-10 mx-2 rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-xs text-lovable-ink opacity-0 shadow-panel transition group-hover:opacity-100">
           {tooltip}
         </div>
       )}

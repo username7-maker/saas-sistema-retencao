@@ -12,12 +12,13 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "bg-lovable-primary text-white hover:brightness-105 focus-visible:ring-lovable-primary/30 dark:text-slate-950",
+    "border border-[hsl(var(--lovable-primary)/0.7)] bg-lovable-primary text-white shadow-[0_18px_42px_-24px_hsl(var(--lovable-primary)/0.8)] hover:-translate-y-0.5 hover:brightness-110 focus-visible:ring-lovable-primary/30",
   secondary:
-    "border border-lovable-border bg-lovable-surface text-lovable-ink hover:bg-lovable-primary-soft/60 focus-visible:ring-lovable-border-strong/30",
+    "border border-lovable-border bg-lovable-surface-soft text-lovable-ink hover:border-lovable-border-strong hover:bg-lovable-surface focus-visible:ring-lovable-border-strong/30",
   ghost:
-    "text-lovable-ink hover:bg-lovable-primary-soft/40 focus-visible:ring-lovable-border-strong/30",
-  danger: "bg-lovable-danger text-white hover:brightness-105 focus-visible:ring-lovable-danger/30",
+    "border border-transparent text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink focus-visible:ring-lovable-border-strong/30",
+  danger:
+    "border border-[hsl(var(--lovable-danger)/0.5)] bg-[hsl(var(--lovable-danger)/0.16)] text-[hsl(var(--lovable-danger))] hover:bg-[hsl(var(--lovable-danger)/0.22)] focus-visible:ring-lovable-danger/30",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

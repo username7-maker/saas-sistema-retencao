@@ -15,14 +15,14 @@ export function Drawer({ open, onClose, title, side = "left", children }: Drawer
     <>
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-slate-950/45 transition",
+          "fixed inset-0 z-40 bg-[hsl(var(--lovable-bg)/0.72)] backdrop-blur-sm transition",
           open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
         onClick={onClose}
       />
       <aside
         className={cn(
-          "fixed top-0 z-50 h-full w-80 max-w-[88vw] border-lovable-border bg-lovable-surface shadow-2xl transition-transform",
+          "fixed top-0 z-50 h-full w-80 max-w-[88vw] border-lovable-border bg-lovable-surface/96 shadow-panel backdrop-blur-xl transition-transform",
           side === "left"
             ? "left-0 border-r " + (open ? "translate-x-0" : "-translate-x-full")
             : "right-0 border-l " + (open ? "translate-x-0" : "translate-x-full"),
@@ -33,7 +33,7 @@ export function Drawer({ open, onClose, title, side = "left", children }: Drawer
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-lovable-ink-muted transition hover:bg-lovable-primary-soft/50 hover:text-lovable-ink"
+            className="rounded-lg p-1.5 text-lovable-ink-muted transition hover:bg-lovable-surface-soft hover:text-lovable-ink"
           >
             <X size={18} />
           </button>
