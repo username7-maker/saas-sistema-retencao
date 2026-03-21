@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Check, Clock3, Pencil, TriangleAlert, UserRound } from "lucide-react";
+import { ArrowRight, Check, Clock3, Pencil, TriangleAlert, UserRound } from "lucide-react";
 
 import { StatusBadge } from "../ui";
 import { Button } from "../ui2";
@@ -19,6 +19,7 @@ interface TaskListItemProps {
   todayKey: string;
   userNameById: Map<string, string>;
   onOpenDetails: (task: Task) => void;
+  onStart: (task: Task) => void;
   onComplete: (taskId: string) => void;
   isUpdating: boolean;
 }
@@ -42,12 +43,14 @@ export function TaskListItem({
   todayKey,
   userNameById,
   onOpenDetails,
+  onStart,
   onComplete,
   isUpdating,
 }: TaskListItemProps) {
   const overdue = isOverdue(task, todayKey);
   const assigneeLabel = getAssigneeLabel(task, userNameById);
-  const canComplete = task.status === "todo" || task.status === "doing";
+  const canStart = task.status === "todo";
+  const canComplete = task.status === "doing";
 
   function handleOpenDetails() {
     onOpenDetails(task);
@@ -99,6 +102,23 @@ export function TaskListItem({
             {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
             {formatDueDate(task.due_date)}
           </span>
+
+          {canStart ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-8 rounded-lg px-0"
+              title="Iniciar tarefa"
+              aria-label={`Iniciar ${task.title}`}
+              disabled={isUpdating}
+              onClick={(event) => {
+                event.stopPropagation();
+                onStart(task);
+              }}
+            >
+              <ArrowRight size={14} />
+            </Button>
+          ) : null}
 
           {canComplete ? (
             <Button

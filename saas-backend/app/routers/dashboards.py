@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -15,7 +15,9 @@ from app.schemas import (
     GrowthPoint,
     LTVPoint,
     OperationalDashboard,
+    PaginatedResponse,
     RetentionDashboard,
+    RetentionQueueItem,
     RevenuePoint,
     WeeklySummary,
 )
@@ -37,6 +39,7 @@ from app.services.dashboard_service import (
     get_mrr_dashboard,
     get_operational_dashboard,
     get_retention_dashboard,
+    get_retention_queue,
     get_weekly_summary,
 )
 
@@ -123,6 +126,26 @@ def retention_dashboard(
     page_size: int = Query(20, ge=1, le=100),
 ) -> RetentionDashboard:
     return get_retention_dashboard(db, red_page=red_page, yellow_page=yellow_page, page_size=page_size)
+
+
+@router.get("/retention/queue", response_model=PaginatedResponse[RetentionQueueItem])
+def retention_queue(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    search: str | None = Query(None),
+    level: Literal["all", "red", "yellow"] = Query("all"),
+    churn_type: str | None = Query(None),
+) -> PaginatedResponse[RetentionQueueItem]:
+    return get_retention_queue(
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        level=level,
+        churn_type=churn_type,
+    )
 
 
 @router.get("/weekly-summary", response_model=WeeklySummary)

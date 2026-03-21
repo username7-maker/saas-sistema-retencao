@@ -1,199 +1,234 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import clsx from "clsx";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Bot,
+  CalendarClock,
+  CheckCheck,
+  Clock3,
+  PhoneCall,
+  RefreshCw,
+  ShieldAlert,
+  UserSearch,
+} from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
-import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
+import { AIAssistantPanel } from "../../components/common/AIAssistantPanel";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
-import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { MemberTimeline } from "../../components/common/MemberTimeline";
 import { QuickActions } from "../../components/common/QuickActions";
-import { StatCard } from "../../components/common/StatCard";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
+import { dashboardService, type RetentionQueueItem } from "../../services/dashboardService";
 import { riskAlertService } from "../../services/riskAlertService";
-import type { Member } from "../../types";
+import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
+import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
 
-type RetentionMember = Member & {
-  churn_type?: string | null;
+type QueueLevel = "all" | "red" | "yellow";
+
+const CHURN_OPTIONS = [
+  { value: "all", label: "Todos os churns" },
+  { value: "early_dropout", label: "Onboarding frágil" },
+  { value: "voluntary_dissatisfaction", label: "Insatisfação" },
+  { value: "voluntary_financial", label: "Financeiro" },
+  { value: "voluntary_relocation", label: "Mudança de rotina" },
+  { value: "involuntary_inactivity", label: "Inatividade" },
+  { value: "involuntary_seasonal", label: "Sazonal" },
+  { value: "unknown", label: "Padrão misto" },
+] as const;
+
+const CHURN_META: Record<string, { label: string; description: string }> = {
+  early_dropout: {
+    label: "Onboarding frágil",
+    description: "Aluno novo com sinais de abandono precoce.",
+  },
+  voluntary_dissatisfaction: {
+    label: "Insatisfação",
+    description: "Percepção de valor ou experiência ruim.",
+  },
+  voluntary_financial: {
+    label: "Financeiro",
+    description: "Preço e orçamento viraram objeção.",
+  },
+  voluntary_relocation: {
+    label: "Mudança de rotina",
+    description: "Horário, cidade ou agenda mudaram.",
+  },
+  involuntary_inactivity: {
+    label: "Inatividade",
+    description: "A rotina quebrou e o treino saiu do radar.",
+  },
+  involuntary_seasonal: {
+    label: "Sazonal",
+    description: "Queda recorrente em períodos específicos.",
+  },
+  unknown: {
+    label: "Padrão misto",
+    description: "Sinal composto, ainda sem causa dominante.",
+  },
 };
 
-type ChurnKey = "frequencia" | "frustracao" | "lifestyle" | "financeiro";
-
-const CHURN_META: Record<ChurnKey, { label: string; emoji: string; color: string; bg: string; desc: string }> = {
-  frequencia: { label: "Churn de frequencia", emoji: "🏃", color: "#C0392B", bg: "#FCEBEB", desc: "Treinou, parou. Rotina quebrou." },
-  frustracao: { label: "Churn de frustracao", emoji: "😤", color: "#BA7517", bg: "#FAEEDA", desc: "Ainda treina, mas o resultado nao apareceu." },
-  lifestyle: { label: "Churn de estilo de vida", emoji: "🔄", color: "#185FA5", bg: "#E6F1FB", desc: "Mudou turno, cidade ou ritmo de trabalho." },
-  financeiro: { label: "Churn financeiro", emoji: "💰", color: "#0F7553", bg: "#E1F5EE", desc: "Preco virou objecao com frequencia ainda saudavel." },
+const PLAYBOOK_PRIORITY_VARIANT: Record<string, "danger" | "warning" | "info" | "neutral"> = {
+  urgent: "danger",
+  high: "warning",
+  medium: "info",
+  low: "neutral",
 };
 
-const PLAYBOOK_ACTIONS: Record<ChurnKey, Array<{ day: string; badge: string; title: string; desc: string }>> = {
-  frequencia: [
-    { day: "D3", badge: "automatico", title: "E-mail com dado de progresso", desc: "Claude usa dados da ultima avaliacao para mostrar o que o aluno perdeu sem tom de cobranca." },
-    { day: "D7", badge: "consultor", title: "Ligacao com script contextual", desc: "Script combina historico de frequencia, ultima avaliacao e pergunta aberta sobre a rotina." },
-    { day: "D10", badge: "automatico", title: "Oferta de horario alternativo", desc: "Sugestao de horario com menor movimento para remover a barreira de tempo percebida." },
-    { day: "D14", badge: "gerente", title: "Decisao: pausa ou cortesia", desc: "Forecast abaixo de 40% apos 14 dias aciona decisao humana para segurar o LTV." },
-  ],
-  frustracao: [
-    { day: "D1", badge: "urgente", title: "Diagnostico de frustracao", desc: "NPS baixo com risco alto pede ligacao no mesmo dia." },
-    { day: "D3", badge: "consultor", title: "Mostrar progresso real com dados", desc: "Comparar avaliacoes reduz a distancia entre percepcao e resultado real." },
-    { day: "D5", badge: "coach", title: "Revisar meta e expectativa", desc: "Professor redefine meta e expectativa com base no ritmo real do aluno." },
-  ],
-  lifestyle: [
-    { day: "D2", badge: "automatico", title: "Detectar mudanca de rotina", desc: "A abordagem comeca por curiosidade sobre o que mudou no dia a dia." },
-    { day: "D5", badge: "coach", title: "Protocolo express 45 min", desc: "Trocar o formato de treino e manter resultado com menos tempo por sessao." },
-    { day: "D14", badge: "gerente", title: "Pausa estrategica", desc: "Pausar 30 dias pode ser melhor do que perder o aluno em definitivo." },
-  ],
-  financeiro: [
-    { day: "D2", badge: "consultor", title: "Comparativo de custo por treino", desc: "Mostrar valor por sessao versus alternativas de maior custo." },
-    { day: "D5", badge: "gerente", title: "Proposta de plano trimestral", desc: "Desconto menor com compromisso menor para reduzir friccao de preco." },
-    { day: "D7", badge: "gerente", title: "Upgrade de fidelidade", desc: "Promotor com objecao de preco vira candidato a anual com mensalidade menor." },
-  ],
+const QUEUE_GRID_COLUMNS = "lg:grid-cols-[minmax(0,2.3fr)_120px_160px_120px_140px_140px_240px]";
+
+type SignalRow = {
+  label: string;
+  value: string;
+  tone: "danger" | "warning" | "neutral";
+  progressPct: number;
 };
 
-function isChurnKey(value: string): value is ChurnKey {
-  return value in CHURN_META;
-}
-
-function daysInactive(lastCheckinAt: string | null): number | null {
-  if (!lastCheckinAt) return null;
-  const date = new Date(lastCheckinAt);
-  if (Number.isNaN(date.getTime())) return null;
-  const diff = Math.floor((Date.now() - date.getTime()) / 86400000);
-  return diff >= 0 ? diff : null;
-}
+type ChurnHighlight = {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  pct: number;
+};
 
 function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function badgeClass(badge: string): string {
-  if (badge === "urgente") return "bg-red-100 text-red-700";
-  if (badge === "gerente") return "bg-purple-100 text-purple-700";
-  if (badge === "coach") return "bg-blue-100 text-blue-700";
-  if (badge === "consultor") return "bg-indigo-100 text-indigo-700";
-  return "bg-green-100 text-green-700";
+function formatChurnType(value: string | null): string {
+  if (!value) return "Sem classificação";
+  return CHURN_META[value]?.label ?? value.replace(/_/g, " ");
 }
 
-function SignalsPanel({ member }: { member: RetentionMember }) {
-  const days = daysInactive(member.last_checkin_at);
-  const forecastValue = member.extra_data?.retention_forecast_60d;
-  const forecast = typeof forecastValue === "number" && forecastValue >= 0 && forecastValue <= 100 ? forecastValue : null;
-  const nps = member.nps_last_score > 0 ? member.nps_last_score : null;
+function formatLastContact(value: string | null): string {
+  if (!value) return "Sem contato";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "Sem contato";
+  const diffDays = Math.floor((Date.now() - parsed) / 86_400_000);
+  if (diffDays <= 0) return "Hoje";
+  if (diffDays === 1) return "Há 1 dia";
+  return `Há ${diffDays} dias`;
+}
 
-  const signals: Array<{ label: string; icon: string; value: string; barPct: number; isDanger: boolean; isWarn: boolean }> = [];
-
-  if (days !== null) {
-    signals.push({
-      label: "Dias sem check-in",
-      icon: "📅",
-      value: `${days} dias`,
-      barPct: Math.min(100, (days / 30) * 100),
-      isDanger: days >= 14,
-      isWarn: days >= 7 && days < 14,
-    });
-  }
-
-  signals.push({
-    label: "Risk score",
-    icon: "📉",
-    value: String(member.risk_score ?? "—"),
-    barPct: Math.min(100, member.risk_score ?? 0),
-    isDanger: (member.risk_score ?? 0) >= 70,
-    isWarn: (member.risk_score ?? 0) >= 40 && (member.risk_score ?? 0) < 70,
+function formatDateTime(value: string | null): string {
+  if (!value) return "Sem registro";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "Sem registro";
+  return new Date(parsed).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
+}
 
-  if (forecast !== null) {
-    signals.push({
+function formatDaysWithoutCheckin(value: number | null): string {
+  if (typeof value !== "number") return "Sem check-in";
+  if (value === 0) return "Hoje";
+  if (value === 1) return "1 dia";
+  return `${value} dias`;
+}
+
+function formatQueueRange(page: number, pageSize: number, total: number): string {
+  if (total === 0) return "Mostrando 0 de 0";
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(total, start + pageSize - 1);
+  return `Mostrando ${start}-${end} de ${total}`;
+}
+
+function buildSignalRows(item: RetentionQueueItem): SignalRow[] {
+  const reasons = item.reasons ?? {};
+  const rows: SignalRow[] = [
+    {
+      label: "Dias sem check-in",
+      value: formatDaysWithoutCheckin(item.days_without_checkin),
+      tone: (item.days_without_checkin ?? 0) >= 14 ? "danger" : (item.days_without_checkin ?? 0) >= 7 ? "warning" : "neutral",
+      progressPct: Math.min(100, Math.max(0, ((item.days_without_checkin ?? 0) / 30) * 100)),
+    },
+    {
+      label: "Risk score",
+      value: String(item.risk_score),
+      tone: item.risk_score >= 70 ? "danger" : item.risk_score >= 40 ? "warning" : "neutral",
+      progressPct: Math.min(100, Math.max(0, item.risk_score)),
+    },
+  ];
+
+  if (typeof item.forecast_60d === "number") {
+    rows.push({
       label: "Forecast 60d",
-      icon: "🔮",
-      value: `${forecast}%`,
-      barPct: forecast,
-      isDanger: forecast < 40,
-      isWarn: forecast >= 40 && forecast < 60,
+      value: `${item.forecast_60d}%`,
+      tone: item.forecast_60d < 40 ? "danger" : item.forecast_60d < 60 ? "warning" : "neutral",
+      progressPct: Math.min(100, Math.max(0, item.forecast_60d)),
     });
   }
 
-  if (nps !== null) {
-    signals.push({
-      label: "Ultimo NPS",
-      icon: "⭐",
-      value: String(nps),
-      barPct: (nps / 10) * 100,
-      isDanger: nps <= 6,
-      isWarn: nps === 7,
+  if (item.nps_last_score > 0) {
+    rows.push({
+      label: "Último NPS",
+      value: String(item.nps_last_score),
+      tone: item.nps_last_score <= 6 ? "danger" : item.nps_last_score === 7 ? "warning" : "neutral",
+      progressPct: Math.min(100, Math.max(0, (item.nps_last_score / 10) * 100)),
     });
   }
 
-  if (signals.length === 0) {
-    return <p className="text-xs text-lovable-ink-muted">Sinais nao disponiveis para este aluno.</p>;
+  if (typeof reasons.frequency_drop_pct === "number") {
+    rows.push({
+      label: "Queda de frequência",
+      value: `${Math.round(reasons.frequency_drop_pct)}%`,
+      tone: reasons.frequency_drop_pct >= 50 ? "danger" : reasons.frequency_drop_pct >= 25 ? "warning" : "neutral",
+      progressPct: Math.min(100, Math.max(0, reasons.frequency_drop_pct)),
+    });
   }
 
+  if (typeof reasons.shift_change_hours === "number" && reasons.shift_change_hours > 0) {
+    rows.push({
+      label: "Mudança de horário",
+      value: `${Math.round(reasons.shift_change_hours)}h`,
+      tone: reasons.shift_change_hours >= 4 ? "danger" : "warning",
+      progressPct: Math.min(100, Math.max(0, (reasons.shift_change_hours / 8) * 100)),
+    });
+  }
+
+  return rows;
+}
+
+function QueueSkeleton() {
   return (
-    <div className="space-y-2.5">
-      {signals.map((signal) => (
-        <div key={signal.label}>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs text-lovable-ink">
-              {signal.icon} {signal.label}
-            </span>
-            <span
-              className={clsx(
-                "text-xs font-semibold",
-                signal.isDanger ? "text-red-600" : signal.isWarn ? "text-yellow-600" : "text-green-700",
-              )}
-            >
-              {signal.value}
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-lovable-border">
-            <div
-              className={clsx(
-                "h-1.5 rounded-full transition-all",
-                signal.isDanger ? "bg-[#C0392B]" : signal.isWarn ? "bg-[#BA7517]" : "bg-[#0F7553]",
-              )}
-              style={{ width: `${signal.barPct}%` }}
-            />
-          </div>
-        </div>
-      ))}
+    <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/95 p-4 shadow-panel backdrop-blur-xl">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-8 w-48 rounded-xl" />
+      </div>
+      <SkeletonList rows={8} cols={4} />
     </div>
   );
 }
 
-function PlaybookPanel({ member }: { member: RetentionMember }) {
-  const churnKey: ChurnKey = member.churn_type && isChurnKey(member.churn_type) ? member.churn_type : "frequencia";
-  const meta = CHURN_META[churnKey];
-  const actions = PLAYBOOK_ACTIONS[churnKey];
-
+function SummarySkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border bg-lovable-surface" style={{ borderColor: `${meta.color}30` }}>
-      <div className="border-b px-4 py-3" style={{ background: meta.bg, borderColor: `${meta.color}30` }}>
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: meta.color }}>
-          Playbook de retencao gerado
-        </p>
-        <p className="mt-0.5 text-xs" style={{ color: meta.color }}>
-          {meta.emoji} {meta.label} - {meta.desc}
-        </p>
+    <div className="space-y-4">
+      <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/95 p-5 shadow-panel backdrop-blur-xl">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="mt-3 h-7 w-2/3" />
+        <Skeleton className="mt-2 h-4 w-4/5" />
       </div>
-      <div className="divide-y divide-lovable-border">
-        {actions.map((action, index) => (
-          <div key={index} className="flex gap-3 p-3">
-            <div className="flex shrink-0 flex-col items-center gap-1 pt-0.5">
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: meta.bg, color: meta.color }}>
-                {action.day}
-              </span>
-              {index < actions.length - 1 ? <div className="min-h-3 w-px flex-1" style={{ background: `${meta.color}30` }} /> : null}
-            </div>
-            <div className="min-w-0 flex-1 pb-1">
-              <div className="mb-0.5 flex flex-wrap items-center gap-2">
-                <p className="text-xs font-semibold text-lovable-ink">{action.title}</p>
-                <span className={clsx("shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide", badgeClass(action.badge))}>
-                  {action.badge}
-                </span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-lovable-ink-muted">{action.desc}</p>
-            </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 shadow-panel backdrop-blur-xl">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="mt-4 h-8 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={`highlight-${index}`} className="rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 shadow-panel backdrop-blur-xl">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-3 h-8 w-16" />
+            <Skeleton className="mt-2 h-4 w-28" />
           </div>
         ))}
       </div>
@@ -201,252 +236,556 @@ function PlaybookPanel({ member }: { member: RetentionMember }) {
   );
 }
 
-export function RetentionDashboardPage() {
-  const queryClient = useQueryClient();
-  const [selectedMember, setSelectedMember] = useState<RetentionMember | null>(null);
-  const [timelineMember, setTimelineMember] = useState<Member | null>(null);
-  const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
-  const query = useRetentionDashboard();
+function RetentionQueueDrawer({
+  item,
+  onClose,
+  onOpenProfile,
+  onResolve,
+  resolving,
+}: {
+  item: RetentionQueueItem | null;
+  onClose: () => void;
+  onOpenProfile: (memberId: string) => void;
+  onResolve: (alertId: string) => void;
+  resolving: boolean;
+}) {
+  return (
+    <Drawer
+      open={Boolean(item)}
+      onClose={onClose}
+      side="right"
+      title={item ? `Playbook · ${item.full_name}` : "Playbook"}
+    >
+      {item ? (
+        <div className="space-y-6 p-4">
+          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-lovable-ink">{item.full_name}</p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  {item.plan_name}
+                  {item.email ? ` · ${item.email}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <RiskBadge risk={item.risk_level} />
+                <Badge variant="info" size="sm" className="normal-case tracking-normal">
+                  {formatChurnType(item.churn_type)}
+                </Badge>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-lovable-ink-muted">{item.signals_summary}</p>
+            <div className="mt-4 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
+                <span className="font-semibold text-lovable-ink">Último contato:</span> {formatDateTime(item.last_contact_at)}
+              </div>
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
+                <span className="font-semibold text-lovable-ink">Automação:</span> {item.automation_stage ?? "Sem estágio"}
+              </div>
+            </div>
+          </section>
 
-  const alertsQuery = useQuery({
-    queryKey: ["risk-alerts", "unresolved-red"],
-    queryFn: () => riskAlertService.listUnresolved("red"),
+          <AIAssistantPanel
+            assistant={item.assistant}
+            title="Copiloto de retenção"
+            subtitle="Explicação curta, canal sugerido e abordagem inicial para este aluno."
+          />
+
+          <section>
+            <SectionHeader
+              title="Sinais captados"
+              subtitle="Leitura rápida dos gatilhos ativos que colocaram o aluno na fila."
+            />
+            <div className="space-y-3">
+              {buildSignalRows(item).map((signal) => (
+                <article
+                  key={signal.label}
+                  className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-lovable-ink">{signal.label}</span>
+                    <span
+                      className={cn(
+                        "text-sm font-semibold",
+                        signal.tone === "danger"
+                          ? "text-lovable-danger"
+                          : signal.tone === "warning"
+                            ? "text-lovable-warning"
+                            : "text-lovable-ink",
+                      )}
+                    >
+                      {signal.value}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-lovable-border">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        signal.tone === "danger"
+                          ? "bg-lovable-danger"
+                          : signal.tone === "warning"
+                            ? "bg-lovable-warning"
+                            : "bg-lovable-primary",
+                      )}
+                      style={{ width: `${signal.progressPct}%` }}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <SectionHeader
+              title="Playbook sugerido"
+              subtitle={item.next_action ? `Próxima ação recomendada: ${item.next_action}` : "Sem playbook configurado."}
+              count={item.playbook_steps.length}
+            />
+            {item.playbook_steps.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
+                Nenhum playbook sugerido para este alerta.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {item.playbook_steps.map((step, index) => (
+                  <article key={`${step.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-lovable-ink">{step.title}</p>
+                        <p className="mt-1 text-sm text-lovable-ink-muted">{step.message}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant={PLAYBOOK_PRIORITY_VARIANT[step.priority] ?? "neutral"}
+                          size="sm"
+                          className="normal-case tracking-normal"
+                        >
+                          {step.priority}
+                        </Badge>
+                        <Badge variant="neutral" size="sm" className="normal-case tracking-normal">
+                          {step.owner}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-lovable-ink-muted">
+                      <span>D+{step.due_days}</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Bot size={12} />
+                        {step.action}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <SectionHeader
+              title="Ações rápidas"
+              subtitle="Acione o playbook sem sair da fila."
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => onOpenProfile(item.member_id)}>
+                <ArrowUpRight size={14} />
+                Abrir perfil 360
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onResolve(item.alert_id)} disabled={resolving}>
+                <CheckCheck size={14} />
+                {resolving ? "Resolvendo..." : "Marcar resolvido"}
+              </Button>
+            </div>
+            <div className="mt-4">
+              <QuickActions
+                member={{
+                  id: item.member_id,
+                  full_name: item.full_name,
+                  phone: item.phone,
+                  risk_level: item.risk_level,
+                  risk_score: item.risk_score,
+                }}
+              />
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </Drawer>
+  );
+}
+
+export function RetentionDashboardPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const summaryQuery = useRetentionDashboard();
+  const searchParamValue = searchParams.get("search") ?? "";
+
+  const [searchInput, setSearchInput] = useState(searchParamValue);
+  const [search, setSearch] = useState(searchParamValue.trim());
+  const [level, setLevel] = useState<QueueLevel>("all");
+  const [churnType, setChurnType] = useState("all");
+  const [page, setPage] = useState(1);
+  const [selectedItem, setSelectedItem] = useState<RetentionQueueItem | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (searchParamValue === searchInput) return;
+    setSearchInput(searchParamValue);
+  }, [searchInput, searchParamValue]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, level, churnType]);
+
+  const queueQuery = useQuery({
+    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType }],
+    queryFn: () =>
+      dashboardService.retentionQueue({
+        page,
+        page_size: 50,
+        search: search || undefined,
+        level,
+        churn_type: churnType === "all" ? undefined : churnType,
+      }),
     staleTime: 60_000,
+    placeholderData: (previous) => previous,
   });
 
   const resolveMutation = useMutation({
-    mutationFn: (alertId: string) => {
-      setPendingAlertId(alertId);
-      return riskAlertService.resolve(alertId, "Resolvido no dashboard de retencao");
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["risk-alerts", "unresolved-red"] });
-      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
-      toast.success("Alerta resolvido!");
+    mutationFn: (alertId: string) => riskAlertService.resolve(alertId, "Resolvido no dashboard de retenção"),
+    onSuccess: (_, alertId) => {
+      if (selectedItem?.alert_id === alertId) {
+        setSelectedItem(null);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention", "queue"] });
+      toast.success("Alerta marcado como resolvido.");
     },
     onError: () => toast.error("Falha ao resolver alerta."),
-    onSettled: () => setPendingAlertId(null),
   });
 
-  const handleActionComplete = () => {
-    void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+  const activeFilterCount = [searchInput.trim().length > 0, level !== "all", churnType !== "all"].filter(Boolean).length;
+
+  const kpis = useMemo(() => {
+    const data = summaryQuery.data;
+    if (!data) return [];
+    return [
+      { label: "Alertas vermelhos", value: data.red.total, tone: "danger" as const },
+      { label: "Alertas amarelos", value: data.yellow.total, tone: "warning" as const },
+      { label: "MRR em risco", value: formatCurrency(Number(data.mrr_at_risk ?? 0)), tone: "warning" as const },
+      {
+        label: "Score médio crítico",
+        value: data.red.total > 0 ? `${Math.round(Number(data.avg_red_score ?? 0))}` : "—",
+        tone: "danger" as const,
+      },
+    ];
+  }, [summaryQuery.data]);
+
+  const churnHighlights = useMemo(() => {
+    const distribution = summaryQuery.data?.churn_distribution ?? {};
+    const total = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+    if (total === 0) return [] as ChurnHighlight[];
+
+    return Object.entries(distribution)
+      .filter(([, count]) => count > 0)
+      .sort(([, left], [, right]) => right - left)
+      .slice(0, 4)
+      .map(([key, count]) => ({
+        key,
+        label: CHURN_META[key]?.label ?? formatChurnType(key),
+        description: CHURN_META[key]?.description ?? "Sem classificação dominante.",
+        count,
+        pct: Math.round((count / total) * 100),
+      }));
+  }, [summaryQuery.data]);
+
+  const queueItems = queueQuery.data?.items ?? [];
+  const queueTotal = queueQuery.data?.total ?? 0;
+  const queuePage = queueQuery.data?.page ?? page;
+  const queuePageSize = queueQuery.data?.page_size ?? 50;
+
+  const handleOpenProfile = (memberId: string) => {
+    setSelectedItem(null);
+    navigate(`/assessments/members/${memberId}`);
   };
 
-  if (query.isLoading) return <LoadingPanel text="Carregando Retention Intelligence..." />;
-  if (query.isError || !query.data) return <LoadingPanel text="Erro ao carregar dados de retencao." />;
-
-  const red = query.data.red ?? { total: 0, items: [] };
-  const yellow = query.data.yellow ?? { total: 0, items: [] };
-  const npsTrend = query.data.nps_trend ?? [];
-  const mrrAtRisk = Number(query.data.mrr_at_risk ?? 0);
-  const avgRedScore = Number(query.data.avg_red_score ?? 0);
-  const avgYellowScore = Number(query.data.avg_yellow_score ?? 0);
-
-  const redItems = red.items as RetentionMember[];
-  const yellowItems = yellow.items as RetentionMember[];
-  const allAtRisk = [...redItems, ...yellowItems];
-
-  const churnCounts = useMemo(() => {
-    const counts: Partial<Record<ChurnKey, number>> = {};
-    for (const member of allAtRisk) {
-      const churnType = member.churn_type;
-      if (churnType && isChurnKey(churnType)) {
-        counts[churnType] = (counts[churnType] ?? 0) + 1;
-      }
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    const trimmedValue = value.trim();
+    const nextParams = new URLSearchParams(searchParams);
+    if (trimmedValue) {
+      nextParams.set("search", trimmedValue);
+    } else {
+      nextParams.delete("search");
     }
-    return counts;
-  }, [allAtRisk]);
+    setSearchParams(nextParams, { replace: true });
+  };
 
-  const churnTotal = Object.values(churnCounts).reduce((sum, value) => sum + (value ?? 0), 0);
+  const handleClearFilters = () => {
+    handleSearchChange("");
+    setLevel("all");
+    setChurnType("all");
+    setPage(1);
+  };
 
-  const forecast60Avg = useMemo(() => {
-    const values = redItems
-      .map((member) => {
-        const value = member.extra_data?.retention_forecast_60d;
-        return typeof value === "number" && value >= 0 && value <= 100 ? value : null;
-      })
-      .filter((value): value is number => value !== null);
-
-    return values.length === 0 ? null : Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-  }, [redItems]);
-
-  const memberById: Record<string, string> = {};
-  for (const member of allAtRisk) {
-    memberById[member.id] = member.full_name;
+  if (summaryQuery.isError) {
+    return (
+      <section className="space-y-6">
+        <PageHeader
+          title="Retenção"
+          subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
+          actions={<DashboardActions dashboard="retention" theme="dark" />}
+        />
+        <EmptyState
+          icon={AlertTriangle}
+          title="Não foi possível carregar a visão de retenção"
+          description="Tente novamente para recuperar as métricas e a fila operacional."
+          action={{ label: "Tentar novamente", onClick: () => void summaryQuery.refetch() }}
+        />
+      </section>
+    );
   }
-
-  const activeSelected = selectedMember ?? redItems[0] ?? yellowItems[0] ?? null;
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard de Retencao</h2>
-          <p className="text-sm text-lovable-ink-muted">
-            O sistema identifica o tipo de churn e personaliza a intervencao. Hoje todos recebem o mesmo e-mail no D3.
-          </p>
-        </div>
-        <DashboardActions dashboard="retention" />
-      </header>
+      <PageHeader
+        title="Retenção"
+        subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
+        actions={<DashboardActions dashboard="retention" theme="dark" />}
+        breadcrumb={[{ label: "Dashboards", href: "/dashboard/executive" }, { label: "Retenção" }]}
+      />
 
-      <AiInsightCard dashboard="retention" />
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatCard
-          label="Risco Vermelho"
-          value={String(red.total)}
-          tone="danger"
-          tooltip={red.total > 0 ? `Score medio: ${avgRedScore.toFixed(0)}` : undefined}
-        />
-        <StatCard
-          label="Risco Amarelo"
-          value={String(yellow.total)}
-          tone="warning"
-          tooltip={yellow.total > 0 ? `Score medio: ${avgYellowScore.toFixed(0)}` : undefined}
-        />
-        <StatCard
-          label="MRR em Risco"
-          value={formatCurrency(mrrAtRisk)}
-          tone="neutral"
-          tooltip="Receita mensal dos alunos em risco."
-        />
-        <StatCard
-          label="Forecast 60 dias"
-          value={forecast60Avg !== null ? `${forecast60Avg}%` : "—"}
-          tone={forecast60Avg === null ? "neutral" : forecast60Avg < 40 ? "danger" : forecast60Avg < 60 ? "warning" : "success"}
-          tooltip="Probabilidade media de permanencia dos alunos vermelhos."
-        />
-      </div>
-
-      {churnTotal > 0 ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {(Object.keys(CHURN_META) as ChurnKey[]).map((key) => {
-            const meta = CHURN_META[key];
-            const count = churnCounts[key] ?? 0;
-            const pct = churnTotal > 0 ? Math.round((count / churnTotal) * 100) : 0;
-            return (
-              <button
-                key={key}
-                type="button"
-                className="rounded-2xl border p-4 text-left transition-all hover:shadow-sm"
-                style={{ borderColor: `${meta.color}30`, background: meta.bg }}
-                onClick={() => {
-                  const member = allAtRisk.find((item) => item.churn_type === key);
-                  if (member) setSelectedMember(member);
-                }}
-              >
-                <p className="mb-1 text-xl">{meta.emoji}</p>
-                <p className="mb-0.5 text-xs font-semibold text-lovable-ink">{meta.label}</p>
-                <p className="mb-2 text-[11px] leading-relaxed text-lovable-ink-muted">{meta.desc}</p>
-                <p className="text-2xl font-bold" style={{ color: meta.color }}>
-                  {pct}%
-                </p>
-                <p className="text-[10px]" style={{ color: meta.color }}>
-                  {count} alunos
-                </p>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {allAtRisk.length > 0 ? (
-        <div className="overflow-hidden rounded-2xl border border-lovable-border bg-lovable-surface">
-          <div className="flex flex-wrap items-center gap-2 border-b border-lovable-border bg-lovable-surface-soft px-4 py-3">
-            <span className="shrink-0 text-xs font-semibold text-lovable-ink-muted">Perfil de aluno:</span>
-            {allAtRisk.slice(0, 5).map((member) => {
-              const meta = member.churn_type && isChurnKey(member.churn_type) ? CHURN_META[member.churn_type] : null;
-              const isActive = activeSelected?.id === member.id;
-              return (
-                <button
-                  key={member.id}
-                  type="button"
-                  onClick={() => setSelectedMember(member)}
-                  className={clsx(
-                    "rounded-full border px-3 py-1 text-xs font-semibold transition-all",
-                    isActive ? "border-2" : "border-lovable-border bg-lovable-surface text-lovable-ink hover:border-lovable-ink/30",
-                  )}
-                  style={isActive && meta ? { borderColor: meta.color, background: meta.bg, color: meta.color } : undefined}
+      {summaryQuery.isLoading ? (
+        <SummarySkeleton />
+      ) : (
+        <div className="space-y-4">
+          <AiInsightCard dashboard="retention" />
+          <KPIStrip items={kpis} />
+          {churnHighlights.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {churnHighlights.map((item) => (
+                <article
+                  key={item.key}
+                  className="rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 shadow-panel backdrop-blur-xl"
                 >
-                  {member.full_name.split(" ")[0]} · {member.plan_name?.split(" ")[0] ?? "—"} · {member.loyalty_months}m
-                </button>
-              );
-            })}
-          </div>
-
-          {activeSelected ? (
-            <div className="grid gap-0 md:grid-cols-2">
-              <div className="border-r border-lovable-border p-4">
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">
-                  Sinais captados pelo sistema
-                </p>
-                <SignalsPanel member={activeSelected} />
-                <div className="mt-4 border-t border-lovable-border pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setTimelineMember(activeSelected)}
-                    className="mr-2 mb-2 rounded-full border border-lovable-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted transition hover:border-lovable-border-strong hover:text-lovable-ink"
-                  >
-                    Ver timeline 360
-                  </button>
-                  <QuickActions member={activeSelected} onActionComplete={handleActionComplete} />
-                </div>
-              </div>
-              <div className="p-4">
-                <PlaybookPanel member={activeSelected} />
-              </div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
+                    {item.label}
+                  </p>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <p className="text-3xl font-bold text-lovable-ink">{item.pct}%</p>
+                    <p className="text-sm font-semibold text-lovable-ink-muted">{item.count} alunos</p>
+                  </div>
+                  <p className="mt-2 text-sm text-lovable-ink-muted">{item.description}</p>
+                </article>
+              ))}
             </div>
           ) : null}
         </div>
-      ) : null}
+      )}
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Evolucao NPS</h3>
-          <p className="mb-3 text-xs text-lovable-ink-muted">Score medio de satisfacao nos ultimos meses.</p>
-          <LineSeriesChart data={npsTrend} xKey="month" yKey="average_score" />
-        </section>
+      <section className="rounded-[24px] border border-lovable-border bg-lovable-surface/95 p-4 shadow-panel backdrop-blur-xl">
+        <SectionHeader
+          title="Fila operacional"
+          subtitle="Todos os avisos ativos ficam acessíveis por busca e paginação, sem truncamento escondido."
+          count={queueTotal}
+          actions={
+            queueQuery.isFetching ? (
+              <span className="inline-flex items-center gap-2 text-xs text-lovable-ink-muted">
+                <RefreshCw size={12} className="animate-spin" />
+                Atualizando fila...
+              </span>
+            ) : undefined
+          }
+        />
 
-        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas Ativos (Vermelho)</h3>
-          {alertsQuery.isLoading ? (
-            <p className="text-sm text-lovable-ink-muted">Carregando alertas...</p>
-          ) : (alertsQuery.data?.items ?? []).length === 0 ? (
-            <p className="text-sm text-lovable-ink-muted">Nenhum alerta ativo.</p>
+        <FilterBar
+          search={{
+            value: searchInput,
+            onChange: handleSearchChange,
+            placeholder: "Buscar por nome, e-mail ou plano do aluno...",
+          }}
+          filters={[
+            {
+              key: "level",
+              label: "Severidade",
+              value: level,
+              onChange: (value) => setLevel(value as QueueLevel),
+              options: [
+                { value: "all", label: "Todos os níveis" },
+                { value: "red", label: "Somente vermelho" },
+                { value: "yellow", label: "Somente amarelo" },
+              ],
+            },
+            {
+              key: "churn_type",
+              label: "Churn",
+              value: churnType,
+              onChange: setChurnType,
+              options: CHURN_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+            },
+          ]}
+          activeCount={activeFilterCount}
+          onClear={handleClearFilters}
+        />
+
+        <div className="mt-4">
+          {queueQuery.isLoading ? (
+            <QueueSkeleton />
+          ) : queueQuery.isError ? (
+            <div className="rounded-[24px] border border-lovable-border bg-lovable-surface-soft p-6">
+              <EmptyState
+                icon={AlertTriangle}
+                title="Não foi possível carregar a fila"
+                description="Tente novamente para recuperar a lista completa de alunos com alerta."
+                action={{ label: "Tentar novamente", onClick: () => void queueQuery.refetch() }}
+              />
+            </div>
+          ) : queueItems.length === 0 ? (
+            <div className="rounded-[24px] border border-lovable-border bg-lovable-surface-soft p-6">
+              <EmptyState
+                icon={UserSearch}
+                title="Nenhum alerta encontrado"
+                description="Ajuste a busca ou os filtros para voltar a enxergar a fila operacional."
+                action={activeFilterCount > 0 ? { label: "Limpar filtros", onClick: handleClearFilters } : undefined}
+              />
+            </div>
           ) : (
-            <div className="space-y-2">
-              {(alertsQuery.data?.items ?? []).map((alert) => {
-                const actionCount = Array.isArray(alert.action_history) ? alert.action_history.length : 0;
-                return (
-                  <article key={alert.id} className="rounded-lg border border-lovable-border p-3">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="overflow-hidden rounded-[24px] border border-lovable-border bg-lovable-surface-soft">
+              <div
+                className={cn(
+                  "hidden gap-4 border-b border-lovable-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted lg:grid",
+                  QUEUE_GRID_COLUMNS,
+                )}
+              >
+                <span>Aluno</span>
+                <span>Severidade</span>
+                <span>Churn</span>
+                <span>Inatividade</span>
+                <span>Último contato</span>
+                <span>Score / Forecast</span>
+                <span className="text-right">Ações</span>
+              </div>
+
+              <div className="divide-y divide-lovable-border">
+                {queueItems.map((item) => (
+                  <div
+                    key={item.alert_id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedItem(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedItem(item);
+                      }
+                    }}
+                    className={cn(
+                      "grid w-full gap-4 px-4 py-4 text-left transition hover:bg-lovable-surface lg:items-center",
+                      QUEUE_GRID_COLUMNS,
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 rounded-full bg-lovable-primary/12 p-2 text-lovable-primary">
+                          <ShieldAlert size={14} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-lovable-ink">{item.full_name}</p>
+                          <p className="mt-1 truncate text-xs text-lovable-ink-muted">
+                            {item.plan_name}
+                            {item.email ? ` · ${item.email}` : ""}
+                          </p>
+                          <p className="mt-1 text-xs text-lovable-ink-muted">{item.signals_summary}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex min-w-0 items-center lg:items-start">
+                      <RiskBadge risk={item.risk_level} />
+                    </div>
+
+                    <div className="flex min-w-0 items-center lg:items-start">
+                      <Badge variant="info" size="sm" className="normal-case tracking-normal">
+                        {formatChurnType(item.churn_type)}
+                      </Badge>
+                    </div>
+
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-lovable-ink">
+                      <Clock3 size={14} className="text-lovable-ink-muted" />
+                      {formatDaysWithoutCheckin(item.days_without_checkin)}
+                    </div>
+
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-lovable-ink">
+                      <PhoneCall size={14} className="text-lovable-ink-muted" />
+                      {formatLastContact(item.last_contact_at)}
+                    </div>
+
+                    <div className="flex min-w-0 items-center gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-lovable-ink">
-                          {memberById[alert.member_id] ?? `Alerta ${alert.id.slice(0, 8)}`}
-                          <span className="ml-2 text-xs font-normal text-lovable-ink-muted">Score {alert.score}</span>
-                        </p>
+                        <p className="text-sm font-semibold text-lovable-ink">{item.risk_score}</p>
                         <p className="text-xs text-lovable-ink-muted">
-                          {actionCount} acao{actionCount !== 1 ? "es" : ""} · {new Date(alert.created_at).toLocaleString("pt-BR")}
+                          {typeof item.forecast_60d === "number" ? `${item.forecast_60d}% forecast` : "Sem forecast"}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => resolveMutation.mutate(alert.id)}
-                        disabled={pendingAlertId === alert.id}
-                        className="shrink-0 rounded-full bg-lovable-success px-3 py-1 text-xs font-semibold uppercase text-white hover:opacity-90 disabled:opacity-60"
-                      >
-                        Marcar resolvido
-                      </button>
                     </div>
-                  </article>
-                );
-              })}
+
+                    <div
+                      className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Button size="sm" variant="ghost" onClick={() => handleOpenProfile(item.member_id)}>
+                        <ArrowUpRight size={14} />
+                        Abrir perfil
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => setSelectedItem(item)}>
+                        <CalendarClock size={14} />
+                        Ver playbook
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={resolveMutation.isPending && resolveMutation.variables === item.alert_id}
+                        onClick={() => resolveMutation.mutate(item.alert_id)}
+                      >
+                        <CheckCheck size={14} />
+                        Resolver
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-lovable-border px-4 py-4 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm text-lovable-ink-muted">{formatQueueRange(queuePage, queuePageSize, queueTotal)}</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-lovable-ink-muted">
+                    Página {queuePage} de {Math.max(1, Math.ceil(queueTotal / queuePageSize))}
+                  </span>
+                  <Pagination
+                    page={queuePage}
+                    pageSize={queuePageSize}
+                    total={queueTotal}
+                    onPageChange={setPage}
+                  />
+                </div>
+              </div>
             </div>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
 
-      {timelineMember ? <MemberTimeline member={timelineMember} onClose={() => setTimelineMember(null)} /> : null}
+      <RetentionQueueDrawer
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
+        onOpenProfile={handleOpenProfile}
+        onResolve={(alertId) => resolveMutation.mutate(alertId)}
+        resolving={resolveMutation.isPending && resolveMutation.variables === selectedItem?.alert_id}
+      />
     </section>
   );
 }

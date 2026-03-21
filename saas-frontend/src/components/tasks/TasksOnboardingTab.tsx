@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, CheckCircle2, Rocket, Search } from "lucide-react";
 
+import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
 import { memberService, type OnboardingScoreResult } from "../../services/memberService";
 import type { Member, Task } from "../../types";
@@ -83,6 +84,12 @@ function OnboardingScorePanel({ member }: { member: Member }) {
 
   return (
     <div className="space-y-4">
+      <AIAssistantPanel
+        assistant={score.assistant}
+        title="IA recomenda"
+        subtitle="Leitura operacional do onboarding para agir nas proximas 24 horas."
+      />
+
       <Card className={playbook.surfaceClass}>
         <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>

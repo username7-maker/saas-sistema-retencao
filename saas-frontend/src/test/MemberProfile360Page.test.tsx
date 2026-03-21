@@ -259,7 +259,6 @@ describe("MemberProfile360Page", () => {
     renderPage("/assessments/members/member-1?tab=acoes");
 
     expect(await screen.findByText("Acoes do aluno")).toBeInTheDocument();
-    expect(screen.getByText("Nenhuma tarefa relacionada")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /nova tarefa/i }).length).toBeGreaterThan(0);
   });
 });

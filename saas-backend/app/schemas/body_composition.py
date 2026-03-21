@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.assistant import AIAssistantPayload
+
 
 EvaluationSource = Literal["tezewa", "manual", "ocr_receipt", "device_import", "actuar_sync"]
 ActuarSyncMode = Literal["disabled", "http_api", "csv_export", "assisted_rpa"]
@@ -156,5 +158,6 @@ class BodyCompositionEvaluationRead(BodyCompositionEvaluationBase):
     actuar_last_error: str | None
     created_at: datetime
     updated_at: datetime
+    assistant: AIAssistantPayload | None = None
 
     model_config = ConfigDict(from_attributes=True)

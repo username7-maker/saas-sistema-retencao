@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { useSearchParams } from "react-router-dom";
 
 import { PageHeader, SkeletonList } from "../../components/ui";
 import { Badge, Button, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
@@ -33,6 +34,8 @@ async function listAllMembers(): Promise<Member[]> {
 export function TasksPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamValue = searchParams.get("search") ?? "";
 
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("operations");
   const [page, setPage] = useState(1);
@@ -152,6 +155,7 @@ export function TasksPage() {
               members={members}
               users={users}
               currentUserId={user?.id ?? null}
+              initialSearch={searchParamValue}
               sourcePreset={sourcePreset}
               sourcePresetToken={sourcePresetToken}
               isLoading={false}
@@ -162,6 +166,16 @@ export function TasksPage() {
               onCreateOpen={() => setCreateOpen(true)}
               onCreateClose={() => setCreateOpen(false)}
               onPageChange={setPage}
+              onSearchChange={(value) => {
+                const nextParams = new URLSearchParams(searchParams);
+                const trimmedValue = value.trim();
+                if (trimmedValue) {
+                  nextParams.set("search", trimmedValue);
+                } else {
+                  nextParams.delete("search");
+                }
+                setSearchParams(nextParams, { replace: true });
+              }}
               onCreateTask={(payload) => createMutation.mutate(payload)}
               onUpdateTask={(taskId, payload) => updateMutation.mutate({ taskId, payload })}
               onDeleteTask={(taskId) => deleteMutation.mutate(taskId)}

@@ -1,3 +1,4 @@
+from app.schemas.assistant import AIAssistantPayload
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
 from app.schemas.assessment import (
@@ -32,6 +33,8 @@ from app.schemas.dashboard import (
     ProjectionPoint,
     RetentionBucket,
     RetentionDashboard,
+    RetentionPlaybookStep,
+    RetentionQueueItem,
     RevenuePoint,
     WeeklySummary,
 )
@@ -39,7 +42,7 @@ from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
 from app.schemas.imports import ImportErrorEntry, ImportSummary, MissingMemberEntry
 from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
-from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate
+from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate, OnboardingScoreOut
 from app.schemas.nurturing import NurturingSequenceOut
 from app.schemas.nps import NPSEvolutionPoint, NPSResponseCreate, NPSResponseOut
 from app.schemas.objection import ObjectionResponseOut, ObjectionResponseUpdate
@@ -71,6 +74,7 @@ from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
 __all__ = [
     "APIMessage",
+    "AIAssistantPayload",
     "AssessmentCreate",
     "BodyCompositionEvaluationCreate",
     "BodyCompositionEvaluationRead",
@@ -115,6 +119,7 @@ __all__ = [
     "MemberOut",
     "MemberRiskOut",
     "MemberUpdate",
+    "OnboardingScoreOut",
     "MarkNotificationReadInput",
     "MessageLogOut",
     "NurturingSequenceOut",
@@ -135,6 +140,8 @@ __all__ = [
     "RefreshTokenInput",
     "RetentionBucket",
     "RetentionDashboard",
+    "RetentionPlaybookStep",
+    "RetentionQueueItem",
     "RevenuePoint",
     "RiskAlertOut",
     "RiskAlertResolveInput",

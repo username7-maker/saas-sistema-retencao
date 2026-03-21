@@ -1,3 +1,4 @@
+import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { KPIStrip, SectionHeader } from "../ui";
 import { Badge, Button, Card, CardContent } from "../ui2";
 import type { Assessment, AssessmentSummary360, Profile360 } from "../../services/assessmentService";
@@ -75,6 +76,11 @@ export function AssessmentWorkspaceOverview({
   return (
     <div className="space-y-6">
       <KPIStrip items={kpiItems} />
+      <AIAssistantPanel
+        assistant={summary.assistant}
+        title="IA operacional"
+        subtitle="O que mudou, por que importa e qual deve ser a proxima acao para este aluno."
+      />
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card className="border-lovable-primary/20 bg-lovable-primary-soft/70">

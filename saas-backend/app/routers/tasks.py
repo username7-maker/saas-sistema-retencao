@@ -1,15 +1,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, TaskStatus, User
-from app.schemas import PaginatedResponse, TaskCreate, TaskOut, TaskUpdate
+from app.schemas import AIAssistantPayload, PaginatedResponse, TaskCreate, TaskOut, TaskUpdate
 from app.services.audit_service import log_audit_event
-from app.services.task_service import create_task, delete_task, list_tasks, update_task
+from app.services.ai_assistant_service import build_task_assistant
+from app.services.task_service import create_task, delete_task, get_task_with_relations_or_404, list_tasks, update_task
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -74,6 +75,18 @@ def update_task_endpoint(
     )
     db.commit()
     return task
+
+
+@router.get("/{task_id}/assistant", response_model=AIAssistantPayload)
+def task_assistant_endpoint(
+    task_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> AIAssistantPayload:
+    task = get_task_with_relations_or_404(db, task_id)
+    if task.gym_id != current_user.gym_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task nao encontrada")
+    return build_task_assistant(db, task)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

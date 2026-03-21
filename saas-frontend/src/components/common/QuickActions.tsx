@@ -7,8 +7,10 @@ import { automationService } from "../../services/automationService";
 import { dashboardService } from "../../services/dashboardService";
 import { taskService } from "../../services/taskService";
 
+type QuickActionMember = Pick<Member, "id" | "full_name" | "phone" | "risk_level" | "risk_score">;
+
 interface QuickActionsProps {
-  member: Member;
+  member: QuickActionMember;
   onActionComplete?: () => void;
 }
 
@@ -21,7 +23,7 @@ const CALL_OUTCOMES: { value: CallOutcome; label: string }[] = [
   { value: "invalid_number", label: "Nº inválido" },
 ];
 
-function getWhatsAppTemplate(member: Member): string {
+function getWhatsAppTemplate(member: QuickActionMember): string {
   if (member.risk_level === "red") {
     return `Olá ${member.full_name}! Notamos que faz um tempo que você não treina conosco. Sua saúde é nossa prioridade — podemos te ajudar a retomar? Estamos disponíveis para conversar!`;
   }

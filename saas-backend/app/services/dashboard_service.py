@@ -5,7 +5,9 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
-from app.models import AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskLevel
+from app.database import get_current_gym_id
+from app.models import AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskAlert, RiskLevel
+from app.models.enums import ChurnType
 from app.schemas import (
     ChurnPoint,
     ConversionBySource,
@@ -14,13 +16,18 @@ from app.schemas import (
     HeatmapPoint,
     LTVPoint,
     NPSEvolutionPoint,
+    PaginatedResponse,
     ProjectionPoint,
+    RetentionPlaybookStep,
+    RetentionQueueItem,
     RevenuePoint,
     WeeklySummary,
 )
+from app.services.ai_assistant_service import build_retention_assistant
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
+from app.services.retention_intelligence_service import build_retention_playbook
 
 
 def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
@@ -280,6 +287,197 @@ def get_financial_dashboard(db: Session) -> dict:
     return payload
 
 
+def _resolve_dashboard_gym_id(gym_id=None):
+    return gym_id or get_current_gym_id()
+
+
+def _latest_open_retention_alert_subquery():
+    ranked_alerts = (
+        select(
+            RiskAlert.id.label("alert_id"),
+            RiskAlert.member_id.label("member_id"),
+            func.row_number()
+            .over(
+                partition_by=RiskAlert.member_id,
+                order_by=(RiskAlert.created_at.desc(), RiskAlert.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(RiskAlert.resolved.is_(False))
+        .subquery()
+    )
+
+    return (
+        select(
+            ranked_alerts.c.alert_id.label("alert_id"),
+            ranked_alerts.c.member_id.label("member_id"),
+        )
+        .where(ranked_alerts.c.row_number == 1)
+        .subquery()
+    )
+
+
+def _extract_forecast_60d(extra_data: dict | None) -> int | None:
+    if not isinstance(extra_data, dict):
+        return None
+    value = extra_data.get("retention_forecast_60d")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and 0 <= value <= 100:
+        return int(round(value))
+    return None
+
+
+def _days_without_checkin(member: Member) -> int:
+    reference = member.last_checkin_at
+    if reference is None:
+        reference = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)
+    elif reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return max(0, (_utcnow() - reference).days)
+
+
+def _retention_signals_summary(member: Member, alert: RiskAlert, *, days_without_checkin: int, forecast_60d: int | None) -> str:
+    reasons = alert.reasons or {}
+    parts: list[str] = [f"{days_without_checkin} dias sem check-in"]
+
+    frequency_drop_pct = reasons.get("frequency_drop_pct")
+    if isinstance(frequency_drop_pct, (int, float)) and frequency_drop_pct >= 25:
+        parts.append(f"queda de {round(float(frequency_drop_pct))}% na frequência")
+
+    shift_change_hours = reasons.get("shift_change_hours")
+    if isinstance(shift_change_hours, (int, float)) and shift_change_hours >= 2:
+        parts.append(f"mudança de {int(shift_change_hours)}h no horário")
+
+    if isinstance(member.nps_last_score, int) and 0 < member.nps_last_score <= 7:
+        parts.append(f"NPS {member.nps_last_score}")
+
+    if forecast_60d is not None and forecast_60d < 60:
+        parts.append(f"forecast em {forecast_60d}%")
+
+    return " · ".join(parts[:4]) if parts else "Alerta ativo aguardando ação do time."
+
+
+def _retention_last_contact_map(db: Session, member_ids) -> dict[str, datetime]:
+    if not member_ids:
+        return {}
+
+    rows = db.execute(
+        select(AuditLog.member_id, func.max(AuditLog.created_at).label("last_at"))
+        .where(
+            AuditLog.member_id.in_(member_ids),
+            AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+        )
+        .group_by(AuditLog.member_id)
+    ).all()
+    return {str(row.member_id): row.last_at for row in rows if row.last_at is not None}
+
+
+def get_retention_queue(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    search: str | None = None,
+    level: str = "all",
+    churn_type: str | None = None,
+    gym_id=None,
+) -> PaginatedResponse[RetentionQueueItem]:
+    resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
+    latest_alert_subquery = _latest_open_retention_alert_subquery()
+    level_priority = case(
+        (RiskAlert.level == RiskLevel.RED, 0),
+        (RiskAlert.level == RiskLevel.YELLOW, 1),
+        else_=2,
+    )
+
+    filters = [Member.deleted_at.is_(None)]
+    if resolved_gym_id is not None:
+        filters.append(RiskAlert.gym_id == resolved_gym_id)
+    if level in {"red", "yellow"}:
+        filters.append(RiskAlert.level == RiskLevel(level))
+    if churn_type:
+        filters.append(Member.churn_type == churn_type)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Member.full_name.ilike(search_value),
+                Member.email.ilike(search_value),
+                Member.plan_name.ilike(search_value),
+            )
+        )
+
+    base_stmt = (
+        select(RiskAlert, Member)
+        .join(latest_alert_subquery, latest_alert_subquery.c.alert_id == RiskAlert.id)
+        .join(Member, Member.id == RiskAlert.member_id)
+        .where(and_(*filters))
+    )
+
+    total = int(
+        db.scalar(
+            select(func.count())
+            .select_from(RiskAlert)
+            .join(latest_alert_subquery, latest_alert_subquery.c.alert_id == RiskAlert.id)
+            .join(Member, Member.id == RiskAlert.member_id)
+            .where(and_(*filters))
+        )
+        or 0
+    )
+
+    rows = db.execute(
+        base_stmt
+        .order_by(level_priority, RiskAlert.score.desc(), RiskAlert.created_at.asc(), Member.full_name.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+
+    member_ids = [member.id for _, member in rows]
+    last_contact_map = _retention_last_contact_map(db, member_ids)
+
+    items: list[RetentionQueueItem] = []
+    for alert, member in rows:
+        forecast_60d = _extract_forecast_60d(member.extra_data)
+        days_without_checkin = _days_without_checkin(member)
+        playbook = [
+            RetentionPlaybookStep.model_validate(step)
+            for step in build_retention_playbook(db, member, member.churn_type or ChurnType.UNKNOWN.value)
+        ]
+        queue_item = RetentionQueueItem(
+            alert_id=str(alert.id),
+            member_id=str(member.id),
+            full_name=member.full_name,
+            email=member.email,
+            phone=member.phone,
+            plan_name=member.plan_name,
+            risk_level=alert.level,
+            risk_score=int(alert.score or member.risk_score or 0),
+            nps_last_score=int(member.nps_last_score or 0),
+            days_without_checkin=days_without_checkin,
+            last_checkin_at=member.last_checkin_at,
+            last_contact_at=last_contact_map.get(str(member.id)),
+            churn_type=member.churn_type,
+            automation_stage=alert.automation_stage,
+            created_at=alert.created_at,
+            forecast_60d=forecast_60d,
+            signals_summary=_retention_signals_summary(
+                member,
+                alert,
+                days_without_checkin=days_without_checkin,
+                forecast_60d=forecast_60d,
+            ),
+            next_action=playbook[0].title if playbook else None,
+            reasons=alert.reasons or {},
+            action_history=alert.action_history or [],
+            playbook_steps=playbook,
+        )
+        queue_item.assistant = build_retention_assistant(queue_item)
+        items.append(queue_item)
+
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
 def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1, page_size: int = 20) -> dict:
     cache_key = make_cache_key("dashboard_retention", red_page, yellow_page, page_size)
     cached = dashboard_cache.get(cache_key)
@@ -299,13 +497,42 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         select(Member).where(*base_yellow).order_by(Member.risk_score.desc()).offset((yellow_page - 1) * page_size).limit(page_size)
     ).all()
 
-    # Computed KPIs
-    all_at_risk = list(red_items) + list(yellow_items)
-    mrr_at_risk = float(sum(m.monthly_fee or 0 for m in all_at_risk))
-    avg_red_score = (sum(m.risk_score for m in red_items) / len(red_items)) if red_items else 0.0
-    avg_yellow_score = (sum(m.risk_score for m in yellow_items) / len(yellow_items)) if yellow_items else 0.0
+    # Computed KPIs based on the full population, not just the paged samples.
+    mrr_at_risk = float(
+        db.scalar(
+            select(func.coalesce(func.sum(Member.monthly_fee), Decimal("0"))).where(
+                Member.deleted_at.is_(None),
+                Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
+            )
+        )
+        or Decimal("0")
+    )
+    avg_red_score = float(
+        db.scalar(select(func.coalesce(func.avg(Member.risk_score), 0.0)).where(*base_red))
+        or 0.0
+    )
+    avg_yellow_score = float(
+        db.scalar(select(func.coalesce(func.avg(Member.risk_score), 0.0)).where(*base_yellow))
+        or 0.0
+    )
+    churn_distribution_rows = db.execute(
+        select(
+            func.coalesce(Member.churn_type, ChurnType.UNKNOWN.value).label("churn_type"),
+            func.count(Member.id).label("total"),
+        )
+        .where(
+            Member.deleted_at.is_(None),
+            Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
+        )
+        .group_by(func.coalesce(Member.churn_type, ChurnType.UNKNOWN.value))
+    ).all()
+    churn_distribution = {
+        str(row.churn_type): int(row.total)
+        for row in churn_distribution_rows
+    }
 
     # Last contact per at-risk member (whatsapp or call)
+    all_at_risk = list(red_items) + list(yellow_items)
     member_ids = [m.id for m in all_at_risk]
     last_contact_map: dict[str, str] = {}
     if member_ids:
@@ -327,6 +554,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         "mrr_at_risk": mrr_at_risk,
         "avg_red_score": round(avg_red_score, 1),
         "avg_yellow_score": round(avg_yellow_score, 1),
+        "churn_distribution": churn_distribution,
         "last_contact_map": last_contact_map,
     }
     dashboard_cache.set(cache_key, payload)

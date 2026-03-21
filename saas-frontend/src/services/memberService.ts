@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { Member, PaginatedResponse, RiskLevel } from "../types";
+import type { AIAssistantPayload, Member, PaginatedResponse, RiskLevel } from "../types";
 
 export type MemberPlanCycle = "monthly" | "semiannual" | "annual";
 
@@ -49,6 +49,7 @@ export interface OnboardingScoreResult {
   checkin_count: number;
   completed_tasks: number;
   total_tasks: number;
+  assistant?: AIAssistantPayload | null;
 }
 
 export const memberService = {

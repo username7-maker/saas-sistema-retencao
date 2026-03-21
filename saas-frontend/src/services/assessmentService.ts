@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { RiskLevel } from "../types";
+import type { AIAssistantPayload, RiskLevel } from "../types";
 
 export interface Assessment {
   id: string;
@@ -259,6 +259,7 @@ export interface AssessmentSummary360 {
   narratives: AssessmentNarratives;
   next_best_action: AssessmentAction;
   actions: AssessmentAction[];
+  assistant?: AIAssistantPayload | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -283,6 +284,22 @@ function asNullableNumber(value: unknown): number | null {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function normalizeAssistant(payload: unknown): AIAssistantPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const data = asRecord(payload);
+  return {
+    summary: asString(data.summary, ""),
+    why_it_matters: asString(data.why_it_matters, ""),
+    next_best_action: asString(data.next_best_action, ""),
+    suggested_message: asNullableString(data.suggested_message),
+    evidence: asStringArray(data.evidence),
+    confidence_label: asString(data.confidence_label, "Inicial"),
+    recommended_channel: asString(data.recommended_channel, "Contexto"),
+    cta_target: asString(data.cta_target, "/"),
+    cta_label: asString(data.cta_label, "Abrir contexto"),
+  };
 }
 
 function normalizeMemberMini(payload: unknown): MemberMini {
@@ -549,6 +566,7 @@ export function normalizeAssessmentSummary360(payload: unknown): AssessmentSumma
     narratives: normalizeNarratives(data.narratives),
     next_best_action: nextBestAction.title === "Nenhuma acao recomendada" && actions.length > 0 ? actions[0] : nextBestAction,
     actions,
+    assistant: normalizeAssistant(data.assistant),
   };
 }
 

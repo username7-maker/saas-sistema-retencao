@@ -1,5 +1,6 @@
 import { api } from "./api";
 import type {
+  AIAssistantPayload,
   ChurnPoint,
   ConversionBySource,
   ExecutiveDashboard,
@@ -9,10 +10,48 @@ import type {
   Lead,
   Member,
   NPSEvolutionPoint,
+  PaginatedResponse,
   ProjectionPoint,
+  RiskLevel,
   RevenuePoint,
   WeeklySummary,
 } from "../types";
+
+export interface RetentionPlaybookStep {
+  action: string;
+  priority: string;
+  title: string;
+  message: string;
+  due_days: number;
+  owner: string;
+}
+
+export interface RetentionQueueItem {
+  alert_id: string;
+  member_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  plan_name: string;
+  risk_level: RiskLevel;
+  risk_score: number;
+  nps_last_score: number;
+  days_without_checkin: number | null;
+  last_checkin_at: string | null;
+  last_contact_at: string | null;
+  churn_type: string | null;
+  automation_stage: string | null;
+  created_at: string;
+  forecast_60d: number | null;
+  signals_summary: string;
+  next_action: string | null;
+  reasons: Record<string, unknown>;
+  action_history: Array<Record<string, unknown>>;
+  playbook_steps: RetentionPlaybookStep[];
+  assistant?: AIAssistantPayload | null;
+}
+
+export type RetentionQueueResponse = PaginatedResponse<RetentionQueueItem>;
 
 export const dashboardService = {
   async executive(): Promise<ExecutiveDashboard> {
@@ -77,9 +116,23 @@ export const dashboardService = {
     mrr_at_risk: number;
     avg_red_score: number;
     avg_yellow_score: number;
+    churn_distribution: Record<string, number>;
     last_contact_map: Record<string, string>;
   }> {
     const { data } = await api.get("/api/v1/dashboards/retention");
+    return data;
+  },
+
+  async retentionQueue(params?: {
+    page?: number;
+    page_size?: number;
+    search?: string;
+    level?: "all" | "red" | "yellow";
+    churn_type?: string;
+  }): Promise<RetentionQueueResponse> {
+    const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
+      params,
+    });
     return data;
   },
 

@@ -10,6 +10,7 @@ interface TasksFocusSectionProps {
   userNameById: Map<string, string>;
   isUpdating: boolean;
   onOpenDetails: (task: Task) => void;
+  onStart: (task: Task) => void;
   onComplete: (taskId: string) => void;
 }
 
@@ -19,6 +20,7 @@ export function TasksFocusSection({
   userNameById,
   isUpdating,
   onOpenDetails,
+  onStart,
   onComplete,
 }: TasksFocusSectionProps) {
   return (
@@ -47,6 +49,7 @@ export function TasksFocusSection({
               userNameById={userNameById}
               isUpdating={isUpdating}
               onOpenDetails={onOpenDetails}
+              onStart={onStart}
               onComplete={onComplete}
             />
           ))}

@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import RiskLevel
+from app.schemas.assistant import AIAssistantPayload
 
 
 class AssessmentCreate(BaseModel):
@@ -327,3 +328,4 @@ class AssessmentSummary360Out(BaseModel):
     narratives: AssessmentNarrativesOut
     next_best_action: AssessmentActionOut
     actions: list[AssessmentActionOut] = Field(default_factory=list)
+    assistant: AIAssistantPayload | None = None

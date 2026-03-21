@@ -19,6 +19,18 @@ export interface TokenPair {
 
 export type RiskLevel = "green" | "yellow" | "red";
 
+export interface AIAssistantPayload {
+  summary: string;
+  why_it_matters: string;
+  next_best_action: string;
+  suggested_message?: string | null;
+  evidence: string[];
+  confidence_label: string;
+  recommended_channel: string;
+  cta_target: string;
+  cta_label: string;
+}
+
 export interface Member {
   id: string;
   full_name: string;
@@ -299,6 +311,7 @@ export interface BodyCompositionEvaluation {
   actuar_last_error: string | null;
   created_at: string;
   updated_at: string;
+  assistant?: AIAssistantPayload | null;
 }
 
 export interface BodyCompositionEvaluationCreate {

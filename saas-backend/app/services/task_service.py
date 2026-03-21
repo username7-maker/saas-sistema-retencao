@@ -20,6 +20,13 @@ def _load_with_relations(db: Session, task_id: UUID) -> Task:
     return db.scalars(stmt).unique().one()
 
 
+def get_task_with_relations_or_404(db: Session, task_id: UUID) -> Task:
+    task = db.get(Task, task_id)
+    if not task or task.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task nao encontrada")
+    return _load_with_relations(db, task_id)
+
+
 def _enrich(task: Task) -> TaskOut:
     """Build TaskOut with member_name and lead_name populated from eager-loaded relationships."""
     out = TaskOut.model_validate(task)

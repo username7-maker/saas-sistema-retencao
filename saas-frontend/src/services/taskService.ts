@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { PaginatedResponse, Task } from "../types";
+import type { AIAssistantPayload, PaginatedResponse, Task } from "../types";
 
 export interface CreateTaskPayload {
   member_id?: string;
@@ -58,6 +58,11 @@ export const taskService = {
 
   async updateTask(taskId: string, payload: UpdateTaskPayload): Promise<Task> {
     const { data } = await api.patch<Task>(`/api/v1/tasks/${taskId}`, payload);
+    return data;
+  },
+
+  async getAssistant(taskId: string): Promise<AIAssistantPayload> {
+    const { data } = await api.get<AIAssistantPayload>(`/api/v1/tasks/${taskId}/assistant`);
     return data;
   },
 

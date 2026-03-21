@@ -15,6 +15,7 @@ import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { z } from "zod";
 
+import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import type { BodyCompositionOcrEngine, BodyCompositionOcrResult } from "../../services/bodyCompositionOcr";
 import type {
@@ -723,6 +724,11 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 <p className="text-sm text-lovable-ink-muted">Salve a avaliacao para gerar a interpretacao de apoio ao professor.</p>
               ) : (
                 <>
+                  <AIAssistantPanel
+                    assistant={focusEvaluation.assistant}
+                    title="IA da bioimpedancia"
+                    subtitle="Achados principais, comparacao com o exame anterior e orientacao inicial para o coach."
+                  />
                   <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
                     <p className="mt-2 text-sm text-lovable-ink">{focusEvaluation.ai_coach_summary || "Resumo ainda nao gerado."}</p>

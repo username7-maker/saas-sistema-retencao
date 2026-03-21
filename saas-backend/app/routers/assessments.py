@@ -45,6 +45,7 @@ from app.services.assessment_intelligence_service import (
     get_assessment_forecast,
     get_assessment_summary_360,
 )
+from app.services.ai_assistant_service import build_assessment_assistant
 from app.services.assessment_service import (
     create_assessment,
     get_evolution_data,
@@ -138,6 +139,7 @@ def assessment_summary_360_endpoint(
         narratives=payload["narratives"],
         next_best_action=AssessmentActionOut.model_validate(payload["next_best_action"]),
         actions=[AssessmentActionOut.model_validate(item) for item in payload["actions"]],
+        assistant=build_assessment_assistant(payload),
     )
 
 

@@ -1,11 +1,16 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models.body_composition import BodyCompositionEvaluation
 from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
-from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationUpdate
+from app.schemas.body_composition import (
+    BodyCompositionEvaluationCreate,
+    BodyCompositionEvaluationRead,
+    BodyCompositionEvaluationUpdate,
+)
+from app.services.ai_assistant_service import build_body_composition_assistant
 from app.services.body_composition_actuar_sync_service import (
     get_body_composition_evaluation_or_404,
     prepare_body_composition_sync_attempt,
@@ -74,6 +79,47 @@ def update_body_composition_evaluation(
     sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
     db.flush()
     return evaluation, sync_attempt
+
+
+def serialize_body_composition_evaluation(
+    db: Session,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation: BodyCompositionEvaluation,
+) -> BodyCompositionEvaluationRead:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    previous_evaluation = db.scalar(
+        select(BodyCompositionEvaluation)
+        .where(
+            BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.id != evaluation.id,
+        )
+        .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        .limit(1)
+    )
+    payload = BodyCompositionEvaluationRead.model_validate(evaluation)
+    return payload.model_copy(
+        update={"assistant": build_body_composition_assistant(member, evaluation, previous_evaluation)}
+    )
+
+
+def serialize_body_composition_evaluations(
+    db: Session,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluations: list[BodyCompositionEvaluation],
+) -> list[BodyCompositionEvaluationRead]:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    serialized: list[BodyCompositionEvaluationRead] = []
+    for index, evaluation in enumerate(evaluations):
+        previous_evaluation = evaluations[index + 1] if index + 1 < len(evaluations) else None
+        payload = BodyCompositionEvaluationRead.model_validate(evaluation)
+        serialized.append(
+            payload.model_copy(
+                update={"assistant": build_body_composition_assistant(member, evaluation, previous_evaluation)}
+            )
+        )
+    return serialized
 
 
 def _resolve_reviewed_manually(payload: BodyCompositionEvaluationCreate | BodyCompositionEvaluationUpdate) -> bool:

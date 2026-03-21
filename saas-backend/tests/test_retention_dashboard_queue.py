@@ -1,0 +1,213 @@
+from datetime import date, datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+from uuid import UUID
+
+from app.core.dependencies import get_current_user
+from app.database import get_db
+from app.models import RiskLevel
+from app.schemas import PaginatedResponse
+from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
+
+
+class TestRetentionQueueService:
+    @patch("app.services.dashboard_service.build_retention_playbook")
+    @patch("app.services.dashboard_service.get_current_gym_id")
+    def test_returns_paginated_alert_queue_with_member_snapshot(self, mock_get_current_gym_id, mock_build_playbook, gym_id):
+        from app.services.dashboard_service import get_retention_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        mock_build_playbook.return_value = [
+            {
+                "action": "whatsapp",
+                "priority": "high",
+                "title": "Mensagem de reengajamento",
+                "message": "Retome o treino esta semana.",
+                "due_days": 0,
+                "owner": "reception",
+            }
+        ]
+
+        member_red_id = UUID("33333333-3333-3333-3333-333333333331")
+        member_yellow_id = UUID("33333333-3333-3333-3333-333333333332")
+        db = MagicMock()
+        db.scalar.return_value = 2
+
+        queue_rows = MagicMock()
+        queue_rows.all.return_value = [
+            (
+                SimpleNamespace(
+                    id=UUID("44444444-4444-4444-4444-444444444441"),
+                    score=88,
+                    level=RiskLevel.RED,
+                    reasons={"frequency_drop_pct": 62, "shift_change_hours": 3},
+                    action_history=[{"type": "email"}],
+                    automation_stage="d14",
+                    created_at=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    id=member_red_id,
+                    full_name="Ana Silva",
+                    email="ana@teste.com",
+                    phone="5511999990001",
+                    plan_name="Plano Premium",
+                    risk_score=88,
+                    risk_level=RiskLevel.RED,
+                    nps_last_score=5,
+                    last_checkin_at=datetime(2026, 3, 12, 8, 0, tzinfo=timezone.utc),
+                    churn_type="voluntary_dissatisfaction",
+                    extra_data={"retention_forecast_60d": 34},
+                    join_date=date(2025, 12, 1),
+                ),
+            ),
+            (
+                SimpleNamespace(
+                    id=UUID("44444444-4444-4444-4444-444444444442"),
+                    score=51,
+                    level=RiskLevel.YELLOW,
+                    reasons={},
+                    action_history=[],
+                    automation_stage="d7",
+                    created_at=datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    id=member_yellow_id,
+                    full_name="Bruno Lima",
+                    email="bruno@teste.com",
+                    phone=None,
+                    plan_name="Plano Mensal",
+                    risk_score=51,
+                    risk_level=RiskLevel.YELLOW,
+                    nps_last_score=8,
+                    last_checkin_at=datetime(2026, 3, 18, 9, 0, tzinfo=timezone.utc),
+                    churn_type="involuntary_inactivity",
+                    extra_data={},
+                    join_date=date(2026, 1, 10),
+                ),
+            ),
+        ]
+
+        contact_rows = MagicMock()
+        contact_rows.all.return_value = [
+            SimpleNamespace(member_id=member_red_id, last_at=datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc))
+        ]
+
+        db.execute.side_effect = [queue_rows, contact_rows]
+
+        result = get_retention_queue(db, page=1, page_size=50)
+
+        assert result.total == 2
+        assert result.page == 1
+        assert result.page_size == 50
+        assert len(result.items) == 2
+        assert result.items[0].risk_level == RiskLevel.RED
+        assert result.items[0].full_name == "Ana Silva"
+        assert result.items[0].forecast_60d == 34
+        assert result.items[0].next_action == "Mensagem de reengajamento"
+        assert result.items[0].assistant is not None
+        assert result.items[0].assistant.recommended_channel == "Ligacao"
+        assert result.items[0].playbook_steps == [
+            RetentionPlaybookStep(
+                action="whatsapp",
+                priority="high",
+                title="Mensagem de reengajamento",
+                message="Retome o treino esta semana.",
+                due_days=0,
+                owner="reception",
+            )
+        ]
+        assert result.items[0].last_contact_at == datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
+        assert "queda de 62% na frequência" in result.items[0].signals_summary
+        assert result.items[1].risk_level == RiskLevel.YELLOW
+
+    @patch("app.services.dashboard_service.get_current_gym_id")
+    def test_search_filters_and_pagination_are_applied(self, mock_get_current_gym_id, gym_id):
+        from app.services.dashboard_service import get_retention_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        db = MagicMock()
+        db.scalar.return_value = 0
+        execute_result = MagicMock()
+        execute_result.all.return_value = []
+        db.execute.return_value = execute_result
+
+        get_retention_queue(
+            db,
+            page=2,
+            page_size=50,
+            search="retencao",
+            level="red",
+            churn_type="voluntary_dissatisfaction",
+        )
+
+        stmt = db.execute.call_args.args[0]
+        compiled = str(stmt)
+        assert "members.full_name" in compiled
+        assert "members.email" in compiled
+        assert "members.plan_name" in compiled
+        assert "risk_alerts.gym_id" in compiled
+        assert "members.churn_type" in compiled
+        assert stmt._limit_clause.value == 50
+        assert stmt._offset_clause.value == 50
+
+
+class TestRetentionQueueRoute:
+    def test_requires_authentication(self, client):
+        response = client.get("/api/v1/dashboards/retention/queue")
+
+        assert response.status_code == 401
+
+    def test_returns_paginated_queue_payload(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.dashboards.get_retention_queue",
+                return_value=PaginatedResponse(
+                    items=[
+                        RetentionQueueItem(
+                            alert_id="44444444-4444-4444-4444-444444444441",
+                            member_id="33333333-3333-3333-3333-333333333331",
+                            full_name="Ana Silva",
+                            email="ana@teste.com",
+                            phone="5511999990001",
+                            plan_name="Plano Premium",
+                            risk_level=RiskLevel.RED,
+                            risk_score=88,
+                            nps_last_score=5,
+                            days_without_checkin=9,
+                            last_checkin_at=datetime(2026, 3, 12, 8, 0, tzinfo=timezone.utc),
+                            last_contact_at=datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc),
+                            churn_type="voluntary_dissatisfaction",
+                            automation_stage="d14",
+                            created_at=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+                            forecast_60d=34,
+                            signals_summary="9 dias sem check-in · queda de 62% na frequência",
+                            next_action="Mensagem de reengajamento",
+                            reasons={"frequency_drop_pct": 62},
+                            action_history=[],
+                            playbook_steps=[],
+                            assistant=None,
+                        )
+                    ],
+                    total=1,
+                    page=1,
+                    page_size=50,
+                ),
+            ):
+                response = client.get(
+                    "/api/v1/dashboards/retention/queue?page=1&page_size=50&level=red&search=Ana"
+                )
+
+            assert response.status_code == 200
+            body = response.json()
+            assert body["total"] == 1
+            assert body["items"][0]["alert_id"] == "44444444-4444-4444-4444-444444444441"
+            assert body["items"][0]["risk_level"] == "red"
+            assert "assistant" in body["items"][0]
+        finally:
+            app.dependency_overrides.clear()

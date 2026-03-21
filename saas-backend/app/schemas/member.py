@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models import MemberStatus, RiskLevel
+from app.schemas.assistant import AIAssistantPayload
 
 
 class MemberCreate(BaseModel):
@@ -69,3 +70,14 @@ class MemberRiskOut(BaseModel):
     score: int
     level: RiskLevel
     reasons: dict
+
+
+class OnboardingScoreOut(BaseModel):
+    score: int
+    status: str
+    factors: dict[str, int]
+    days_since_join: int
+    checkin_count: int
+    completed_tasks: int
+    total_tasks: int
+    assistant: AIAssistantPayload | None = None

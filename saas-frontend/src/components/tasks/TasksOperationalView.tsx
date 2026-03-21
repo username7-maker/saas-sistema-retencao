@@ -32,6 +32,7 @@ interface TasksOperationalViewProps {
   members: Member[];
   users: StaffUser[];
   currentUserId: string | null;
+  initialSearch: string;
   sourcePreset: SourceFilter | null;
   sourcePresetToken: number;
   isLoading: boolean;
@@ -42,6 +43,7 @@ interface TasksOperationalViewProps {
   onCreateOpen: () => void;
   onCreateClose: () => void;
   onPageChange: (page: number) => void;
+  onSearchChange: (value: string) => void;
   onCreateTask: (payload: CreateTaskPayload) => void;
   onUpdateTask: (taskId: string, payload: UpdateTaskPayload) => void;
   onDeleteTask: (taskId: string) => void;
@@ -88,6 +90,7 @@ export function TasksOperationalView({
   members,
   users,
   currentUserId,
+  initialSearch,
   sourcePreset,
   sourcePresetToken,
   isLoading,
@@ -98,13 +101,14 @@ export function TasksOperationalView({
   onCreateOpen,
   onCreateClose,
   onPageChange,
+  onSearchChange,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
 }: TasksOperationalViewProps) {
   const navigate = useNavigate();
 
-  const [filters, setFilters] = useState<OperationalFilters>(DEFAULT_OPERATIONAL_FILTERS);
+  const [filters, setFilters] = useState<OperationalFilters>({ ...DEFAULT_OPERATIONAL_FILTERS, search: initialSearch });
   const [viewMode, setViewMode] = useState<OperationalViewMode>("due");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -120,6 +124,10 @@ export function TasksOperationalView({
     setAdvancedOpen(true);
     setViewMode("due");
   }, [sourcePreset, sourcePresetToken]);
+
+  useEffect(() => {
+    setFilters((previous) => (previous.search === initialSearch ? previous : { ...previous, search: initialSearch }));
+  }, [initialSearch]);
 
   const membersById = useMemo(() => {
     const map = new Map<string, Member>();
@@ -179,6 +187,11 @@ export function TasksOperationalView({
     setFilters((previous) => ({ ...previous, [key]: value }));
   }
 
+  function handleSearchChange(value: string) {
+    handleFilterChange("search", value);
+    onSearchChange(value);
+  }
+
   function handleResetFilters() {
     setFilters(DEFAULT_OPERATIONAL_FILTERS);
     setAdvancedOpen(false);
@@ -190,10 +203,19 @@ export function TasksOperationalView({
 
   function openTaskContext(task: Task) {
     if (task.member_id) {
-      navigate(`/assessments/members/${task.member_id}`);
+      navigate(`/assessments/members/${task.member_id}?tab=acoes`);
+      return;
+    }
+    if (task.lead_id) {
+      navigate(`/crm?leadId=${task.lead_id}`);
       return;
     }
     navigate("/crm");
+  }
+
+  function handleStart(task: Task) {
+    onUpdateTask(task.id, { status: "doing" });
+    openTaskContext(task);
   }
 
   function handleComplete(taskId: string) {
@@ -219,7 +241,7 @@ export function TasksOperationalView({
         <FilterBar
           search={{
             value: filters.search,
-            onChange: (value) => handleFilterChange("search", value),
+            onChange: handleSearchChange,
             placeholder: "Buscar por titulo, aluno ou lead...",
           }}
           filters={[
@@ -334,6 +356,7 @@ export function TasksOperationalView({
         userNameById={userNameById}
         isUpdating={isUpdating}
         onOpenDetails={openTaskDetails}
+        onStart={handleStart}
         onComplete={handleComplete}
       />
 
@@ -405,6 +428,7 @@ export function TasksOperationalView({
                     userNameById={userNameById}
                     isUpdating={isUpdating}
                     onOpenDetails={openTaskDetails}
+                    onStart={handleStart}
                     onComplete={handleComplete}
                   />
                 ))}

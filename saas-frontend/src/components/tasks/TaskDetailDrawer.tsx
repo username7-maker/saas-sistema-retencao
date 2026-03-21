@@ -1,8 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, UserRound } from "lucide-react";
 
+import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
-import type { UpdateTaskPayload } from "../../services/taskService";
+import { taskService, type UpdateTaskPayload } from "../../services/taskService";
 import type { Task } from "../../types";
 import type { StaffUser } from "../../services/userService";
 import {
@@ -62,6 +64,12 @@ export function TaskDetailDrawer({
   }, [task]);
 
   const suggestedMessage = useMemo(() => task?.suggested_message?.trim() ?? "", [task]);
+  const assistantQuery = useQuery({
+    queryKey: ["task-assistant", task?.id],
+    queryFn: () => taskService.getAssistant(task!.id),
+    enabled: open && Boolean(task?.id),
+    staleTime: 60_000,
+  });
 
   if (!task) return null;
   const activeTask = task;
@@ -80,7 +88,15 @@ export function TaskDetailDrawer({
   function renderQuickAction() {
     if (activeTask.status === "todo") {
       return (
-        <Button size="sm" variant="primary" disabled={isSaving} onClick={() => onStatusChange(activeTask.id, "doing")}>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={isSaving}
+          onClick={() => {
+            onStatusChange(activeTask.id, "doing");
+            onOpenContext(activeTask);
+          }}
+        >
           <ArrowRight size={14} />
           Iniciar
         </Button>
@@ -107,6 +123,14 @@ export function TaskDetailDrawer({
   return (
     <Drawer open={open} onClose={onClose} side="right" title="Detalhe da tarefa">
       <div className="space-y-5 p-4">
+        {assistantQuery.data ? (
+          <AIAssistantPanel assistant={assistantQuery.data} />
+        ) : assistantQuery.isLoading ? (
+          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
+            Carregando recomendacao da IA...
+          </section>
+        ) : null}
+
         <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">

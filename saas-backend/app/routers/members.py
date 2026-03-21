@@ -12,7 +12,7 @@ from app.core.dependencies import get_request_context, require_roles
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
-from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, PaginatedResponse
+from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, OnboardingScoreOut, PaginatedResponse
 from app.schemas.body_composition import (
     BodyCompositionActuarSyncStatusRead,
     BodyCompositionEvaluationCreate,
@@ -31,8 +31,11 @@ from app.services.body_composition_image_parse_service import parse_body_composi
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     list_body_composition_evaluations,
+    serialize_body_composition_evaluation,
+    serialize_body_composition_evaluations,
     update_body_composition_evaluation,
 )
+from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
@@ -204,14 +207,15 @@ def _run_risk_recalculation_background(gym_id: UUID) -> None:
         logger.warning("Risk recalculation skipped - lock already held (daily job running)")
 
 
-@router.get("/{member_id}/onboarding-score")
+@router.get("/{member_id}/onboarding-score", response_model=OnboardingScoreOut)
 def get_onboarding_score_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
-) -> dict:
+) -> OnboardingScoreOut:
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
-    return calculate_onboarding_score(db, member)
+    payload = calculate_onboarding_score(db, member)
+    return OnboardingScoreOut(**payload, assistant=build_onboarding_assistant(member, payload))
 
 
 @router.get("/{member_id}/timeline")
@@ -232,7 +236,8 @@ def list_body_composition_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
     limit: int = Query(20, ge=1, le=100),
 ) -> list[BodyCompositionEvaluationRead]:
-    return list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
+    evaluations = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
+    return serialize_body_composition_evaluations(db, current_user.gym_id, member_id, evaluations)
 
 
 @router.post("/{member_id}/body-composition/parse-image", response_model=BodyCompositionImageParseResultRead)
@@ -268,7 +273,7 @@ def create_body_composition_endpoint(
     db.refresh(evaluation)
     if sync_attempt is not None:
         background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
-    return evaluation
+    return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
 
 
 @router.put("/{member_id}/body-composition/{evaluation_id}", response_model=BodyCompositionEvaluationRead)
@@ -285,7 +290,7 @@ def update_body_composition_endpoint(
     db.refresh(evaluation)
     if sync_attempt is not None:
         background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
-    return evaluation
+    return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
 
 
 @router.post(

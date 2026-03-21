@@ -18,6 +18,7 @@ vi.mock("../hooks/useAuth", () => ({
 vi.mock("../services/taskService", () => ({
   taskService: {
     listTasks: vi.fn(),
+    getAssistant: vi.fn(),
     updateTask: vi.fn(),
     deleteTask: vi.fn(),
     createTask: vi.fn(),
@@ -222,6 +223,17 @@ describe("TasksPage", () => {
       page: 1,
       page_size: 50,
     });
+    vi.mocked(taskService.getAssistant).mockResolvedValue({
+      summary: "Ana esta em onboarding de risco alto.",
+      why_it_matters: "Sem contato rapido, ela pode esfriar antes do D30.",
+      next_best_action: "Abrir o perfil e fazer o contato hoje.",
+      suggested_message: "Oi Ana, quero te ajudar a voltar ao ritmo desta semana.",
+      evidence: ["1 check-in nos ultimos 17 dias", "Primeira avaliacao pendente"],
+      confidence_label: "Prioridade imediata",
+      recommended_channel: "WhatsApp",
+      cta_target: "/assessments/members/member-1?tab=acoes",
+      cta_label: "Abrir perfil",
+    });
     vi.mocked(taskService.updateTask).mockResolvedValue(tasks[0]);
     vi.mocked(taskService.deleteTask).mockResolvedValue();
     vi.mocked(taskService.createTask).mockResolvedValue(tasks[0]);
@@ -309,18 +321,19 @@ describe("TasksPage", () => {
 
     await screen.findByText("Precisa de atencao agora");
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Concluir Resolver atraso da Ana/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Iniciar Resolver atraso da Ana/i })[0]);
 
     await waitFor(() => {
       expect(taskService.updateTask).toHaveBeenCalled();
     });
-    expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "done" });
+    expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "doing" });
 
     fireEvent.click(screen.getAllByRole("button", { name: /Editar Resolver atraso da Ana/i })[0]);
 
     expect(await screen.findByText("Detalhe da tarefa")).toBeInTheDocument();
+    expect(await screen.findByText("Ana esta em onboarding de risco alto.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
-    expect(screen.getByText("Mensagem sugerida")).toBeInTheDocument();
+    expect(screen.getAllByText("Mensagem sugerida").length).toBeGreaterThan(0);
   }, 10000);
 
   it("keeps onboarding in a dedicated tab", async () => {

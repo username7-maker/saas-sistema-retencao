@@ -51,6 +51,11 @@ interface NavGroup {
   items: NavItem[];
 }
 
+interface HeaderSearchConfig {
+  param: string;
+  placeholder: string;
+}
+
 const navGroups: NavGroup[] = [
   {
     label: "Dashboards",
@@ -88,6 +93,16 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+function resolveHeaderSearchConfig(pathname: string): HeaderSearchConfig | null {
+  if (pathname.startsWith("/dashboard/retention")) {
+    return { param: "search", placeholder: "Buscar alertas, aluno ou plano..." };
+  }
+  if (pathname.startsWith("/tasks")) {
+    return { param: "search", placeholder: "Buscar tarefas, aluno ou lead..." };
+  }
+  return null;
+}
 
 function resolveActiveGroup(pathname: string): string | null {
   for (const group of navGroups) {
@@ -199,11 +214,14 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 export function LovableLayout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const navigate = useNavigate();
   const currentSection = resolveCurrentSection(pathname);
+  const searchConfig = useMemo(() => resolveHeaderSearchConfig(pathname), [pathname]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState("");
 
   const { data: notifications } = useQuery({
     queryKey: ["notifications", "unread-count"],
@@ -226,6 +244,45 @@ export function LovableLayout() {
   useEffect(() => {
     setWorkspaceMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!searchConfig) {
+      setHeaderSearch("");
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const nextValue = params.get(searchConfig.param) ?? "";
+    setHeaderSearch((previous) => (previous === nextValue ? previous : nextValue));
+  }, [searchConfig, location.search]);
+
+  useEffect(() => {
+    if (!searchConfig) return;
+
+    const params = new URLSearchParams(location.search);
+    const currentValue = params.get(searchConfig.param) ?? "";
+    const trimmedValue = headerSearch.trim();
+
+    if (trimmedValue === currentValue) return;
+
+    const timer = window.setTimeout(() => {
+      const nextParams = new URLSearchParams(location.search);
+      if (trimmedValue) {
+        nextParams.set(searchConfig.param, trimmedValue);
+      } else {
+        nextParams.delete(searchConfig.param);
+      }
+      const nextSearch = nextParams.toString();
+      navigate(
+        {
+          pathname,
+          search: nextSearch ? `?${nextSearch}` : "",
+        },
+        { replace: true },
+      );
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [headerSearch, location.search, navigate, pathname, searchConfig]);
 
   return (
     <div className="relative min-h-screen bg-lovable-bg font-body text-lovable-ink">
@@ -360,7 +417,10 @@ export function LovableLayout() {
                     className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted"
                   />
                   <Input
-                    placeholder="Buscar..."
+                    value={headerSearch}
+                    onChange={(event) => setHeaderSearch(event.target.value)}
+                    placeholder={searchConfig?.placeholder ?? "Busca contextual indisponivel nesta tela"}
+                    disabled={!searchConfig}
                     className="h-11 rounded-2xl border-lovable-border/60 bg-lovable-surface/62 pl-10 shadow-none"
                   />
                 </div>

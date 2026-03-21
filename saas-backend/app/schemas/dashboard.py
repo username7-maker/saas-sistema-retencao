@@ -1,4 +1,9 @@
+from datetime import datetime
+
 from pydantic import BaseModel
+
+from app.models import RiskLevel
+from app.schemas.assistant import AIAssistantPayload
 
 from app.schemas.lead import LeadOut
 from app.schemas.member import MemberOut
@@ -95,4 +100,39 @@ class RetentionDashboard(BaseModel):
     mrr_at_risk: float = 0.0
     avg_red_score: float = 0.0
     avg_yellow_score: float = 0.0
+    churn_distribution: dict[str, int] = {}
     last_contact_map: dict[str, str] = {}  # member_id → ISO datetime do último contato
+
+
+class RetentionPlaybookStep(BaseModel):
+    action: str
+    priority: str
+    title: str
+    message: str
+    due_days: int
+    owner: str
+
+
+class RetentionQueueItem(BaseModel):
+    alert_id: str
+    member_id: str
+    full_name: str
+    email: str | None = None
+    phone: str | None = None
+    plan_name: str
+    risk_level: RiskLevel
+    risk_score: int
+    nps_last_score: int = 0
+    days_without_checkin: int | None = None
+    last_checkin_at: datetime | None = None
+    last_contact_at: datetime | None = None
+    churn_type: str | None = None
+    automation_stage: str | None = None
+    created_at: datetime
+    forecast_60d: int | None = None
+    signals_summary: str
+    next_action: str | None = None
+    reasons: dict = {}
+    action_history: list[dict] = []
+    playbook_steps: list[RetentionPlaybookStep] = []
+    assistant: AIAssistantPayload | None = None
