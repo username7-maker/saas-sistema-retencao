@@ -12,7 +12,7 @@ from app.models import Lead, LeadBooking, LeadStage, NurturingSequence
 from app.schemas.sales import PublicBookingConfirmRequest
 from app.services.crm_service import append_lead_note, create_public_booking_lead
 from app.services.nurturing_service import pause_sequences_for_lead
-from app.services.whatsapp_service import send_whatsapp_sync
+from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
 
 def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) -> tuple[Lead, LeadBooking]:
@@ -97,10 +97,13 @@ def process_booking_reminders(db: Session) -> dict[str, int]:
             f"{booking.scheduled_for.astimezone(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}. "
             "Vamos te mostrar o diagnostico, a automacao de retencao e o plano recomendado."
         )
+        gym_id = getattr(lead, "gym_id", None) if lead else getattr(booking, "gym_id", None)
+        instance = get_gym_instance(db, gym_id)
         result = send_whatsapp_sync(
             db,
             phone=phone,
             message=reminder_text,
+            instance=instance,
             lead_id=booking.lead_id,
             template_name="custom",
             direction="outbound",
@@ -210,10 +213,12 @@ def _send_booking_confirmation_whatsapp(db: Session, lead: Lead, booking: LeadBo
         f"Call confirmada para {booking.scheduled_for.astimezone(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}. "
         "Na conversa vamos apresentar seu diagnostico, o plano de recuperacao e a proposta recomendada."
     )
+    instance = get_gym_instance(db, lead.gym_id)
     send_whatsapp_sync(
         db,
         phone=phone,
         message=message,
+        instance=instance,
         lead_id=lead.id,
         template_name="custom",
         direction="outbound",

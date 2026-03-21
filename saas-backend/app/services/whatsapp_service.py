@@ -18,7 +18,7 @@ WHATSAPP_TEMPLATES: dict[str, str] = {
     "reengagement_3d": (
         "Ola {nome}! Sentimos sua falta na academia. "
         "Ja faz {dias} dias desde seu ultimo treino. "
-        "Que tal retomar o ritmo esta semana? Estamos te esperando! 💪"
+        "Que tal retomar o ritmo esta semana? Estamos te esperando! ðŸ’ª"
     ),
     "reengagement_7d": (
         "Oi {nome}, tudo bem? Notamos que voce nao aparece ha {dias} dias. "
@@ -35,7 +35,7 @@ WHATSAPP_TEMPLATES: dict[str, str] = {
         "Podemos conversar sobre como tornar seus treinos mais agradaveis?"
     ),
     "birthday": (
-        "Feliz aniversario, {nome}! 🎂 "
+        "Feliz aniversario, {nome}! ðŸŽ‚ "
         "A equipe da academia te deseja tudo de bom. "
         "Passe aqui para receber uma surpresa especial!"
     ),
@@ -84,21 +84,64 @@ def _is_rate_limited(db: Session, recipient: str, limit_per_hour: int = DEFAULT_
     return total_recent >= limit_per_hour
 
 
-async def send_whatsapp_message(
-    db: Session,
+def get_gym_instance(db: Session, gym_id: UUID | str | None) -> str | None:
+    """
+    Retorna a instancia WhatsApp do gym somente se estiver conectada.
+    """
+    from app.models.gym import Gym
+
+    if not gym_id:
+        return None
+
+    gym = db.get(Gym, gym_id)
+    instance_name = getattr(gym, "whatsapp_instance", None)
+    status = getattr(gym, "whatsapp_status", None)
+
+    if not gym or not instance_name:
+        return None
+    if status != "connected":
+        logger.warning(
+            "gym %s tem instancia %s mas status e '%s' - envio bloqueado",
+            gym_id,
+            instance_name,
+            status,
+        )
+        return None
+    return instance_name
+
+
+def resolve_instance(instance: str | None) -> str | None:
+    """
+    Resolve qual instancia usar:
+    1. instancia explicita passada -> usa
+    2. None + fallback habilitado -> usa settings.whatsapp_instance
+    3. None + fallback desabilitado -> None
+    """
+    if instance:
+        return instance
+    if settings.whatsapp_allow_global_fallback and settings.whatsapp_instance:
+        return settings.whatsapp_instance
+    return None
+
+
+def _instance_source(explicit: str | None) -> str:
+    return "gym" if explicit else "global_fallback"
+
+
+def _build_message_log(
     *,
+    db: Session,
     phone: str,
     message: str,
-    member_id: UUID | None = None,
-    lead_id: UUID | None = None,
-    automation_rule_id: UUID | None = None,
-    template_name: str | None = None,
-    direction: str | None = "outbound",
-    event_type: str | None = None,
-    provider_message_id: str | None = None,
-) -> MessageLog:
+    member_id: UUID | None,
+    lead_id: UUID | None,
+    automation_rule_id: UUID | None,
+    template_name: str | None,
+    direction: str | None,
+    event_type: str | None,
+    provider_message_id: str | None,
+) -> tuple[str, MessageLog]:
     formatted_phone = _format_phone(phone)
-
     log_entry = MessageLog(
         member_id=member_id,
         lead_id=lead_id,
@@ -111,45 +154,111 @@ async def send_whatsapp_message(
         direction=direction,
         event_type=event_type,
         provider_message_id=provider_message_id,
+        extra_data={},
     )
     db.add(log_entry)
     db.flush()
+    return formatted_phone, log_entry
 
-    if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
-        log_entry.status = "blocked"
-        log_entry.error_detail = "Rate limit exceeded for recipient in the last hour"
-        db.add(log_entry)
+
+def _mark_log(log_entry: MessageLog, *, status: str, error: str | None = None, extra_data: dict | None = None) -> None:
+    log_entry.status = status
+    log_entry.error_detail = error
+    log_entry.extra_data = extra_data or {}
+
+
+async def send_whatsapp_message(
+    db: Session,
+    *,
+    phone: str,
+    message: str,
+    instance: str | None = None,
+    member_id: UUID | None = None,
+    lead_id: UUID | None = None,
+    automation_rule_id: UUID | None = None,
+    template_name: str | None = None,
+    direction: str | None = "outbound",
+    event_type: str | None = None,
+    provider_message_id: str | None = None,
+) -> MessageLog:
+    formatted_phone, log_entry = _build_message_log(
+        db=db,
+        phone=phone,
+        message=message,
+        member_id=member_id,
+        lead_id=lead_id,
+        automation_rule_id=automation_rule_id,
+        template_name=template_name,
+        direction=direction,
+        event_type=event_type,
+        provider_message_id=provider_message_id,
+    )
+    resolved = resolve_instance(instance)
+
+    if not resolved:
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error=(
+                "WhatsApp instance not configured or not connected for this gym. "
+                "Go to Settings -> WhatsApp to connect."
+            ),
+            extra_data={"instance_used": None, "instance_source": "none"},
+        )
         db.flush()
-        logger.warning("WhatsApp bloqueado por rate limit para %s", formatted_phone)
+        logger.warning(
+            "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
+            formatted_phone,
+            instance,
+        )
         return log_entry
 
     if not settings.whatsapp_api_url or not settings.whatsapp_api_token:
-        log_entry.status = "skipped"
-        log_entry.error_detail = "WhatsApp API not configured"
-        db.add(log_entry)
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error="WhatsApp API URL/token not configured",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
         db.flush()
-        logger.warning("WhatsApp API nao configurada, mensagem nao enviada")
+        return log_entry
+
+    if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
+        _mark_log(
+            log_entry,
+            status="blocked",
+            error="Rate limit exceeded for recipient",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
+        db.flush()
         return log_entry
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{settings.whatsapp_api_url}/message/sendText/{settings.whatsapp_instance}",
+                f"{settings.whatsapp_api_url}/message/sendText/{resolved}",
                 headers={"apikey": settings.whatsapp_api_token},
-                json={
-                    "number": formatted_phone,
-                    "text": message,
-                },
+                json={"number": formatted_phone, "text": message},
             )
             response.raise_for_status()
-            log_entry.status = "sent"
-            log_entry.extra_data = {"response_status": response.status_code}
+            _mark_log(
+                log_entry,
+                status="sent",
+                extra_data={
+                    "instance_used": resolved,
+                    "instance_source": _instance_source(instance),
+                    "response_status": response.status_code,
+                },
+            )
     except Exception as exc:
-        log_entry.status = "failed"
-        log_entry.error_detail = str(exc)[:500]
-        logger.exception("Falha ao enviar WhatsApp para %s", formatted_phone)
+        _mark_log(
+            log_entry,
+            status="failed",
+            error=str(exc)[:500],
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
+        logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
 
-    db.add(log_entry)
     db.flush()
     return log_entry
 
@@ -159,6 +268,7 @@ def suggest_whatsapp_template(db: Session, member_id: UUID) -> dict:
     member = db.get(Member, member_id)
     if not member:
         from fastapi import HTTPException, status as http_status
+
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
 
     now = datetime.now(tz=timezone.utc)
@@ -173,7 +283,6 @@ def suggest_whatsapp_template(db: Session, member_id: UUID) -> dict:
         "dias": str(days_inactive) if days_inactive else "alguns",
     }
 
-    # Pick the best template
     if member.status == MemberStatus.CANCELLED:
         template_name = "risk_red"
     elif member.risk_level == RiskLevel.RED:
@@ -191,7 +300,6 @@ def suggest_whatsapp_template(db: Session, member_id: UUID) -> dict:
 
     message = render_template(template_name, variables)
 
-    # If Claude API is available, personalize
     if settings.claude_api_key:
         try:
             message = _personalize_template_with_ai(member, message, days_inactive)
@@ -238,6 +346,7 @@ def send_whatsapp_sync(
     *,
     phone: str,
     message: str,
+    instance: str | None = None,
     member_id: UUID | None = None,
     lead_id: UUID | None = None,
     automation_rule_id: UUID | None = None,
@@ -246,58 +355,83 @@ def send_whatsapp_sync(
     event_type: str | None = None,
     provider_message_id: str | None = None,
 ) -> MessageLog:
-    formatted_phone = _format_phone(phone)
-
-    log_entry = MessageLog(
+    formatted_phone, log_entry = _build_message_log(
+        db=db,
+        phone=phone,
+        message=message,
         member_id=member_id,
         lead_id=lead_id,
         automation_rule_id=automation_rule_id,
-        channel="whatsapp",
-        recipient=formatted_phone,
         template_name=template_name,
-        content=message,
-        status="pending",
         direction=direction,
         event_type=event_type,
         provider_message_id=provider_message_id,
     )
-    db.add(log_entry)
-    db.flush()
+    resolved = resolve_instance(instance)
 
-    if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
-        log_entry.status = "blocked"
-        log_entry.error_detail = "Rate limit exceeded for recipient in the last hour"
-        db.add(log_entry)
+    if not resolved:
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error=(
+                "WhatsApp instance not configured or not connected for this gym. "
+                "Go to Settings -> WhatsApp to connect."
+            ),
+            extra_data={"instance_used": None, "instance_source": "none"},
+        )
         db.flush()
-        logger.warning("WhatsApp bloqueado por rate limit para %s", formatted_phone)
+        logger.warning(
+            "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
+            formatted_phone,
+            instance,
+        )
         return log_entry
 
     if not settings.whatsapp_api_url or not settings.whatsapp_api_token:
-        log_entry.status = "skipped"
-        log_entry.error_detail = "WhatsApp API not configured"
-        db.add(log_entry)
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error="WhatsApp API URL/token not configured",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
         db.flush()
-        logger.warning("WhatsApp API nao configurada, mensagem nao enviada")
+        return log_entry
+
+    if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
+        _mark_log(
+            log_entry,
+            status="blocked",
+            error="Rate limit exceeded for recipient",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
+        db.flush()
         return log_entry
 
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.post(
-                f"{settings.whatsapp_api_url}/message/sendText/{settings.whatsapp_instance}",
+                f"{settings.whatsapp_api_url}/message/sendText/{resolved}",
                 headers={"apikey": settings.whatsapp_api_token},
-                json={
-                    "number": formatted_phone,
-                    "text": message,
-                },
+                json={"number": formatted_phone, "text": message},
             )
             response.raise_for_status()
-            log_entry.status = "sent"
-            log_entry.extra_data = {"response_status": response.status_code}
+            _mark_log(
+                log_entry,
+                status="sent",
+                extra_data={
+                    "instance_used": resolved,
+                    "instance_source": _instance_source(instance),
+                    "response_status": response.status_code,
+                },
+            )
     except Exception as exc:
-        log_entry.status = "failed"
-        log_entry.error_detail = str(exc)[:500]
-        logger.exception("Falha ao enviar WhatsApp para %s", formatted_phone)
+        _mark_log(
+            log_entry,
+            status="failed",
+            error=str(exc)[:500],
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
+        )
+        logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
 
-    db.add(log_entry)
     db.flush()
     return log_entry

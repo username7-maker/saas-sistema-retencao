@@ -70,12 +70,19 @@ class TestGenerateBriefingText:
 
 class TestCollectWeeklyMetrics:
     def test_collects(self):
+        import uuid
         from datetime import datetime, timedelta, timezone
         now = datetime.now(tz=timezone.utc)
         db = MagicMock()
         db.scalar.side_effect = [100, 90, 5, Decimal("1500.00"), 200]
 
-        result = _collect_weekly_metrics(db, now, now - timedelta(days=7), now - timedelta(days=14))
+        result = _collect_weekly_metrics(
+            db,
+            uuid.uuid4(),
+            now,
+            now - timedelta(days=7),
+            now - timedelta(days=14),
+        )
         assert result["checkins_this_week"] == 100
         assert result["checkins_last_week"] == 90
         assert result["new_at_risk"] == 5
@@ -86,7 +93,8 @@ class TestGenerateAndSendWeeklyBriefing:
     @patch("app.services.weekly_briefing_service.send_whatsapp_sync")
     @patch("app.services.weekly_briefing_service._generate_briefing_text", return_value="Briefing")
     @patch("app.services.weekly_briefing_service._collect_weekly_metrics", return_value={})
-    def test_sends_to_recipients(self, mock_metrics, mock_text, mock_whatsapp):
+    @patch("app.services.weekly_briefing_service.get_gym_instance", return_value="gym_abc123")
+    def test_sends_to_recipients(self, mock_instance, mock_metrics, mock_text, mock_whatsapp):
         from types import SimpleNamespace
         import uuid
         user = SimpleNamespace(id=uuid.uuid4(), phone="11999")
@@ -103,7 +111,8 @@ class TestGenerateAndSendWeeklyBriefing:
     @patch("app.services.weekly_briefing_service.send_whatsapp_sync", side_effect=Exception("fail"))
     @patch("app.services.weekly_briefing_service._generate_briefing_text", return_value="Briefing")
     @patch("app.services.weekly_briefing_service._collect_weekly_metrics", return_value={})
-    def test_handles_send_failure(self, mock_metrics, mock_text, mock_whatsapp):
+    @patch("app.services.weekly_briefing_service.get_gym_instance", return_value=None)
+    def test_handles_send_failure(self, mock_instance, mock_metrics, mock_text, mock_whatsapp):
         from types import SimpleNamespace
         import uuid
         user = SimpleNamespace(id=uuid.uuid4(), phone="11999")

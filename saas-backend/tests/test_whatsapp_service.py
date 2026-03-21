@@ -1,6 +1,17 @@
+import uuid
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import pytest
 
-from app.services.whatsapp_service import _format_phone, render_template, WHATSAPP_TEMPLATES
+from app.services.whatsapp_service import (
+    _format_phone,
+    WHATSAPP_TEMPLATES,
+    get_gym_instance,
+    render_template,
+    resolve_instance,
+    send_whatsapp_sync,
+)
 
 
 def test_format_phone_adds_country_code():
@@ -45,8 +56,6 @@ def test_render_template_unknown_falls_back_to_custom():
 
 def test_render_template_handles_missing_vars():
     result = render_template("reengagement_3d", {"nome": "Joao"})
-    # Should not crash - template.format will raise KeyError but we catch it
-    # The render_template function has a try/except
     assert isinstance(result, str)
 
 
@@ -54,3 +63,94 @@ def test_all_templates_have_content():
     for name, template in WHATSAPP_TEMPLATES.items():
         assert len(template) > 0, f"Template '{name}' is empty"
         assert isinstance(template, str), f"Template '{name}' is not a string"
+
+
+def test_resolve_instance_explicit_wins(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", False)
+    assert resolve_instance("gym_abc123") == "gym_abc123"
+
+
+def test_resolve_instance_none_fallback_disabled(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", False)
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_instance", "default")
+    assert resolve_instance(None) is None
+
+
+def test_resolve_instance_none_fallback_enabled(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", True)
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_instance", "global_default")
+    assert resolve_instance(None) == "global_default"
+
+
+def test_get_gym_instance_connected():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(whatsapp_instance="gym_abc", whatsapp_status="connected")
+    assert get_gym_instance(db, uuid.uuid4()) == "gym_abc"
+
+
+def test_get_gym_instance_disconnected():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(whatsapp_instance="gym_abc", whatsapp_status="disconnected")
+    assert get_gym_instance(db, uuid.uuid4()) is None
+
+
+def test_get_gym_instance_connecting():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(whatsapp_instance="gym_abc", whatsapp_status="connecting")
+    assert get_gym_instance(db, uuid.uuid4()) is None
+
+
+def test_get_gym_instance_no_instance():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(whatsapp_instance=None, whatsapp_status="disconnected")
+    assert get_gym_instance(db, uuid.uuid4()) is None
+
+
+def test_get_gym_instance_gym_not_found():
+    db = MagicMock()
+    db.get.return_value = None
+    assert get_gym_instance(db, uuid.uuid4()) is None
+
+
+def _mock_db_send():
+    db = MagicMock()
+    db.scalar.return_value = 0
+    return db
+
+
+def test_send_skips_without_instance(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", False)
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
+    log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance=None)
+    assert log.status == "skipped"
+    assert log.extra_data["instance_source"] == "none"
+
+
+def test_send_uses_gym_instance_in_url(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_rate_limit_per_hour", 100)
+    with patch("httpx.Client") as mock_client:
+        response = MagicMock(status_code=200)
+        response.raise_for_status = MagicMock()
+        mock_client.return_value.__enter__.return_value.post.return_value = response
+        log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance="gym_abc123")
+    url = mock_client.return_value.__enter__.return_value.post.call_args[0][0]
+    assert "gym_abc123" in url
+    assert log.extra_data["instance_used"] == "gym_abc123"
+    assert log.extra_data["instance_source"] == "gym"
+
+
+def test_send_global_fallback_logged(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", True)
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_instance", "global_default")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_rate_limit_per_hour", 100)
+    with patch("httpx.Client") as mock_client:
+        response = MagicMock(status_code=200)
+        response.raise_for_status = MagicMock()
+        mock_client.return_value.__enter__.return_value.post.return_value = response
+        log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance=None)
+    assert log.extra_data["instance_source"] == "global_fallback"

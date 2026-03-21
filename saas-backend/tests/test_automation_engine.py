@@ -51,9 +51,11 @@ def _make_member(
     risk_score: int = 80,
     last_checkin_days_ago: int = 14,
     nps_last_score: int = 5,
+    gym_id=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="member-1",
+        gym_id=gym_id or uuid.uuid4(),
         full_name="Aluno Teste",
         phone=phone,
         email=email,
@@ -290,3 +292,72 @@ def test_execute_rule_send_whatsapp_supports_legacy_template_name_and_message(mo
     assert captured["template_name"] == "custom"
     assert isinstance(captured["variables"], dict)
     assert captured["variables"]["mensagem"] == "Mensagem legado"
+
+
+def test_execute_rule_send_whatsapp_passes_gym_instance(monkeypatch):
+    db = DummyDB()
+    member = _make_member()
+    member.gym_id = uuid.uuid4()
+    rule = _make_rule(
+        action_type=AutomationAction.SEND_WHATSAPP,
+        action_config={"template": "reengagement_7d"},
+    )
+
+    monkeypatch.setattr(automation_engine, "get_gym_instance", lambda _db, _gid: "gym_abc123")
+    captured: dict = {}
+    monkeypatch.setattr(
+        automation_engine,
+        "send_whatsapp_sync",
+        lambda *_args, **kwargs: (captured.update(kwargs), SimpleNamespace(id="log-1", status="sent"))[1],
+    )
+
+    result = automation_engine.execute_rule_for_member(db, rule, member)
+    assert result["status"] == "sent"
+    assert captured.get("instance") == "gym_abc123"
+
+
+def test_execute_rule_send_whatsapp_passes_none_when_disconnected(monkeypatch):
+    db = DummyDB()
+    member = _make_member()
+    member.gym_id = uuid.uuid4()
+    rule = _make_rule(
+        action_type=AutomationAction.SEND_WHATSAPP,
+        action_config={"template": "reengagement_7d"},
+    )
+
+    monkeypatch.setattr(automation_engine, "get_gym_instance", lambda _db, _gid: None)
+    captured: dict = {}
+    monkeypatch.setattr(
+        automation_engine,
+        "send_whatsapp_sync",
+        lambda *_args, **kwargs: (captured.update(kwargs), SimpleNamespace(id="log-1", status="skipped"))[1],
+    )
+
+    automation_engine.execute_rule_for_member(db, rule, member)
+    assert captured.get("instance") is None
+
+
+def test_execute_rule_get_gym_instance_receives_member_gym_id(monkeypatch):
+    expected_gym_id = uuid.uuid4()
+    db = DummyDB()
+    member = _make_member()
+    member.gym_id = expected_gym_id
+    rule = _make_rule(
+        action_type=AutomationAction.SEND_WHATSAPP,
+        action_config={"template": "reengagement_7d"},
+    )
+
+    received: list = []
+    monkeypatch.setattr(
+        automation_engine,
+        "get_gym_instance",
+        lambda _db, gym_id: (received.append(gym_id), "gym_abc")[1],
+    )
+    monkeypatch.setattr(
+        automation_engine,
+        "send_whatsapp_sync",
+        lambda *_args, **_kwargs: SimpleNamespace(id="log-1", status="sent"),
+    )
+
+    automation_engine.execute_rule_for_member(db, rule, member)
+    assert received == [expected_gym_id]

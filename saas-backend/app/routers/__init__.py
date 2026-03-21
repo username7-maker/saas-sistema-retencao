@@ -21,6 +21,7 @@ from app.routers import (
     sales,
     tasks,
     users,
+    whatsapp,
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "sales",
     "tasks",
     "users",
+    "whatsapp",
 ]

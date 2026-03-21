@@ -55,6 +55,7 @@ from app.routers import (
     sales,
     tasks,
     users,
+    whatsapp,
 )
 from app.core.limiter import RateLimitExceeded, SlowAPIMiddleware, limiter, rate_limit_enabled, rate_limit_exceeded_handler
 from app.services.websocket_manager import websocket_manager
@@ -173,6 +174,7 @@ app.include_router(roi.router, prefix=settings.api_prefix)
 app.include_router(sales.router, prefix=settings.api_prefix)
 app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(admin_objections.router, prefix=settings.api_prefix)
+app.include_router(whatsapp.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

@@ -19,7 +19,7 @@ from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import DiagnosisError, Lead
 from app.services.audit_service import log_audit_event
 from app.services.nurturing_service import create_nurturing_sequence
-from app.services.whatsapp_service import send_whatsapp_sync
+from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 from app.utils.email import send_email_with_attachment
 
 MEMBER_COLUMN_ALIASES = (
@@ -261,10 +261,12 @@ def process_public_diagnosis_background(
             f"MRR em risco de R$ {kpis['mrr_at_risk']:,.2f}. "
             f"Agende sua call: {settings.public_booking_url}"
         )
+        instance = get_gym_instance(db, gym_id)
         wa_log = send_whatsapp_sync(
             db,
             phone=payload["whatsapp"],
             message=wa_text,
+            instance=instance,
             template_name="custom",
         )
 

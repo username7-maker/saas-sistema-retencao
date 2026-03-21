@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,22 +9,24 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import Checkin, Member, MemberStatus, RiskLevel, User
 from app.models.enums import RoleEnum
-from app.services.whatsapp_service import send_whatsapp_sync
+from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
+
 
 logger = logging.getLogger(__name__)
 
 
-def generate_and_send_weekly_briefing(db: Session, gym_id) -> dict:
+def generate_and_send_weekly_briefing(db: Session, gym_id: UUID) -> dict:
     now = datetime.now(tz=timezone.utc)
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
 
-    metrics = _collect_weekly_metrics(db, now, week_ago, two_weeks_ago)
+    metrics = _collect_weekly_metrics(db, gym_id, now, week_ago, two_weeks_ago)
     briefing_text = _generate_briefing_text(metrics)
 
     recipients = list(
         db.scalars(
             select(User).where(
+                User.gym_id == gym_id,
                 User.deleted_at.is_(None),
                 User.is_active.is_(True),
                 User.role.in_([RoleEnum.OWNER, RoleEnum.MANAGER]),
@@ -33,6 +36,7 @@ def generate_and_send_weekly_briefing(db: Session, gym_id) -> dict:
         ).all()
     )
 
+    instance = get_gym_instance(db, gym_id)
     sent_count = 0
     for user in recipients:
         try:
@@ -40,6 +44,7 @@ def generate_and_send_weekly_briefing(db: Session, gym_id) -> dict:
                 db,
                 phone=user.phone,
                 message=briefing_text,
+                instance=instance,
                 template_name="weekly_briefing",
             )
             sent_count += 1
@@ -50,9 +55,16 @@ def generate_and_send_weekly_briefing(db: Session, gym_id) -> dict:
     return {"briefing_sent_to": sent_count, "total_recipients": len(recipients)}
 
 
-def _collect_weekly_metrics(db: Session, now, week_ago, two_weeks_ago) -> dict:
+def _collect_weekly_metrics(
+    db: Session,
+    gym_id: UUID,
+    now: datetime,
+    week_ago: datetime,
+    two_weeks_ago: datetime,
+) -> dict:
     checkins_this_week = db.scalar(
         select(func.count()).select_from(Checkin).where(
+            Checkin.gym_id == gym_id,
             Checkin.checkin_at >= week_ago,
             Checkin.checkin_at < now,
         )
@@ -60,6 +72,7 @@ def _collect_weekly_metrics(db: Session, now, week_ago, two_weeks_ago) -> dict:
 
     checkins_last_week = db.scalar(
         select(func.count()).select_from(Checkin).where(
+            Checkin.gym_id == gym_id,
             Checkin.checkin_at >= two_weeks_ago,
             Checkin.checkin_at < week_ago,
         )
@@ -67,6 +80,7 @@ def _collect_weekly_metrics(db: Session, now, week_ago, two_weeks_ago) -> dict:
 
     new_at_risk = db.scalar(
         select(func.count()).select_from(Member).where(
+            Member.gym_id == gym_id,
             Member.deleted_at.is_(None),
             Member.status == MemberStatus.ACTIVE,
             Member.risk_level.in_([RiskLevel.YELLOW, RiskLevel.RED]),
@@ -76,6 +90,7 @@ def _collect_weekly_metrics(db: Session, now, week_ago, two_weeks_ago) -> dict:
 
     mrr_at_risk = db.scalar(
         select(func.sum(Member.monthly_fee)).where(
+            Member.gym_id == gym_id,
             Member.deleted_at.is_(None),
             Member.status == MemberStatus.ACTIVE,
             Member.risk_level == RiskLevel.RED,
@@ -84,6 +99,7 @@ def _collect_weekly_metrics(db: Session, now, week_ago, two_weeks_ago) -> dict:
 
     total_active = db.scalar(
         select(func.count()).select_from(Member).where(
+            Member.gym_id == gym_id,
             Member.deleted_at.is_(None),
             Member.status == MemberStatus.ACTIVE,
         )

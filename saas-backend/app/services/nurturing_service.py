@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.models import Lead, LeadStage, MessageLog, NurturingSequence
 from app.services.crm_service import append_lead_note
 from app.services.objection_service import generate_objection_response
-from app.services.whatsapp_service import format_phone, send_whatsapp_sync
+from app.services.whatsapp_service import format_phone, get_gym_instance, send_whatsapp_sync
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,7 @@ def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> di
         db,
         phone=message["phone"],
         message=response["response_text"],
+        instance=get_gym_instance(db, sequence.gym_id),
         lead_id=sequence.lead_id,
         template_name="custom",
         direction="outbound",
@@ -246,11 +247,13 @@ def _stop_if_lead_won(db: Session, sequence: NurturingSequence) -> bool:
 def _dispatch_step(db: Session, sequence: NurturingSequence) -> bool:
     step = sequence.current_step
     if step in {0, 3, 7}:
+        instance = get_gym_instance(db, sequence.gym_id)
         message = _whatsapp_message_for_step(sequence, step)
         result = send_whatsapp_sync(
             db,
             phone=sequence.prospect_whatsapp,
             message=message,
+            instance=instance,
             lead_id=sequence.lead_id,
             template_name="custom",
             direction="outbound",

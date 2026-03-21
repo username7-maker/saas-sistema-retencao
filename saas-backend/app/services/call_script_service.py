@@ -19,7 +19,7 @@ from app.services.audit_service import log_audit_event
 from app.services.crm_service import append_lead_note, update_lead
 from app.services.proposal_service import generate_and_send_for_lead
 from app.services.sales_brief_service import get_sales_brief
-from app.services.whatsapp_service import send_whatsapp_sync
+from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
 logger = logging.getLogger(__name__)
 CALL_SCRIPT_CACHE_TTL_SECONDS = 2 * 60 * 60
@@ -165,10 +165,12 @@ def send_lead_proposal_background(lead_id: UUID) -> None:
             details={"emailed": result["emailed"], "filename": result["filename"]},
         )
         if lead.phone and result["emailed"]:
+            instance = get_gym_instance(db, lead.gym_id)
             send_whatsapp_sync(
                 db,
                 phone=lead.phone,
                 message="Sua proposta foi enviada por email. Se quiser, eu tambem posso te explicar os numeros na call.",
+                instance=instance,
                 lead_id=lead.id,
                 template_name="custom",
                 direction="outbound",

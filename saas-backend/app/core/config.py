@@ -38,7 +38,9 @@ class Settings(BaseSettings):
 
     whatsapp_api_url: str = ""
     whatsapp_api_token: str = ""
+    public_backend_url: str = ""
     whatsapp_instance: str = "default"
+    whatsapp_allow_global_fallback: bool = False
     whatsapp_rate_limit_per_hour: int = 6
     whatsapp_webhook_token: str = ""
 
@@ -83,7 +85,14 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in raw.split(",") if origin.strip()]
         return DEFAULT_CORS_ORIGINS.copy()
 
-    @field_validator("debug", "enable_scheduler", "actuar_enabled", "body_composition_image_ai_enabled", mode="before")
+    @field_validator(
+        "debug",
+        "enable_scheduler",
+        "actuar_enabled",
+        "body_composition_image_ai_enabled",
+        "whatsapp_allow_global_fallback",
+        mode="before",
+    )
     @classmethod
     def parse_bool_flags(cls, value: bool | str | int | None) -> bool:
         if isinstance(value, bool):

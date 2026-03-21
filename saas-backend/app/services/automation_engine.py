@@ -13,7 +13,7 @@ from app.models.enums import LeadStage
 from app.models.lead import Lead
 from app.models.message_log import MessageLog
 from app.services.notification_service import create_notification
-from app.services.whatsapp_service import render_template, send_whatsapp_sync
+from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
 from app.utils.email import send_email
 
 
@@ -91,10 +91,12 @@ def execute_rule_for_member(
         if "mensagem" not in extra_vars and action_config.get("message"):
             extra_vars["mensagem"] = str(action_config.get("message"))
         message = render_template(template_name, {**template_vars, **extra_vars})
+        instance = get_gym_instance(db, member.gym_id)
         log = send_whatsapp_sync(
             db,
             phone=member.phone,
             message=message,
+            instance=instance,
             member_id=member.id,
             automation_rule_id=rule.id,
             template_name=template_name,

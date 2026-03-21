@@ -11,7 +11,7 @@ from app.models import RoleEnum, User
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
 from app.services.audit_service import log_audit_event
-from app.services.whatsapp_service import render_template, send_whatsapp_sync, suggest_whatsapp_template
+from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync, suggest_whatsapp_template
 from app.services.automation_engine import (
     _find_matching_members,
     create_automation_rule,
@@ -169,10 +169,12 @@ def send_whatsapp_endpoint(
     if payload.template_name:
         message = render_template(payload.template_name, {"mensagem": message})
 
+    instance = get_gym_instance(db, current_user.gym_id)
     log = send_whatsapp_sync(
         db,
         phone=payload.phone,
         message=message,
+        instance=instance,
         member_id=payload.member_id,
         template_name=payload.template_name,
     )
