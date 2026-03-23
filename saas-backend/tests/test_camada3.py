@@ -227,6 +227,41 @@ def test_whatsapp_message_without_active_sequence_is_ignored(monkeypatch):
     assert "sequencia ativa" in result["detail"].lower()
 
 
+def test_whatsapp_message_without_sequence_but_with_member_registers_response(monkeypatch):
+    gym_id = uuid4()
+    member = SimpleNamespace(id=uuid4(), gym_id=gym_id, phone="(11) 99999-9999")
+    db = MagicMock()
+    recorded: list = []
+
+    monkeypatch.setattr("app.services.nurturing_service.find_active_sequence_by_phone", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.services.nurturing_service._find_member_by_phone",
+        lambda _db, gid, phone: member if gid == gym_id else None,
+    )
+    monkeypatch.setattr(
+        "app.services.nurturing_service._record_member_inbound_response",
+        lambda *_args, **kwargs: recorded.append(kwargs["member"].id),
+    )
+
+    result = handle_incoming_whatsapp_webhook(
+        db,
+        {
+            "instance": "gym_test",
+            "event": "message.received",
+            "data": {
+                "key": {"remoteJid": "5511999999999@s.whatsapp.net", "fromMe": False},
+                "message": {"conversation": "Oi, posso treinar hoje?"},
+            },
+        },
+        gym_id=gym_id,
+    )
+
+    assert result["processed"] is True
+    assert "aluno" in result["detail"].lower()
+    assert recorded == [member.id]
+    assert db.commit.called
+
+
 def test_booking_confirmation_updates_stage_and_pauses_sequence(monkeypatch):
     lead = SimpleNamespace(
         id=uuid4(),

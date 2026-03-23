@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, UserRound } from "lucide-react";
+import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, MessageCircle, PhoneCall, UserRound } from "lucide-react";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
 import { taskService, type UpdateTaskPayload } from "../../services/taskService";
-import type { Task } from "../../types";
+import type { Member, Task } from "../../types";
+import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import type { StaffUser } from "../../services/userService";
 import {
   PRIORITY_LABELS,
@@ -21,6 +22,7 @@ import {
 
 interface TaskDetailDrawerProps {
   task: Task | null;
+  relatedMember: Member | null;
   open: boolean;
   users: StaffUser[];
   userNameById: Map<string, string>;
@@ -35,6 +37,7 @@ interface TaskDetailDrawerProps {
 
 export function TaskDetailDrawer({
   task,
+  relatedMember,
   open,
   users,
   userNameById,
@@ -73,6 +76,15 @@ export function TaskDetailDrawer({
 
   if (!task) return null;
   const activeTask = task;
+  const normalizedPhone = normalizeWhatsAppPhone(relatedMember?.phone);
+  const phoneDisplay = formatPhoneDisplay(relatedMember?.phone);
+  const whatsappHref = relatedMember
+    ? buildWhatsAppHref(
+        relatedMember.phone,
+        (assistantQuery.data?.suggested_message ?? suggestedMessage) || null,
+        relatedMember.full_name,
+      )
+    : null;
 
   function handleSave() {
     onSave(activeTask.id, {
@@ -185,6 +197,46 @@ export function TaskDetailDrawer({
                   <p className="text-lovable-ink-muted">{getTaskSourceContext(activeTask)}</p>
                 </div>
               </div>
+              {activeTask.member_id ? (
+                <div className="flex items-start gap-2">
+                  <PhoneCall size={15} className="mt-0.5 text-lovable-ink-muted" />
+                  <div className="space-y-2">
+                    <div>
+                      <p className="font-medium">Contato do aluno</p>
+                      <p className="text-lovable-ink-muted">
+                        {phoneDisplay ?? "Telefone nao informado"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {normalizedPhone && phoneDisplay ? (
+                        <a
+                          href={`tel:${normalizedPhone}`}
+                          className="inline-flex items-center gap-2 rounded-full border border-lovable-border bg-lovable-surface px-3 py-1.5 text-xs font-medium text-lovable-ink transition hover:border-lovable-primary/40 hover:text-lovable-primary"
+                        >
+                          <PhoneCall size={12} />
+                          Ligar
+                        </a>
+                      ) : null}
+                      {whatsappHref ? (
+                        <a
+                          href={whatsappHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-lovable-primary/30 bg-lovable-primary/12 px-3 py-1.5 text-xs font-semibold text-lovable-primary transition hover:bg-lovable-primary/18"
+                        >
+                          <MessageCircle size={12} />
+                          WhatsApp
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                          <MessageCircle size={12} />
+                          WhatsApp indisponivel
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

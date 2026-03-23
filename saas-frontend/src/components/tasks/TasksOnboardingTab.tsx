@@ -1,12 +1,13 @@
 import clsx from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, CheckCircle2, Rocket, Search } from "lucide-react";
+import { Activity, CheckCircle2, MessageCircle, Phone, Rocket, Search } from "lucide-react";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
 import { memberService, type OnboardingScoreResult } from "../../services/memberService";
 import type { Member, Task } from "../../types";
+import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   PLAYBOOK_META,
   type OnboardingPlaybookKey,
@@ -20,7 +21,7 @@ const FACTOR_META: Record<keyof OnboardingScoreResult["factors"], { label: strin
   first_assessment: { label: "Avaliacao", weight: 15 },
   task_completion: { label: "Tarefas", weight: 20 },
   consistency: { label: "Consistencia", weight: 20 },
-  nps_response: { label: "Resposta", weight: 15 },
+  member_response: { label: "Resposta/feedback", weight: 15 },
 };
 
 const PLAYBOOK_ACTIONS: Record<
@@ -81,6 +82,9 @@ function OnboardingScorePanel({ member }: { member: Member }) {
   const score = scoreQuery.data;
   const playbookKey = memberToPlaybook(member);
   const playbook = PLAYBOOK_META[playbookKey];
+  const phoneDisplay = formatPhoneDisplay(member.phone);
+  const normalizedPhone = normalizeWhatsAppPhone(member.phone);
+  const whatsappHref = buildWhatsAppHref(member.phone, score.assistant?.suggested_message, member.full_name);
 
   return (
     <div className="space-y-4">
@@ -100,6 +104,38 @@ function OnboardingScorePanel({ member }: { member: Member }) {
             <p className="mt-2 text-sm text-lovable-ink-muted">
               {member.full_name} - {score.days_since_join} dias de jornada
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {normalizedPhone && phoneDisplay ? (
+                <a
+                  href={`tel:${normalizedPhone}`}
+                  className="inline-flex items-center gap-2 rounded-full border border-lovable-border bg-lovable-surface px-3 py-1.5 text-xs font-medium text-lovable-ink transition hover:border-lovable-primary/40 hover:text-lovable-primary"
+                >
+                  <Phone size={12} />
+                  {phoneDisplay}
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                  <Phone size={12} />
+                  Telefone nao informado
+                </span>
+              )}
+              {whatsappHref ? (
+                <a
+                  href={whatsappHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full border border-lovable-primary/30 bg-lovable-primary/12 px-3 py-1.5 text-xs font-semibold text-lovable-primary transition hover:bg-lovable-primary/18"
+                >
+                  <MessageCircle size={12} />
+                  WhatsApp
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                  <MessageCircle size={12} />
+                  WhatsApp indisponivel
+                </span>
+              )}
+            </div>
           </div>
           <div className="max-w-sm">
             <Badge variant={playbookKey === "critico" ? "danger" : playbookKey === "atencao" ? "warning" : "success"}>
@@ -146,7 +182,7 @@ function OnboardingScorePanel({ member }: { member: Member }) {
             <p>{score.checkin_count} check-ins detectados nos primeiros {score.days_since_join} dias.</p>
             <p>{score.completed_tasks}/{score.total_tasks} tarefas concluidas no onboarding.</p>
             <p>{score.factors.first_assessment === 100 ? "Avaliacao ja realizada." : "Avaliacao ainda pendente."}</p>
-            <p>{score.factors.nps_response === 100 ? "Ja respondeu ao contato." : "Ainda nao respondeu ao contato."}</p>
+            <p>{score.factors.member_response === 100 ? "Ja houve resposta ou feedback do aluno." : "Ainda nao houve resposta registrada do aluno."}</p>
           </CardContent>
         </Card>
       </div>

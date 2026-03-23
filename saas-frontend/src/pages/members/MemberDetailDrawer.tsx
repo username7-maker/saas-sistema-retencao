@@ -7,6 +7,7 @@ import { QuickActions } from "../../components/common/QuickActions";
 import { Badge, Drawer } from "../../components/ui2";
 import { lgpdService } from "../../services/lgpdService";
 import { memberService } from "../../services/memberService";
+import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
 
 export function MemberDetailDrawer({
@@ -45,8 +46,11 @@ export function MemberDetailDrawer({
     first_assessment: "1a Avaliacao",
     task_completion: "Tarefas",
     consistency: "Consistencia",
-    nps_response: "NPS",
+    member_response: "Resposta/feedback",
   };
+  const normalizedPhone = normalizeWhatsAppPhone(member.phone);
+  const phoneDisplay = formatPhoneDisplay(member.phone);
+  const whatsappHref = buildWhatsAppHref(member.phone, undefined, member.full_name);
 
   const handleExportLgpd = async () => {
     setLgpdLoading(true);
@@ -122,7 +126,25 @@ export function MemberDetailDrawer({
             </div>
             <div>
               <p className="text-lovable-ink-muted">Telefone</p>
-              <p className="font-medium text-lovable-ink">{member.phone ?? "-"}</p>
+              {normalizedPhone && phoneDisplay ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <a href={`tel:${normalizedPhone}`} className="font-medium text-lovable-ink hover:text-lovable-primary">
+                    {phoneDisplay}
+                  </a>
+                  {whatsappHref ? (
+                    <a
+                      href={whatsappHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-semibold text-lovable-primary hover:underline"
+                    >
+                      WhatsApp
+                    </a>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="font-medium text-lovable-ink">-</p>
+              )}
             </div>
             <div>
               <p className="text-lovable-ink-muted">Plano</p>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
-import { AlertTriangle, ArrowLeft, Clock3, ListTodo, TriangleAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -37,6 +37,7 @@ import { memberService } from "../../services/memberService";
 import { taskService, type CreateTaskPayload } from "../../services/taskService";
 import { userService } from "../../services/userService";
 import type { Task } from "../../types";
+import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   formatDueDate,
   getTaskOperationalScore,
@@ -687,6 +688,13 @@ export function MemberProfile360Page() {
   const hasStructuredAssessment = Boolean(assessmentIntelligence.latest_assessment);
   const hasEvolutionData = Boolean(evolution.labels.length);
   const todayKey = getTodayKey();
+  const normalizedPhone = normalizeWhatsAppPhone(member.phone);
+  const phoneDisplay = formatPhoneDisplay(member.phone);
+  const whatsappHref = buildWhatsAppHref(
+    member.phone,
+    assessmentIntelligence.assistant?.suggested_message ?? assessmentIntelligence.next_best_action.suggested_message,
+    member.full_name,
+  );
 
   const memberTasks = (memberTasksQuery.data?.items ?? [])
     .filter((task) => task.member_id === memberId)
@@ -739,6 +747,38 @@ export function MemberProfile360Page() {
                 </div>
                 {secondaryMeta ? <p className="mt-2 text-sm text-lovable-ink-muted">{secondaryMeta}</p> : null}
                 {member.email ? <p className="text-sm text-lovable-ink-muted">{member.email}</p> : null}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {normalizedPhone && phoneDisplay ? (
+                    <a
+                      href={`tel:${normalizedPhone}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-lovable-border bg-lovable-surface px-3 py-1.5 text-xs font-medium text-lovable-ink transition hover:border-lovable-primary/40 hover:text-lovable-primary"
+                    >
+                      <Phone size={12} />
+                      {phoneDisplay}
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                      <Phone size={12} />
+                      Telefone nao informado
+                    </span>
+                  )}
+                  {whatsappHref ? (
+                    <a
+                      href={whatsappHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-lovable-primary/30 bg-lovable-primary/12 px-3 py-1.5 text-xs font-semibold text-lovable-primary transition hover:bg-lovable-primary/18"
+                    >
+                      <MessageCircle size={12} />
+                      WhatsApp
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                      <MessageCircle size={12} />
+                      WhatsApp indisponivel
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">

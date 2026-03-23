@@ -43,7 +43,7 @@ export interface OnboardingScoreResult {
     first_assessment: number;
     task_completion: number;
     consistency: number;
-    nps_response: number;
+    member_response: number;
   };
   days_since_join: number;
   checkin_count: number;

@@ -134,7 +134,7 @@ const minimalMember: Member = {
   id: "member-1",
   full_name: "Ana Silva",
   email: "ana@teste.com",
-  phone: null,
+  phone: "11999990001",
   status: "active",
   plan_name: "Plano Mensal",
   monthly_fee: 199,
@@ -243,6 +243,11 @@ describe("MemberProfile360Page", () => {
     expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
     expect(screen.getByText("Diagnostico IA")).toBeInTheDocument();
     expect(screen.getByText("Notas internas")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "+55 (11) 99999-0001" })).toHaveAttribute("href", "tel:5511999990001");
+    expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("https://wa.me/5511999990001?text="),
+    );
   });
 
   it("supports tab navigation through query params and preserves editors", async () => {

@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CheckCheck,
   Clock3,
+  MessageCircle,
   PhoneCall,
   RefreshCw,
   ShieldAlert,
@@ -24,6 +25,7 @@ import { dashboardService, type RetentionQueueItem } from "../../services/dashbo
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
+import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
 
@@ -249,6 +251,10 @@ function RetentionQueueDrawer({
   onResolve: (alertId: string) => void;
   resolving: boolean;
 }) {
+  const normalizedPhone = normalizeWhatsAppPhone(item?.phone);
+  const phoneDisplay = formatPhoneDisplay(item?.phone);
+  const whatsappHref = item ? buildWhatsAppHref(item.phone, item.assistant?.suggested_message, item.full_name) : null;
+
   return (
     <Drawer
       open={Boolean(item)}
@@ -266,6 +272,38 @@ function RetentionQueueDrawer({
                   {item.plan_name}
                   {item.email ? ` · ${item.email}` : ""}
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {normalizedPhone && phoneDisplay ? (
+                    <a
+                      href={`tel:${normalizedPhone}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-lovable-border bg-lovable-surface px-3 py-1.5 text-xs font-medium text-lovable-ink transition hover:border-lovable-primary/40 hover:text-lovable-primary"
+                    >
+                      <PhoneCall size={12} />
+                      {phoneDisplay}
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                      <PhoneCall size={12} />
+                      Telefone nao informado
+                    </span>
+                  )}
+                  {whatsappHref ? (
+                    <a
+                      href={whatsappHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-lovable-primary/30 bg-lovable-primary/12 px-3 py-1.5 text-xs font-semibold text-lovable-primary transition hover:bg-lovable-primary/18"
+                    >
+                      <MessageCircle size={12} />
+                      WhatsApp
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                      <MessageCircle size={12} />
+                      WhatsApp indisponivel
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <RiskBadge risk={item.risk_level} />
@@ -386,6 +424,18 @@ function RetentionQueueDrawer({
               subtitle="Acione o playbook sem sair da fila."
             />
             <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  if (!whatsappHref) return;
+                  window.open(whatsappHref, "_blank", "noopener,noreferrer");
+                }}
+                disabled={!whatsappHref}
+              >
+                <MessageCircle size={14} />
+                WhatsApp
+              </Button>
               <Button size="sm" variant="secondary" onClick={() => onOpenProfile(item.member_id)}>
                 <ArrowUpRight size={14} />
                 Abrir perfil 360

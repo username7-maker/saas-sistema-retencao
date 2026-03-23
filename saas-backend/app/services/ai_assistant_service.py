@@ -15,7 +15,7 @@ _ONBOARDING_FACTOR_LABELS = {
     "first_assessment": "Primeira avaliacao",
     "task_completion": "Execucao das tarefas",
     "consistency": "Consistencia da rotina",
-    "nps_response": "Resposta ao contato",
+    "member_response": "Resposta do aluno",
 }
 
 _CHURN_LABELS = {
@@ -63,7 +63,7 @@ def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]
         cta_label = "Abrir acoes"
         recommended_channel = "Follow-up humano"
         next_best_action = "Executar o proximo follow-up do onboarding e confirmar a proxima ida do aluno."
-    elif weakest_key == "nps_response":
+    elif weakest_key == "member_response":
         cta_target = f"/assessments/members/{member.id}?tab=contexto"
         cta_label = "Abrir contexto"
         recommended_channel = "WhatsApp"

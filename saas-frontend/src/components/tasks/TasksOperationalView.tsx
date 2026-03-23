@@ -452,6 +452,7 @@ export function TasksOperationalView({
 
       <TaskDetailDrawer
         task={selectedTask}
+        relatedMember={selectedTask?.member_id ? membersById.get(selectedTask.member_id) ?? null : null}
         open={Boolean(selectedTask)}
         users={users}
         userNameById={userNameById}

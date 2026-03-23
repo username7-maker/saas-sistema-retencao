@@ -74,7 +74,7 @@ describe("TasksPage", () => {
         id: "member-1",
         full_name: "Ana Silva",
         email: "ana@teste.com",
-        phone: null,
+        phone: "11999990001",
         status: "active",
         plan_name: "Plano Mensal",
         monthly_fee: 199,
@@ -96,7 +96,7 @@ describe("TasksPage", () => {
         id: "member-2",
         full_name: "Bruno Lima",
         email: "bruno@teste.com",
-        phone: null,
+        phone: "11988887777",
         status: "active",
         plan_name: "Plano Anual",
         monthly_fee: 249,
@@ -252,7 +252,7 @@ describe("TasksPage", () => {
         first_assessment: 0,
         task_completion: 35,
         consistency: 40,
-        nps_response: 0,
+        member_response: 0,
       },
       days_since_join: 17,
       checkin_count: 1,
@@ -334,6 +334,12 @@ describe("TasksPage", () => {
     expect(await screen.findByText("Ana esta em onboarding de risco alto.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
     expect(screen.getAllByText("Mensagem sugerida").length).toBeGreaterThan(0);
+    expect(screen.getByText("Contato do aluno")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ligar" })).toHaveAttribute("href", "tel:5511999990001");
+    expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("https://wa.me/5511999990001?text="),
+    );
   }, 10000);
 
   it("keeps onboarding in a dedicated tab", async () => {

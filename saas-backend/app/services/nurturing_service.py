@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
-from app.models import Lead, LeadStage, MessageLog, NurturingSequence
+from app.models import Lead, LeadStage, Member, MessageLog, NurturingSequence
+from app.models.gym import Gym
+from app.services.audit_service import log_audit_event
 from app.services.crm_service import append_lead_note
 from app.services.objection_service import generate_objection_response
-from app.services.whatsapp_service import format_phone, get_gym_instance, send_whatsapp_sync
+from app.services.whatsapp_service import format_phone, get_gym_instance, normalize_phone, phones_match, send_whatsapp_sync
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
@@ -132,7 +134,12 @@ def run_nurturing_followup(db: Session) -> dict[str, int]:
     }
 
 
-def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+def handle_incoming_whatsapp_webhook(
+    db: Session,
+    payload: dict[str, Any],
+    *,
+    gym_id: UUID | None = None,
+) -> dict[str, Any]:
     event_name = _extract_event_name(payload)
     if not _is_received_message_event(event_name, payload):
         return {"processed": False, "detail": "Evento ignorado"}
@@ -145,12 +152,24 @@ def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> di
     if not message["phone"] or not message["text"]:
         return {"processed": False, "detail": "Payload sem telefone ou texto"}
 
-    sequence = find_active_sequence_by_phone(db, message["phone"])
-    if not sequence:
-        return {"processed": False, "detail": "Prospect sem sequencia ativa"}
+    instance_name = _extract_instance_name(payload)
+    resolved_gym_id = gym_id or _resolve_gym_id_from_instance(db, instance_name)
+    sequence = find_active_sequence_by_phone(db, message["phone"], gym_id=resolved_gym_id)
+    member = _find_member_by_phone(db, resolved_gym_id, message["phone"]) if resolved_gym_id else None
+    if resolved_gym_id is None and sequence is not None:
+        resolved_gym_id = sequence.gym_id
+    if resolved_gym_id is None and member is not None:
+        resolved_gym_id = member.gym_id
+    if member is None and resolved_gym_id is not None:
+        member = _find_member_by_phone(db, resolved_gym_id, message["phone"])
+
+    if not sequence and not member:
+        return {"processed": False, "detail": "Sem sequencia ativa ou membro correspondente"}
 
     inbound_log = MessageLog(
-        lead_id=sequence.lead_id,
+        gym_id=resolved_gym_id,
+        member_id=member.id if member else None,
+        lead_id=sequence.lead_id if sequence else None,
         channel="whatsapp",
         recipient=message["phone"],
         template_name=None,
@@ -159,12 +178,30 @@ def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> di
         direction="inbound",
         event_type=event_name,
         provider_message_id=message["provider_message_id"],
-        extra_data={"raw_payload": payload},
+        extra_data={
+            "raw_payload": payload,
+            "instance_name": instance_name or None,
+            "matched_member_id": str(member.id) if member else None,
+        },
     )
     db.add(inbound_log)
     db.flush()
 
-    _invalidate_sales_cache(sequence.lead_id)
+    if member:
+        _record_member_inbound_response(
+            db,
+            member=member,
+            message=message,
+            event_name=event_name,
+            instance_name=instance_name,
+        )
+
+    if sequence:
+        _invalidate_sales_cache(sequence.lead_id)
+
+    if not sequence:
+        db.commit()
+        return {"processed": True, "detail": "Resposta do aluno registrada"}
 
     response = generate_objection_response(
         db,
@@ -201,13 +238,20 @@ def handle_incoming_whatsapp_webhook(db: Session, payload: dict[str, Any]) -> di
     }
 
 
-def find_active_sequence_by_phone(db: Session, phone: str) -> NurturingSequence | None:
-    public_gym_id = _resolve_public_gym_id()
+def find_active_sequence_by_phone(
+    db: Session,
+    phone: str,
+    *,
+    gym_id: UUID | None = None,
+) -> NurturingSequence | None:
+    target_gym_id = gym_id or _resolve_public_gym_id()
     target_phone = format_phone(phone)
     candidates = list(
         db.scalars(
-            select(NurturingSequence).where(
-                NurturingSequence.gym_id == public_gym_id,
+            select(NurturingSequence)
+            .execution_options(include_all_tenants=True)
+            .where(
+                NurturingSequence.gym_id == target_gym_id,
                 NurturingSequence.completed.is_(False),
                 NurturingSequence.paused_at.is_(None),
             )
@@ -216,9 +260,82 @@ def find_active_sequence_by_phone(db: Session, phone: str) -> NurturingSequence 
     )
     for item in candidates:
         candidate_phone = format_phone(item.prospect_whatsapp)
-        if candidate_phone == target_phone or target_phone.endswith(candidate_phone) or candidate_phone.endswith(target_phone):
+        if phones_match(candidate_phone, target_phone):
             return item
     return None
+
+
+def _find_member_by_phone(db: Session, gym_id: UUID | None, phone: str) -> Member | None:
+    if not gym_id:
+        return None
+
+    target_phone = normalize_phone(phone)
+    if not target_phone:
+        return None
+
+    candidates = list(
+        db.scalars(
+            select(Member)
+            .execution_options(include_all_tenants=True)
+            .where(
+                Member.gym_id == gym_id,
+                Member.deleted_at.is_(None),
+            )
+        ).all()
+    )
+    for member in candidates:
+        if phones_match(member.phone, target_phone):
+            return member
+    return None
+
+
+def _record_member_inbound_response(
+    db: Session,
+    *,
+    member: Member,
+    message: dict[str, Any],
+    event_name: str,
+    instance_name: str,
+) -> None:
+    log_audit_event(
+        db,
+        action="member_whatsapp_inbound",
+        entity="contact_log",
+        gym_id=member.gym_id,
+        member_id=member.id,
+        details={
+            "channel": "whatsapp",
+            "outcome": "answered",
+            "event_type": event_name,
+            "phone": message["phone"],
+            "message_preview": message["text"][:280],
+            "instance_name": instance_name or None,
+        },
+    )
+
+
+def _extract_instance_name(payload: dict[str, Any]) -> str:
+    raw_instance = payload.get("instance")
+    if isinstance(raw_instance, str):
+        return raw_instance.strip()
+    if isinstance(raw_instance, dict):
+        return str(
+            raw_instance.get("instanceName")
+            or raw_instance.get("name")
+            or raw_instance.get("instance")
+            or ""
+        ).strip()
+    return str(payload.get("instanceName") or "").strip()
+
+
+def _resolve_gym_id_from_instance(db: Session, instance_name: str) -> UUID | None:
+    if not instance_name:
+        return None
+    gym = db.scalar(
+        select(Gym)
+        .where(Gym.whatsapp_instance == instance_name)
+    )
+    return getattr(gym, "id", None)
 
 
 def list_sent_nurturing_steps(sequence: NurturingSequence | None) -> list[int]:

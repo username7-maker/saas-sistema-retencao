@@ -126,7 +126,12 @@ def configure_webhook(instance: str, webhook_url: str) -> bool:
                     "url": webhook_url,
                     "webhook_by_events": False,
                     "webhook_base64": False,
-                    "events": ["QRCODE_UPDATED", "CONNECTION_UPDATE", "STATUS_INSTANCE"],
+                    "events": [
+                        "QRCODE_UPDATED",
+                        "CONNECTION_UPDATE",
+                        "STATUS_INSTANCE",
+                        "MESSAGES_UPSERT",
+                    ],
                 },
             )
             return response.status_code in (200, 201)

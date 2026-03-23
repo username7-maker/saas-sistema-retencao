@@ -22,6 +22,7 @@ from app.services.evolution_service import (
     get_connection_status,
     get_qr_code,
 )
+from app.services.nurturing_service import handle_incoming_whatsapp_webhook
 
 
 logger = logging.getLogger(__name__)
@@ -205,5 +206,7 @@ async def whatsapp_webhook(
         db.add(gym)
         db.commit()
         logger.info("Gym %s: WhatsApp status -> %s", gym.id, mapped)
+    else:
+        handle_incoming_whatsapp_webhook(db, body, gym_id=gym.id)
 
     return {"ok": True}

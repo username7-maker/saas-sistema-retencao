@@ -69,6 +69,47 @@ def format_phone(phone: str) -> str:
     return _format_phone(phone)
 
 
+def normalize_phone(phone: str | None) -> str:
+    if not phone:
+        return ""
+    return _format_phone(phone)
+
+
+def format_phone_display(phone: str | None) -> str | None:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+
+    local = normalized[2:] if normalized.startswith("55") else normalized
+    if len(local) == 11:
+        return f"+55 ({local[:2]}) {local[2:7]}-{local[7:]}"
+    if len(local) == 10:
+        return f"+55 ({local[:2]}) {local[2:6]}-{local[6:]}"
+    return f"+{normalized}"
+
+
+def build_whatsapp_url(phone: str | None, message: str | None = None) -> str | None:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    if not message:
+        return f"https://wa.me/{normalized}"
+    from urllib.parse import quote
+    return f"https://wa.me/{normalized}?text={quote(message)}"
+
+
+def phones_match(left: str | None, right: str | None) -> bool:
+    normalized_left = normalize_phone(left)
+    normalized_right = normalize_phone(right)
+    if not normalized_left or not normalized_right:
+        return False
+    return (
+        normalized_left == normalized_right
+        or normalized_left.endswith(normalized_right)
+        or normalized_right.endswith(normalized_left)
+    )
+
+
 def _is_rate_limited(db: Session, recipient: str, limit_per_hour: int = DEFAULT_RATE_LIMIT_PER_HOUR) -> bool:
     window_start = datetime.now(tz=timezone.utc) - timedelta(hours=1)
     total_recent = db.scalar(

@@ -7,8 +7,9 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Checkin, Member, MemberStatus, NPSResponse, Task, TaskStatus
+from app.models import AuditLog, Checkin, Member, MemberStatus, MessageLog, NPSResponse, Task, TaskStatus
 from app.models.assessment import Assessment
+from app.services.whatsapp_service import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ WEIGHT_CHECKIN_FREQUENCY = 30
 WEIGHT_FIRST_ASSESSMENT = 15
 WEIGHT_TASK_COMPLETION = 20
 WEIGHT_CONSISTENCY = 20
-WEIGHT_NPS_RESPONSE = 15
+WEIGHT_MEMBER_RESPONSE = 15
 
 
 def calculate_onboarding_score(db: Session, member: Member) -> dict:
@@ -71,13 +72,16 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
     # 4. Consistencia de horario (0-100)
     consistency_score = _calculate_consistency(db, member.id, window_start, window_end)
 
-    # 5. Respondeu NPS ou deu feedback (0 ou 100)
+    # 5. Respondeu ao onboarding (0 ou 100)
+    has_member_response = _has_member_response(db, member)
+    member_response_score = 100 if has_member_response else 0
+
+    # Compatibilidade da janela e leitura agregada
     has_nps = db.scalar(
         select(func.count(NPSResponse.id)).where(
             NPSResponse.member_id == member.id,
         )
     ) or 0
-    nps_score = 100 if has_nps > 0 else 0
 
     # Score ponderado
     weighted_score = (
@@ -85,7 +89,7 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
         + assessment_score * WEIGHT_FIRST_ASSESSMENT
         + task_score * WEIGHT_TASK_COMPLETION
         + consistency_score * WEIGHT_CONSISTENCY
-        + nps_score * WEIGHT_NPS_RESPONSE
+        + member_response_score * WEIGHT_MEMBER_RESPONSE
     ) / 100
 
     final_score = max(0, min(100, int(round(weighted_score))))
@@ -105,13 +109,48 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
             "first_assessment": assessment_score,
             "task_completion": task_score,
             "consistency": consistency_score,
-            "nps_response": nps_score,
+            "member_response": member_response_score,
         },
         "days_since_join": days_since_join,
         "checkin_count": checkin_count,
         "completed_tasks": completed_onboarding_tasks,
         "total_tasks": total_onboarding_tasks,
+        "nps_feedback_count": has_nps,
     }
+
+
+def _has_member_response(db: Session, member: Member) -> bool:
+    has_nps = db.scalar(
+        select(func.count(NPSResponse.id)).where(
+            NPSResponse.member_id == member.id,
+        )
+    ) or 0
+    if has_nps > 0:
+        return True
+
+    answered_contact_logs = db.scalar(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.member_id == member.id,
+            AuditLog.action == "call_log_manual",
+            AuditLog.details["outcome"].astext == "answered",
+        )
+    ) or 0
+    if answered_contact_logs > 0:
+        return True
+
+    normalized_phone = normalize_phone(member.phone)
+    if not normalized_phone:
+        return False
+
+    inbound_messages = db.scalar(
+        select(func.count(MessageLog.id)).where(
+            MessageLog.gym_id == member.gym_id,
+            MessageLog.channel == "whatsapp",
+            MessageLog.direction == "inbound",
+            MessageLog.recipient == normalized_phone,
+        )
+    ) or 0
+    return inbound_messages > 0
 
 
 def _calculate_consistency(db: Session, member_id: UUID, start: datetime, end: datetime) -> int:

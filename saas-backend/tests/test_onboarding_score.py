@@ -1,6 +1,4 @@
-"""
-Test onboarding score calculation service.
-"""
+"""Test onboarding score calculation service."""
 import uuid
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -12,7 +10,7 @@ MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 
 
-def _make_member(join_date=None, onboarding_score=0, onboarding_status="active"):
+def _make_member(join_date=None, onboarding_score=0, onboarding_status="active", phone="(11) 99999-0001"):
     from app.models import MemberStatus
     return SimpleNamespace(
         id=MEMBER_ID,
@@ -23,26 +21,44 @@ def _make_member(join_date=None, onboarding_score=0, onboarding_status="active")
         onboarding_status=onboarding_status,
         assigned_user_id=None,
         full_name="Aluno Teste",
+        phone=phone,
     )
 
 
-def _make_db(checkin_count=0, has_assessment=0, total_tasks=0, done_tasks=0, has_nps=0, hour_buckets=None):
+def _make_db(
+    checkin_count=0,
+    has_assessment=0,
+    total_tasks=0,
+    done_tasks=0,
+    has_nps=0,
+    answered_contact_logs=0,
+    inbound_messages=0,
+    inbound_gym_id=GYM_ID,
+    hour_buckets=None,
+):
     db = MagicMock()
 
-    def scalar_side_effect(*args, **kwargs):
-        stmt_str = str(args[0]) if args else ""
-        # Return different counts based on what's being queried
-        # This is a simplified approach - counts returned in order
-        return None
+    def scalar_side_effect(stmt, *args, **kwargs):
+        stmt_str = str(stmt).lower()
+        params = stmt.compile().params
 
-    # Use side_effect list for ordered scalar calls
-    db.scalar.side_effect = [
-        checkin_count,   # checkin count
-        has_assessment,  # assessment count
-        total_tasks,     # total onboarding tasks
-        done_tasks,      # completed onboarding tasks
-        has_nps,         # nps count
-    ]
+        if "from checkins" in stmt_str:
+            return checkin_count
+        if "from assessments" in stmt_str:
+            return has_assessment
+        if "from tasks" in stmt_str and "tasks.status" in stmt_str:
+            return done_tasks
+        if "from tasks" in stmt_str:
+            return total_tasks
+        if "from nps_responses" in stmt_str:
+            return has_nps
+        if "from audit_logs" in stmt_str:
+            return answered_contact_logs
+        if "from message_logs" in stmt_str:
+            return inbound_messages if inbound_gym_id in params.values() else 0
+        return 0
+
+    db.scalar.side_effect = scalar_side_effect
 
     mock_scalars = MagicMock()
     mock_scalars.all.return_value = hour_buckets or []
@@ -75,7 +91,7 @@ def test_calculate_onboarding_score_all_zeros():
     # With no assessment, no NPS, no tasks, no checkins, score should be low
     assert result["score"] < 50
     assert result["factors"]["first_assessment"] == 0
-    assert result["factors"]["nps_response"] == 0
+    assert result["factors"]["member_response"] == 0
 
 
 def test_calculate_onboarding_score_completed_after_30_days():
@@ -97,3 +113,39 @@ def test_calculate_onboarding_score_at_risk_low_score():
     result = calculate_onboarding_score(db, member)
 
     assert result["status"] in ("at_risk", "active")  # depends on exact calculation
+
+
+def test_member_response_factor_counts_nps_feedback():
+    db = _make_db(has_nps=1)
+    member = _make_member()
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["factors"]["member_response"] == 100
+
+
+def test_member_response_factor_counts_answered_contact_log():
+    db = _make_db(answered_contact_logs=1)
+    member = _make_member()
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["factors"]["member_response"] == 100
+
+
+def test_member_response_factor_counts_whatsapp_inbound_for_same_gym():
+    db = _make_db(inbound_messages=1, inbound_gym_id=GYM_ID)
+    member = _make_member(phone="+55 (11) 99999-0001")
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["factors"]["member_response"] == 100
+
+
+def test_member_response_factor_ignores_whatsapp_inbound_from_other_gym():
+    db = _make_db(inbound_messages=1, inbound_gym_id=uuid.uuid4())
+    member = _make_member(phone="11999990001")
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["factors"]["member_response"] == 0
