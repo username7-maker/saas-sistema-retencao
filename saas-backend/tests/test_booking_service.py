@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from app.models import LeadStage
+from app.schemas.sales import PublicBookingConfirmRequest
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 LEAD_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
@@ -113,3 +115,139 @@ class TestPhoneFromSequence:
         db.scalar.return_value = None
         from app.services.booking_service import _phone_from_sequence
         assert _phone_from_sequence(db, LEAD_ID) is None
+
+
+class TestConfirmPublicBooking:
+    def test_creates_public_lead_without_premature_commit(self, monkeypatch):
+        lead = SimpleNamespace(
+            id=LEAD_ID,
+            gym_id=GYM_ID,
+            stage=LeadStage.NEW,
+            last_contact_at=None,
+            notes=[],
+            phone="11999998888",
+            email="lead@test.com",
+            deleted_at=None,
+        )
+        booking = SimpleNamespace(
+            id=uuid.uuid4(),
+            provider_name="cal",
+            scheduled_for=datetime.now(tz=timezone.utc) + timedelta(days=1),
+            prospect_whatsapp="11999998888",
+            status="confirmed",
+        )
+        db = MagicMock()
+        db.get.return_value = None
+        db.scalar.return_value = None
+
+        def _create_lead(*args, **kwargs):
+            assert kwargs["commit"] is False
+            db.commit.assert_not_called()
+            return lead
+
+        monkeypatch.setattr("app.services.booking_service._resolve_public_gym_id", lambda: GYM_ID)
+        monkeypatch.setattr("app.services.booking_service.create_public_booking_lead", _create_lead)
+        monkeypatch.setattr("app.services.booking_service.pause_sequences_for_lead", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.services.booking_service._send_booking_confirmation_whatsapp", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.services.booking_service._upsert_booking", lambda *_args, **_kwargs: booking)
+
+        from app.services.booking_service import confirm_public_booking
+
+        saved_lead, saved_booking = confirm_public_booking(
+            db,
+            PublicBookingConfirmRequest(
+                prospect_name="Lead Booking",
+                email="lead@test.com",
+                whatsapp="11999998888",
+                scheduled_for=booking.scheduled_for,
+                provider_name="cal",
+                provider_booking_id="booking-1",
+            ),
+        )
+
+        assert saved_lead.id == lead.id
+        assert saved_booking.id == booking.id
+        assert db.commit.call_count == 2
+
+    def test_does_not_commit_when_core_flow_fails_before_main_commit(self, monkeypatch):
+        lead = SimpleNamespace(
+            id=LEAD_ID,
+            gym_id=GYM_ID,
+            stage=LeadStage.NEW,
+            last_contact_at=None,
+            notes=[],
+            phone="11999998888",
+            email="lead@test.com",
+            deleted_at=None,
+        )
+        db = MagicMock()
+
+        monkeypatch.setattr("app.services.booking_service._resolve_public_gym_id", lambda: GYM_ID)
+        monkeypatch.setattr("app.services.booking_service._resolve_or_create_public_lead", lambda *_args, **_kwargs: lead)
+        monkeypatch.setattr(
+            "app.services.booking_service._upsert_booking",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        from app.services.booking_service import confirm_public_booking
+
+        with pytest.raises(RuntimeError):
+            confirm_public_booking(
+                db,
+                PublicBookingConfirmRequest(
+                    prospect_name="Lead Booking",
+                    email="lead@test.com",
+                    whatsapp="11999998888",
+                    scheduled_for=datetime.now(tz=timezone.utc) + timedelta(days=1),
+                    provider_name="cal",
+                ),
+            )
+
+        db.commit.assert_not_called()
+
+    def test_logs_and_keeps_booking_when_confirmation_whatsapp_fails(self, monkeypatch):
+        lead = SimpleNamespace(
+            id=LEAD_ID,
+            gym_id=GYM_ID,
+            stage=LeadStage.NEW,
+            last_contact_at=None,
+            notes=[],
+            phone="11999998888",
+            email="lead@test.com",
+            deleted_at=None,
+        )
+        booking = SimpleNamespace(
+            id=uuid.uuid4(),
+            provider_name="cal",
+            scheduled_for=datetime.now(tz=timezone.utc) + timedelta(days=1),
+            prospect_whatsapp="11999998888",
+            status="confirmed",
+        )
+        db = MagicMock()
+
+        monkeypatch.setattr("app.services.booking_service._resolve_public_gym_id", lambda: GYM_ID)
+        monkeypatch.setattr("app.services.booking_service._resolve_or_create_public_lead", lambda *_args, **_kwargs: lead)
+        monkeypatch.setattr("app.services.booking_service._upsert_booking", lambda *_args, **_kwargs: booking)
+        monkeypatch.setattr("app.services.booking_service.pause_sequences_for_lead", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "app.services.booking_service._send_booking_confirmation_whatsapp",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("whatsapp down")),
+        )
+
+        from app.services.booking_service import confirm_public_booking
+
+        saved_lead, saved_booking = confirm_public_booking(
+            db,
+            PublicBookingConfirmRequest(
+                prospect_name="Lead Booking",
+                email="lead@test.com",
+                whatsapp="11999998888",
+                scheduled_for=booking.scheduled_for,
+                provider_name="cal",
+            ),
+        )
+
+        assert saved_lead.id == lead.id
+        assert saved_booking.id == booking.id
+        db.commit.assert_called_once()
+        db.rollback.assert_called_once()

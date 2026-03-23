@@ -9,7 +9,14 @@ from app.database import get_db
 from app.models import LeadStage, RoleEnum, User
 from app.schemas import APIMessage, LeadCreate, LeadOut, LeadUpdate, PaginatedResponse
 from app.services.audit_service import log_audit_event
-from app.services.crm_service import create_lead, delete_lead, list_leads, run_followup_automation, update_lead
+from app.services.crm_service import (
+    create_lead,
+    delete_lead,
+    dispatch_lead_post_commit_effects,
+    list_leads,
+    run_followup_automation,
+    update_lead,
+)
 
 
 router = APIRouter(prefix="/crm", tags=["crm"])
@@ -22,7 +29,7 @@ def create_lead_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
 ) -> LeadOut:
-    lead = create_lead(db, payload)
+    lead = create_lead(db, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -35,6 +42,7 @@ def create_lead_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    dispatch_lead_post_commit_effects(lead)
     return lead
 
 
@@ -57,7 +65,7 @@ def update_lead_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
 ) -> LeadOut:
-    lead = update_lead(db, lead_id, payload)
+    lead = update_lead(db, lead_id, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -80,7 +88,7 @@ def delete_lead_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> None:
-    delete_lead(db, lead_id)
+    delete_lead(db, lead_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

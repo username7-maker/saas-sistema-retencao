@@ -131,7 +131,7 @@ class TestMemberTimeline:
                 source="ocr_receipt",
                 ai_risk_flags_json=["percentual de gordura acima da faixa", "gordura visceral acima da faixa"],
                 health_score=62,
-                actuar_sync_status="pending",
+                actuar_sync_status="sync_pending",
             ),
         ]
 

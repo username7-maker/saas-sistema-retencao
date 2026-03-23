@@ -56,6 +56,15 @@ def _apply_fallback_rate_limit(request: Request) -> None:
     _fallback_uploads_by_ip[ip] = entries
 
 
+def _ensure_public_endpoint_enabled(enabled: bool, endpoint_name: str) -> None:
+    if enabled:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"Endpoint publico '{endpoint_name}' temporariamente desabilitado para o piloto.",
+    )
+
+
 @router.post("/diagnostico", response_model=PublicDiagnosisQueuedResponse, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit(settings.public_diag_rate_limit)
 async def public_diagnostico(
@@ -128,10 +137,13 @@ async def public_diagnostico(
 
 
 @router.post("/objection-response", response_model=PublicObjectionResponse)
+@limiter.limit(settings.public_objection_response_rate_limit)
 def public_objection_response(
+    request: Request,
     payload: PublicObjectionRequest,
     db: Session = Depends(get_db),
 ) -> PublicObjectionResponse:
+    _ensure_public_endpoint_enabled(settings.public_objection_response_enabled, "objection-response")
     public_gym_id: UUID | None = None
     try:
         public_gym_id = resolve_public_gym_id()
@@ -149,10 +161,13 @@ def public_objection_response(
 
 
 @router.post("/proposal")
+@limiter.limit(settings.public_proposal_rate_limit)
 def public_proposal(
+    request: Request,
     payload: PublicProposalRequest,
     db: Session = Depends(get_db),
 ) -> Response:
+    _ensure_public_endpoint_enabled(settings.public_proposal_enabled, "proposal")
     hydrated = hydrate_proposal_from_lead(db, payload)
     pdf_bytes, filename = generate_proposal_pdf(hydrated)
     send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
@@ -161,6 +176,7 @@ def public_proposal(
 
 
 @router.post("/whatsapp/webhook", response_model=PublicWhatsappWebhookResponse)
+@limiter.limit(settings.public_whatsapp_webhook_rate_limit)
 def public_whatsapp_webhook(
     payload: dict,
     request: Request,
@@ -177,7 +193,9 @@ def public_whatsapp_webhook(
 
 
 @router.post("/booking/confirm", response_model=PublicBookingConfirmResponse)
+@limiter.limit(settings.public_booking_rate_limit)
 def public_booking_confirm(
+    request: Request,
     payload: PublicBookingConfirmRequest,
     db: Session = Depends(get_db),
 ) -> PublicBookingConfirmResponse:

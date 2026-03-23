@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     environment: str = "development"
     debug: bool = False
-    enable_scheduler: bool = True
+    enable_scheduler: bool = False
+    enable_scheduler_in_api: bool = False
+    scheduler_critical_lock_fail_open: bool = False
 
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/aigymos"
 
@@ -56,6 +58,14 @@ class Settings(BaseSettings):
     actuar_username: str = ""
     actuar_password: str = ""
     actuar_timeout_seconds: int = 15
+    actuar_sync_enabled: bool = True
+    actuar_browser_headless: bool = True
+    actuar_sync_max_retries: int = 3
+    actuar_sync_screenshot_on_success: bool = False
+    actuar_sync_screenshot_on_failure: bool = True
+    actuar_sync_timeout_seconds: int = 60
+    actuar_sync_required_for_training: bool = True
+    actuar_sync_evidence_dir: str = "data/actuar-sync-evidence"
 
     cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
@@ -63,6 +73,12 @@ class Settings(BaseSettings):
     admin_gym_id: str = ""
     public_booking_url: str = "https://cal.com/aigymos"
     public_diag_rate_limit: str = "5/hour"
+    public_booking_rate_limit: str = "10/hour"
+    public_whatsapp_webhook_rate_limit: str = "30/minute"
+    public_objection_response_rate_limit: str = "5/hour"
+    public_proposal_rate_limit: str = "5/hour"
+    public_objection_response_enabled: bool = False
+    public_proposal_enabled: bool = False
     booking_reminder_minutes_before: int = 60
     proposal_followup_delay_hours: int = 24
 
@@ -88,8 +104,17 @@ class Settings(BaseSettings):
     @field_validator(
         "debug",
         "enable_scheduler",
+        "enable_scheduler_in_api",
+        "scheduler_critical_lock_fail_open",
         "actuar_enabled",
+        "actuar_sync_enabled",
+        "actuar_browser_headless",
         "body_composition_image_ai_enabled",
+        "actuar_sync_screenshot_on_success",
+        "actuar_sync_screenshot_on_failure",
+        "actuar_sync_required_for_training",
+        "public_objection_response_enabled",
+        "public_proposal_enabled",
         "whatsapp_allow_global_fallback",
         mode="before",
     )

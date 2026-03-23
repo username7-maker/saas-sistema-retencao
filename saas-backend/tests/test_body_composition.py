@@ -39,8 +39,8 @@ class TestCreateBodyComposition:
         mock_generate_ai.return_value = _ai_payload()
 
         def _prepare(db, *, member, evaluation, force_retry=False):
-            evaluation.actuar_sync_status = "pending"
-            evaluation.actuar_sync_mode = "csv_export"
+            evaluation.actuar_sync_status = "sync_pending"
+            evaluation.actuar_sync_mode = "assisted_rpa"
             return SimpleNamespace(id=ATTEMPT_ID, status="pending")
 
         mock_prepare_sync.side_effect = _prepare
@@ -78,7 +78,7 @@ class TestCreateBodyComposition:
         assert evaluation.device_profile == "tezewa_receipt_v1"
         assert evaluation.fat_free_mass_kg == 65.0
         assert evaluation.lean_mass_kg is None
-        assert evaluation.actuar_sync_status == "pending"
+        assert evaluation.actuar_sync_status == "sync_pending"
         assert evaluation.ai_coach_summary == "Resumo para professor."
         assert attempt.id == ATTEMPT_ID
         db.add.assert_called_once()

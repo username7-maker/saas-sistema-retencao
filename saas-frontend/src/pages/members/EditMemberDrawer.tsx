@@ -12,6 +12,7 @@ const editSchema = z.object({
   full_name: z.string().min(2, "Nome obrigatório"),
   email: z.string().email("E-mail inválido").optional().or(z.literal("")),
   phone: z.string().optional(),
+  birthdate: z.string().optional().nullable(),
   plan_name: z.string().min(1, "Plano obrigatório"),
   monthly_fee: z.coerce.number().min(0).optional(),
   status: z.enum(["active", "paused", "cancelled"]),
@@ -42,6 +43,7 @@ export function EditMemberDrawer({
           full_name: member.full_name,
           email: member.email ?? "",
           phone: member.phone ?? "",
+          birthdate: member.birthdate ?? "",
           plan_name: member.plan_name,
           monthly_fee: member.monthly_fee,
           status: member.status,
@@ -65,6 +67,7 @@ export function EditMemberDrawer({
       ...data,
       email: data.email || undefined,
       phone: data.phone || undefined,
+      birthdate: data.birthdate || undefined,
       preferred_shift: data.preferred_shift || undefined,
     });
   };
@@ -83,6 +86,10 @@ export function EditMemberDrawer({
 
           <FormField label="Telefone">
             <Input {...register("phone")} placeholder="(11) 99999-9999" />
+          </FormField>
+
+          <FormField label="Nascimento">
+            <Input {...register("birthdate")} type="date" />
           </FormField>
 
           <FormField label="Plano" required error={errors.plan_name?.message}>

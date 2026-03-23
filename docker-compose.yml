@@ -14,7 +14,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "5432:5432"
+      - "${HOST_DB_PORT:-5432}:5432"
 
   backend:
     build:
@@ -29,11 +29,31 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       ENVIRONMENT: production
       ENABLE_SCHEDULER: "false"
+      ENABLE_SCHEDULER_IN_API: "false"
+      SCHEDULER_CRITICAL_LOCK_FAIL_OPEN: ${SCHEDULER_CRITICAL_LOCK_FAIL_OPEN:-false}
+      ACTUAR_SYNC_ENABLED: ${ACTUAR_SYNC_ENABLED:-true}
+      ACTUAR_BROWSER_HEADLESS: ${ACTUAR_BROWSER_HEADLESS:-true}
+      ACTUAR_SYNC_MAX_RETRIES: ${ACTUAR_SYNC_MAX_RETRIES:-3}
+      ACTUAR_SYNC_SCREENSHOT_ON_SUCCESS: ${ACTUAR_SYNC_SCREENSHOT_ON_SUCCESS:-false}
+      ACTUAR_SYNC_SCREENSHOT_ON_FAILURE: ${ACTUAR_SYNC_SCREENSHOT_ON_FAILURE:-true}
+      ACTUAR_SYNC_TIMEOUT_SECONDS: ${ACTUAR_SYNC_TIMEOUT_SECONDS:-60}
+      ACTUAR_SYNC_REQUIRED_FOR_TRAINING: ${ACTUAR_SYNC_REQUIRED_FOR_TRAINING:-true}
+      ACTUAR_SYNC_EVIDENCE_DIR: ${ACTUAR_SYNC_EVIDENCE_DIR:-data/actuar-sync-evidence}
+      ACTUAR_SYNC_MODE: ${ACTUAR_SYNC_MODE:-assisted_rpa}
+      ACTUAR_BASE_URL: ${ACTUAR_BASE_URL:-}
+      ACTUAR_USERNAME: ${ACTUAR_USERNAME:-}
+      ACTUAR_PASSWORD: ${ACTUAR_PASSWORD:-}
+      PUBLIC_BOOKING_RATE_LIMIT: ${PUBLIC_BOOKING_RATE_LIMIT:-10/hour}
+      PUBLIC_WHATSAPP_WEBHOOK_RATE_LIMIT: ${PUBLIC_WHATSAPP_WEBHOOK_RATE_LIMIT:-30/minute}
+      PUBLIC_OBJECTION_RESPONSE_RATE_LIMIT: ${PUBLIC_OBJECTION_RESPONSE_RATE_LIMIT:-5/hour}
+      PUBLIC_PROPOSAL_RATE_LIMIT: ${PUBLIC_PROPOSAL_RATE_LIMIT:-5/hour}
+      PUBLIC_OBJECTION_RESPONSE_ENABLED: ${PUBLIC_OBJECTION_RESPONSE_ENABLED:-false}
+      PUBLIC_PROPOSAL_ENABLED: ${PUBLIC_PROPOSAL_ENABLED:-false}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${HOST_BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 30s
@@ -47,6 +67,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: postgresql+psycopg2://aigymos:${POSTGRES_PASSWORD:-aigymos_dev}@db:5432/aigymos
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -54,6 +76,21 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       ENVIRONMENT: production
+      ENABLE_SCHEDULER: "true"
+      ENABLE_SCHEDULER_IN_API: "false"
+      SCHEDULER_CRITICAL_LOCK_FAIL_OPEN: ${SCHEDULER_CRITICAL_LOCK_FAIL_OPEN:-false}
+      ACTUAR_SYNC_ENABLED: ${ACTUAR_SYNC_ENABLED:-true}
+      ACTUAR_BROWSER_HEADLESS: ${ACTUAR_BROWSER_HEADLESS:-true}
+      ACTUAR_SYNC_MAX_RETRIES: ${ACTUAR_SYNC_MAX_RETRIES:-3}
+      ACTUAR_SYNC_SCREENSHOT_ON_SUCCESS: ${ACTUAR_SYNC_SCREENSHOT_ON_SUCCESS:-false}
+      ACTUAR_SYNC_SCREENSHOT_ON_FAILURE: ${ACTUAR_SYNC_SCREENSHOT_ON_FAILURE:-true}
+      ACTUAR_SYNC_TIMEOUT_SECONDS: ${ACTUAR_SYNC_TIMEOUT_SECONDS:-60}
+      ACTUAR_SYNC_REQUIRED_FOR_TRAINING: ${ACTUAR_SYNC_REQUIRED_FOR_TRAINING:-true}
+      ACTUAR_SYNC_EVIDENCE_DIR: ${ACTUAR_SYNC_EVIDENCE_DIR:-data/actuar-sync-evidence}
+      ACTUAR_SYNC_MODE: ${ACTUAR_SYNC_MODE:-assisted_rpa}
+      ACTUAR_BASE_URL: ${ACTUAR_BASE_URL:-}
+      ACTUAR_USERNAME: ${ACTUAR_USERNAME:-}
+      ACTUAR_PASSWORD: ${ACTUAR_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy
@@ -67,7 +104,7 @@ services:
         VITE_WS_BASE_URL: ${VITE_WS_BASE_URL-}
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "${HOST_FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 

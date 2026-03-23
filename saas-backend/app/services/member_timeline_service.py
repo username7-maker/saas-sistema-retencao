@@ -44,17 +44,21 @@ def _body_composition_source_label(source: str | None) -> str:
 
 
 def _body_composition_sync_label(sync_status: str | None) -> str:
-    if sync_status == "synced":
+    if sync_status == "synced_to_actuar":
         return "sync OK"
-    if sync_status == "exported":
-        return "sync exportado"
-    if sync_status == "failed":
+    if sync_status == "sync_failed":
         return "sync falhou"
-    if sync_status == "pending":
+    if sync_status == "sync_pending":
         return "sync pendente"
-    if sync_status == "skipped":
-        return "sync ignorado"
-    return "sync desabilitado"
+    if sync_status == "syncing":
+        return "sync em andamento"
+    if sync_status == "needs_review":
+        return "sync precisa de revisao"
+    if sync_status == "manual_sync_required":
+        return "sync manual necessario"
+    if sync_status == "saved":
+        return "salva sem sync"
+    return "rascunho"
 
 
 def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[dict]:

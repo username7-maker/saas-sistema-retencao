@@ -38,6 +38,7 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     cpf_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    birthdate: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[MemberStatus] = mapped_column(
         Enum(MemberStatus, name="member_status_enum", native_enum=False),
         default=MemberStatus.ACTIVE,
@@ -82,6 +83,12 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
         back_populates="member",
         cascade="all, delete-orphan",
         order_by="BodyCompositionEvaluation.evaluation_date.desc()",
+    )
+    actuar_link = relationship(
+        "ActuarMemberLink",
+        back_populates="member",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     @property

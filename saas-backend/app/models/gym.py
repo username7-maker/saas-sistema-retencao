@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+from app.utils.encryption import EncryptedString
 
 
 class Gym(Base, TimestampMixin):
@@ -23,6 +24,13 @@ class Gym(Base, TimestampMixin):
     whatsapp_status: Mapped[str] = mapped_column(String(30), nullable=False, default="disconnected")
     whatsapp_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     whatsapp_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actuar_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    actuar_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    actuar_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    actuar_password_encrypted: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    actuar_auto_sync_body_composition: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    actuar_notes_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actuar_required_match_strategy: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     users = relationship("User", back_populates="gym")
     members = relationship("Member", back_populates="gym")

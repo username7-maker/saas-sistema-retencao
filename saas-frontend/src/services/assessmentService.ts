@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AIAssistantPayload, RiskLevel } from "../types";
+import type { ActuarSyncQueueItem, AIAssistantPayload, RiskLevel } from "../types";
 
 export interface Assessment {
   id: string;
@@ -639,6 +639,12 @@ export interface AssessmentQueueParams {
   bucket?: AssessmentQueueFilter;
 }
 
+export interface ActuarSyncQueueParams {
+  sync_status?: string;
+  error_code?: string;
+  search?: string;
+}
+
 export const assessmentService = {
   async dashboard(): Promise<AssessmentDashboard> {
     const { data } = await api.get<AssessmentDashboard>("/api/v1/assessments/dashboard");
@@ -655,6 +661,17 @@ export const assessmentService = {
       },
     });
     return normalizeAssessmentQueueResponse(data);
+  },
+
+  async actuarSyncQueue(params: ActuarSyncQueueParams = {}): Promise<ActuarSyncQueueItem[]> {
+    const { data } = await api.get<ActuarSyncQueueItem[]>("/api/v1/assessments/actuar-sync-queue", {
+      params: {
+        sync_status: params.sync_status || undefined,
+        error_code: params.error_code || undefined,
+        search: params.search?.trim() ? params.search.trim() : undefined,
+      },
+    });
+    return data;
   },
 
   async profile360(memberId: string): Promise<Profile360> {

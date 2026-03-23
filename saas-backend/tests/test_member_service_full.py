@@ -45,6 +45,8 @@ class TestCreateMember:
         db.add.assert_called_once()
         db.commit.assert_called_once()
         mock_onboard.assert_called_once()
+        mock_onboard.assert_called_once_with(db, mock_onboard.call_args.args[1], commit=True)
+        mock_followup.assert_called_once_with(db, mock_followup.call_args.args[1], commit=True)
 
     @patch("app.services.member_service.get_current_gym_id", return_value=GYM_ID)
     def test_duplicate_email_raises(self, mock_gym):
@@ -80,6 +82,46 @@ class TestCreateMember:
         from app.services.member_service import create_member
         create_member(db, payload, gym_id=GYM_ID)
         mock_enc.assert_called_once_with("12345678901")
+
+    @patch("app.services.member_service.invalidate_dashboard_cache")
+    @patch("app.services.member_service.create_plan_followup_tasks_for_member")
+    @patch("app.services.member_service.create_onboarding_tasks_for_member")
+    def test_commit_false_avoids_premature_commit(self, mock_onboard, mock_followup, mock_cache):
+        db = MagicMock()
+        db.scalar.return_value = None
+        db.refresh = MagicMock()
+        payload = MemberCreate(
+            full_name="Novo",
+            email="novo@t.com",
+            plan_name="Mensal",
+            monthly_fee=Decimal("99.90"),
+            join_date=date.today(),
+        )
+        from app.services.member_service import create_member
+        create_member(db, payload, gym_id=GYM_ID, commit=False)
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+        mock_onboard.assert_called_once_with(db, mock_onboard.call_args.args[1], commit=False)
+        mock_followup.assert_called_once_with(db, mock_followup.call_args.args[1], commit=False)
+
+    @patch("app.services.member_service.invalidate_dashboard_cache")
+    @patch("app.services.member_service.create_plan_followup_tasks_for_member")
+    @patch("app.services.member_service.create_onboarding_tasks_for_member", side_effect=RuntimeError("boom"))
+    def test_commit_false_keeps_transaction_open_when_task_creation_fails(self, mock_onboard, mock_followup, mock_cache):
+        db = MagicMock()
+        db.scalar.return_value = None
+        db.refresh = MagicMock()
+        payload = MemberCreate(
+            full_name="Novo",
+            email="novo@t.com",
+            plan_name="Mensal",
+            monthly_fee=Decimal("99.90"),
+            join_date=date.today(),
+        )
+        from app.services.member_service import create_member
+        with pytest.raises(RuntimeError):
+            create_member(db, payload, gym_id=GYM_ID, commit=False)
+        db.commit.assert_not_called()
 
 
 class TestGetMemberOr404:

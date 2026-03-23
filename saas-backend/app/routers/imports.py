@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_request_context, require_roles
 from app.core.distributed_lock import with_distributed_lock
 from app.core.limiter import limiter
@@ -32,7 +33,11 @@ def _queue_risk_recalculation(gym_id) -> None:
 
 
 def _run_risk_recalculation_background(gym_id) -> None:
-    @with_distributed_lock("daily_risk", ttl_seconds=1800)
+    @with_distributed_lock(
+        "daily_risk",
+        ttl_seconds=1800,
+        fail_open=lambda: settings.scheduler_critical_lock_fail_open,
+    )
     def _inner() -> None:
         db = SessionLocal()
         try:

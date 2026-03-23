@@ -1,3 +1,4 @@
+from app.models.actuar_sync import ActuarMemberLink, ActuarSyncAttempt, ActuarSyncJob
 from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.automation_execution_log import AutomationExecutionLog
@@ -37,6 +38,9 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "ActuarMemberLink",
+    "ActuarSyncAttempt",
+    "ActuarSyncJob",
     "Assessment",
     "AutomationExecutionLog",
     "BodyCompositionEvaluation",

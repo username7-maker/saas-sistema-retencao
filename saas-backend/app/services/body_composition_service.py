@@ -3,8 +3,8 @@ from uuid import UUID
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.models.actuar_sync import ActuarSyncJob
 from app.models.body_composition import BodyCompositionEvaluation
-from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
 from app.schemas.body_composition import (
     BodyCompositionEvaluationCreate,
     BodyCompositionEvaluationRead,
@@ -24,7 +24,7 @@ def create_body_composition_evaluation(
     gym_id: UUID,
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
-) -> tuple[BodyCompositionEvaluation, BodyCompositionSyncAttempt | None]:
+) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation_data = payload.model_dump()
     evaluation_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
@@ -66,7 +66,7 @@ def update_body_composition_evaluation(
     member_id: UUID,
     evaluation_id: UUID,
     payload: BodyCompositionEvaluationUpdate,
-) -> tuple[BodyCompositionEvaluation, BodyCompositionSyncAttempt | None]:
+) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
 

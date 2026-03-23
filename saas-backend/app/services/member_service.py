@@ -26,7 +26,13 @@ def _scoped_statement(statement, gym_id: UUID | None):
     return statement.execution_options(include_all_tenants=True)
 
 
-def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None) -> Member:
+def create_member(
+    db: Session,
+    payload: MemberCreate,
+    gym_id: UUID | None = None,
+    *,
+    commit: bool = True,
+) -> Member:
     gym_id = _resolve_gym_id(gym_id)
     if gym_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contexto de academia ausente")
@@ -50,6 +56,7 @@ def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None
         email=payload.email,
         phone=payload.phone,
         cpf_encrypted=encrypt_cpf(payload.cpf) if payload.cpf else None,
+        birthdate=payload.birthdate,
         plan_name=payload.plan_name,
         monthly_fee=payload.monthly_fee,
         join_date=payload.join_date,
@@ -59,10 +66,13 @@ def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None
         extra_data=payload.extra_data,
     )
     db.add(member)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(member)
-    create_onboarding_tasks_for_member(db, member)
-    create_plan_followup_tasks_for_member(db, member)
+    create_onboarding_tasks_for_member(db, member, commit=commit)
+    create_plan_followup_tasks_for_member(db, member, commit=commit)
     invalidate_dashboard_cache("members")
     return member
 

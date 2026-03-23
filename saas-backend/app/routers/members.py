@@ -3,29 +3,38 @@ import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
+from app.core.cache import invalidate_dashboard_cache
+from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, OnboardingScoreOut, PaginatedResponse
 from app.schemas.body_composition import (
+    ActuarManualSyncConfirmInput,
+    ActuarMemberLinkRead,
+    ActuarMemberLinkUpsert,
     BodyCompositionActuarSyncStatusRead,
     BodyCompositionEvaluationCreate,
     BodyCompositionEvaluationRead,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
+    BodyCompositionManualSyncSummaryRead,
     BodyCompositionEvaluationUpdate,
 )
 from app.services.audit_service import log_audit_event
 from app.services.body_composition_actuar_sync_service import (
+    confirm_manual_actuar_sync,
+    create_body_composition_sync_job,
     get_body_composition_sync_status,
-    run_body_composition_sync_background,
+    get_body_composition_manual_sync_summary,
     schedule_body_composition_sync_retry,
+    upsert_body_composition_actuar_link,
 )
 from app.services.body_composition_image_parse_service import parse_body_composition_image
 from app.services.body_composition_service import (
@@ -54,7 +63,7 @@ def create_member_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> MemberOut:
-    member = create_member(db, payload, gym_id=current_user.gym_id)
+    member = create_member(db, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -68,6 +77,7 @@ def create_member_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    invalidate_dashboard_cache("members")
     return member
 
 
@@ -187,7 +197,11 @@ def recalculate_risk_endpoint(
 
 
 def _run_risk_recalculation_background(gym_id: UUID) -> None:
-    @with_distributed_lock("daily_risk", ttl_seconds=1800)
+    @with_distributed_lock(
+        "daily_risk",
+        ttl_seconds=1800,
+        fail_open=lambda: settings.scheduler_critical_lock_fail_open,
+    )
     def _inner() -> None:
         db = SessionLocal()
         try:
@@ -264,15 +278,12 @@ async def parse_body_composition_image_endpoint(
 def create_body_composition_endpoint(
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
-    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation, sync_attempt = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
+    evaluation, _sync_job = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
     db.commit()
     db.refresh(evaluation)
-    if sync_attempt is not None:
-        background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
     return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
 
 
@@ -281,16 +292,47 @@ def update_body_composition_endpoint(
     member_id: UUID,
     evaluation_id: UUID,
     payload: BodyCompositionEvaluationUpdate,
-    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation, sync_attempt = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
+    evaluation, _sync_job = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
     db.commit()
     db.refresh(evaluation)
-    if sync_attempt is not None:
-        background_tasks.add_task(run_body_composition_sync_background, evaluation.id, sync_attempt.id, False)
     return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/actuar-sync",
+    response_model=BodyCompositionActuarSyncStatusRead,
+)
+def enqueue_body_composition_actuar_sync_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> BodyCompositionActuarSyncStatusRead:
+    job = create_body_composition_sync_job(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        created_by_user_id=current_user.id,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_sync_job_requested",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={"job_id": str(job.id) if job else None},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return get_body_composition_sync_status(db, gym_id=current_user.gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
 
 @router.post(
@@ -298,20 +340,31 @@ def update_body_composition_endpoint(
     response_model=BodyCompositionActuarSyncStatusRead,
 )
 def retry_body_composition_actuar_sync_endpoint(
+    request: Request,
     member_id: UUID,
     evaluation_id: UUID,
-    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> BodyCompositionActuarSyncStatusRead:
-    evaluation, attempt = schedule_body_composition_sync_retry(
+    evaluation, job = schedule_body_composition_sync_retry(
         db,
         gym_id=current_user.gym_id,
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_sync_job_requeued",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation.id,
+        details={"job_id": str(job.id)},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
     db.commit()
-    background_tasks.add_task(run_body_composition_sync_background, evaluation.id, attempt.id, True)
     return get_body_composition_sync_status(
         db,
         gym_id=current_user.gym_id,
@@ -336,6 +389,96 @@ def get_body_composition_actuar_sync_status_endpoint(
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
+
+
+@router.get(
+    "/{member_id}/body-composition/{evaluation_id}/manual-sync-summary",
+    response_model=BodyCompositionManualSyncSummaryRead,
+)
+def get_body_composition_manual_sync_summary_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+) -> BodyCompositionManualSyncSummaryRead:
+    return get_body_composition_manual_sync_summary(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+
+
+@router.put("/{member_id}/actuar-link", response_model=ActuarMemberLinkRead)
+def upsert_member_actuar_link_endpoint(
+    request: Request,
+    member_id: UUID,
+    payload: ActuarMemberLinkUpsert,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> ActuarMemberLinkRead:
+    link = upsert_body_composition_actuar_link(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        user_id=current_user.id,
+        actuar_external_id=payload.actuar_external_id,
+        actuar_search_name=payload.actuar_search_name,
+        actuar_search_document=payload.actuar_search_document,
+        actuar_search_birthdate=payload.actuar_search_birthdate,
+        match_confidence=payload.match_confidence,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_member_link_upserted",
+        entity="actuar_member_link",
+        user=current_user,
+        member_id=member_id,
+        entity_id=link.id,
+        details={"actuar_external_id": payload.actuar_external_id},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return ActuarMemberLinkRead.model_validate(link)
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/manual-sync-confirm",
+    response_model=BodyCompositionActuarSyncStatusRead,
+)
+def confirm_body_composition_manual_sync_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    payload: ActuarManualSyncConfirmInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> BodyCompositionActuarSyncStatusRead:
+    evaluation = confirm_manual_actuar_sync(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        confirmed_by_user_id=current_user.id,
+        reason=payload.reason,
+        note=payload.note,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_manual_sync_confirmed",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation.id,
+        details={"reason": payload.reason, "note": payload.note or ""},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return get_body_composition_sync_status(db, gym_id=current_user.gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
 
 class ContactLogCreate(BaseModel):

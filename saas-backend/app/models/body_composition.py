@@ -82,11 +82,21 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     ai_risk_flags_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     ai_training_focus_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    actuar_sync_status: Mapped[str] = mapped_column(String(20), nullable=False, default="disabled")
+    actuar_sync_status: Mapped[str] = mapped_column(String(30), nullable=False, default="saved")
     actuar_sync_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="disabled")
     actuar_external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     actuar_last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     actuar_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_required_for_training: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sync_last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    sync_last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actuar_sync_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("actuar_sync_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     member = relationship("Member", back_populates="body_composition_evaluations")
     sync_attempts = relationship(
@@ -95,3 +105,19 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="BodyCompositionSyncAttempt.created_at.desc()",
     )
+    current_sync_job = relationship(
+        "ActuarSyncJob",
+        foreign_keys=[actuar_sync_job_id],
+        post_update=True,
+    )
+    sync_jobs = relationship(
+        "ActuarSyncJob",
+        foreign_keys="ActuarSyncJob.body_composition_evaluation_id",
+        back_populates="evaluation",
+        cascade="all, delete-orphan",
+        order_by="ActuarSyncJob.created_at.desc()",
+    )
+
+    @property
+    def training_ready(self) -> bool:
+        return self.actuar_sync_status == "synced_to_actuar"

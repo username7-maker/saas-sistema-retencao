@@ -29,7 +29,9 @@ from app.schemas.assessment import (
     TrainingPlanCreate,
     TrainingPlanOut,
 )
+from app.schemas.body_composition import ActuarSyncQueueItemRead
 from app.services.assessment_analytics_service import get_assessments_dashboard, get_assessments_queue
+from app.services.body_composition_actuar_sync_service import list_actuar_sync_queue
 from app.services.assessment_goals_service import (
     create_goal,
     create_training_plan,
@@ -56,6 +58,24 @@ from app.services.audit_service import log_audit_event
 
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
+
+
+@router.get("/actuar-sync-queue", response_model=list[ActuarSyncQueueItemRead])
+def actuar_sync_queue_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    sync_status: str | None = Query(default=None),
+    error_code: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+) -> list[ActuarSyncQueueItemRead]:
+    items = list_actuar_sync_queue(
+        db,
+        gym_id=current_user.gym_id,
+        sync_status=sync_status,
+        error_code=error_code,
+        search=search,
+    )
+    return [ActuarSyncQueueItemRead.model_validate(item) for item in items]
 
 
 @router.get("/dashboard", response_model=AssessmentDashboardOut)

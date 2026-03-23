@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
-from app.models import RoleEnum, User
+from app.models import AutomationRule, RoleEnum, User
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
 from app.services.audit_service import log_audit_event
@@ -219,12 +219,24 @@ def preview_automation_rule(
 def list_automation_executions(
     rule_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
+    rule = db.scalar(
+        select(AutomationRule).where(
+            AutomationRule.id == rule_id,
+            AutomationRule.gym_id == current_user.gym_id,
+        )
+    )
+    if not rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Regra de automacao nao encontrada")
+
     logs = list(db.scalars(
         select(AutomationExecutionLog)
-        .where(AutomationExecutionLog.rule_id == rule_id)
+        .where(
+            AutomationExecutionLog.rule_id == rule_id,
+            AutomationExecutionLog.gym_id == current_user.gym_id,
+        )
         .order_by(AutomationExecutionLog.created_at.desc())
         .limit(limit)
     ).all())

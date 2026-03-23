@@ -1,71 +1,73 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import socket
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, select, update
+from sqlalchemy import desc, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
-from app.integrations.actuar import (
-    ActuarAssistedRpaProvider,
-    ActuarBodyCompositionProvider,
-    ActuarCsvExportProvider,
-    ActuarHttpApiProvider,
+from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
+from app.models import (
+    ActuarMemberLink,
+    ActuarSyncAttempt,
+    ActuarSyncJob,
+    BodyCompositionEvaluation,
+    Gym,
+    Member,
 )
-from app.models import BodyCompositionEvaluation, BodyCompositionSyncAttempt, Member
-from app.models.body_composition_constants import ACTUAR_SYNC_TERMINAL_STATUSES
-from app.schemas.body_composition import BodyCompositionActuarSyncStatusRead, BodyCompositionSyncAttemptRead
+from app.schemas.body_composition import (
+    ActuarMemberLinkRead,
+    ActuarSyncAttemptRead,
+    ActuarSyncJobRead,
+    BodyCompositionActuarSyncStatusRead,
+    BodyCompositionManualSyncSummaryRead,
+)
+from app.services.actuar_member_link_service import (
+    ActuarMemberResolution,
+    get_actuar_member_link,
+    resolve_actuar_member,
+    upsert_actuar_member_link,
+)
+from app.services.body_composition_actuar_mapping_service import (
+    build_actuar_field_mapping,
+    build_manual_sync_summary,
+)
 from app.services.member_service import get_member_or_404
 
 
 logger = logging.getLogger(__name__)
 
-_PROVIDER_REGISTRY: dict[str, type[ActuarBodyCompositionProvider]] = {
-    "http_api": ActuarHttpApiProvider,
-    "csv_export": ActuarCsvExportProvider,
-    "assisted_rpa": ActuarAssistedRpaProvider,
-}
+ACTIVE_JOB_STATUSES = {"pending", "processing"}
 
 
-def resolve_actuar_sync_mode() -> str:
-    if not settings.actuar_enabled:
+@dataclass(slots=True)
+class ActuarSyncServiceError(RuntimeError):
+    code: str
+    message: str
+    retryable: bool = False
+    manual_fallback: bool = False
+
+    def __str__(self) -> str:
+        return self.message
+
+
+def resolve_actuar_sync_mode(gym: Gym | None = None) -> str:
+    if not settings.actuar_sync_enabled:
         return "disabled"
-    mode = (settings.actuar_sync_mode or "").strip().lower()
-    if mode in _PROVIDER_REGISTRY:
-        return mode
-    return "disabled"
-
-
-def build_body_composition_canonical_payload(member: Member, evaluation: BodyCompositionEvaluation) -> dict:
-    external_ref = None
-    extra_data = getattr(member, "extra_data", {}) or {}
-    if isinstance(extra_data, dict):
-        external_ref = extra_data.get("actuar_external_id") or extra_data.get("external_ref")
-
-    payload = {
-        "evaluation_id": str(evaluation.id),
-        "member_id": str(member.id),
-        "member_external_ref": str(external_ref or member.id),
-        "evaluation_date": evaluation.evaluation_date.isoformat(),
-        "weight_kg": _to_float(evaluation.weight_kg),
-        "body_fat_percent": _to_float(evaluation.body_fat_percent),
-        "body_fat_kg": _to_float(evaluation.body_fat_kg),
-        "bmi": _to_float(evaluation.bmi),
-        "visceral_fat_level": _to_float(evaluation.visceral_fat_level),
-        "skeletal_muscle_kg": _to_float(evaluation.skeletal_muscle_kg),
-        "basal_metabolic_rate_kcal": _to_float(evaluation.basal_metabolic_rate_kcal),
-        "health_score": _to_float(evaluation.health_score),
-        "notes": evaluation.notes,
-        "source": evaluation.source,
-        "device_profile": evaluation.device_profile,
-        "device_model": evaluation.device_model,
-    }
-    return payload
+    if gym is not None and not gym.actuar_enabled:
+        return "disabled"
+    configured_mode = (settings.actuar_sync_mode or "assisted_rpa").strip().lower()
+    if configured_mode in {"http_api", "csv_export", "assisted_rpa"}:
+        return configured_mode
+    return "assisted_rpa"
 
 
 def prepare_body_composition_sync_attempt(
@@ -74,32 +76,111 @@ def prepare_body_composition_sync_attempt(
     member: Member,
     evaluation: BodyCompositionEvaluation,
     force_retry: bool = False,
-) -> BodyCompositionSyncAttempt | None:
-    sync_mode = resolve_actuar_sync_mode()
-    evaluation.actuar_sync_mode = sync_mode
+) -> ActuarSyncJob | None:
+    gym = _get_gym(db, evaluation.gym_id)
+    mapping = build_actuar_field_mapping(member, evaluation)
+    evaluation.sync_required_for_training = bool(settings.actuar_sync_required_for_training)
+    evaluation.actuar_sync_mode = resolve_actuar_sync_mode(gym)
+    evaluation.actuar_last_error = None
+    evaluation.sync_last_error_code = None
+    evaluation.sync_last_error_message = None
 
-    if sync_mode == "disabled":
-        evaluation.actuar_sync_status = "disabled"
-        evaluation.actuar_last_error = None
+    if not _should_auto_sync(gym):
+        evaluation.actuar_sync_status = "saved"
+        evaluation.actuar_sync_job_id = None
+        logger.info(
+            "Actuar sync not auto-enabled for evaluation; keeping local save only.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_training_blocked_pending_sync",
+                    "status": "saved",
+                    "evaluation_id": str(evaluation.id),
+                    "gym_id": str(evaluation.gym_id),
+                }
+            },
+        )
         return None
 
-    provider = _get_provider(sync_mode)
-    payload_snapshot = _safe_payload_snapshot(member, evaluation)
-    attempt = BodyCompositionSyncAttempt(
+    _cancel_superseded_jobs(db, evaluation.id)
+    job = ActuarSyncJob(
         gym_id=evaluation.gym_id,
+        member_id=member.id,
         body_composition_evaluation_id=evaluation.id,
-        sync_mode=sync_mode,
-        provider=provider.provider_name,
+        job_type="body_composition_push",
         status="pending",
-        payload_snapshot_json=payload_snapshot,
+        payload_json=mapping["payload"],
+        mapped_fields_json={"mapped_fields": mapping["mapped_fields"]},
+        critical_fields_json=mapping["critical_fields"],
+        non_critical_fields_json=mapping["non_critical_fields"],
+        max_retries=settings.actuar_sync_max_retries,
     )
-    db.add(attempt)
-    evaluation.actuar_sync_status = "pending"
-    evaluation.actuar_last_error = None
+    db.add(job)
+    db.flush()
+    evaluation.actuar_sync_job_id = job.id
+    evaluation.actuar_sync_status = "sync_pending"
     if force_retry:
         evaluation.actuar_last_synced_at = None
+        evaluation.sync_last_success_at = None
+
+    logger.info(
+        "Actuar sync job created.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_job_created",
+                "status": "pending",
+                "job_id": str(job.id),
+                "evaluation_id": str(evaluation.id),
+                "member_id": str(member.id),
+                "gym_id": str(evaluation.gym_id),
+            }
+        },
+    )
+    return job
+
+
+def create_body_composition_sync_job(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+    created_by_user_id: UUID | None = None,
+    force_new: bool = False,
+) -> ActuarSyncJob | None:
+    evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    current_job = _get_current_sync_job(db, evaluation)
+    if current_job and current_job.status in ACTIVE_JOB_STATUSES and not force_new:
+        return current_job
+
+    job = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation, force_retry=force_new)
+    if job:
+        job.created_by_user_id = created_by_user_id
     db.flush()
-    return attempt
+    return job
+
+
+def schedule_body_composition_sync_retry(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> tuple[BodyCompositionEvaluation, ActuarSyncJob]:
+    evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
+    if evaluation.actuar_sync_status == "synced_to_actuar":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Avaliacao ja sincronizada com o Actuar")
+
+    job = create_body_composition_sync_job(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        force_new=True,
+    )
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sync Actuar desabilitado para esta academia")
+    return evaluation, job
 
 
 def get_body_composition_sync_status(
@@ -110,46 +191,353 @@ def get_body_composition_sync_status(
     evaluation_id: UUID,
 ) -> BodyCompositionActuarSyncStatusRead:
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
-    attempts = list(
-        db.scalars(
-            select(BodyCompositionSyncAttempt)
-            .where(BodyCompositionSyncAttempt.body_composition_evaluation_id == evaluation.id)
-            .order_by(desc(BodyCompositionSyncAttempt.created_at))
-            .limit(10)
-        ).all()
-    )
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    current_job = _get_current_sync_job(db, evaluation)
+    attempts = list(current_job.attempts[:10]) if current_job else []
+    mapping = build_actuar_field_mapping(member, evaluation)
+    manual_summary = build_manual_sync_summary(member, evaluation)
+    member_link = get_actuar_member_link(db, gym_id=gym_id, member_id=member_id)
+
     return BodyCompositionActuarSyncStatusRead(
         evaluation_id=evaluation.id,
+        member_id=member_id,
         sync_mode=evaluation.actuar_sync_mode,
         sync_status=evaluation.actuar_sync_status,
+        training_ready=evaluation.training_ready,
+        sync_required_for_training=evaluation.sync_required_for_training,
         external_id=evaluation.actuar_external_id,
-        last_synced_at=evaluation.actuar_last_synced_at,
-        last_error=evaluation.actuar_last_error,
-        can_retry=evaluation.actuar_sync_status == "failed",
-        attempts=[BodyCompositionSyncAttemptRead.model_validate(attempt) for attempt in attempts],
+        last_synced_at=evaluation.sync_last_success_at or evaluation.actuar_last_synced_at,
+        last_attempt_at=evaluation.sync_last_attempt_at,
+        last_error_code=evaluation.sync_last_error_code,
+        last_error=evaluation.sync_last_error_message or evaluation.actuar_last_error,
+        can_retry=evaluation.actuar_sync_status != "synced_to_actuar",
+        critical_fields=mapping["critical_fields"],
+        fallback_manual_summary=manual_summary,
+        current_job=ActuarSyncJobRead.model_validate(current_job) if current_job else None,
+        attempts=[ActuarSyncAttemptRead.model_validate(item) for item in attempts],
+        member_link=ActuarMemberLinkRead.model_validate(member_link) if member_link else None,
     )
 
 
-def schedule_body_composition_sync_retry(
+def get_body_composition_manual_sync_summary(
     db: Session,
     *,
     gym_id: UUID,
     member_id: UUID,
     evaluation_id: UUID,
-) -> tuple[BodyCompositionEvaluation, BodyCompositionSyncAttempt]:
+) -> BodyCompositionManualSyncSummaryRead:
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
-    if evaluation.actuar_sync_status != "failed":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Retry de sync permitido apenas para avaliacoes com status failed",
-        )
-
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation, force_retry=True)
-    if attempt is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sync externo desabilitado para esta avaliacao")
+    payload = build_manual_sync_summary(member, evaluation)
+    return BodyCompositionManualSyncSummaryRead(
+        evaluation_id=evaluation.id,
+        member_id=member.id,
+        sync_status=evaluation.actuar_sync_status,
+        training_ready=evaluation.training_ready,
+        critical_fields=payload["critical_fields"],
+        summary_text=payload["summary_text"],
+    )
+
+
+def upsert_body_composition_actuar_link(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    user_id: UUID | None,
+    actuar_external_id: str | None,
+    actuar_search_name: str | None,
+    actuar_search_document: str | None,
+    actuar_search_birthdate,
+    match_confidence: float | None,
+) -> ActuarMemberLink:
+    get_member_or_404(db, member_id, gym_id=gym_id)
+    return upsert_actuar_member_link(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        user_id=user_id,
+        actuar_external_id=actuar_external_id,
+        actuar_search_name=actuar_search_name,
+        actuar_search_document=actuar_search_document,
+        actuar_search_birthdate=actuar_search_birthdate,
+        match_confidence=match_confidence,
+    )
+
+
+def confirm_manual_actuar_sync(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+    confirmed_by_user_id: UUID,
+    reason: str,
+    note: str | None,
+) -> BodyCompositionEvaluation:
+    evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
+    current_job = _get_current_sync_job(db, evaluation)
+    now = _now()
+    if current_job is None:
+        current_job = ActuarSyncJob(
+            gym_id=gym_id,
+            member_id=member_id,
+            body_composition_evaluation_id=evaluation.id,
+            job_type="body_composition_push",
+            status="synced",
+            created_by_user_id=confirmed_by_user_id,
+            synced_at=now,
+        )
+        db.add(current_job)
+        db.flush()
+        evaluation.actuar_sync_job_id = current_job.id
+    else:
+        current_job.status = "synced"
+        current_job.error_code = None
+        current_job.error_message = None
+        current_job.next_retry_at = None
+        current_job.locked_at = None
+        current_job.locked_by = None
+        current_job.synced_at = now
+
+    attempt = ActuarSyncAttempt(
+        gym_id=gym_id,
+        sync_job_id=current_job.id,
+        status="succeeded",
+        started_at=now,
+        finished_at=now,
+        worker_id=f"manual:{confirmed_by_user_id}",
+        action_log_json=[{"event": "manual_confirmed", "reason": reason, "note": note or ""}],
+    )
+    db.add(attempt)
+    _mark_evaluation_synced(evaluation, external_id=evaluation.actuar_external_id, synced_at=now)
+    logger.info(
+        "Actuar sync manually confirmed.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_manual_confirmed",
+                "status": "synced",
+                "evaluation_id": str(evaluation.id),
+                "member_id": str(member_id),
+                "job_id": str(current_job.id),
+            }
+        },
+    )
     db.flush()
-    return evaluation, attempt
+    return evaluation
+
+
+def list_actuar_sync_queue(
+    db: Session,
+    *,
+    gym_id: UUID,
+    sync_status: str | None = None,
+    error_code: str | None = None,
+    search: str | None = None,
+) -> list[dict]:
+    stmt = (
+        select(BodyCompositionEvaluation, Member, ActuarSyncJob)
+        .join(Member, Member.id == BodyCompositionEvaluation.member_id)
+        .outerjoin(ActuarSyncJob, ActuarSyncJob.id == BodyCompositionEvaluation.actuar_sync_job_id)
+        .where(BodyCompositionEvaluation.gym_id == gym_id)
+        .where(BodyCompositionEvaluation.actuar_sync_status != "synced_to_actuar")
+        .order_by(desc(BodyCompositionEvaluation.updated_at))
+    )
+    if sync_status:
+        stmt = stmt.where(BodyCompositionEvaluation.actuar_sync_status == sync_status)
+    if error_code:
+        stmt = stmt.where(BodyCompositionEvaluation.sync_last_error_code == error_code)
+    if search:
+        stmt = stmt.where(Member.full_name.ilike(f"%{search.strip()}%"))
+
+    rows = db.execute(stmt).all()
+    items: list[dict] = []
+    for evaluation, member, job in rows:
+        items.append(
+            {
+                "evaluation_id": evaluation.id,
+                "member_id": member.id,
+                "member_name": member.full_name,
+                "evaluation_date": evaluation.evaluation_date,
+                "sync_status": evaluation.actuar_sync_status,
+                "training_ready": evaluation.training_ready,
+                "error_code": evaluation.sync_last_error_code,
+                "error_message": evaluation.sync_last_error_message or evaluation.actuar_last_error,
+                "next_retry_at": job.next_retry_at if job else None,
+                "current_job": ActuarSyncJobRead.model_validate(job) if job else None,
+            }
+        )
+    return items
+
+
+def process_pending_actuar_sync_jobs(batch_size: int = 3, worker_id: str | None = None) -> int:
+    processed = 0
+    resolved_worker_id = worker_id or f"worker:{socket.gethostname()}"
+    for _ in range(batch_size):
+        db = SessionLocal()
+        try:
+            job = claim_next_actuar_sync_job(db, worker_id=resolved_worker_id)
+            if not job:
+                break
+            job_id = job.id
+        finally:
+            db.close()
+
+        execute_actuar_sync_job(job_id=job_id, worker_id=resolved_worker_id)
+        processed += 1
+    return processed
+
+
+def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob | None:
+    now = _now()
+    candidate = db.scalar(
+        select(ActuarSyncJob)
+        .where(
+            or_(
+                ActuarSyncJob.status == "pending",
+                (
+                    (ActuarSyncJob.status == "failed")
+                    & (ActuarSyncJob.next_retry_at.is_not(None))
+                    & (ActuarSyncJob.next_retry_at <= now)
+                    & (ActuarSyncJob.retry_count < ActuarSyncJob.max_retries)
+                ),
+            )
+        )
+        .order_by(ActuarSyncJob.created_at.asc())
+        .execution_options(include_all_tenants=True)
+        .limit(1)
+    )
+    if not candidate:
+        return None
+
+    current_status = candidate.status
+    result = db.execute(
+        update(ActuarSyncJob)
+        .where(ActuarSyncJob.id == candidate.id, ActuarSyncJob.status == current_status)
+        .values(status="processing", locked_at=now, locked_by=worker_id)
+        .execution_options(include_all_tenants=True)
+    )
+    if not result.rowcount:
+        db.rollback()
+        return None
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
+    @with_distributed_lock(
+        f"actuar-sync-job:{job_id}",
+        ttl_seconds=max(settings.actuar_sync_timeout_seconds * 2, 120),
+        fail_open=False,
+    )
+    def _run() -> None:
+        db = SessionLocal()
+        provider: ActuarPlaywrightProvider | None = None
+        try:
+            job = db.scalar(
+                select(ActuarSyncJob).where(ActuarSyncJob.id == job_id).execution_options(include_all_tenants=True)
+            )
+            if not job:
+                return
+            evaluation = db.scalar(
+                select(BodyCompositionEvaluation)
+                .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id)
+                .execution_options(include_all_tenants=True)
+            )
+            member = db.scalar(
+                select(Member).where(Member.id == job.member_id).execution_options(include_all_tenants=True)
+            )
+            gym = _get_gym(db, job.gym_id)
+            if not evaluation or not member:
+                raise ActuarSyncServiceError("validation_failed", "Job de sync sem avaliacao ou membro valido.", retryable=False)
+
+            set_current_gym_id(job.gym_id)
+            attempt = _start_attempt(db, job=job, evaluation=evaluation, worker_id=worker_id)
+            logger.info(
+                "Actuar sync job started.",
+                extra={
+                    "extra_fields": {
+                        "event": "actuar_sync_job_started",
+                        "status": "processing",
+                        "job_id": str(job.id),
+                        "evaluation_id": str(evaluation.id),
+                        "member_id": str(member.id),
+                        "gym_id": str(job.gym_id),
+                    }
+                },
+            )
+
+            mapping = build_actuar_field_mapping(member, evaluation)
+            missing_critical = mapping["missing_critical_fields"]
+            if missing_critical:
+                raise ActuarSyncServiceError(
+                    "critical_fields_missing",
+                    f"Campos criticos ausentes para sync Actuar: {', '.join(missing_critical)}",
+                    retryable=False,
+                    manual_fallback=True,
+                )
+
+            credentials = _get_actuar_credentials(gym)
+            provider = ActuarPlaywrightProvider(
+                base_url=credentials["base_url"],
+                username=credentials["username"],
+                password=credentials["password"],
+                worker_id=worker_id,
+                evidence_dir=_build_evidence_dir(job.gym_id, job.id),
+            )
+            provider.login()
+            resolution = resolve_actuar_member(db, gym_id=job.gym_id, member=member, provider=provider, user_id=job.created_by_user_id)
+            _log_resolution(resolution, member_id=member.id, job_id=job.id, gym_id=job.gym_id)
+            if resolution.status != "matched":
+                raise ActuarSyncServiceError(
+                    resolution.error_code or "member_not_linked",
+                    "Nao foi possivel vincular com seguranca o aluno no Actuar.",
+                    retryable=False,
+                    manual_fallback=True,
+                )
+
+            logger.info(
+                "Actuar body composition form opened.",
+                extra={"extra_fields": {"event": "actuar_sync_form_opened", "job_id": str(job.id), "status": "processing"}},
+            )
+            result = provider.push_body_composition(
+                member_context=resolution.member_context or {"external_id": resolution.actuar_external_id},
+                mapped_payload=[item for item in mapping["mapped_fields"] if item["supported"] and item["value"] is not None],
+                capture_success=settings.actuar_sync_screenshot_on_success,
+                evidence_prefix=f"gym-{job.gym_id}-job-{job.id}",
+            )
+            logger.info(
+                "Actuar body composition form filled.",
+                extra={"extra_fields": {"event": "actuar_sync_form_filled", "job_id": str(job.id), "status": "processing"}},
+            )
+            _finalize_sync_success(
+                db,
+                job=job,
+                evaluation=evaluation,
+                attempt=attempt,
+                external_id=result.get("actuar_external_id") or resolution.actuar_external_id,
+                action_log=(resolution.action_log or []) + (result.get("action_log") or []),
+                screenshot_path=result.get("screenshot_path"),
+                page_html_path=result.get("page_html_path"),
+            )
+        except ActuarSyncServiceError as exc:
+            _finalize_sync_failure(db, job_id=job_id, worker_id=worker_id, error=exc, provider=provider)
+        except Exception as exc:
+            mapped_error = _map_unexpected_error(exc)
+            _finalize_sync_failure(db, job_id=job_id, worker_id=worker_id, error=mapped_error, provider=provider)
+        finally:
+            if provider:
+                provider.close()
+            clear_current_gym_id()
+            db.close()
+
+    _run()
+
+
+def run_body_composition_sync_background(evaluation_id: UUID, attempt_id: UUID, force_retry: bool = False) -> None:
+    # Backwards-compatible wrapper kept for tests and legacy callers.
+    execute_actuar_sync_job(job_id=attempt_id, worker_id=f"legacy:{'retry' if force_retry else 'initial'}")
 
 
 def get_body_composition_evaluation_or_404(
@@ -171,189 +559,276 @@ def get_body_composition_evaluation_or_404(
     return evaluation
 
 
-def run_body_composition_sync_background(evaluation_id: UUID, attempt_id: UUID, force_retry: bool = False) -> None:
-    # BackgroundTasks is the initial post-commit strategy for this feature.
-    # It keeps the external sync off the request path, but it is not a durable queue.
-    @with_distributed_lock(f"body-composition-sync:{evaluation_id}", ttl_seconds=max(settings.actuar_timeout_seconds * 4, 60))
-    def _run() -> None:
-        db = SessionLocal()
-        try:
-            _execute_body_composition_sync_attempt(
-                db,
-                evaluation_id=evaluation_id,
-                attempt_id=attempt_id,
-                force_retry=force_retry,
-            )
-        except Exception:
-            logger.exception("Falha inesperada no sync de bioimpedancia %s / tentativa %s", evaluation_id, attempt_id)
-            db.rollback()
-        finally:
-            clear_current_gym_id()
-            db.close()
-
-    _run()
+def _should_auto_sync(gym: Gym) -> bool:
+    return bool(settings.actuar_sync_enabled and gym.actuar_enabled and gym.actuar_auto_sync_body_composition)
 
 
-def _execute_body_composition_sync_attempt(
-    db: Session,
-    *,
-    evaluation_id: UUID,
-    attempt_id: UUID,
-    force_retry: bool,
-) -> None:
-    evaluation = db.scalar(
-        select(BodyCompositionEvaluation)
-        .where(BodyCompositionEvaluation.id == evaluation_id)
-        .execution_options(include_all_tenants=True)
-    )
-    if not evaluation:
-        logger.warning("Sync de bioimpedancia ignorado: avaliacao %s nao encontrada", evaluation_id)
-        return
+def _get_gym(db: Session, gym_id: UUID) -> Gym:
+    gym = db.scalar(select(Gym).where(Gym.id == gym_id).execution_options(include_all_tenants=True))
+    if not gym:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academia nao encontrada")
+    return gym
 
-    set_current_gym_id(evaluation.gym_id)
-    attempt = db.scalar(
-        select(BodyCompositionSyncAttempt)
-        .where(
-            BodyCompositionSyncAttempt.id == attempt_id,
-            BodyCompositionSyncAttempt.body_composition_evaluation_id == evaluation.id,
+
+def _get_current_sync_job(db: Session, evaluation: BodyCompositionEvaluation) -> ActuarSyncJob | None:
+    if evaluation.actuar_sync_job_id:
+        job = db.scalar(
+            select(ActuarSyncJob).where(ActuarSyncJob.id == evaluation.actuar_sync_job_id).execution_options(include_all_tenants=True)
         )
+        if job:
+            return job
+    return db.scalar(
+        select(ActuarSyncJob)
+        .where(ActuarSyncJob.body_composition_evaluation_id == evaluation.id)
+        .order_by(desc(ActuarSyncJob.created_at))
         .execution_options(include_all_tenants=True)
-    )
-    if not attempt:
-        logger.warning("Sync de bioimpedancia ignorado: tentativa %s nao encontrada", attempt_id)
-        return
-
-    if not force_retry and evaluation.actuar_sync_status in ACTUAR_SYNC_TERMINAL_STATUSES:
-        _finalize_attempt_only(db, attempt, status="skipped", error="Avaliacao ja estava em estado terminal para sync.")
-        return
-
-    if not _claim_attempt(db, attempt.id):
-        logger.info("Tentativa %s ja foi reivindicada por outra execucao. Abortando duplicata.", attempt.id)
-        return
-
-    db.commit()
-    db.refresh(attempt)
-
-    latest_attempt = db.scalar(
-        select(BodyCompositionSyncAttempt)
-        .where(BodyCompositionSyncAttempt.body_composition_evaluation_id == evaluation.id)
-        .order_by(desc(BodyCompositionSyncAttempt.created_at))
         .limit(1)
     )
-    if latest_attempt and latest_attempt.id != attempt.id and not force_retry:
-        _finalize_attempt_only(db, attempt, status="skipped", error="Tentativa superada por agendamento mais recente.")
-        return
-
-    member = get_member_or_404(db, evaluation.member_id, gym_id=evaluation.gym_id)
-    payload = _payload_from_attempt_or_live(member, evaluation, attempt)
-    provider = _get_provider(evaluation.actuar_sync_mode)
-
-    try:
-        outcome = provider.push_body_composition(payload)
-        _finalize_sync_success(
-            db,
-            evaluation=evaluation,
-            attempt=attempt,
-            payload=payload,
-            outcome=outcome,
-        )
-    except Exception as exc:
-        _finalize_sync_failure(db, evaluation=evaluation, attempt=attempt, payload=payload, error=str(exc))
 
 
-def _claim_attempt(db: Session, attempt_id: UUID) -> bool:
-    result = db.execute(
-        update(BodyCompositionSyncAttempt)
-        .where(
-            BodyCompositionSyncAttempt.id == attempt_id,
-            BodyCompositionSyncAttempt.status == "pending",
-        )
-        .values(status="processing", error=None)
+def _cancel_superseded_jobs(db: Session, evaluation_id: UUID) -> None:
+    jobs = list(
+        db.scalars(
+            select(ActuarSyncJob)
+            .where(
+                ActuarSyncJob.body_composition_evaluation_id == evaluation_id,
+                ActuarSyncJob.status.in_(ACTIVE_JOB_STATUSES),
+            )
+            .execution_options(include_all_tenants=True)
+        ).all()
     )
-    return bool(result.rowcount)
+    for job in jobs:
+        job.status = "cancelled"
+        job.error_code = "superseded"
+        job.error_message = "Job substituido por uma avaliacao ou reprocessamento mais recente."
 
 
-def _finalize_attempt_only(db: Session, attempt: BodyCompositionSyncAttempt, *, status: str, error: str | None) -> None:
-    attempt.status = status
-    attempt.error = error
+def _start_attempt(db: Session, *, job: ActuarSyncJob, evaluation: BodyCompositionEvaluation, worker_id: str) -> ActuarSyncAttempt:
+    now = _now()
+    attempt = ActuarSyncAttempt(gym_id=job.gym_id, sync_job_id=job.id, status="started", started_at=now, worker_id=worker_id)
+    evaluation.actuar_sync_status = "syncing"
+    evaluation.sync_last_attempt_at = now
     db.add(attempt)
+    db.add(job)
+    db.add(evaluation)
     db.commit()
+    db.refresh(attempt)
+    return attempt
 
 
 def _finalize_sync_success(
     db: Session,
     *,
+    job: ActuarSyncJob,
     evaluation: BodyCompositionEvaluation,
-    attempt: BodyCompositionSyncAttempt,
-    payload: dict,
-    outcome,
+    attempt: ActuarSyncAttempt,
+    external_id: str | None,
+    action_log: list[dict],
+    screenshot_path: str | None,
+    page_html_path: str | None,
 ) -> None:
-    attempt.status = outcome.status
-    attempt.error = outcome.error
-    attempt.payload_snapshot_json = outcome.payload_snapshot_json or payload
-    evaluation.actuar_sync_status = outcome.status
-    evaluation.actuar_external_id = outcome.external_id
-    evaluation.actuar_last_error = outcome.error
-    if outcome.status in {"synced", "exported"}:
-        evaluation.actuar_last_synced_at = datetime.now(tz=timezone.utc)
-    db.add(attempt)
-    db.add(evaluation)
+    now = _now()
+    attempt.status = "succeeded"
+    attempt.finished_at = now
+    attempt.action_log_json = action_log
+    attempt.screenshot_path = screenshot_path
+    attempt.page_html_path = page_html_path
+    job.status = "synced"
+    job.error_code = None
+    job.error_message = None
+    job.next_retry_at = None
+    job.synced_at = now
+    job.locked_at = None
+    job.locked_by = None
+    _mark_evaluation_synced(evaluation, external_id=external_id, synced_at=now)
+    db.add_all([attempt, job, evaluation])
     db.commit()
+    logger.info(
+        "Actuar sync job succeeded.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_job_succeeded",
+                "status": "synced",
+                "job_id": str(job.id),
+                "evaluation_id": str(evaluation.id),
+                "member_id": str(evaluation.member_id),
+                "gym_id": str(evaluation.gym_id),
+            }
+        },
+    )
 
 
 def _finalize_sync_failure(
     db: Session,
     *,
-    evaluation: BodyCompositionEvaluation,
-    attempt: BodyCompositionSyncAttempt,
-    payload: dict,
-    error: str,
+    job_id: UUID,
+    worker_id: str,
+    error: ActuarSyncServiceError,
+    provider: ActuarPlaywrightProvider | None,
 ) -> None:
-    attempt.status = "failed"
-    attempt.error = error[:1000]
-    attempt.payload_snapshot_json = payload
-    evaluation.actuar_sync_status = "failed"
-    evaluation.actuar_last_error = error[:1000]
-    db.add(attempt)
+    job = db.scalar(select(ActuarSyncJob).where(ActuarSyncJob.id == job_id).execution_options(include_all_tenants=True))
+    if not job:
+        return
+    evaluation = db.scalar(
+        select(BodyCompositionEvaluation)
+        .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id)
+        .execution_options(include_all_tenants=True)
+    )
+    if not evaluation:
+        return
+    attempt = db.scalar(
+        select(ActuarSyncAttempt)
+        .where(ActuarSyncAttempt.sync_job_id == job.id)
+        .order_by(desc(ActuarSyncAttempt.started_at))
+        .execution_options(include_all_tenants=True)
+        .limit(1)
+    )
+    now = _now()
+    evidence = {"screenshot_path": None, "page_html_path": None}
+    if provider and settings.actuar_sync_screenshot_on_failure:
+        evidence = provider.capture_failure_evidence(f"gym-{job.gym_id}-job-{job.id}-failure")
+
+    if attempt:
+        attempt.status = "failed"
+        attempt.finished_at = now
+        attempt.error_code = error.code
+        attempt.error_message = error.message[:1000]
+        attempt.screenshot_path = evidence["screenshot_path"]
+        attempt.page_html_path = evidence["page_html_path"]
+
+    job.error_code = error.code
+    job.error_message = error.message[:1000]
+    job.locked_at = None
+    job.locked_by = None
+    evaluation.sync_last_error_code = error.code
+    evaluation.sync_last_error_message = error.message[:1000]
+    evaluation.actuar_last_error = error.message[:1000]
+
+    if error.retryable:
+        job.retry_count += 1
+        if job.retry_count < job.max_retries:
+            job.status = "failed"
+            job.next_retry_at = _now() + timedelta(minutes=5 * max(job.retry_count, 1))
+            evaluation.actuar_sync_status = "sync_failed"
+            logger.info(
+                "Actuar sync job scheduled for retry.",
+                extra={
+                    "extra_fields": {
+                        "event": "actuar_sync_job_retried",
+                        "status": "failed",
+                        "job_id": str(job.id),
+                        "retry_count": job.retry_count,
+                        "error_code": error.code,
+                    }
+                },
+            )
+        else:
+            job.status = "failed"
+            job.next_retry_at = None
+            evaluation.actuar_sync_status = "sync_failed"
+    else:
+        job.next_retry_at = None
+        job.status = "needs_review"
+        evaluation.actuar_sync_status = "manual_sync_required" if error.manual_fallback else "needs_review"
+        logger.info(
+            "Actuar sync job marked as needs review.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_sync_job_needs_review",
+                    "status": "needs_review",
+                    "job_id": str(job.id),
+                    "error_code": error.code,
+                }
+            },
+        )
+
+    db.add(job)
     db.add(evaluation)
+    if attempt:
+        db.add(attempt)
     db.commit()
+    logger.warning(
+        "Actuar sync job failed.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_job_failed",
+                "status": job.status,
+                "job_id": str(job.id),
+                "evaluation_id": str(evaluation.id),
+                "worker_id": worker_id,
+                "error_code": error.code,
+            }
+        },
+    )
 
 
-def _payload_from_attempt_or_live(
-    member: Member,
-    evaluation: BodyCompositionEvaluation,
-    attempt: BodyCompositionSyncAttempt,
-) -> dict:
-    snapshot = attempt.payload_snapshot_json
-    if isinstance(snapshot, dict) and snapshot.get("evaluation_id") == str(evaluation.id):
-        return snapshot
-    return build_body_composition_canonical_payload(member, evaluation)
+def _mark_evaluation_synced(evaluation: BodyCompositionEvaluation, *, external_id: str | None, synced_at: datetime) -> None:
+    evaluation.actuar_sync_status = "synced_to_actuar"
+    evaluation.actuar_external_id = external_id or evaluation.actuar_external_id
+    evaluation.sync_last_success_at = synced_at
+    evaluation.sync_last_error_code = None
+    evaluation.sync_last_error_message = None
+    evaluation.actuar_last_synced_at = synced_at
+    evaluation.actuar_last_error = None
 
 
-def _safe_payload_snapshot(member: Member, evaluation: BodyCompositionEvaluation) -> dict:
-    try:
-        return build_body_composition_canonical_payload(member, evaluation)
-    except Exception as exc:
-        logger.exception("Falha ao montar snapshot canonico de bioimpedancia para sync.")
-        return {
-            "evaluation_id": str(evaluation.id),
-            "member_id": str(evaluation.member_id),
-            "sync_mode": evaluation.actuar_sync_mode,
-            "snapshot_error": str(exc),
-        }
+def _get_actuar_credentials(gym: Gym) -> dict[str, str]:
+    base_url = (gym.actuar_base_url or settings.actuar_base_url or "").strip()
+    username = (gym.actuar_username or settings.actuar_username or "").strip()
+    password = (gym.actuar_password_encrypted or settings.actuar_password or "").strip()
+    if not base_url or not username or not password:
+        raise ActuarSyncServiceError(
+            "actuar_login_failed",
+            "Credenciais do Actuar ausentes ou incompletas para esta academia.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    return {"base_url": base_url, "username": username, "password": password}
 
 
-def _get_provider(sync_mode: str) -> ActuarBodyCompositionProvider:
-    provider_cls = _PROVIDER_REGISTRY.get(sync_mode)
-    if provider_cls is None:
-        return ActuarHttpApiProvider()
-    return provider_cls()
+def _build_evidence_dir(gym_id: UUID, job_id: UUID) -> Path:
+    return Path(settings.actuar_sync_evidence_dir) / str(gym_id) / str(job_id)
 
 
-def _to_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+def _log_resolution(resolution: ActuarMemberResolution, *, member_id: UUID, job_id: UUID, gym_id: UUID) -> None:
+    if resolution.status == "matched":
+        logger.info(
+            "Actuar member matched.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_sync_member_matched",
+                    "job_id": str(job_id),
+                    "member_id": str(member_id),
+                    "gym_id": str(gym_id),
+                }
+            },
+        )
+        return
+
+    logger.warning(
+        "Actuar member matching needs review.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_member_match_ambiguous" if resolution.error_code == "member_match_ambiguous" else "actuar_sync_job_needs_review",
+                "job_id": str(job_id),
+                "member_id": str(member_id),
+                "gym_id": str(gym_id),
+                "error_code": resolution.error_code,
+            }
+        },
+    )
+
+
+def _map_unexpected_error(exc: Exception) -> ActuarSyncServiceError:
+    raw_code = str(exc).strip()
+    if raw_code == "actuar_form_changed":
+        return ActuarSyncServiceError("actuar_form_changed", "Formulario do Actuar mudou e requer revisao.", retryable=False, manual_fallback=True)
+    if raw_code == "critical_fields_missing":
+        return ActuarSyncServiceError("critical_fields_missing", "Campos criticos ausentes para sincronizacao.", retryable=False, manual_fallback=True)
+    if raw_code == "playwright_unavailable":
+        return ActuarSyncServiceError("external_unavailable", "Playwright indisponivel no worker para executar o sync.", retryable=True)
+    return ActuarSyncServiceError("external_unavailable", f"Falha externa no sync Actuar: {type(exc).__name__}.", retryable=True)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)

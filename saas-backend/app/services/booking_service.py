@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -13,6 +14,8 @@ from app.schemas.sales import PublicBookingConfirmRequest
 from app.services.crm_service import append_lead_note, create_public_booking_lead
 from app.services.nurturing_service import pause_sequences_for_lead
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
+
+logger = logging.getLogger(__name__)
 
 
 def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) -> tuple[Lead, LeadBooking]:
@@ -34,12 +37,27 @@ def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) ->
         },
     )
     pause_sequences_for_lead(db, lead.id, "meeting_scheduled")
-    _send_booking_confirmation_whatsapp(db, lead, booking)
     db.add(lead)
     db.add(booking)
     db.commit()
     db.refresh(lead)
     db.refresh(booking)
+    try:
+        _send_booking_confirmation_whatsapp(db, lead, booking)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Booking confirmation WhatsApp failed after booking persistence.",
+            extra={
+                "extra_fields": {
+                    "event": "booking_confirmation_whatsapp_failed",
+                    "lead_id": str(lead.id),
+                    "booking_id": str(booking.id),
+                    "status": "failed",
+                }
+            },
+        )
     return lead, booking
 
 
@@ -150,6 +168,7 @@ def _resolve_or_create_public_lead(db: Session, gym_id: UUID, payload: PublicBoo
         phone=payload.whatsapp,
         scheduled_for=payload.scheduled_for,
         provider_name=payload.provider_name,
+        commit=False,
     )
 
 

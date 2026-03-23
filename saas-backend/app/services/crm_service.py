@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
@@ -11,21 +12,30 @@ from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadUpdate, PaginatedResponse
 from app.utils.email import send_email
 
+logger = logging.getLogger(__name__)
+_PENDING_WELCOME_EMAIL_ATTR = "_pending_welcome_email"
 
-def delete_lead(db: Session, lead_id: UUID) -> None:
+
+def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
     lead = db.get(Lead, lead_id)
     if not lead or lead.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
     lead.deleted_at = datetime.now(tz=timezone.utc)
     db.add(lead)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     invalidate_dashboard_cache("leads")
 
 
-def create_lead(db: Session, payload: LeadCreate) -> Lead:
+def create_lead(db: Session, payload: LeadCreate, *, commit: bool = True) -> Lead:
     lead = Lead(**payload.model_dump())
     db.add(lead)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(lead)
     invalidate_dashboard_cache("leads")
     return lead
@@ -49,7 +59,7 @@ def list_leads(
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate) -> Lead:
+def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool = True) -> Lead:
     lead = db.get(Lead, lead_id)
     if not lead or lead.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
@@ -75,16 +85,61 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate) -> Lead:
         lead.converted_member_id = member.id
         member_converted = True
         if lead.email:
-            send_email(lead.email, "Bem-vindo a academia", "Sua matricula foi confirmada. Bem-vindo!")
+            setattr(lead, _PENDING_WELCOME_EMAIL_ATTR, lead.email)
 
     db.add(lead)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(lead)
     if member_converted:
         invalidate_dashboard_cache("leads", "members")
     else:
         invalidate_dashboard_cache("leads")
+    if commit:
+        dispatch_lead_post_commit_effects(lead)
     return lead
+
+
+def dispatch_lead_post_commit_effects(lead: Lead) -> None:
+    pending_welcome_email = getattr(lead, _PENDING_WELCOME_EMAIL_ATTR, None)
+    if not pending_welcome_email:
+        return
+
+    try:
+        sent = send_email(
+            pending_welcome_email,
+            "Bem-vindo a academia",
+            "Sua matricula foi confirmada. Bem-vindo!",
+        )
+        if not sent:
+            logger.warning(
+                "Lead welcome email was not delivered after commit.",
+                extra={
+                    "extra_fields": {
+                        "event": "lead_post_commit_effect_failed",
+                        "lead_id": str(lead.id),
+                        "effect": "welcome_email",
+                        "status": "not_sent",
+                    }
+                },
+            )
+    except Exception:
+        logger.exception(
+            "Unexpected failure dispatching lead post-commit effects.",
+            extra={
+                "extra_fields": {
+                    "event": "lead_post_commit_effect_failed",
+                    "lead_id": str(lead.id),
+                    "effect": "welcome_email",
+                    "status": "failed",
+                }
+            },
+        )
+    finally:
+        if hasattr(lead, _PENDING_WELCOME_EMAIL_ATTR):
+            delattr(lead, _PENDING_WELCOME_EMAIL_ATTR)
 
 
 def run_followup_automation(db: Session) -> int:
@@ -188,6 +243,7 @@ def create_public_booking_lead(
     phone: str | None,
     scheduled_for: datetime,
     provider_name: str | None = None,
+    commit: bool = True,
 ) -> Lead:
     lead = Lead(
         gym_id=gym_id,
@@ -209,7 +265,10 @@ def create_public_booking_lead(
         ],
     )
     db.add(lead)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(lead)
     invalidate_dashboard_cache("leads")
     return lead

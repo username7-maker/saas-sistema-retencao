@@ -18,6 +18,7 @@ export interface MemberCreatePayload {
   full_name: string;
   email?: string;
   phone?: string;
+  birthdate?: string;
   plan_name: string;
   monthly_fee?: number;
   join_date: string;
@@ -28,6 +29,7 @@ export interface MemberUpdatePayload {
   full_name?: string;
   email?: string;
   phone?: string;
+  birthdate?: string | null;
   plan_name?: string;
   monthly_fee?: number;
   status?: Member["status"];

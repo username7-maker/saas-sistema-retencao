@@ -13,6 +13,7 @@ class MemberCreate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     cpf: str | None = Field(default=None, min_length=11, max_length=14)
+    birthdate: date | None = None
     plan_name: str = "Plano Base"
     monthly_fee: Decimal = Decimal("0")
     join_date: date = Field(default_factory=date.today)
@@ -27,6 +28,7 @@ class MemberUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     cpf: str | None = Field(default=None, min_length=11, max_length=14)
+    birthdate: date | None = None
     status: MemberStatus | None = None
     plan_name: str | None = None
     monthly_fee: Decimal | None = None
@@ -42,6 +44,7 @@ class MemberOut(BaseModel):
     full_name: str
     email: str | None
     phone: str | None
+    birthdate: date | None = None
     status: MemberStatus
     plan_name: str
     monthly_fee: Decimal

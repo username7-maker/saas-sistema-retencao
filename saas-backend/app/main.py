@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.background_jobs.scheduler import build_scheduler
+from app.background_jobs.scheduler import build_scheduler, should_start_scheduler_in_api
 from app.core.cache import dashboard_cache
 from app.core.config import settings
 from app.core.logging_config import configure_logging, request_id_ctx
@@ -66,18 +67,22 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     scheduler = None
-    if settings.enable_scheduler:
-        logger.info("Scheduler enabled in API process; starting scheduler in API lifespan.")
-        scheduler = build_scheduler()
-        scheduler.start()
-    else:
-        logger.info("Scheduler disabled in API process; dedicated worker must run scheduled jobs.")
+    websocket_manager.set_event_loop(asyncio.get_running_loop())
     try:
+        if should_start_scheduler_in_api():
+            logger.info("Scheduler explicitly enabled in API process; starting scheduler in API lifespan.")
+            scheduler = build_scheduler()
+            scheduler.start()
+        else:
+            logger.info(
+                "Scheduler disabled in API process; keep ENABLE_SCHEDULER=false on the API and run a dedicated worker."
+            )
         yield
     finally:
         if scheduler:
             logger.info("Scheduler shutting down in API process.")
             scheduler.shutdown(wait=False)
+        websocket_manager.clear_event_loop()
 
 
 app = FastAPI(

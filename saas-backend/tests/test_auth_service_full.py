@@ -192,15 +192,86 @@ class TestRefreshAccessToken:
     def test_expired_raises(self):
         user = SimpleNamespace(
             id=USER_ID, gym_id=GYM_ID, deleted_at=None,
+            is_active=True,
             refresh_token_hash="hash",
             refresh_token_expires_at=datetime.now(tz=timezone.utc) - timedelta(days=1),
         )
         db = MagicMock()
-        db.get.return_value = user
+        db.scalar.return_value = user
         with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
             with patch("app.services.auth_service.verify_refresh_token", return_value=True):
                 with pytest.raises(HTTPException):
                     refresh_access_token(db, "token")
+
+    def test_inactive_user_raises(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            gym_id=GYM_ID,
+            deleted_at=None,
+            is_active=False,
+            refresh_token_hash="hash",
+            refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        db = MagicMock()
+        db.scalar.return_value = user
+        with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
+            with patch("app.services.auth_service.verify_refresh_token", return_value=True):
+                with pytest.raises(HTTPException) as exc_info:
+                    refresh_access_token(db, "token")
+        assert exc_info.value.status_code == 401
+
+    def test_deleted_user_raises(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            gym_id=GYM_ID,
+            deleted_at=datetime.now(tz=timezone.utc),
+            is_active=True,
+            refresh_token_hash="hash",
+            refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        db = MagicMock()
+        db.scalar.return_value = user
+        with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
+            with patch("app.services.auth_service.verify_refresh_token", return_value=True):
+                with pytest.raises(HTTPException) as exc_info:
+                    refresh_access_token(db, "token")
+        assert exc_info.value.status_code == 401
+
+    def test_tenant_mismatch_raises(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            gym_id=uuid.uuid4(),
+            deleted_at=None,
+            is_active=True,
+            refresh_token_hash="hash",
+            refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        db = MagicMock()
+        db.scalar.return_value = user
+        with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
+            with patch("app.services.auth_service.verify_refresh_token", return_value=True):
+                with pytest.raises(HTTPException) as exc_info:
+                    refresh_access_token(db, "token")
+        assert exc_info.value.status_code == 401
+
+    def test_valid_active_user_returns_new_tokens(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            gym_id=GYM_ID,
+            deleted_at=None,
+            is_active=True,
+            refresh_token_hash="hash",
+            refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        tokens = SimpleNamespace(access_token="new-access", refresh_token="new-refresh")
+        db = MagicMock()
+        db.scalar.return_value = user
+        with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
+            with patch("app.services.auth_service.verify_refresh_token", return_value=True):
+                with patch("app.services.auth_service.issue_tokens", return_value=tokens) as mock_issue_tokens:
+                    result = refresh_access_token(db, "token")
+        assert result is tokens
+        mock_issue_tokens.assert_called_once_with(db, user)
 
 
 # ---------------------------------------------------------------------------

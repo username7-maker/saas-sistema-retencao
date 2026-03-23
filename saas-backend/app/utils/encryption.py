@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import logging
 import os
 
@@ -33,7 +32,7 @@ def _get_key() -> bytes:
     except Exception:
         pass
 
-    return hashlib.sha256(raw_key.encode("utf-8")).digest()
+    raise RuntimeError("CPF_ENCRYPTION_KEY invalida: use hexadecimal de 64 caracteres ou base64 url-safe de 32 bytes.")
 
 
 def encrypt_pii(plain: str) -> str:
@@ -76,9 +75,9 @@ class EncryptedString(TypeDecorator):
             return value
         try:
             return encrypt_pii(value)
-        except Exception:
-            logger.warning("Failed to encrypt PII value, storing as-is")
-            return value
+        except Exception as exc:
+            logger.exception("Failed to encrypt PII value for database storage")
+            raise ValueError("Falha ao criptografar dado sensivel antes de persistir.") from exc
 
     def process_result_value(self, value: str | None, dialect) -> str | None:
         if value is None or value == "":

@@ -40,6 +40,16 @@ class TestDeleteLead:
         assert lead.deleted_at is not None
         db.commit.assert_called_once()
 
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_soft_delete_commit_false_skips_commit(self, mock_cache):
+        lead = _mock_lead()
+        db = MagicMock()
+        db.get.return_value = lead
+        from app.services.crm_service import delete_lead
+        delete_lead(db, LEAD_ID, commit=False)
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
     def test_not_found_raises(self):
         db = MagicMock()
         db.get.return_value = None
@@ -63,6 +73,20 @@ class TestCreateLead:
         create_lead(db, payload)
         db.add.assert_called_once()
         db.commit.assert_called_once()
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_create_commit_false_skips_commit(self, mock_cache):
+        db = MagicMock()
+        db.refresh = MagicMock()
+        from app.schemas import LeadCreate
+        payload = LeadCreate(
+            full_name="Novo Lead", source="instagram", gym_id=GYM_ID,
+            estimated_value=Decimal("100"), acquisition_cost=Decimal("10"),
+        )
+        from app.services.crm_service import create_lead
+        create_lead(db, payload, commit=False)
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 class TestListLeads:
@@ -92,6 +116,19 @@ class TestUpdateLead:
         assert lead.last_contact_at is not None
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_commit_false_skips_commit(self, mock_cache):
+        lead = _mock_lead()
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+        from app.schemas import LeadUpdate
+        payload = LeadUpdate(stage=LeadStage.CONTACT)
+        from app.services.crm_service import update_lead
+        update_lead(db, LEAD_ID, payload, commit=False)
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
     @patch("app.services.crm_service.send_email")
     def test_won_creates_member(self, mock_email, mock_cache):
         lead = _mock_lead(email="lead@t.com")
@@ -110,9 +147,76 @@ class TestUpdateLead:
         from app.schemas import LeadUpdate
         payload = LeadUpdate(stage=LeadStage.WON)
         from app.services.crm_service import update_lead
+
+        def _email_side_effect(*_args, **_kwargs):
+            assert db.commit.called
+            return True
+
+        mock_email.side_effect = _email_side_effect
         update_lead(db, LEAD_ID, payload)
         assert lead.converted_member_id is not None
         mock_email.assert_called_once()
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    @patch("app.services.crm_service.send_email")
+    def test_won_commit_false_keeps_commit_in_caller(self, mock_email, mock_cache):
+        lead = _mock_lead(email="lead@t.com")
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        def _fake_flush():
+            for call in db.add.call_args_list:
+                obj = call[0][0]
+                if hasattr(obj, "id") and obj.id is None:
+                    obj.id = uuid.uuid4()
+
+        db.flush.side_effect = _fake_flush
+
+        from app.schemas import LeadUpdate
+        payload = LeadUpdate(stage=LeadStage.WON)
+        from app.services.crm_service import update_lead
+
+        updated = update_lead(db, LEAD_ID, payload, commit=False)
+
+        assert lead.converted_member_id is not None
+        db.commit.assert_not_called()
+        assert db.flush.call_count >= 2
+        mock_email.assert_not_called()
+        assert getattr(updated, "_pending_welcome_email") == "lead@t.com"
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    @patch("app.services.crm_service.send_email")
+    def test_won_already_converted_does_not_schedule_welcome_email(self, mock_email, mock_cache):
+        lead = _mock_lead(email="lead@t.com", converted_member_id=uuid.uuid4())
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        from app.schemas import LeadUpdate
+        payload = LeadUpdate(stage=LeadStage.WON)
+        from app.services.crm_service import update_lead
+
+        updated = update_lead(db, LEAD_ID, payload, commit=False)
+
+        mock_email.assert_not_called()
+        assert not hasattr(updated, "_pending_welcome_email")
+
+    @patch("app.services.crm_service.send_email", return_value=True)
+    def test_dispatch_post_commit_effects_clears_pending_marker(self, mock_email):
+        from app.services.crm_service import dispatch_lead_post_commit_effects
+
+        lead = _mock_lead()
+        setattr(lead, "_pending_welcome_email", "lead@t.com")
+
+        dispatch_lead_post_commit_effects(lead)
+
+        mock_email.assert_called_once_with(
+            "lead@t.com",
+            "Bem-vindo a academia",
+            "Sua matricula foi confirmada. Bem-vindo!",
+        )
+        assert not hasattr(lead, "_pending_welcome_email")
 
     def test_not_found_raises(self):
         db = MagicMock()
@@ -192,6 +296,23 @@ class TestCreatePublicBookingLead:
             scheduled_for=datetime.now(tz=timezone.utc),
         )
         db.add.assert_called_once()
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_commit_false_keeps_booking_lead_uncommitted(self, mock_cache):
+        db = MagicMock()
+        db.refresh = MagicMock()
+        from app.services.crm_service import create_public_booking_lead
+        create_public_booking_lead(
+            db,
+            gym_id=GYM_ID,
+            full_name="Visitor",
+            email=None,
+            phone="11999",
+            scheduled_for=datetime.now(tz=timezone.utc),
+            commit=False,
+        )
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 class TestAppendLeadNote:

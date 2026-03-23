@@ -36,6 +36,7 @@ export interface Member {
   full_name: string;
   email: string | null;
   phone: string | null;
+  birthdate?: string | null;
   status: "active" | "paused" | "cancelled";
   plan_name: string;
   monthly_fee: number;
@@ -214,8 +215,17 @@ export interface ImportSummary {
 
 export type EvaluationSource = "tezewa" | "manual" | "ocr_receipt" | "device_import" | "actuar_sync";
 export type ActuarSyncMode = "disabled" | "http_api" | "csv_export" | "assisted_rpa";
-export type ActuarSyncStatus = "disabled" | "pending" | "exported" | "synced" | "failed" | "skipped";
-export type ActuarSyncAttemptStatus = "pending" | "processing" | "exported" | "synced" | "failed" | "skipped" | "disabled";
+export type ActuarSyncStatus =
+  | "draft"
+  | "saved"
+  | "sync_pending"
+  | "syncing"
+  | "synced_to_actuar"
+  | "sync_failed"
+  | "needs_review"
+  | "manual_sync_required";
+export type ActuarSyncJobStatus = "pending" | "processing" | "synced" | "failed" | "needs_review" | "cancelled";
+export type ActuarSyncAttemptStatus = "started" | "succeeded" | "failed";
 export type OcrWarningSeverity = "warning" | "critical";
 
 export interface BodyCompositionRangeValue {
@@ -239,24 +249,98 @@ export interface BodyCompositionTrainingFocus {
 export interface BodyCompositionSyncAttempt {
   id: string;
   gym_id: string;
-  body_composition_evaluation_id: string;
-  sync_mode: ActuarSyncMode;
-  provider: string;
+  sync_job_id: string;
   status: ActuarSyncAttemptStatus;
-  error: string | null;
-  payload_snapshot_json: Record<string, unknown> | unknown[] | null;
+  started_at: string;
+  finished_at: string | null;
+  action_log_json: Array<Record<string, unknown>> | unknown[] | null;
+  screenshot_path: string | null;
+  page_html_path: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  worker_id: string | null;
+}
+
+export interface ActuarSyncJob {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  body_composition_evaluation_id: string;
+  job_type: "body_composition_push";
+  status: ActuarSyncJobStatus;
+  error_code: string | null;
+  error_message: string | null;
+  retry_count: number;
+  max_retries: number;
+  next_retry_at: string | null;
+  locked_at: string | null;
+  locked_by: string | null;
+  synced_at: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface ActuarMemberLink {
+  id: string;
+  member_id: string;
+  actuar_external_id: string | null;
+  actuar_search_name: string | null;
+  actuar_search_birthdate: string | null;
+  linked_at: string | null;
+  linked_by_user_id: string | null;
+  match_confidence: number | null;
+  is_active: boolean;
+}
+
+export interface ActuarFieldMapping {
+  field: string;
+  actuar_field: string | null;
+  value: string | number | boolean | null;
+  classification: "critical_direct" | "critical_derived" | "non_critical_direct" | "unsupported" | "text_note_only";
+  required: boolean;
+  supported: boolean;
+}
+
+export interface BodyCompositionManualSyncSummary {
+  evaluation_id: string;
+  member_id: string;
+  sync_status: ActuarSyncStatus;
+  training_ready: boolean;
+  critical_fields: ActuarFieldMapping[];
+  summary_text: string;
+}
+
+export interface ActuarSyncQueueItem {
+  evaluation_id: string;
+  member_id: string;
+  member_name: string;
+  evaluation_date: string;
+  sync_status: ActuarSyncStatus;
+  training_ready: boolean;
+  error_code: string | null;
+  error_message: string | null;
+  next_retry_at: string | null;
+  current_job: ActuarSyncJob | null;
 }
 
 export interface BodyCompositionActuarSyncStatus {
   evaluation_id: string;
+  member_id: string;
   sync_mode: ActuarSyncMode;
   sync_status: ActuarSyncStatus;
+  training_ready: boolean;
+  sync_required_for_training: boolean;
   external_id: string | null;
   last_synced_at: string | null;
+  last_attempt_at: string | null;
+  last_error_code: string | null;
   last_error: string | null;
   can_retry: boolean;
+  critical_fields: ActuarFieldMapping[];
+  fallback_manual_summary: BodyCompositionManualSyncSummary;
+  current_job: ActuarSyncJob | null;
   attempts: BodyCompositionSyncAttempt[];
+  member_link: ActuarMemberLink | null;
 }
 
 export interface BodyCompositionEvaluation {
@@ -309,6 +393,13 @@ export interface BodyCompositionEvaluation {
   actuar_external_id: string | null;
   actuar_last_synced_at: string | null;
   actuar_last_error: string | null;
+  sync_required_for_training: boolean;
+  sync_last_attempt_at: string | null;
+  sync_last_success_at: string | null;
+  sync_last_error_code: string | null;
+  sync_last_error_message: string | null;
+  actuar_sync_job_id: string | null;
+  training_ready: boolean;
   created_at: string;
   updated_at: string;
   assistant?: AIAssistantPayload | null;

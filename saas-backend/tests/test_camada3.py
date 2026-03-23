@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
+from starlette.requests import Request
 
 from app.models import LeadStage
 from app.routers.public import public_whatsapp_webhook
@@ -21,6 +22,22 @@ def _mock_scalars(items):
     result = MagicMock()
     result.all.return_value = items
     return result
+
+
+def _build_request(query_string: bytes = b"") -> Request:
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/api/v1/public/whatsapp/webhook",
+        "raw_path": b"/api/v1/public/whatsapp/webhook",
+        "query_string": query_string,
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+        "scheme": "http",
+    }
+    return Request(scope)
 
 
 def test_sales_brief_with_diagnosis_returns_diagnosis_data(monkeypatch):
@@ -199,7 +216,7 @@ def test_whatsapp_invalid_token_returns_401(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         public_whatsapp_webhook(
             payload={},
-            request=SimpleNamespace(query_params={}),
+            request=_build_request(),
             db=MagicMock(),
             x_webhook_token="wrong",
             authorization=None,
@@ -401,3 +418,43 @@ def test_lost_event_updates_stage_and_logs_audit(monkeypatch):
     assert updated.stage == LeadStage.LOST
     assert updated.lost_reason == "Sem orcamento"
     assert audit_calls[0]["action"] == "call_event_logged"
+
+
+def test_close_now_uses_uncommitted_lead_update_and_commits_in_caller(monkeypatch):
+    lead = SimpleNamespace(
+        id=uuid4(),
+        gym_id=uuid4(),
+        stage=LeadStage.PROPOSAL,
+        lost_reason=None,
+        last_contact_at=None,
+        notes=[],
+        deleted_at=None,
+    )
+    db = MagicMock()
+    db.scalar.return_value = lead
+    update_calls = []
+    dispatch_calls = []
+
+    def _update_lead(_db, lead_id, payload, *, commit=True):
+        update_calls.append({"lead_id": lead_id, "stage": payload.stage, "commit": commit})
+        lead.stage = payload.stage
+        return lead
+
+    def _dispatch_post_commit(updated_lead):
+        assert db.commit.called
+        dispatch_calls.append(updated_lead.id)
+
+    monkeypatch.setattr("app.services.call_script_service.update_lead", _update_lead)
+    monkeypatch.setattr("app.services.call_script_service.log_audit_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.call_script_service.dispatch_lead_post_commit_effects", _dispatch_post_commit)
+
+    updated = register_call_event(
+        db,
+        lead_id=lead.id,
+        payload=CallEventCreate(event_type="close_now"),
+    )
+
+    assert updated.stage == LeadStage.WON
+    assert update_calls == [{"lead_id": lead.id, "stage": LeadStage.WON, "commit": False}]
+    db.commit.assert_called_once()
+    assert dispatch_calls == [lead.id]

@@ -130,6 +130,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
     user = db.scalar(_include_all_tenants(select(User).where(User.id == user_id)))
     if (
         not user
+        or not user.is_active
         or user.deleted_at is not None
         or user.gym_id != token_gym_id
         or not user.refresh_token_hash

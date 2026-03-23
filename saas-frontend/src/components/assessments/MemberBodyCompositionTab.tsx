@@ -1,12 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Copy,
   FilePlus2,
   ImageUp,
+  Link2,
   Pencil,
   RefreshCcw,
   Save,
   ScanText,
+  ShieldCheck,
   Sparkles,
   X,
 } from "lucide-react";
@@ -21,9 +24,11 @@ import type { BodyCompositionOcrEngine, BodyCompositionOcrResult } from "../../s
 import type {
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
+  BodyCompositionManualSyncSummary,
   BodyCompositionOcrWarning,
   EvaluationSource,
 } from "../../types";
+import { useAuth } from "../../hooks/useAuth";
 import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
 import { FormField } from "../ui2/FormField";
@@ -294,13 +299,14 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
 }
 
 function syncLabel(status: string | null | undefined): string {
-  if (status === "synced") return "Sincronizado";
-  if (status === "exported") return "Exportado";
-  if (status === "pending") return "Pendente";
-  if (status === "processing") return "Em processamento";
-  if (status === "failed") return "Falhou";
-  if (status === "skipped") return "Ignorado";
-  return "Desabilitado";
+  if (status === "synced_to_actuar" || status === "succeeded") return "Sincronizado no Actuar";
+  if (status === "saved") return "Salvo no AI GYM OS";
+  if (status === "sync_pending" || status === "pending") return "Pendente";
+  if (status === "syncing" || status === "processing" || status === "started") return "Sincronizando";
+  if (status === "sync_failed" || status === "failed") return "Falhou";
+  if (status === "needs_review") return "Precisa de revisao";
+  if (status === "manual_sync_required") return "Sync manual necessario";
+  return "Rascunho";
 }
 
 function warningTone(warning?: BodyCompositionOcrWarning): string {
@@ -334,6 +340,7 @@ function buildAssistedReadSummary(
 
 export function MemberBodyCompositionTab({ memberId }: Props) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<BodyCompositionOcrResult | null>(null);
@@ -410,6 +417,48 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     onError: () => toast.error("Nao foi possivel reagendar a sincronizacao."),
   });
 
+  const enqueueSyncMutation = useMutation({
+    mutationFn: (evaluationId: string) => bodyCompositionService.enqueueActuarSync(memberId, evaluationId),
+    onSuccess: async () => {
+      toast.success("Job de sync enviado para o worker do Actuar.");
+      await invalidateAssessmentQueries(queryClient, memberId);
+      if (focusEvaluation?.id) {
+        await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
+      }
+    },
+    onError: () => toast.error("Nao foi possivel enviar a avaliacao para o Actuar."),
+  });
+
+  const manualConfirmMutation = useMutation({
+    mutationFn: ({ evaluationId, reason, note }: { evaluationId: string; reason: string; note?: string | null }) =>
+      bodyCompositionService.confirmManualSync(memberId, evaluationId, { reason, note }),
+    onSuccess: async () => {
+      toast.success("Sincronizacao manual confirmada com auditoria.");
+      await invalidateAssessmentQueries(queryClient, memberId);
+      if (focusEvaluation?.id) {
+        await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
+      }
+    },
+    onError: () => toast.error("Nao foi possivel confirmar o sync manual."),
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (payload: {
+      actuar_external_id?: string | null;
+      actuar_search_name?: string | null;
+      actuar_search_document?: string | null;
+      actuar_search_birthdate?: string | null;
+      match_confidence?: number | null;
+    }) => bodyCompositionService.upsertActuarLink(memberId, payload),
+    onSuccess: async () => {
+      toast.success("Vinculo com o cadastro Actuar atualizado.");
+      if (focusEvaluation?.id) {
+        await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
+      }
+    },
+    onError: () => toast.error("Nao foi possivel salvar o vinculo Actuar."),
+  });
+
   const highlightedWarnings = new Map(
     (ocrMetadata.ocr_warnings_json ?? [])
       .filter((warning) => warning.field)
@@ -417,6 +466,45 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   );
 
   const rangeClassifications = buildRangeClassifications(focusEvaluation);
+  const canManualConfirm = user?.role === "owner" || user?.role === "manager";
+  const syncSummary: BodyCompositionManualSyncSummary | null = syncStatus?.fallback_manual_summary ?? null;
+
+  async function handleCopyCriticalFields() {
+    if (!focusEvaluation?.id) return;
+    try {
+      const summary = await bodyCompositionService.getManualSyncSummary(memberId, focusEvaluation.id);
+      await navigator.clipboard.writeText(summary.summary_text);
+      toast.success("Campos criticos copiados para apoiar o lancamento manual no Actuar.");
+    } catch {
+      toast.error("Nao foi possivel copiar o resumo manual.");
+    }
+  }
+
+  function handleLinkMember() {
+    const externalId = window.prompt("External ID do aluno no Actuar", syncStatus?.member_link?.actuar_external_id ?? "")?.trim();
+    if (externalId === undefined) return;
+    const searchName = window.prompt("Nome de busca no Actuar", syncStatus?.member_link?.actuar_search_name ?? "")?.trim();
+    const searchBirthdate = window.prompt(
+      "Nascimento no Actuar (AAAA-MM-DD)",
+      syncStatus?.member_link?.actuar_search_birthdate ?? "",
+    )?.trim();
+    const searchDocument = window.prompt("Documento/CPF para busca no Actuar", "")?.trim();
+    linkMutation.mutate({
+      actuar_external_id: externalId || null,
+      actuar_search_name: searchName || null,
+      actuar_search_birthdate: searchBirthdate || null,
+      actuar_search_document: searchDocument || null,
+      match_confidence: externalId ? 1 : 0.8,
+    });
+  }
+
+  function handleManualConfirm() {
+    if (!focusEvaluation?.id || !canManualConfirm) return;
+    const reason = window.prompt("Motivo da confirmacao manual no Actuar");
+    if (!reason?.trim()) return;
+    const note = window.prompt("Observacao opcional para auditoria", "") || undefined;
+    manualConfirmMutation.mutate({ evaluationId: focusEvaluation.id, reason: reason.trim(), note });
+  }
 
   function buildPayload(data: FormData): BodyCompositionEvaluationCreate {
     const needsReview = currentSource === "ocr_receipt" ? (reviewedManually ? false : ocrMetadata.needs_review) : false;
@@ -787,18 +875,32 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle>Sync Actuar</CardTitle>
-              {focusEvaluation?.id && (syncStatus?.can_retry || focusEvaluation.actuar_sync_status === "failed") ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => retrySyncMutation.mutate(focusEvaluation.id)}
-                  disabled={retrySyncMutation.isPending}
-                >
-                  <RefreshCcw size={14} />
-                  {retrySyncMutation.isPending ? "Agendando..." : "Tentar novamente"}
-                </Button>
-              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {focusEvaluation?.id ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => enqueueSyncMutation.mutate(focusEvaluation.id)}
+                    disabled={enqueueSyncMutation.isPending}
+                  >
+                    <RefreshCcw size={14} />
+                    {enqueueSyncMutation.isPending ? "Enviando..." : "Enviar para Actuar"}
+                  </Button>
+                ) : null}
+                {focusEvaluation?.id && syncStatus?.can_retry ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => retrySyncMutation.mutate(focusEvaluation.id)}
+                    disabled={retrySyncMutation.isPending}
+                  >
+                    <RefreshCcw size={14} />
+                    {retrySyncMutation.isPending ? "Agendando..." : "Reprocessar"}
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {!focusEvaluation ? (
@@ -807,16 +909,81 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 <Skeleton className="h-24 w-full rounded-2xl" />
               ) : (
                 <>
+                  <div className={`rounded-2xl border px-4 py-3 text-sm ${syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                    <p className="font-semibold">
+                      {syncStatus?.training_ready
+                        ? "Pronta para treino no Actuar"
+                        : "Esta avaliacao ainda NAO esta pronta para uso no treino do Actuar"}
+                    </p>
+                    {!syncStatus?.training_ready ? (
+                      <p className="mt-1 text-xs">
+                        Os campos criticos ainda nao foram sincronizados com sucesso. Use o fallback manual assistido se necessario.
+                      </p>
+                    ) : null}
+                  </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     <Metric label="Modo" value={syncStatus?.sync_mode ?? focusEvaluation.actuar_sync_mode} />
                     <Metric label="Status" value={syncLabel(syncStatus?.sync_status ?? focusEvaluation.actuar_sync_status)} />
+                    <Metric label="Pronta para treino?" value={syncStatus?.training_ready ? "Sim" : "Nao"} />
                     <Metric label="Ultimo sync" value={syncStatus?.last_synced_at ? new Date(syncStatus.last_synced_at).toLocaleString("pt-BR") : "-"} />
                     <Metric label="External ID" value={syncStatus?.external_id ?? focusEvaluation.actuar_external_id ?? "-"} />
+                    <Metric label="Erro codigo" value={syncStatus?.last_error_code ?? focusEvaluation.sync_last_error_code ?? "-"} />
                   </div>
                   {(syncStatus?.last_error ?? focusEvaluation.actuar_last_error) ? (
                     <div className="rounded-xl border border-lovable-danger/20 bg-red-50 px-3 py-2 text-sm text-red-800">
                       {(syncStatus?.last_error ?? focusEvaluation.actuar_last_error) as string}
                     </div>
+                  ) : null}
+                  {syncStatus?.member_link ? (
+                    <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm text-lovable-ink">
+                      <p className="font-semibold">Vinculo Actuar</p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">
+                        External ID: {syncStatus.member_link.actuar_external_id ?? "-"} · Nome de busca: {syncStatus.member_link.actuar_search_name ?? "-"}
+                      </p>
+                    </div>
+                  ) : null}
+                  {syncStatus?.critical_fields?.length ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Campos criticos para treino</p>
+                      <div className="space-y-2">
+                        {syncStatus.critical_fields.map((field) => (
+                          <div key={field.field} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
+                            <div>
+                              <p className="font-semibold text-lovable-ink">{field.actuar_field ?? field.field}</p>
+                              <p className="text-xs text-lovable-ink-muted">{field.classification}</p>
+                            </div>
+                            <span className="text-xs text-lovable-ink-muted">{field.value ?? "-"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="ghost" onClick={() => void handleCopyCriticalFields()} disabled={!focusEvaluation?.id}>
+                      <Copy size={14} />
+                      Copiar campos criticos
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={handleLinkMember} disabled={linkMutation.isPending}>
+                      <Link2 size={14} />
+                      {linkMutation.isPending ? "Salvando vinculo..." : "Vincular aluno Actuar"}
+                    </Button>
+                    {canManualConfirm ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleManualConfirm}
+                        disabled={!focusEvaluation?.id || manualConfirmMutation.isPending}
+                      >
+                        <ShieldCheck size={14} />
+                        {manualConfirmMutation.isPending ? "Confirmando..." : "Confirmar sync manual"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {syncSummary?.summary_text ? (
+                    <details className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
+                      <summary className="cursor-pointer font-semibold text-lovable-ink">Resumo pronto para lancamento manual</summary>
+                      <pre className="mt-2 whitespace-pre-wrap">{syncSummary.summary_text}</pre>
+                    </details>
                   ) : null}
                   {syncStatus?.attempts?.length ? (
                     <div className="space-y-2">
@@ -825,9 +992,11 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                         <div key={attempt.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-semibold text-lovable-ink">{syncLabel(attempt.status)}</span>
-                            <span className="text-xs text-lovable-ink-muted">{new Date(attempt.created_at).toLocaleString("pt-BR")}</span>
+                            <span className="text-xs text-lovable-ink-muted">{new Date(attempt.started_at).toLocaleString("pt-BR")}</span>
                           </div>
-                          <p className="text-xs text-lovable-ink-muted">{attempt.provider}</p>
+                          <p className="text-xs text-lovable-ink-muted">
+                            {attempt.worker_id ?? "worker"}{attempt.error_code ? ` · ${attempt.error_code}` : ""}
+                          </p>
                         </div>
                       ))}
                     </div>

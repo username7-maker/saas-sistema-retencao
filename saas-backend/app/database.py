@@ -10,8 +10,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 from app.models import (
+    ActuarMemberLink,
+    ActuarSyncAttempt,
+    ActuarSyncJob,
     Assessment,
     AuditLog,
+    AutomationExecutionLog,
     AutomationRule,
     BodyCompositionEvaluation,
     BodyCompositionSyncAttempt,
@@ -54,6 +58,9 @@ _DENY_GYM_ID = UUID(int=0)  # Impossible UUID — matches no real row
 TENANT_SCOPED_MODELS = (
     User,
     Member,
+    ActuarMemberLink,
+    ActuarSyncJob,
+    ActuarSyncAttempt,
     Checkin,
     RiskAlert,
     Lead,
@@ -62,6 +69,7 @@ TENANT_SCOPED_MODELS = (
     NPSResponse,
     AuditLog,
     InAppNotification,
+    AutomationExecutionLog,
     AutomationRule,
     MessageLog,
     Goal,

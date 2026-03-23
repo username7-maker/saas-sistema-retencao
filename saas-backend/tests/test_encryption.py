@@ -1,5 +1,8 @@
 """Tests for encryption utilities and EncryptedString TypeDecorator."""
 
+import logging
+from unittest.mock import patch
+
 import pytest
 
 from app.utils.encryption import decrypt_pii, encrypt_pii, EncryptedString
@@ -33,6 +36,13 @@ class TestEncryptDecryptPII:
         with pytest.raises(Exception):
             decrypt_pii("not-valid-base64-encrypted-data!!!")
 
+    def test_invalid_key_raises(self, monkeypatch):
+        from app.utils import encryption
+
+        monkeypatch.setattr(encryption.settings, "cpf_encryption_key", "invalid-key")
+        with pytest.raises(RuntimeError):
+            encrypt_pii("11999887766")
+
     def test_cpf_aliases(self):
         from app.utils.encryption import encrypt_cpf, decrypt_cpf
         assert encrypt_cpf is encrypt_pii
@@ -54,6 +64,14 @@ class TestEncryptedStringType:
         assert result is not None
         assert result != "11999887766"
         assert decrypt_pii(result) == "11999887766"
+
+    def test_bind_raises_when_encryption_fails(self, caplog):
+        phone = "11999887766"
+        with patch("app.utils.encryption.encrypt_pii", side_effect=RuntimeError("boom")):
+            with caplog.at_level(logging.ERROR):
+                with pytest.raises(ValueError, match="Falha ao criptografar dado sensivel"):
+                    self.type_dec.process_bind_param(phone, None)
+        assert phone not in caplog.text
 
     def test_result_none(self):
         assert self.type_dec.process_result_value(None, None) is None

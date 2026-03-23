@@ -237,7 +237,7 @@ PLAN_FOLLOWUP_PLAYBOOK: dict[str, list[PlaybookStep]] = {
 }
 
 
-def create_onboarding_tasks_for_member(db: Session, member: object) -> None:
+def create_onboarding_tasks_for_member(db: Session, member: object, *, commit: bool = True) -> None:
     existing_count = db.scalar(
         select(func.count(Task.id)).where(
             Task.member_id == member.id,  # type: ignore[attr-defined]
@@ -265,10 +265,13 @@ def create_onboarding_tasks_for_member(db: Session, member: object) -> None:
         for step in ONBOARDING_PLAYBOOK
     ]
     db.add_all(tasks)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
-def create_plan_followup_tasks_for_member(db: Session, member: object) -> None:
+def create_plan_followup_tasks_for_member(db: Session, member: object, *, commit: bool = True) -> None:
     plan_type = _detect_plan_type(member.plan_name)  # type: ignore[attr-defined]
     steps = PLAN_FOLLOWUP_PLAYBOOK.get(plan_type, [])
     if not steps:
@@ -301,4 +304,7 @@ def create_plan_followup_tasks_for_member(db: Session, member: object) -> None:
         for step in steps
     ]
     db.add_all(tasks)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()

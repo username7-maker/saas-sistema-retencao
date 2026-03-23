@@ -161,6 +161,12 @@ export function MemberDetailDrawer({
               <p className="font-medium text-lovable-ink">{new Date(member.join_date).toLocaleDateString("pt-BR")}</p>
             </div>
             <div>
+              <p className="text-lovable-ink-muted">Nascimento</p>
+              <p className="font-medium text-lovable-ink">
+                {member.birthdate ? new Date(`${member.birthdate}T12:00:00`).toLocaleDateString("pt-BR") : "-"}
+              </p>
+            </div>
+            <div>
               <p className="text-lovable-ink-muted">Ultimo check-in</p>
               <p className="font-medium text-lovable-ink">{lastCheckin}</p>
             </div>

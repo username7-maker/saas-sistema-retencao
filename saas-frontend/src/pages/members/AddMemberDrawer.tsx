@@ -12,6 +12,7 @@ const createSchema = z.object({
   full_name: z.string().min(2, "Nome obrigatório"),
   email: z.string().email("E-mail inválido").optional().or(z.literal("")),
   phone: z.string().optional(),
+  birthdate: z.string().optional(),
   plan_name: z.enum(["Mensal", "Semestral", "Anual"]),
   monthly_fee: z.coerce.number().min(0, "Valor inválido"),
   join_date: z.string().min(1, "Data obrigatória"),
@@ -26,6 +27,7 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
     full_name: "",
     email: "",
     phone: "",
+    birthdate: "",
     plan_name: "Mensal",
     monthly_fee: 0,
     join_date: todayIsoDate(),
@@ -58,6 +60,7 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
       full_name: data.full_name.trim(),
       email: data.email || undefined,
       phone: data.phone || undefined,
+      birthdate: data.birthdate || undefined,
       plan_name: data.plan_name,
       monthly_fee: data.monthly_fee,
       join_date: data.join_date,
@@ -85,6 +88,10 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
 
         <FormField label="Telefone">
           <Input {...register("phone")} placeholder="(11) 99999-9999" />
+        </FormField>
+
+        <FormField label="Nascimento">
+          <Input {...register("birthdate")} type="date" />
         </FormField>
 
         <FormField label="Plano" required error={errors.plan_name?.message}>

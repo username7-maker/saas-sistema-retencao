@@ -1,7 +1,9 @@
 import type {
+  ActuarMemberLink,
   BodyCompositionActuarSyncStatus,
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
+  BodyCompositionManualSyncSummary,
   BodyCompositionEvaluationUpdate,
 } from "../types";
 import { api } from "./api";
@@ -110,6 +112,46 @@ export const bodyCompositionService = {
     const { data } = await api.post<BodyCompositionActuarSyncStatus>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}/retry-actuar-sync`,
     );
+    return data;
+  },
+
+  async enqueueActuarSync(memberId: string, evaluationId: string): Promise<BodyCompositionActuarSyncStatus> {
+    const { data } = await api.post<BodyCompositionActuarSyncStatus>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/actuar-sync`,
+    );
+    return data;
+  },
+
+  async getManualSyncSummary(memberId: string, evaluationId: string): Promise<BodyCompositionManualSyncSummary> {
+    const { data } = await api.get<BodyCompositionManualSyncSummary>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/manual-sync-summary`,
+    );
+    return data;
+  },
+
+  async confirmManualSync(
+    memberId: string,
+    evaluationId: string,
+    payload: { reason: string; note?: string | null },
+  ): Promise<BodyCompositionActuarSyncStatus> {
+    const { data } = await api.post<BodyCompositionActuarSyncStatus>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/manual-sync-confirm`,
+      payload,
+    );
+    return data;
+  },
+
+  async upsertActuarLink(
+    memberId: string,
+    payload: {
+      actuar_external_id?: string | null;
+      actuar_search_name?: string | null;
+      actuar_search_document?: string | null;
+      actuar_search_birthdate?: string | null;
+      match_confidence?: number | null;
+    },
+  ): Promise<ActuarMemberLink> {
+    const { data } = await api.put<ActuarMemberLink>(`/api/v1/members/${memberId}/actuar-link`, payload);
     return data;
   },
 

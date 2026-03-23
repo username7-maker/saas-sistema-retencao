@@ -14,20 +14,22 @@ ACTUAR_SYNC_MODES = (
 )
 
 ACTUAR_SYNC_STATUSES = (
-    "disabled",
-    "pending",
-    "exported",
-    "synced",
-    "failed",
-    "skipped",
+    "draft",
+    "saved",
+    "sync_pending",
+    "syncing",
+    "synced_to_actuar",
+    "sync_failed",
+    "needs_review",
+    "manual_sync_required",
 )
 
 ACTUAR_SYNC_TERMINAL_STATUSES = frozenset(
     {
-        "synced",
-        "exported",
-        "disabled",
-        "skipped",
+        "saved",
+        "synced_to_actuar",
+        "needs_review",
+        "manual_sync_required",
     }
 )
 
@@ -39,6 +41,33 @@ ACTUAR_SYNC_ATTEMPT_STATUSES = (
     "failed",
     "skipped",
     "disabled",
+)
+
+ACTUAR_SYNC_JOB_TYPES = (
+    "body_composition_push",
+)
+
+ACTUAR_SYNC_JOB_STATUSES = (
+    "pending",
+    "processing",
+    "synced",
+    "failed",
+    "needs_review",
+    "cancelled",
+)
+
+ACTUAR_SYNC_ATTEMPT_V2_STATUSES = (
+    "started",
+    "succeeded",
+    "failed",
+)
+
+ACTUAR_FIELD_CLASSIFICATIONS = (
+    "critical_direct",
+    "critical_derived",
+    "non_critical_direct",
+    "unsupported",
+    "text_note_only",
 )
 
 OCR_WARNING_SEVERITIES = (

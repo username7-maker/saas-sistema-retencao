@@ -16,7 +16,7 @@ from app.models import Lead, LeadStage, Task, TaskPriority, TaskStatus
 from app.schemas.lead import LeadUpdate
 from app.schemas.sales import CallEventCreate
 from app.services.audit_service import log_audit_event
-from app.services.crm_service import append_lead_note, update_lead
+from app.services.crm_service import append_lead_note, dispatch_lead_post_commit_effects, update_lead
 from app.services.proposal_service import generate_and_send_for_lead
 from app.services.sales_brief_service import get_sales_brief
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
@@ -120,7 +120,7 @@ def register_call_event(
             },
         )
     elif event_type == "close_now":
-        lead = update_lead(db, lead.id, LeadUpdate(stage=LeadStage.WON))
+        lead = update_lead(db, lead.id, LeadUpdate(stage=LeadStage.WON), commit=False)
     elif event_type == "interest_confirmed":
         lead.last_contact_at = datetime.now(tz=timezone.utc)
 
@@ -134,6 +134,7 @@ def register_call_event(
         details=details,
     )
     db.commit()
+    dispatch_lead_post_commit_effects(lead)
     _invalidate_sales_cache(lead.id)
     return lead
 
