@@ -48,3 +48,15 @@ def test_downgrade_blocks_when_trainer_rows_exist():
 
     drop_constraints.assert_not_called()
     create_constraint.assert_not_called()
+
+
+def test_drop_role_constraints_uses_raw_sql_block():
+    migration = _migration_module()
+
+    with patch.object(migration.op, "execute") as execute_sql:
+        migration._drop_role_check_constraints()
+
+    execute_sql.assert_called_once()
+    sql = execute_sql.call_args.args[0]
+    assert "ALTER TABLE users DROP CONSTRAINT IF EXISTS %I" in sql
+    assert "pg_get_constraintdef(c.oid) ILIKE '%role%'" in sql

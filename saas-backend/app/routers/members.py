@@ -237,7 +237,7 @@ def get_onboarding_score_endpoint(
 def member_timeline_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)

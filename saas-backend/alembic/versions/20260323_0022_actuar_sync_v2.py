@@ -183,6 +183,22 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_constraint(_ACTUAR_SYNC_JOB_FK, "body_composition_evaluations", type_="foreignkey")
     _drop_actuar_sync_status_constraints()
+    op.execute(
+        """
+        UPDATE body_composition_evaluations
+        SET actuar_sync_status = CASE actuar_sync_status
+            WHEN 'draft' THEN 'disabled'
+            WHEN 'saved' THEN 'disabled'
+            WHEN 'sync_pending' THEN 'pending'
+            WHEN 'syncing' THEN 'pending'
+            WHEN 'synced_to_actuar' THEN 'synced'
+            WHEN 'sync_failed' THEN 'failed'
+            WHEN 'needs_review' THEN 'failed'
+            WHEN 'manual_sync_required' THEN 'skipped'
+            ELSE 'disabled'
+        END
+        """
+    )
     op.create_check_constraint(
         "ck_body_composition_evaluations_bce_actuar_sync_status_valid",
         "body_composition_evaluations",

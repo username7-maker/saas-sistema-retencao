@@ -20,23 +20,29 @@ _ROLE_VALUES_DOWNGRADE = ("OWNER", "MANAGER", "SALESPERSON", "RECEPTIONIST")
 
 
 def _drop_role_check_constraints() -> None:
-    bind = op.get_bind()
-    rows = bind.execute(
-        sa.text(
-            """
-            SELECT c.conname
-            FROM pg_constraint AS c
-            JOIN pg_class AS t ON t.oid = c.conrelid
-            JOIN pg_namespace AS n ON n.oid = t.relnamespace
-            WHERE t.relname = 'users'
-              AND n.nspname = current_schema()
-              AND c.contype = 'c'
-              AND pg_get_constraintdef(c.oid) ILIKE '%role%'
-            """
-        )
+    op.execute(
+        """
+        DO $$
+        DECLARE constraint_record record;
+        BEGIN
+            FOR constraint_record IN
+                SELECT c.conname
+                FROM pg_constraint AS c
+                JOIN pg_class AS t ON t.oid = c.conrelid
+                JOIN pg_namespace AS n ON n.oid = t.relnamespace
+                WHERE t.relname = 'users'
+                  AND n.nspname = current_schema()
+                  AND c.contype = 'c'
+                  AND pg_get_constraintdef(c.oid) ILIKE '%role%'
+            LOOP
+                EXECUTE format(
+                    'ALTER TABLE users DROP CONSTRAINT IF EXISTS %I',
+                    constraint_record.conname
+                );
+            END LOOP;
+        END $$;
+        """
     )
-    for constraint_name in rows.scalars():
-        op.drop_constraint(constraint_name, "users", type_="check")
 
 
 def _create_role_check_constraint(name: str, values: tuple[str, ...]) -> None:

@@ -70,3 +70,16 @@ def test_trainer_cannot_access_user_admin_routes(app, client):
         assert response.json()["detail"] == "Permissao insuficiente"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_trainer_cannot_access_member_timeline(app, client):
+    mock_db = SimpleNamespace()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = _mock_trainer
+
+    try:
+        response = client.get("/api/v1/members/11111111-1111-1111-1111-111111111111/timeline")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Permissao insuficiente"
+    finally:
+        app.dependency_overrides.clear()
