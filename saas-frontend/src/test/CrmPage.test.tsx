@@ -13,15 +13,21 @@ vi.mock("../hooks/useAuth", () => ({
   }),
 }));
 
-vi.mock("../services/crmService", () => ({
-  crmService: {
-    listLeads: vi.fn(),
-    createLead: vi.fn(),
-    updateLead: vi.fn(),
-    updateLeadStage: vi.fn(),
-    deleteLead: vi.fn(),
-  },
-}));
+vi.mock("../services/crmService", async () => {
+  const actual = await vi.importActual<typeof import("../services/crmService")>("../services/crmService");
+  return {
+    ...actual,
+    crmService: {
+      ...actual.crmService,
+      listLeads: vi.fn(),
+      createLead: vi.fn(),
+      updateLead: vi.fn(),
+      appendLeadNote: vi.fn(),
+      updateLeadStage: vi.fn(),
+      deleteLead: vi.fn(),
+    },
+  };
+});
 
 vi.mock("react-hot-toast", () => ({
   default: {
@@ -117,6 +123,19 @@ describe("CrmPage", () => {
     vi.mocked(crmService.listLeads).mockResolvedValue(response);
     vi.mocked(crmService.createLead).mockResolvedValue(leads[0]);
     vi.mocked(crmService.updateLead).mockResolvedValue(leads[1]);
+    vi.mocked(crmService.appendLeadNote).mockResolvedValue({
+      ...leads[1],
+      notes: [
+        "Precisa aprovar com a esposa.",
+        {
+          type: "note",
+          note: "Cliente pediu retorno na sexta.",
+          created_at: new Date().toISOString(),
+          author_name: "Owner Teste",
+          author_role: "owner",
+        },
+      ],
+    });
     vi.mocked(crmService.updateLeadStage).mockResolvedValue({ ...leads[1], stage: "meeting_scheduled" });
     vi.mocked(crmService.deleteLead).mockResolvedValue();
   });
@@ -174,14 +193,15 @@ describe("CrmPage", () => {
     });
   });
 
-  it("opens the drawer, keeps the form sections and updates the lead", async () => {
+  it("opens the drawer, keeps the form sections and updates the lead without overwriting notes", async () => {
     renderPage();
 
     fireEvent.click(await screen.findByText("Bruno Lima"));
 
     expect(screen.getByText("Dados do lead")).toBeInTheDocument();
     expect(screen.getByText("Pipeline")).toBeInTheDocument();
-    expect(screen.getAllByText("Notas").length).toBeGreaterThan(0);
+    expect(screen.getByText("Historico comercial")).toBeInTheDocument();
+    expect(screen.getByText("Precisa aprovar com a esposa.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByDisplayValue("Bruno Lima"), {
       target: { value: "Bruno Lima Prime" },
@@ -194,6 +214,30 @@ describe("CrmPage", () => {
         expect.objectContaining({
           full_name: "Bruno Lima Prime",
           stage: "proposal",
+        }),
+      );
+    });
+
+    const [, payload] = vi.mocked(crmService.updateLead).mock.calls[0]!;
+    expect(payload).not.toHaveProperty("notes");
+  });
+
+  it("appends notes to the commercial history without replacing previous entries", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Bruno Lima"));
+
+    fireEvent.change(screen.getByPlaceholderText("Ex: cliente pediu retorno na sexta, prefere horario noturno."), {
+      target: { value: "Cliente pediu retorno na sexta." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar ao historico" }));
+
+    await waitFor(() => {
+      expect(crmService.appendLeadNote).toHaveBeenCalledWith(
+        "lead-2",
+        expect.objectContaining({
+          text: "Cliente pediu retorno na sexta.",
+          entry_type: "note",
         }),
       );
     });

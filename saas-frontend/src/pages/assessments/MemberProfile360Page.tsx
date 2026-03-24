@@ -133,44 +133,6 @@ function parseInternalNotes(extraData: Record<string, unknown>): InternalNote[] 
   return parsed.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 }
 
-function getLocalNotesStorageKey(memberId: string): string {
-  return `profile360_notes_${memberId}`;
-}
-
-function parseInternalNotesFromStorage(memberId: string): InternalNote[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(getLocalNotesStorageKey(memberId));
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const notes: InternalNote[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== "object") continue;
-      const noteObj = entry as Record<string, unknown>;
-      const text = typeof noteObj.text === "string" ? noteObj.text.trim() : "";
-      if (!text) continue;
-      const createdAt =
-        typeof noteObj.created_at === "string" && !Number.isNaN(Date.parse(noteObj.created_at))
-          ? noteObj.created_at
-          : new Date().toISOString();
-      notes.push({
-        id: typeof noteObj.id === "string" ? noteObj.id : createNoteId(),
-        text,
-        created_at: createdAt,
-      });
-    }
-    return notes.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  } catch {
-    return [];
-  }
-}
-
-function persistInternalNotesToStorage(memberId: string, notes: InternalNote[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(getLocalNotesStorageKey(memberId), JSON.stringify(notes));
-}
-
 function openTabWithSearchParams(
   current: URLSearchParams,
   nextTab: AssessmentWorkspaceTab,
@@ -555,10 +517,6 @@ export function MemberProfile360Page() {
       return updatedExtra;
     },
     onSuccess: (updatedExtra) => {
-      const parsedUpdatedNotes = parseInternalNotes(updatedExtra);
-      if (memberId && parsedUpdatedNotes.length > 0) {
-        persistInternalNotesToStorage(memberId, parsedUpdatedNotes);
-      }
       queryClient.setQueryData(["assessments", "profile360", memberId], (current: unknown) => {
         if (!current || typeof current !== "object") return current;
         const currentObj = current as Record<string, unknown>;
@@ -716,8 +674,7 @@ export function MemberProfile360Page() {
       }
     : null;
   const apiNotes = parseInternalNotes(mergedExtra);
-  const localNotes = parseInternalNotesFromStorage(memberId);
-  const notes = apiNotes.length > 0 ? apiNotes : localNotes;
+  const notes = apiNotes;
   const latestNote = notes[0] ?? null;
   const previousNotes = notes.slice(1);
   const age = getAge(mergedExtra);

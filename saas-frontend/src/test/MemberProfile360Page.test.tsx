@@ -17,6 +17,12 @@ import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import type { Member } from "../types";
 
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({
+    user: { id: "owner-1", full_name: "Owner Teste", role: "owner" },
+  }),
+}));
+
 vi.mock("../components/assessments/AssessmentTimeline", () => ({
   AssessmentTimeline: () => <div>Assessment timeline mock</div>,
 }));
@@ -175,6 +181,7 @@ function renderPage(initialEntry = "/assessments/members/member-1") {
 describe("MemberProfile360Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
 
     vi.mocked(assessmentService.profile360).mockResolvedValue(sparseProfile);
     vi.mocked(assessmentService.list).mockResolvedValue([]);
@@ -265,5 +272,24 @@ describe("MemberProfile360Page", () => {
 
     expect(await screen.findByText("Acoes do aluno")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /nova tarefa/i }).length).toBeGreaterThan(0);
+  });
+
+  it("does not read internal notes from localStorage anymore", async () => {
+    window.localStorage.setItem(
+      "member-profile-360:member-1:internal-notes",
+      JSON.stringify([
+        {
+          id: "legacy-note",
+          text: "Nota local antiga",
+          created_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+    );
+
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Ana Silva" });
+
+    expect(screen.queryByText("Nota local antiga")).not.toBeInTheDocument();
   });
 });

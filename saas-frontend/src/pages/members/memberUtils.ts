@@ -29,6 +29,18 @@ export const STATUS_VARIANTS: Record<Member["status"], "success" | "warning" | "
 
 export type MemberQueryFilters = Omit<MemberFilters, "page" | "page_size">;
 
+export function getMemberExternalId(member: Member): string | null {
+  const value = member.extra_data?.external_id;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function isProvisionalMember(member: Member): boolean {
+  const value = member.extra_data?.provisional_member;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value === "true";
+  return false;
+}
+
 export function todayIsoDate(): string {
   const now = new Date();
   const offsetMs = now.getTimezoneOffset() * 60_000;

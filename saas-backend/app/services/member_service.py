@@ -95,8 +95,13 @@ def list_members(
     if resolved_gym_id is not None:
         base_filters.append(Member.gym_id == resolved_gym_id)
     if search:
+        stored_external_id = func.coalesce(Member.extra_data["external_id"].astext, "")
         base_filters.append(
-            or_(Member.full_name.ilike(f"%{search}%"), Member.email.ilike(f"%{search}%"))
+            or_(
+                Member.full_name.ilike(f"%{search}%"),
+                Member.email.ilike(f"%{search}%"),
+                stored_external_id.ilike(f"%{search}%"),
+            )
         )
     if risk_level:
         base_filters.append(Member.risk_level == risk_level)

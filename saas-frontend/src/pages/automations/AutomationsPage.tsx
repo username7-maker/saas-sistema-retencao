@@ -3,6 +3,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 import {
   Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2, Pencil,
   ChevronRight, Sparkles, Clock, CheckCircle2, XCircle,
@@ -14,8 +15,10 @@ import toast from "react-hot-toast";
 import clsx from "clsx";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { useAuth } from "../../hooks/useAuth";
 import { automationService, type AutomationRule } from "../../services/automationService";
 import { Button, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
+import { canDeleteAutomationRules, canSeedAutomationRules } from "../../utils/roleAccess";
 
 // ─── Metadata ────────────────────────────────────────────────────────────────
 
@@ -137,12 +140,13 @@ function formatDate(iso: string | null): string | null {
 }
 // ─── RulePipelineCard ─────────────────────────────────────────────────────────
 
-function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling }: {
+function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDelete }: {
   rule: AutomationRule;
   onToggle: (v: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
   isToggling: boolean;
+  canDelete: boolean;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const tm = TRIGGER_META[rule.trigger_type];
@@ -222,14 +226,20 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling }: {
             className="p-1.5 rounded-lg text-lovable-ink-muted hover:bg-lovable-surface-soft transition opacity-0 group-hover:opacity-100">
             <Pencil size={14} />
           </button>
-          <button type="button" onClick={() => setConfirmDel(true)}
-            className="p-1.5 rounded-lg text-lovable-ink-muted hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100">
-            <Trash2 size={14} />
-          </button>
+          {canDelete ? (
+            <button
+              type="button"
+              onClick={() => setConfirmDel(true)}
+              aria-label={`Excluir ${rule.name}`}
+              title={`Excluir ${rule.name}`}
+              className="p-1.5 rounded-lg text-lovable-ink-muted hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100">
+              <Trash2 size={14} />
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {confirmDel && (
+      {confirmDel && canDelete && (
         <div className="border-t border-lovable-border px-4 py-3 bg-lovable-surface-soft rounded-b-2xl flex items-center justify-between gap-2">
           <p className="text-xs text-lovable-ink-muted">Excluir <strong>{rule.name}</strong>?</p>
           <div className="flex gap-2">
@@ -597,6 +607,7 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function AutomationsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [executing, setExecuting]         = useState(false);
   const [execResults, setExecResults]     = useState<ExecResult[] | null>(null);
@@ -604,6 +615,8 @@ export function AutomationsPage() {
   const [ruleToEdit, setRuleToEdit]       = useState<AutomationRule | null>(null);
   const [prefill, setPrefill]             = useState<typeof TEMPLATES[0] | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const canSeedRules = canSeedAutomationRules(user?.role);
+  const canDeleteRules = canDeleteAutomationRules(user?.role);
 
   const rulesQuery = useQuery({
     queryKey: ["automations", "rules"],
@@ -624,7 +637,13 @@ export function AutomationsPage() {
       toast.success("Regra excluída.");
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
     },
-    onError: () => toast.error("Erro ao excluir."),
+    onError: (error) => {
+      if (error instanceof AxiosError && error.response?.status === 403) {
+        toast.error("Somente owner pode excluir regras.");
+        return;
+      }
+      toast.error("Erro ao excluir.");
+    },
   });
 
   const seedMutation = useMutation({
@@ -633,7 +652,13 @@ export function AutomationsPage() {
       toast.success(`${data.length} regras criadas!`);
       void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] });
     },
-    onError: () => toast.error("Erro ao criar regras padrão."),
+    onError: (error) => {
+      if (error instanceof AxiosError && error.response?.status === 403) {
+        toast.error("Somente owner pode criar regras padrão.");
+        return;
+      }
+      toast.error("Erro ao criar regras padrão.");
+    },
   });
 
   const handleExecuteAll = async () => {
@@ -688,7 +713,7 @@ export function AutomationsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {rules.length === 0 && (
+          {rules.length === 0 && canSeedRules && (
             <Button variant="ghost" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
               <LayoutTemplate size={14} />
               {seedMutation.isPending ? "Criando..." : "Regras Padrão"}
@@ -741,9 +766,11 @@ export function AutomationsPage() {
             Use os templates prontos ou crie sua primeira regra personalizada.
           </p>
           <div className="flex gap-2 justify-center">
-            <Button variant="ghost" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
-              <LayoutTemplate size={14} />{seedMutation.isPending ? "Criando..." : "Regras Padrão"}
-            </Button>
+            {canSeedRules ? (
+              <Button variant="ghost" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
+                <LayoutTemplate size={14} />{seedMutation.isPending ? "Criando..." : "Regras Padrão"}
+              </Button>
+            ) : null}
             <Button variant="primary" onClick={openCreate}><Plus size={14} />Nova Regra</Button>
           </div>
         </div>
@@ -772,6 +799,7 @@ export function AutomationsPage() {
                   onEdit={() => { setRuleToEdit(rule); setPrefill(null); setDrawerOpen(true); }}
                   onDelete={() => deleteMutation.mutate(rule.id)}
                   isToggling={toggleMutation.isPending}
+                  canDelete={canDeleteRules}
                 />
               ))}
             </div>
@@ -796,6 +824,7 @@ export function AutomationsPage() {
                 onEdit={() => { setRuleToEdit(rule); setPrefill(null); setDrawerOpen(true); }}
                 onDelete={() => deleteMutation.mutate(rule.id)}
                 isToggling={toggleMutation.isPending}
+                canDelete={canDeleteRules}
               />
             ))}
           </div>

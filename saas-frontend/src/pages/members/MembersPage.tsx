@@ -26,7 +26,15 @@ import { canDeleteMember, canManageMemberDirectory } from "../../utils/roleAcces
 import { AddMemberDrawer } from "./AddMemberDrawer";
 import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
-import { PAGE_SIZE, RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
+import {
+  getMemberExternalId,
+  isProvisionalMember,
+  PAGE_SIZE,
+  RISK_LABELS,
+  RISK_VARIANTS,
+  STATUS_LABELS,
+  STATUS_VARIANTS,
+} from "./memberUtils";
 import type { MemberQueryFilters } from "./memberUtils";
 
 function formatCurrency(value: number): string {
@@ -95,6 +103,14 @@ export function MembersPage() {
     setFilters({});
   };
 
+  const handleProvisionalFilterChange = (value: string) => {
+    setPage(1);
+    setFilters((prev) => ({
+      ...prev,
+      provisional_only: value === "" ? undefined : value === "only",
+    }));
+  };
+
   const openDetail = (member: Member) => {
     setSelectedMember(member);
     setDetailOpen(true);
@@ -129,6 +145,8 @@ export function MembersPage() {
     filters.status,
     filters.risk_level,
     filters.plan_cycle,
+    filters.min_days_without_checkin,
+    filters.provisional_only,
   ].filter((value) => value !== undefined && value !== "").length;
   const canManageDirectory = canManageMemberDirectory(user?.role);
   const canRemoveMember = canDeleteMember(user?.role);
@@ -148,7 +166,7 @@ export function MembersPage() {
           search={{
             value: search,
             onChange: handleSearchChange,
-            placeholder: "Buscar por nome ou email...",
+            placeholder: "Buscar por nome, email ou matricula...",
           }}
           filters={[
             {
@@ -185,6 +203,35 @@ export function MembersPage() {
                 { value: "monthly", label: "Mensal" },
                 { value: "semiannual", label: "Semestral" },
                 { value: "annual", label: "Anual" },
+              ],
+            },
+            {
+              key: "min_days_without_checkin",
+              label: "Sem check-in",
+              value: filters.min_days_without_checkin ? String(filters.min_days_without_checkin) : "",
+              onChange: (value) =>
+                handleFilterChange("min_days_without_checkin", value ? Number(value) : undefined),
+              options: [
+                { value: "", label: "Qualquer atividade" },
+                { value: "7", label: "7+ dias" },
+                { value: "14", label: "14+ dias" },
+                { value: "30", label: "30+ dias" },
+              ],
+            },
+            {
+              key: "provisional_only",
+              label: "Provisorios",
+              value:
+                filters.provisional_only === true
+                  ? "only"
+                  : filters.provisional_only === false
+                    ? "exclude"
+                    : "",
+              onChange: handleProvisionalFilterChange,
+              options: [
+                { value: "", label: "Todos" },
+                { value: "only", label: "Apenas provisorios" },
+                { value: "exclude", label: "Ocultar provisorios" },
               ],
             },
           ]}
@@ -242,6 +289,18 @@ export function MembersPage() {
                           {member.full_name}
                         </Link>
                         <p className="mt-1 truncate text-xs text-lovable-ink-muted">{member.email ?? "Sem email"}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {getMemberExternalId(member) ? (
+                            <Badge variant="neutral" size="sm" className="tracking-normal normal-case">
+                              Matricula {getMemberExternalId(member)}
+                            </Badge>
+                          ) : null}
+                          {isProvisionalMember(member) ? (
+                            <Badge variant="warning" size="sm">
+                              Provisorio
+                            </Badge>
+                          ) : null}
+                        </div>
                       </div>
                     </TableCell>
 

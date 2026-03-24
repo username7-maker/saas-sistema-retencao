@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { canRoleAccessPath, getDefaultRouteForRole, resolvePostLoginRoute } from "../utils/roleAccess";
+import {
+  canDeleteAutomationRules,
+  canRoleAccessPath,
+  canSeedAutomationRules,
+  getDefaultRouteForRole,
+  resolvePostLoginRoute,
+} from "../utils/roleAccess";
 
 describe("roleAccess", () => {
   it("routes each role to its default home", () => {
@@ -22,5 +28,12 @@ describe("roleAccess", () => {
     expect(canRoleAccessPath("receptionist", "/imports")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/dashboard/operational")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/crm")).toBe(true);
+  });
+
+  it("keeps seed and delete automation controls owner-only", () => {
+    expect(canSeedAutomationRules("owner")).toBe(true);
+    expect(canSeedAutomationRules("manager")).toBe(false);
+    expect(canDeleteAutomationRules("owner")).toBe(true);
+    expect(canDeleteAutomationRules("manager")).toBe(false);
   });
 });

@@ -3,15 +3,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock3, MessageSquareText, Users } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { useAuth } from "../../hooks/useAuth";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
-import { crmService } from "../../services/crmService";
-import type { Lead } from "../../types";
+import { crmService, normalizeLeadNotes } from "../../services/crmService";
+import type { Lead, LeadNoteEntry } from "../../types";
 import { canDeleteLead } from "../../utils/roleAccess";
 
 const LEAD_SOURCES = [
@@ -121,31 +121,6 @@ const leadSchema = z.object({
 
 type LeadFormValues = z.infer<typeof leadSchema>;
 
-function extractNotesValue(notes: Lead["notes"]): string {
-  if (!Array.isArray(notes) || notes.length === 0) {
-    return "";
-  }
-
-  const lines = notes
-    .map((item) => {
-      if (typeof item === "string") {
-        return item;
-      }
-      if (typeof item === "object" && item !== null && "note" in item) {
-        const noteValue = (item as { note?: unknown }).note;
-        return typeof noteValue === "string" ? noteValue : "";
-      }
-      if (typeof item === "object" && item !== null && "text" in item) {
-        const noteValue = (item as { text?: unknown }).text;
-        return typeof noteValue === "string" ? noteValue : "";
-      }
-      return "";
-    })
-    .filter(Boolean);
-
-  return lines.join("\n");
-}
-
 function normalizeText(value: string): string {
   return value
     .normalize("NFD")
@@ -182,6 +157,21 @@ function formatCurrency(value: number | null | undefined): string {
   }).format(value ?? 0);
 }
 
+function leadNoteTypeLabel(note: LeadNoteEntry): string {
+  if (note.type === "contact_log") return "Contato";
+  if (note.type === "public_booking") return "Booking";
+  if (note.type === "public_diagnosis_requested") return "Diagnostico";
+  return "Observacao";
+}
+
+function leadNoteMeta(note: LeadNoteEntry): string {
+  const parts = [leadNoteTypeLabel(note)];
+  if (note.channel) parts.push(note.channel);
+  if (note.outcome) parts.push(note.outcome);
+  if (note.author_name) parts.push(note.author_name);
+  return parts.join(" · ");
+}
+
 function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
   return lead
     ? {
@@ -191,7 +181,7 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         source: lead.source ?? "",
         stage: lead.stage,
         estimated_value: lead.estimated_value,
-        notes: extractNotesValue(lead.notes),
+        notes: "",
         lost_reason: lead.lost_reason ?? "",
         handoff_plan_name: "",
         handoff_join_date: "",
@@ -275,6 +265,8 @@ interface LeadFormDrawerProps {
 function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteHistory, setNoteHistory] = useState<LeadNoteEntry[]>([]);
   const navigate = useNavigate();
   const { user } = useAuth();
   const canRemoveLead = canDeleteLead(user?.role);
@@ -294,6 +286,8 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
 
   useEffect(() => {
     reset(buildLeadDefaults(lead));
+    setNoteDraft("");
+    setNoteHistory(lead ? normalizeLeadNotes(lead.notes) : []);
   }, [lead, reset]);
 
   const createMutation = useMutation({
@@ -316,13 +310,6 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
         source: data.source || undefined,
         stage: data.stage,
         estimated_value: data.estimated_value,
-        notes: data.notes
-          ? data.notes
-              .split(/\r?\n/)
-              .map((note) => note.trim())
-              .filter(Boolean)
-              .map((note) => ({ note }))
-          : undefined,
         lost_reason: data.stage === "lost" ? data.lost_reason || undefined : undefined,
         conversion_handoff: data.stage === "won"
           ? {
@@ -339,7 +326,22 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
       onSaved();
       onClose();
     },
-    onError: () => toast.error("Erro ao atualizar lead. Tente novamente."),
+      onError: () => toast.error("Erro ao atualizar lead. Tente novamente."),
+  });
+
+  const appendNoteMutation = useMutation({
+    mutationFn: (payload: { leadId: string; text: string }) =>
+      crmService.appendLeadNote(payload.leadId, {
+        text: payload.text,
+        entry_type: "note",
+      }),
+    onSuccess: (updatedLead) => {
+      setNoteHistory(normalizeLeadNotes(updatedLead.notes));
+      setNoteDraft("");
+      toast.success("Observacao adicionada ao historico.");
+      onSaved();
+    },
+    onError: () => toast.error("Erro ao adicionar observacao ao historico."),
   });
 
   const deleteMutation = useMutation({
@@ -373,6 +375,16 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
             .map((note) => ({ note }))
         : undefined,
     });
+  }
+
+  function handleAppendNote() {
+    if (!lead) return;
+    const text = noteDraft.trim();
+    if (!text) {
+      toast.error("Digite uma observacao para adicionar ao historico.");
+      return;
+    }
+    appendNoteMutation.mutate({ leadId: lead.id, text });
   }
 
   const isPending = isSubmitting || createMutation.isPending || updateMutation.isPending;
@@ -454,15 +466,68 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
           </div>
 
           <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft/35 p-4">
-            <SectionHeader title="Notas" subtitle="Contexto comercial, observacoes e anotacoes relevantes." />
+            <SectionHeader
+              title={isEditing ? "Historico comercial" : "Notas"}
+              subtitle={
+                isEditing
+                  ? "Timeline de contatos e observacoes. Novas notas entram por append, sem sobrescrever o historico."
+                  : "Contexto comercial inicial e observacoes relevantes."
+              }
+            />
             <div className="grid gap-4">
-              <FormField label="Notas">
-                <Textarea
-                  {...register("notes")}
-                  placeholder="Ex: cliente busca plano para casal, melhor horario noturno."
-                  rows={4}
-                />
-              </FormField>
+              {isEditing ? (
+                <>
+                  {noteHistory.length > 0 ? (
+                    <div className="space-y-3">
+                      {noteHistory.map((note) => (
+                        <div key={note.id} className="rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={note.type === "contact_log" ? "info" : "neutral"}>{leadNoteTypeLabel(note)}</Badge>
+                            <p className="text-xs text-lovable-ink-muted">{leadNoteMeta(note)}</p>
+                          </div>
+                          <p className="mt-2 text-sm text-lovable-ink">{note.text}</p>
+                          <div className="mt-2 flex items-center gap-1 text-xs text-lovable-ink-muted">
+                            <Clock3 size={12} />
+                            {formatDateTime(note.created_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-lovable-border px-4 py-4 text-sm text-lovable-ink-muted">
+                      Nenhuma observacao registrada ainda para este lead.
+                    </div>
+                  )}
+
+                  <FormField label="Adicionar observacao ao historico">
+                    <Textarea
+                      value={noteDraft}
+                      onChange={(event) => setNoteDraft(event.target.value)}
+                      placeholder="Ex: cliente pediu retorno na sexta, prefere horario noturno."
+                      rows={3}
+                    />
+                  </FormField>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={appendNoteMutation.isPending}
+                      onClick={handleAppendNote}
+                    >
+                      <MessageSquareText size={14} />
+                      {appendNoteMutation.isPending ? "Adicionando..." : "Adicionar ao historico"}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <FormField label="Notas iniciais">
+                  <Textarea
+                    {...register("notes")}
+                    placeholder="Ex: cliente busca plano para casal, melhor horario noturno."
+                    rows={4}
+                  />
+                </FormField>
+              )}
 
               {watchedStage === "lost" ? (
                 <FormField label="Motivo da perda">

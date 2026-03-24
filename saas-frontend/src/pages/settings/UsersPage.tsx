@@ -158,7 +158,7 @@ function UserRow({
               disabled={isPending}
             >
               <Trash2 size={14} />
-              Excluir
+              Desativar
             </Button>
           ) : (
             <Button
@@ -277,10 +277,10 @@ export function UsersPage() {
       <Dialog
         open={Boolean(userToDeactivate)}
         onClose={() => setUserToDeactivate(null)}
-        title="Excluir usuário"
+        title="Desativar usuário"
         description={
           userToDeactivate
-            ? `Tem certeza que deseja excluir ${userToDeactivate.full_name}? Esta ação não pode ser desfeita.`
+            ? `${userToDeactivate.full_name} perderá acesso ao sistema agora, mas poderá ser reativado depois. Deseja continuar?`
             : undefined
         }
       >
@@ -297,7 +297,7 @@ export function UsersPage() {
             }}
             disabled={toggleMutation.isPending}
           >
-            {toggleMutation.isPending ? "Excluindo..." : "Excluir"}
+            {toggleMutation.isPending ? "Desativando..." : "Desativar"}
           </Button>
         </div>
       </Dialog>

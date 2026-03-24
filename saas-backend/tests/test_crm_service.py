@@ -129,6 +129,21 @@ class TestUpdateLead:
         db.flush.assert_called_once()
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_updating_scalars_preserves_existing_notes(self, mock_cache):
+        lead = _mock_lead(notes=[{"type": "contact_log", "note": "Ligacao inicial"}])
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        from app.schemas import LeadUpdate
+        from app.services.crm_service import update_lead
+
+        update_lead(db, LEAD_ID, LeadUpdate(full_name="Lead Atualizado"), commit=False)
+
+        assert lead.full_name == "Lead Atualizado"
+        assert lead.notes == [{"type": "contact_log", "note": "Ligacao inicial"}]
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
     @patch("app.services.crm_service.send_email")
     @patch("app.services.crm_service.create_plan_followup_tasks_for_member")
     @patch("app.services.crm_service.create_onboarding_tasks_for_member")
@@ -401,3 +416,5 @@ class TestAppendLeadNote:
         assert updated.notes[-1]["channel"] == "phone"
         assert updated.notes[-1]["outcome"] == "visit_booked"
         assert updated.notes[-1]["author_name"] == "Manager Teste"
+        assert updated.notes[-1]["author_role"] == "manager"
+        assert "created_at" in updated.notes[-1]

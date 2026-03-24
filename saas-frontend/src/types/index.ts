@@ -303,6 +303,18 @@ export interface ActuarSyncJob {
   updated_at: string;
 }
 
+export interface LeadNoteEntry {
+  id: string;
+  text: string;
+  type: string;
+  channel: string | null;
+  outcome: string | null;
+  created_at: string | null;
+  author_name: string | null;
+  author_role: string | null;
+  legacy: boolean;
+}
+
 export interface ActuarMemberLink {
   id: string;
   member_id: string;

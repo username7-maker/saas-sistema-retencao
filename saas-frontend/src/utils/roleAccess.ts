@@ -172,6 +172,14 @@ export function canDeleteLead(role: Role | null | undefined): boolean {
   return role === "owner" || role === "manager";
 }
 
+export function canSeedAutomationRules(role: Role | null | undefined): boolean {
+  return role === "owner";
+}
+
+export function canDeleteAutomationRules(role: Role | null | undefined): boolean {
+  return role === "owner";
+}
+
 export function canCreateAssessment(role: Role | null | undefined): boolean {
   return role === "owner" || role === "manager" || role === "trainer";
 }
