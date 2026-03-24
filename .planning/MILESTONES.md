@@ -20,3 +20,5 @@
 - `milestones/v3.1.0-REQUIREMENTS.md`
 - `milestones/v3.1.0-MILESTONE-AUDIT.md`
 - `milestones/v3.1.0-UAT-AUDIT.md`
+- `milestones/v3.1.0-RELEASE-SUMMARY.md`
+- `reports/MILESTONE_SUMMARY-v3.1.0.md`
