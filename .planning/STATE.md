@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
 phase: 4
-plan: ""
-status: Ready for discuss/plan
-last_activity: 2026-03-24 - v3.2.0 opened from backlog items 999.x
+plan: "04-PLAN.md"
+status: Phase 4 planned
+last_activity: 2026-03-24 - Phase 4 context, UI-SPEC, research and plan created
 ---
 
 # STATE
@@ -18,9 +18,9 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 ## Current Position
 
 **Phase:** 4
-**Plan:** Aguardando discuss/plan da fase 4
-**Status:** Novo milestone aberto
-**Last activity:** 2026-03-24 - backlog `999.x` promovido para fases 4-6
+**Plan:** `04-PLAN.md`
+**Status:** Phase 4 pronta para execucao
+**Last activity:** 2026-03-24 - contexto, UI-SPEC, research, validation e plano da fase 4 criados
 
 ## Progress Snapshot
 

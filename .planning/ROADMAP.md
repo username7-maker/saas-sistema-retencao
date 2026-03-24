@@ -14,10 +14,10 @@
 **Goal:** Permitir reconciliacao manual/visual de colunas antes do commit final de importacao.
 **Requirements**: Mapper assistido no preview, com confirmacao explicita antes da escrita.
 **Depends on:** Phase 3
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 4 -> $gsd-plan-phase 4)
+- [x] 04-PLAN.md - mapper assistido sobre o preview atual, com revalidacao antes do commit
 
 ### Phase 5: Bulk update dedicado de membros
 
