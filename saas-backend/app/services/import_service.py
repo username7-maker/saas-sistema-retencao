@@ -5,6 +5,7 @@ import unicodedata
 import zipfile
 from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
+from difflib import get_close_matches
 
 from dateutil.relativedelta import relativedelta
 from decimal import Decimal, InvalidOperation
@@ -16,7 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, CheckinSource, Member, MemberStatus
-from app.schemas import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.schemas import (
+    ImportErrorEntry,
+    ImportPreview,
+    ImportPreviewRow,
+    ImportPreviewSourceColumn,
+    ImportSummary,
+    MissingMemberEntry,
+)
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
@@ -148,6 +156,53 @@ _CHECKIN_PREVIEW_COLUMNS = set(
     + CHECKIN_TIME_KEYS
     + CHECKIN_SOURCE_KEYS
 )
+_MEMBER_MAPPING_TARGETS = {
+    "full_name": "Nome completo",
+    "first_name": "Primeiro nome",
+    "last_name": "Sobrenome",
+    "email": "Email",
+    "phone": "Telefone",
+    "cpf": "CPF",
+    "plan_name": "Plano",
+    "monthly_fee": "Mensalidade",
+    "join_date": "Data de inicio",
+    "last_checkin_at": "Ultimo acesso",
+    "preferred_shift": "Turno preferido",
+    "status": "Status",
+    "external_id": "Matricula",
+}
+_CHECKIN_MAPPING_TARGETS = {
+    "member_id": "ID do membro",
+    "member_name": "Nome do membro",
+    "first_name": "Primeiro nome",
+    "last_name": "Sobrenome",
+    "email": "Email",
+    "external_id": "Matricula",
+    "cpf": "CPF",
+    "plan_name": "Plano",
+    "checkin_at": "Data e hora do check-in",
+    "checkin_date": "Data do check-in",
+    "checkin_time": "Hora do check-in",
+    "source": "Origem",
+}
+_MEMBER_ALIAS_TO_TARGET = {key: "full_name" for key in NAME_KEYS} | {key: "first_name" for key in FIRST_NAME_KEYS} | {
+    key: "last_name" for key in LAST_NAME_KEYS
+} | {key: "email" for key in EMAIL_KEYS} | {key: "phone" for key in PHONE_KEYS} | {
+    key: "cpf" for key in CPF_KEYS
+} | {key: "plan_name" for key in PLAN_KEYS} | {key: "monthly_fee" for key in MONTHLY_FEE_KEYS} | {
+    key: "join_date" for key in JOIN_DATE_KEYS
+} | {key: "last_checkin_at" for key in LAST_ACCESS_KEYS} | {
+    key: "preferred_shift" for key in PREFERRED_SHIFT_KEYS
+} | {key: "status" for key in STATUS_KEYS} | {key: "external_id" for key in EXTERNAL_ID_KEYS}
+_CHECKIN_ALIAS_TO_TARGET = {key: "member_name" for key in NAME_KEYS} | {key: "first_name" for key in FIRST_NAME_KEYS} | {
+    key: "last_name" for key in LAST_NAME_KEYS
+} | {key: "email" for key in EMAIL_KEYS} | {key: "cpf" for key in CPF_KEYS} | {
+    key: "plan_name" for key in PLAN_KEYS
+} | {key: "external_id" for key in EXTERNAL_ID_KEYS} | {key: "member_id" for key in MEMBER_ID_KEYS} | {
+    key: "checkin_at" for key in CHECKIN_AT_KEYS
+} | {key: "checkin_date" for key in CHECKIN_DATE_KEYS} | {
+    key: "checkin_time" for key in CHECKIN_TIME_KEYS
+} | {key: "source" for key in CHECKIN_SOURCE_KEYS}
 
 
 def _should_create_import_onboarding(join_date: date | None) -> bool:
@@ -163,6 +218,144 @@ def _build_preview_columns(seen_columns: set[str], allowed_columns: set[str]) ->
     recognized = sorted(column for column in seen_columns if column in allowed_columns)
     unrecognized = sorted(column for column in seen_columns if column not in allowed_columns)
     return recognized, unrecognized
+
+
+def _normalize_mapping_inputs(
+    column_mappings: dict[str, str] | None,
+    ignored_columns: list[str] | None,
+    target_options: dict[str, str],
+) -> tuple[dict[str, str], set[str]]:
+    normalized_mappings: dict[str, str] = {}
+    for source, target in (column_mappings or {}).items():
+        source_key = _normalize_header(str(source))
+        target_key = _normalize_header(str(target))
+        if source_key and target_key and target_key in target_options:
+            normalized_mappings[source_key] = target_key
+
+    normalized_ignored = {
+        _normalize_header(str(source))
+        for source in (ignored_columns or [])
+        if _normalize_header(str(source))
+    }
+    for source_key in normalized_ignored:
+        normalized_mappings.pop(source_key, None)
+    return normalized_mappings, normalized_ignored
+
+
+def _validate_mapping_commit(column_mappings: dict[str, str]) -> None:
+    target_usage: Counter[str] = Counter(column_mappings.values())
+    conflicting_targets = sorted(target for target, count in target_usage.items() if count > 1)
+    if conflicting_targets:
+        raise ValueError("Existem colunas mapeadas para o mesmo campo de destino.")
+
+
+def _apply_column_mapping(
+    row: dict[str, str],
+    column_mappings: dict[str, str],
+    ignored_columns: set[str],
+) -> dict[str, str]:
+    mapped: dict[str, str] = {}
+    for source_key, value in row.items():
+        if source_key in ignored_columns:
+            continue
+        target_key = column_mappings.get(source_key, source_key)
+        if not target_key:
+            continue
+        if target_key not in mapped or not mapped[target_key]:
+            mapped[target_key] = value
+    return mapped
+
+
+def _collect_source_samples(
+    sample_values: dict[str, list[str]],
+    row: dict[str, str],
+) -> None:
+    for source_key, value in row.items():
+        if not value:
+            continue
+        bucket = sample_values.setdefault(source_key, [])
+        if value in bucket:
+            continue
+        if len(bucket) >= 2:
+            continue
+        bucket.append(value)
+
+
+def _humanize_source_label(source_key: str) -> str:
+    return source_key.replace("_", " ").strip() or source_key
+
+
+def _suggest_mapping_target(
+    source_key: str,
+    target_options: dict[str, str],
+    alias_to_target: dict[str, str],
+) -> str | None:
+    direct_target = alias_to_target.get(source_key)
+    if direct_target in target_options:
+        return direct_target
+
+    matches = get_close_matches(source_key, list(target_options.keys()), n=1, cutoff=0.65)
+    if matches:
+        return matches[0]
+    return None
+
+
+def _build_mapping_preview(
+    *,
+    seen_columns: set[str],
+    sample_values: dict[str, list[str]],
+    allowed_columns: set[str],
+    target_options: dict[str, str],
+    alias_to_target: dict[str, str],
+    column_mappings: dict[str, str],
+    ignored_columns: set[str],
+    valid_rows: int,
+) -> tuple[list[str], list[str], list[ImportPreviewSourceColumn], list[str], list[str], bool]:
+    target_usage: Counter[str] = Counter(column_mappings.values())
+    conflicting_targets = sorted(target for target, count in target_usage.items() if count > 1)
+
+    source_columns: list[ImportPreviewSourceColumn] = []
+    for source_key in sorted(seen_columns):
+        applied_target = column_mappings.get(source_key)
+        suggested_target = None
+        status = "recognized"
+
+        if source_key in ignored_columns:
+            status = "ignored"
+        elif applied_target and applied_target in conflicting_targets:
+            status = "conflict"
+        elif applied_target:
+            status = "mapped"
+        elif source_key in allowed_columns:
+            status = "recognized"
+        else:
+            status = "needs_mapping"
+            suggested_target = _suggest_mapping_target(source_key, target_options, alias_to_target)
+
+        source_columns.append(
+            ImportPreviewSourceColumn(
+                source_key=source_key,
+                source_label=_humanize_source_label(source_key),
+                status=status,
+                suggested_target=suggested_target,
+                applied_target=applied_target,
+                sample_values=sample_values.get(source_key, []),
+            )
+        )
+
+    recognized_columns = sorted(
+        column.source_key for column in source_columns if column.status in {"recognized", "mapped"}
+    )
+    unrecognized_columns = sorted(column.source_key for column in source_columns if column.status == "needs_mapping")
+    blocking_issues: list[str] = []
+    if conflicting_targets:
+        blocking_issues.append("Existem colunas mapeadas para o mesmo campo de destino.")
+    if valid_rows == 0:
+        blocking_issues.append("Nenhuma linha valida foi encontrada com o mapeamento atual.")
+
+    mapping_required = any(column.status in {"needs_mapping", "conflict"} for column in source_columns)
+    can_confirm = valid_rows > 0 and not conflicting_targets
+    return recognized_columns, unrecognized_columns, source_columns, conflicting_targets, blocking_issues, can_confirm
 
 
 def _preview_member_snapshot(
@@ -184,7 +377,14 @@ def _preview_member_snapshot(
     }
 
 
-def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportPreview:
+def preview_members_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportPreview:
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
     sample_rows: list[ImportPreviewRow] = []
@@ -194,6 +394,13 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
     would_update = 0
     would_skip = 0
     seen_columns: set[str] = set()
+    source_samples: dict[str, list[str]] = {}
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _MEMBER_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
@@ -206,14 +413,16 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
     for row_number, row in _iter_rows(csv_content, filename=filename):
         total_rows += 1
         seen_columns.update(row.keys())
-        full_name = _extract_member_name(row)
+        _collect_source_samples(source_samples, row)
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        full_name = _extract_member_name(mapped_row)
         if not full_name:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=mapped_row))
             continue
 
-        email = _truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
-        external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
-        cpf_digits = _digits(_pick_first(row, CPF_KEYS))
+        email = _truncate(((_pick_first(mapped_row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
+        external_id = _normalize_external_id(_pick_first(mapped_row, EXTERNAL_ID_KEYS))
+        cpf_digits = _digits(_pick_first(mapped_row, CPF_KEYS))
 
         if email and email in seen_emails:
             would_skip += 1
@@ -226,23 +435,23 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
             continue
 
         try:
-            _parse_decimal(_pick_first(row, MONTHLY_FEE_KEYS))
-            canonical_join_date = _parse_date(_pick_first(row, JOIN_DATE_KEYS))
+            _parse_decimal(_pick_first(mapped_row, MONTHLY_FEE_KEYS))
+            canonical_join_date = _parse_date(_pick_first(mapped_row, JOIN_DATE_KEYS))
             join_date = canonical_join_date or datetime.now(tz=timezone.utc).date()
-            _parse_datetime(_pick_first(row, LAST_ACCESS_KEYS))
+            _parse_datetime(_pick_first(mapped_row, LAST_ACCESS_KEYS))
         except ValueError:
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Formato invalido de valor/data",
-                    payload=row,
+                    payload=mapped_row,
                 )
             )
             continue
 
         valid_rows += 1
         existing_member = _find_existing_member_by_import_keys(lookup, email=email, external_id=external_id, cpf_digits=cpf_digits)
-        plan_name, _, _ = _extract_plan_metadata(row, join_date=join_date)
+        plan_name, _, _ = _extract_plan_metadata(mapped_row, join_date=join_date)
         action = "update_member" if existing_member else "create_member"
 
         if existing_member:
@@ -266,7 +475,7 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
                         email=email,
                         plan_name=plan_name,
                         join_date=join_date,
-                        row=row,
+                        row=mapped_row,
                         action=action,
                     ),
                 )
@@ -279,7 +488,23 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
         if cpf_digits:
             seen_cpfs.add(cpf_digits)
 
-    recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _MEMBER_PREVIEW_COLUMNS)
+    (
+        recognized_columns,
+        unrecognized_columns,
+        source_columns,
+        conflicting_targets,
+        blocking_issues,
+        can_confirm,
+    ) = _build_mapping_preview(
+        seen_columns=seen_columns,
+        sample_values=source_samples,
+        allowed_columns=_MEMBER_PREVIEW_COLUMNS,
+        target_options=_MEMBER_MAPPING_TARGETS,
+        alias_to_target=_MEMBER_ALIAS_TO_TARGET,
+        column_mappings=normalized_mappings,
+        ignored_columns=normalized_ignored,
+        valid_rows=valid_rows,
+    )
     return ImportPreview(
         preview_kind="members",
         total_rows=total_rows,
@@ -289,6 +514,13 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
         would_skip=would_skip,
         recognized_columns=recognized_columns,
         unrecognized_columns=unrecognized_columns,
+        mapping_required=bool(unrecognized_columns or conflicting_targets),
+        can_confirm=can_confirm,
+        resolved_mappings=normalized_mappings,
+        ignored_columns=sorted(normalized_ignored),
+        conflicting_targets=conflicting_targets,
+        blocking_issues=blocking_issues,
+        source_columns=source_columns,
         warnings=warnings,
         sample_rows=sample_rows,
         errors=errors,
@@ -301,6 +533,8 @@ def preview_checkins_csv(
     filename: str | None = None,
     *,
     auto_create_missing_members: bool = False,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
 ) -> ImportPreview:
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
@@ -312,10 +546,16 @@ def preview_checkins_csv(
     ignored = 0
     provisional_members_possible = 0
     seen_columns: set[str] = set()
+    source_samples: dict[str, list[str]] = {}
     seen_entries: set[tuple[str, str]] = set()
     pending_existing_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
     missing_member_counts: Counter[str] = Counter()
     missing_member_plans: dict[str, str | None] = {}
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _CHECKIN_MAPPING_TARGETS,
+    )
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
@@ -323,22 +563,24 @@ def preview_checkins_csv(
     for row_number, row in _iter_rows(csv_content, filename=filename):
         total_rows += 1
         seen_columns.update(row.keys())
-        if _is_ignorable_checkin_row(row):
+        _collect_source_samples(source_samples, row)
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        if _is_ignorable_checkin_row(mapped_row):
             ignored += 1
             continue
 
         parsed = _parse_checkin_datetime(
-            checkin_raw=_pick_first(row, CHECKIN_AT_KEYS),
-            date_raw=_pick_first(row, CHECKIN_DATE_KEYS),
-            time_raw=_pick_first(row, CHECKIN_TIME_KEYS),
+            checkin_raw=_pick_first(mapped_row, CHECKIN_AT_KEYS),
+            date_raw=_pick_first(mapped_row, CHECKIN_DATE_KEYS),
+            time_raw=_pick_first(mapped_row, CHECKIN_TIME_KEYS),
         )
         if not parsed:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=mapped_row))
             continue
 
-        member = _resolve_member_from_row(row, lookup)
+        member = _resolve_member_from_row(mapped_row, lookup)
         if not member and auto_create_missing_members:
-            full_name = _extract_member_name(row)
+            full_name = _extract_member_name(mapped_row)
             if _is_viable_member_name(full_name):
                 provisional_members_possible += 1
                 valid_rows += 1
@@ -351,7 +593,7 @@ def preview_checkins_csv(
                             preview={
                                 "full_name": full_name,
                                 "checkin_at": parsed.isoformat(),
-                                "plan_name": _extract_plan_name(row),
+                                "plan_name": _extract_plan_name(mapped_row),
                                 "action": "create_provisional_member",
                             },
                         )
@@ -359,16 +601,16 @@ def preview_checkins_csv(
                 continue
 
         if not member:
-            missing_name = _extract_member_name(row)
+            missing_name = _extract_member_name(mapped_row)
             if missing_name:
                 missing_member_counts[missing_name] += 1
-                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
             would_skip += 1
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
-                    payload=row,
+                    payload=mapped_row,
                 )
             )
             continue
@@ -379,7 +621,7 @@ def preview_checkins_csv(
             would_skip += 1
             continue
         seen_entries.add(unique_key)
-        pending_existing_rows.append((member, parsed, row_number, row))
+        pending_existing_rows.append((member, parsed, row_number, mapped_row))
 
     existing_keys = _fetch_existing_checkin_keys(db, [(member.id, parsed) for member, parsed, _, _ in pending_existing_rows])
     for member, parsed, row_number, row in pending_existing_rows:
@@ -405,7 +647,23 @@ def preview_checkins_csv(
     if auto_create_missing_members and provisional_members_possible > 0:
         warnings.append("Cadastros provisiorios criados por catraca nao geram onboarding automatico.")
 
-    recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _CHECKIN_PREVIEW_COLUMNS)
+    (
+        recognized_columns,
+        unrecognized_columns,
+        source_columns,
+        conflicting_targets,
+        blocking_issues,
+        can_confirm,
+    ) = _build_mapping_preview(
+        seen_columns=seen_columns,
+        sample_values=source_samples,
+        allowed_columns=_CHECKIN_PREVIEW_COLUMNS,
+        target_options=_CHECKIN_MAPPING_TARGETS,
+        alias_to_target=_CHECKIN_ALIAS_TO_TARGET,
+        column_mappings=normalized_mappings,
+        ignored_columns=normalized_ignored,
+        valid_rows=valid_rows,
+    )
     return ImportPreview(
         preview_kind="checkins",
         total_rows=total_rows,
@@ -416,6 +674,13 @@ def preview_checkins_csv(
         provisional_members_possible=provisional_members_possible,
         recognized_columns=recognized_columns,
         unrecognized_columns=unrecognized_columns,
+        mapping_required=bool(unrecognized_columns or conflicting_targets),
+        can_confirm=can_confirm,
+        resolved_mappings=normalized_mappings,
+        ignored_columns=sorted(normalized_ignored),
+        conflicting_targets=conflicting_targets,
+        blocking_issues=blocking_issues,
+        source_columns=source_columns,
         missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
         warnings=warnings,
         sample_rows=sample_rows,
@@ -423,11 +688,24 @@ def preview_checkins_csv(
     )
 
 
-def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
+def import_members_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
     pending_count = 0
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _MEMBER_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
@@ -436,14 +714,15 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
     seen_cpfs: set[str] = set()
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
-        full_name = _extract_member_name(row)
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        full_name = _extract_member_name(mapped_row)
         if not full_name:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=mapped_row))
             continue
 
-        email = _truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
-        external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
-        cpf_digits = _digits(_pick_first(row, CPF_KEYS))
+        email = _truncate(((_pick_first(mapped_row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
+        external_id = _normalize_external_id(_pick_first(mapped_row, EXTERNAL_ID_KEYS))
+        cpf_digits = _digits(_pick_first(mapped_row, CPF_KEYS))
 
         if email and email in seen_emails:
             duplicates += 1
@@ -455,19 +734,19 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             duplicates += 1
             continue
 
-        monthly_fee_raw = _pick_first(row, MONTHLY_FEE_KEYS)
-        join_date_raw = _pick_first(row, JOIN_DATE_KEYS)
+        monthly_fee_raw = _pick_first(mapped_row, MONTHLY_FEE_KEYS)
+        join_date_raw = _pick_first(mapped_row, JOIN_DATE_KEYS)
         try:
             monthly_fee = _parse_decimal(monthly_fee_raw)
             canonical_join_date = _parse_date(join_date_raw)
             join_date = canonical_join_date or datetime.now(tz=timezone.utc).date()
-            last_checkin_at = _parse_datetime(_pick_first(row, LAST_ACCESS_KEYS))
+            last_checkin_at = _parse_datetime(_pick_first(mapped_row, LAST_ACCESS_KEYS))
         except ValueError:
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Formato invalido de valor/data",
-                    payload=row,
+                    payload=mapped_row,
                 )
             )
             continue
@@ -476,7 +755,7 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         if existing_member:
             if _refresh_existing_member_from_import_row(
                 existing_member,
-                row,
+                mapped_row,
                 email=email,
                 external_id=external_id,
                 cpf_digits=cpf_digits,
@@ -498,25 +777,25 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
                 pending_count = 0
             continue
 
-        plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=join_date)
+        plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(mapped_row, join_date=join_date)
         extra_data: dict = {"imported": True}
         if external_id:
             extra_data["external_id"] = external_id
-        _populate_member_extra_data(extra_data, row)
+        _populate_member_extra_data(extra_data, mapped_row)
         extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
         extra_data["plan_cycle_source"] = plan_cycle_source
 
         member = Member(
             full_name=full_name,
             email=email,
-            phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
+            phone=_normalize_phone(_pick_first(mapped_row, PHONE_KEYS)),
             cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
-            status=_parse_member_status(_pick_first(row, STATUS_KEYS)),
+            status=_parse_member_status(_pick_first(mapped_row, STATUS_KEYS)),
             plan_name=plan_name,
             monthly_fee=monthly_fee,
             join_date=join_date,
             loyalty_months=_compute_loyalty_months(join_date),
-            preferred_shift=_extract_preferred_shift(row),
+            preferred_shift=_extract_preferred_shift(mapped_row),
             last_checkin_at=last_checkin_at,
             extra_data=extra_data,
         )
@@ -552,6 +831,8 @@ def import_checkins_csv(
     filename: str | None = None,
     *,
     auto_create_missing_members: bool = False,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
 ) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
@@ -563,41 +844,48 @@ def import_checkins_csv(
     pending_rows: list[tuple[Member, datetime, CheckinSource, dict[str, str]]] = []
     missing_member_counts: Counter[str] = Counter()
     missing_member_plans: dict[str, str | None] = {}
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _CHECKIN_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
-        if _is_ignorable_checkin_row(row):
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        if _is_ignorable_checkin_row(mapped_row):
             ignored += 1
             continue
 
-        date_raw = _pick_first(row, CHECKIN_DATE_KEYS)
-        time_raw = _pick_first(row, CHECKIN_TIME_KEYS)
-        checkin_raw = _pick_first(row, CHECKIN_AT_KEYS)
+        date_raw = _pick_first(mapped_row, CHECKIN_DATE_KEYS)
+        time_raw = _pick_first(mapped_row, CHECKIN_TIME_KEYS)
+        checkin_raw = _pick_first(mapped_row, CHECKIN_AT_KEYS)
         parsed = _parse_checkin_datetime(checkin_raw=checkin_raw, date_raw=date_raw, time_raw=time_raw)
         if not parsed:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=mapped_row))
             continue
 
-        member = _resolve_member_from_row(row, lookup)
+        member = _resolve_member_from_row(mapped_row, lookup)
         if not member and auto_create_missing_members:
-            member = _create_provisional_member_from_checkin(db, row, parsed)
+            member = _create_provisional_member_from_checkin(db, mapped_row, parsed)
             if member:
                 provisional_created += 1
                 provisional_members.append(member.full_name)
                 _add_member_to_lookups(member, lookup)
 
         if not member:
-            missing_name = _extract_member_name(row)
+            missing_name = _extract_member_name(mapped_row)
             if missing_name:
                 missing_member_counts[missing_name] += 1
-                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
-                    payload=row,
+                    payload=mapped_row,
                 )
             )
             continue
@@ -607,7 +895,14 @@ def import_checkins_csv(
             duplicates += 1
             continue
         seen_entries.add(unique_key)
-        pending_rows.append((member, parsed, _parse_checkin_source(_pick_first(row, CHECKIN_SOURCE_KEYS)), row))
+        pending_rows.append(
+            (
+                member,
+                parsed,
+                _parse_checkin_source(_pick_first(mapped_row, CHECKIN_SOURCE_KEYS)),
+                mapped_row,
+            )
+        )
 
     existing_keys = _fetch_existing_checkin_keys(db, [(member.id, parsed) for member, parsed, _, _ in pending_rows])
 

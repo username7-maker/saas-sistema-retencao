@@ -1,6 +1,10 @@
 import { api } from "./api";
 import type { ImportPreview, ImportSummary } from "../types";
 
+export interface ImportMappingPayload {
+  columnMappings?: Record<string, string>;
+  ignoredColumns?: string[];
+}
 
 function parseFilename(contentDisposition?: string): string {
   if (!contentDisposition) return "export.csv";
@@ -20,32 +24,64 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 export const importExportService = {
-  async previewMembers(file: File): Promise<ImportPreview> {
+  async previewMembers(file: File, mapping?: ImportMappingPayload): Promise<ImportPreview> {
     const form = new FormData();
     form.append("file", file);
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
     const response = await api.post("/api/v1/imports/members/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 
-  async importMembers(file: File): Promise<ImportSummary> {
+  async importMembers(file: File, mapping?: ImportMappingPayload): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
     const response = await api.post("/api/v1/imports/members", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
 
-  async previewCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportPreview> {
+  async previewCheckins(
+    file: File,
+    autoCreateMissingMembers = false,
+    mapping?: ImportMappingPayload,
+  ): Promise<ImportPreview> {
     const form = new FormData();
     form.append("file", file);
     form.append("auto_create_missing_members", String(autoCreateMissingMembers));
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
     const response = await api.post("/api/v1/imports/checkins/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 
-  async importCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportSummary> {
+  async importCheckins(
+    file: File,
+    autoCreateMissingMembers = false,
+    mapping?: ImportMappingPayload,
+  ): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
     form.append("auto_create_missing_members", String(autoCreateMissingMembers));
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
     const response = await api.post("/api/v1/imports/checkins", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },

@@ -5,6 +5,7 @@ from uuid import uuid4
 import zipfile
 from xml.sax.saxutils import escape
 from unittest.mock import MagicMock
+import pytest
 
 from app.models import CheckinSource, Member, MemberStatus
 from app.services import import_service
@@ -338,6 +339,32 @@ def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
     assert len(preview.sample_rows) == 2
 
 
+def test_preview_members_csv_reports_manual_mapping_metadata() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,email,registro\nAluno Novo,novo@example.com,MAT-001\n".encode("utf-8")
+
+    preview = import_service.preview_members_csv(
+        db,
+        csv_content,
+        filename="clientes.csv",
+        column_mappings={"registro": "external_id"},
+    )
+
+    assert preview.unrecognized_columns == []
+    assert preview.resolved_mappings == {"registro": "external_id"}
+    assert preview.can_confirm is True
+    assert any(
+        column.source_key == "registro"
+        and column.status == "mapped"
+        and column.applied_target == "external_id"
+        for column in preview.source_columns
+    )
+
+
 def test_import_members_csv_creates_onboarding_for_recent_join_date(monkeypatch) -> None:
     db = MagicMock()
     mock_scalars = MagicMock()
@@ -395,6 +422,45 @@ def test_import_members_csv_skips_onboarding_when_join_date_is_missing(monkeypat
     assert summary.imported == 1
     assert onboarding_calls == []
     assert plan_followup_calls == []
+
+
+def test_import_members_csv_applies_manual_mapping_to_external_id() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,email,registro\nAluno Novo,novo@example.com,MAT-001\n".encode("utf-8")
+
+    summary = import_service.import_members_csv(
+        db,
+        csv_content,
+        filename="clientes.csv",
+        column_mappings={"registro": "external_id"},
+    )
+
+    created_members = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Member)]
+
+    assert summary.imported == 1
+    assert len(created_members) == 1
+    assert created_members[0].extra_data["external_id"] == "mat-001"
+
+
+def test_import_members_csv_rejects_conflicting_manual_mappings() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,registro,codigo\nAluno Novo,MAT-001,COD-001\n".encode("utf-8")
+
+    with pytest.raises(ValueError, match="mesmo campo de destino"):
+        import_service.import_members_csv(
+            db,
+            csv_content,
+            filename="clientes.csv",
+            column_mappings={"registro": "external_id", "codigo": "external_id"},
+        )
 
 
 def test_extract_preferred_shift_uses_schedule_column() -> None:
@@ -563,6 +629,38 @@ def test_import_checkins_csv_auto_creates_missing_members(monkeypatch) -> None:
     assert summary.provisional_members_created == 1
     assert summary.provisional_members == ["Mateus Dalsant Zonatto"]
     assert summary.missing_members == []
+    assert summary.errors == []
+    assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
+
+
+def test_import_checkins_csv_applies_manual_mapping_to_external_id() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={"external_id": "mat-001"},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = "registro,data,hora\nMAT-001,2026-03-01,08:00\n".encode("utf-8")
+
+    summary = import_service.import_checkins_csv(
+        db,
+        csv_content,
+        filename="checkins.csv",
+        column_mappings={"registro": "external_id"},
+    )
+
+    assert summary.imported == 1
     assert summary.errors == []
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
 

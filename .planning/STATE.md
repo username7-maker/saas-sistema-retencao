@@ -2,8 +2,8 @@
 milestone: v3.2.0
 phase: 4
 plan: "04-PLAN.md"
-status: Phase 4 planned
-last_activity: 2026-03-24 - Phase 4 context, UI-SPEC, research and plan created
+status: Phase 4 completed
+last_activity: 2026-03-24 - Phase 4 implemented and validated
 ---
 
 # STATE
@@ -19,15 +19,15 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Phase:** 4
 **Plan:** `04-PLAN.md`
-**Status:** Phase 4 pronta para execucao
-**Last activity:** 2026-03-24 - contexto, UI-SPEC, research, validation e plano da fase 4 criados
+**Status:** Phase 4 concluida; pronta para avancar para a Phase 5
+**Last activity:** 2026-03-24 - import mapper implementado, testado e validado
 
 ## Progress Snapshot
 
 **Active milestone:** v3.2.0
 **Phases planned:** 3
 **Plans planned:** 0
-**Plans completed:** 0
+**Plans completed:** 1
 
 ## Accumulated Context
 
@@ -37,6 +37,6 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ### Current Milestone Scope
 
-- Phase 4: import mapper e reconciliacao manual
+- Phase 4: import mapper e reconciliacao manual - concluida
 - Phase 5: bulk update dedicado de membros
 - Phase 6: busca operacional por telefone/CPF

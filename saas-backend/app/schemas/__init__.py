@@ -39,7 +39,14 @@ from app.schemas.dashboard import (
     WeeklySummary,
 )
 from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
-from app.schemas.imports import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.schemas.imports import (
+    ImportErrorEntry,
+    ImportPreview,
+    ImportPreviewRow,
+    ImportPreviewSourceColumn,
+    ImportSummary,
+    MissingMemberEntry,
+)
 from app.schemas.lead import LeadConversionHandoff, LeadCreate, LeadNoteCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate, OnboardingScoreOut
@@ -105,6 +112,7 @@ __all__ = [
     "ImportErrorEntry",
     "ImportPreview",
     "ImportPreviewRow",
+    "ImportPreviewSourceColumn",
     "ImportSummary",
     "MissingMemberEntry",
     "LeadCreate",

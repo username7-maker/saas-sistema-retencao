@@ -19,6 +19,13 @@
 Plans:
 - [x] 04-PLAN.md - mapper assistido sobre o preview atual, com revalidacao antes do commit
 
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [x] verify/validate
+
 ### Phase 5: Bulk update dedicado de membros
 
 **Goal:** Criar fluxo dedicado de atualizacao em massa fora da importacao.

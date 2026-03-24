@@ -3,8 +3,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, FileUp } from "lucide-react";
 import toast from "react-hot-toast";
 
-import { importExportService } from "../../services/importExportService";
-import type { ImportPreview, ImportSummary, MissingMemberEntry } from "../../types";
+import {
+  importExportService,
+  type ImportMappingPayload,
+} from "../../services/importExportService";
+import type { ImportPreview, ImportPreviewSourceColumn, ImportSummary, MissingMemberEntry } from "../../types";
 import {
   getIgnoredRowsHint,
   getImportSummaryNotice,
@@ -107,6 +110,180 @@ function formatPreviewValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+const MEMBER_MAPPING_OPTIONS = [
+  { value: "full_name", label: "Nome completo" },
+  { value: "first_name", label: "Primeiro nome" },
+  { value: "last_name", label: "Sobrenome" },
+  { value: "email", label: "Email" },
+  { value: "phone", label: "Telefone" },
+  { value: "cpf", label: "CPF" },
+  { value: "plan_name", label: "Plano" },
+  { value: "monthly_fee", label: "Mensalidade" },
+  { value: "join_date", label: "Data de inicio" },
+  { value: "last_checkin_at", label: "Ultimo acesso" },
+  { value: "preferred_shift", label: "Turno preferido" },
+  { value: "status", label: "Status" },
+  { value: "external_id", label: "Matricula" },
+];
+
+const CHECKIN_MAPPING_OPTIONS = [
+  { value: "member_id", label: "ID do membro" },
+  { value: "member_name", label: "Nome do membro" },
+  { value: "first_name", label: "Primeiro nome" },
+  { value: "last_name", label: "Sobrenome" },
+  { value: "email", label: "Email" },
+  { value: "external_id", label: "Matricula" },
+  { value: "cpf", label: "CPF" },
+  { value: "plan_name", label: "Plano" },
+  { value: "checkin_at", label: "Data e hora do check-in" },
+  { value: "checkin_date", label: "Data do check-in" },
+  { value: "checkin_time", label: "Hora do check-in" },
+  { value: "source", label: "Origem" },
+];
+
+function buildImportMappingPayload(
+  columnMappings: Record<string, string>,
+  ignoredColumns: string[],
+): ImportMappingPayload | undefined {
+  if (Object.keys(columnMappings).length === 0 && ignoredColumns.length === 0) return undefined;
+  return { columnMappings, ignoredColumns };
+}
+
+function getMappingRows(preview: ImportPreview | null): ImportPreviewSourceColumn[] {
+  if (!preview) return [];
+  return preview.source_columns.filter((column) => column.status !== "recognized");
+}
+
+function getStatusBadgeClass(status: ImportPreviewSourceColumn["status"]): string {
+  switch (status) {
+    case "mapped":
+      return "border-emerald-300 bg-emerald-50 text-emerald-950";
+    case "ignored":
+      return "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted";
+    case "conflict":
+      return "border-lovable-danger/50 bg-lovable-danger/10 text-lovable-danger";
+    case "needs_mapping":
+      return "border-amber-300 bg-amber-50 text-amber-950";
+    default:
+      return "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted";
+  }
+}
+
+function getStatusLabel(status: ImportPreviewSourceColumn["status"]): string {
+  switch (status) {
+    case "mapped":
+      return "Mapeada";
+    case "ignored":
+      return "Ignorada";
+    case "conflict":
+      return "Conflito";
+    case "needs_mapping":
+      return "Precisa mapear";
+    default:
+      return "Reconhecida";
+  }
+}
+
+function ReconciliationPanel({
+  preview,
+  options,
+  columnMappings,
+  ignoredColumns,
+  onMappingChange,
+  onToggleIgnore,
+  previewDirty,
+}: {
+  preview: ImportPreview | null;
+  options: Array<{ value: string; label: string }>;
+  columnMappings: Record<string, string>;
+  ignoredColumns: string[];
+  onMappingChange: (sourceKey: string, target: string) => void;
+  onToggleIgnore: (sourceKey: string) => void;
+  previewDirty: boolean;
+}) {
+  if (!preview) return null;
+
+  const rows = getMappingRows(preview);
+  if (rows.length === 0 && preview.recognized_columns.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-4 text-sm text-lovable-ink shadow-panel">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Reconciliar colunas</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
+            Associe colunas nao reconhecidas aos campos aceitos pelo sistema antes de confirmar.
+          </p>
+        </div>
+        {previewDirty ? (
+          <span className="rounded-full border border-brand-300 bg-brand-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-brand-700">
+            Revalidacao pendente
+          </span>
+        ) : null}
+      </div>
+
+      {preview.recognized_columns.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-xs text-lovable-ink-muted">
+          <span className="font-semibold text-lovable-ink">Ja reconhecidas:</span>{" "}
+          {preview.recognized_columns.join(", ")}
+        </div>
+      ) : null}
+
+      {rows.length > 0 ? (
+        <div className="mt-3 space-y-3">
+          {rows.map((column) => {
+            const currentTarget = columnMappings[column.source_key] ?? column.applied_target ?? "";
+            const ignored = ignoredColumns.includes(column.source_key);
+            return (
+              <div key={column.source_key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-lovable-ink">{column.source_label}</p>
+                    {column.sample_values.length > 0 ? (
+                      <p className="mt-1 text-xs text-lovable-ink-muted">
+                        Exemplo: {column.sample_values.join(" | ")}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${getStatusBadgeClass(column.status)}`}>
+                    {getStatusLabel(column.status)}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <select
+                    value={ignored ? "" : currentTarget}
+                    onChange={(event) => onMappingChange(column.source_key, event.target.value)}
+                    className="min-w-[220px] rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none"
+                  >
+                    <option value="">Selecionar campo</option>
+                    {options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => onToggleIgnore(column.source_key)}
+                    className="rounded-lg border border-lovable-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink hover:border-lovable-border-strong"
+                  >
+                    {ignored ? "Reativar coluna" : "Ignorar coluna"}
+                  </button>
+                </div>
+                {!currentTarget && column.suggested_target && !ignored ? (
+                  <p className="mt-2 text-xs text-lovable-ink-muted">
+                    Sugestao: {options.find((option) => option.value === column.suggested_target)?.label ?? column.suggested_target}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PreviewResult({
   preview,
   allowMissingExport = false,
@@ -155,6 +332,14 @@ function PreviewResult({
         <ul className="mt-3 space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-950">
           {preview.warnings.map((warning) => (
             <li key={warning}>- {warning}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {preview.blocking_issues.length > 0 ? (
+        <ul className="mt-3 space-y-1 rounded-lg border border-lovable-danger/40 bg-lovable-danger/10 px-3 py-2 text-[11px] text-lovable-danger">
+          {preview.blocking_issues.map((issue) => (
+            <li key={issue}>- {issue}</li>
           ))}
         </ul>
       ) : null}
@@ -315,11 +500,35 @@ export function ImportsPage() {
   const [checkinsPreview, setCheckinsPreview] = useState<ImportPreview | null>(null);
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
+  const [membersColumnMappings, setMembersColumnMappings] = useState<Record<string, string>>({});
+  const [checkinsColumnMappings, setCheckinsColumnMappings] = useState<Record<string, string>>({});
+  const [membersIgnoredColumns, setMembersIgnoredColumns] = useState<string[]>([]);
+  const [checkinsIgnoredColumns, setCheckinsIgnoredColumns] = useState<string[]>([]);
+  const [membersPreviewDirty, setMembersPreviewDirty] = useState(false);
+  const [checkinsPreviewDirty, setCheckinsPreviewDirty] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [autoCreateMissingMembers, setAutoCreateMissingMembers] = useState(false);
 
   const hasMissingMembers = useMemo(() => (checkinsSummary?.missing_members.length ?? 0) > 0, [checkinsSummary]);
+  const membersMapping = useMemo(
+    () => buildImportMappingPayload(membersColumnMappings, membersIgnoredColumns),
+    [membersColumnMappings, membersIgnoredColumns],
+  );
+  const checkinsMapping = useMemo(
+    () => buildImportMappingPayload(checkinsColumnMappings, checkinsIgnoredColumns),
+    [checkinsColumnMappings, checkinsIgnoredColumns],
+  );
+  const canConfirmMembersImport = Boolean(
+    membersFile && membersPreview && membersPreview.valid_rows > 0 && membersPreview.can_confirm && !membersPreviewDirty,
+  );
+  const canConfirmCheckinsImport = Boolean(
+    checkinsFile &&
+      checkinsPreview &&
+      checkinsPreview.valid_rows > 0 &&
+      checkinsPreview.can_confirm &&
+      !checkinsPreviewDirty,
+  );
 
   const refreshImportedDataViews = () => {
     void Promise.all([
@@ -335,10 +544,12 @@ export function ImportsPage() {
   };
 
   const importMembersMutation = useMutation({
-    mutationFn: (file: File) => importExportService.importMembers(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
+      importExportService.importMembers(file, mapping),
     onSuccess: (summary) => {
       setMembersSummary(summary);
       setMembersPreview(null);
+      setMembersPreviewDirty(false);
       refreshImportedDataViews();
       toast.success("Importacao de alunos concluida.");
     },
@@ -346,21 +557,33 @@ export function ImportsPage() {
   });
 
   const previewMembersMutation = useMutation({
-    mutationFn: (file: File) => importExportService.previewMembers(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
+      importExportService.previewMembers(file, mapping),
     onSuccess: (preview) => {
       setMembersPreview(preview);
       setMembersSummary(null);
+      setMembersColumnMappings(preview.resolved_mappings);
+      setMembersIgnoredColumns(preview.ignored_columns);
+      setMembersPreviewDirty(false);
       toast.success("Preview de alunos gerado. Revise o impacto antes de confirmar.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const importCheckinsMutation = useMutation({
-    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
-      importExportService.importCheckins(file, autoCreate),
+    mutationFn: ({
+      file,
+      autoCreate,
+      mapping,
+    }: {
+      file: File;
+      autoCreate: boolean;
+      mapping?: ImportMappingPayload;
+    }) => importExportService.importCheckins(file, autoCreate, mapping),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
       setCheckinsPreview(null);
+      setCheckinsPreviewDirty(false);
       refreshImportedDataViews();
       if (isDuplicateOnlyImport(summary)) {
         toast.success("Esse arquivo ja tinha sido importado antes. Nenhum check-in novo foi duplicado.");
@@ -376,11 +599,21 @@ export function ImportsPage() {
   });
 
   const previewCheckinsMutation = useMutation({
-    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
-      importExportService.previewCheckins(file, autoCreate),
+    mutationFn: ({
+      file,
+      autoCreate,
+      mapping,
+    }: {
+      file: File;
+      autoCreate: boolean;
+      mapping?: ImportMappingPayload;
+    }) => importExportService.previewCheckins(file, autoCreate, mapping),
     onSuccess: (preview) => {
       setCheckinsPreview(preview);
       setCheckinsSummary(null);
+      setCheckinsColumnMappings(preview.resolved_mappings);
+      setCheckinsIgnoredColumns(preview.ignored_columns);
+      setCheckinsPreviewDirty(false);
       toast.success("Preview de check-ins gerado. Revise o impacto antes de confirmar.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
@@ -430,6 +663,9 @@ export function ImportsPage() {
               setMembersFile(event.target.files?.[0] ?? null);
               setMembersPreview(null);
               setMembersSummary(null);
+              setMembersColumnMappings({});
+              setMembersIgnoredColumns([]);
+              setMembersPreviewDirty(false);
             }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
@@ -437,16 +673,34 @@ export function ImportsPage() {
             <button
               type="button"
               disabled={!membersFile || previewMembersMutation.isPending}
-              onClick={() => membersFile && previewMembersMutation.mutate(membersFile)}
+              onClick={() =>
+                membersFile &&
+                previewMembersMutation.mutate({
+                  file: membersFile,
+                  mapping: membersMapping,
+                })
+              }
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {previewMembersMutation.isPending ? "Validando..." : "Validar arquivo"}
+              {previewMembersMutation.isPending
+                ? membersPreviewDirty
+                  ? "Revalidando..."
+                  : "Validando..."
+                : membersPreviewDirty
+                  ? "Revalidar preview"
+                  : "Validar arquivo"}
             </button>
             <button
               type="button"
-              disabled={!membersFile || !membersPreview || membersPreview.valid_rows === 0 || importMembersMutation.isPending}
-              onClick={() => membersFile && importMembersMutation.mutate(membersFile)}
+              disabled={!canConfirmMembersImport || importMembersMutation.isPending}
+              onClick={() =>
+                membersFile &&
+                importMembersMutation.mutate({
+                  file: membersFile,
+                  mapping: membersMapping,
+                })
+              }
               className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
             >
               <FileUp size={14} />
@@ -462,7 +716,38 @@ export function ImportsPage() {
               Template alunos
             </button>
           </div>
+          {membersPreviewDirty ? (
+            <p className="mt-2 text-xs text-amber-900">
+              Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
+            </p>
+          ) : null}
           <PreviewResult preview={membersPreview} />
+          <ReconciliationPanel
+            preview={membersPreview}
+            options={MEMBER_MAPPING_OPTIONS}
+            columnMappings={membersColumnMappings}
+            ignoredColumns={membersIgnoredColumns}
+            previewDirty={membersPreviewDirty}
+            onMappingChange={(sourceKey, target) => {
+              setMembersColumnMappings((current) => {
+                const next = { ...current };
+                if (target) {
+                  next[sourceKey] = target;
+                } else {
+                  delete next[sourceKey];
+                }
+                return next;
+              });
+              setMembersIgnoredColumns((current) => current.filter((item) => item !== sourceKey));
+              setMembersPreviewDirty(true);
+            }}
+            onToggleIgnore={(sourceKey) => {
+              setMembersIgnoredColumns((current) =>
+                current.includes(sourceKey) ? current.filter((item) => item !== sourceKey) : [...current, sourceKey],
+              );
+              setMembersPreviewDirty(true);
+            }}
+          />
           <ImportResult summary={membersSummary} />
         </article>
 
@@ -478,6 +763,9 @@ export function ImportsPage() {
               setCheckinsFile(event.target.files?.[0] ?? null);
               setCheckinsPreview(null);
               setCheckinsSummary(null);
+              setCheckinsColumnMappings({});
+              setCheckinsIgnoredColumns([]);
+              setCheckinsPreviewDirty(false);
             }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
@@ -488,6 +776,8 @@ export function ImportsPage() {
               onChange={(event) => {
                 setAutoCreateMissingMembers(event.target.checked);
                 setCheckinsPreview(null);
+                setCheckinsSummary(null);
+                setCheckinsPreviewDirty(false);
               }}
               className="mt-1 h-4 w-4 rounded border-lovable-border text-brand-500 focus:ring-brand-500"
             />
@@ -504,19 +794,33 @@ export function ImportsPage() {
               disabled={!checkinsFile || previewCheckinsMutation.isPending}
               onClick={() =>
                 checkinsFile &&
-                previewCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+                previewCheckinsMutation.mutate({
+                  file: checkinsFile,
+                  autoCreate: autoCreateMissingMembers,
+                  mapping: checkinsMapping,
+                })
               }
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {previewCheckinsMutation.isPending ? "Validando..." : "Validar arquivo"}
+              {previewCheckinsMutation.isPending
+                ? checkinsPreviewDirty
+                  ? "Revalidando..."
+                  : "Validando..."
+                : checkinsPreviewDirty
+                  ? "Revalidar preview"
+                  : "Validar arquivo"}
             </button>
             <button
               type="button"
-              disabled={!checkinsFile || !checkinsPreview || checkinsPreview.valid_rows === 0 || importCheckinsMutation.isPending}
+              disabled={!canConfirmCheckinsImport || importCheckinsMutation.isPending}
               onClick={() =>
                 checkinsFile &&
-                importCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+                importCheckinsMutation.mutate({
+                  file: checkinsFile,
+                  autoCreate: autoCreateMissingMembers,
+                  mapping: checkinsMapping,
+                })
               }
               className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
             >
@@ -542,7 +846,38 @@ export function ImportsPage() {
               Exportar pendentes
             </button>
           </div>
+          {checkinsPreviewDirty ? (
+            <p className="mt-2 text-xs text-amber-900">
+              Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
+            </p>
+          ) : null}
           <PreviewResult preview={checkinsPreview} allowMissingExport />
+          <ReconciliationPanel
+            preview={checkinsPreview}
+            options={CHECKIN_MAPPING_OPTIONS}
+            columnMappings={checkinsColumnMappings}
+            ignoredColumns={checkinsIgnoredColumns}
+            previewDirty={checkinsPreviewDirty}
+            onMappingChange={(sourceKey, target) => {
+              setCheckinsColumnMappings((current) => {
+                const next = { ...current };
+                if (target) {
+                  next[sourceKey] = target;
+                } else {
+                  delete next[sourceKey];
+                }
+                return next;
+              });
+              setCheckinsIgnoredColumns((current) => current.filter((item) => item !== sourceKey));
+              setCheckinsPreviewDirty(true);
+            }}
+            onToggleIgnore={(sourceKey) => {
+              setCheckinsIgnoredColumns((current) =>
+                current.includes(sourceKey) ? current.filter((item) => item !== sourceKey) : [...current, sourceKey],
+              );
+              setCheckinsPreviewDirty(true);
+            }}
+          />
           <ImportResult summary={checkinsSummary} allowMissingExport />
         </article>
       </section>

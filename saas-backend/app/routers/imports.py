@@ -1,4 +1,5 @@
 import logging
+import json
 import threading
 from typing import Annotated
 
@@ -27,6 +28,30 @@ logger = logging.getLogger(__name__)
 
 _MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
 _ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+
+
+def _parse_mapping_dict(raw_value: str | None) -> dict[str, str]:
+    if not raw_value:
+        return {}
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="column_mappings invalido") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="column_mappings deve ser um objeto JSON")
+    return {str(key): str(value) for key, value in parsed.items()}
+
+
+def _parse_ignored_columns(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ignored_columns invalido") from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ignored_columns deve ser uma lista JSON")
+    return [str(item) for item in parsed]
 
 
 def _queue_risk_recalculation(gym_id) -> None:
@@ -69,6 +94,8 @@ async def import_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mappings: str | None = Form(None),
+    ignored_columns: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -78,7 +105,13 @@ async def import_members_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        summary = import_members_csv(db, content, filename=file.filename)
+        summary = import_members_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mappings=_parse_mapping_dict(column_mappings),
+            ignored_columns=_parse_ignored_columns(ignored_columns),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -104,6 +137,8 @@ async def preview_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mappings: str | None = Form(None),
+    ignored_columns: str | None = Form(None),
 ) -> ImportPreview:
     _ = request
     lower_filename = (file.filename or "").lower()
@@ -114,7 +149,13 @@ async def preview_members_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        return preview_members_csv(db, content, filename=file.filename)
+        return preview_members_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mappings=_parse_mapping_dict(column_mappings),
+            ignored_columns=_parse_ignored_columns(ignored_columns),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -127,6 +168,8 @@ async def import_checkins_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
     auto_create_missing_members: bool = Form(False),
+    column_mappings: str | None = Form(None),
+    ignored_columns: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -141,6 +184,8 @@ async def import_checkins_endpoint(
             content,
             filename=file.filename,
             auto_create_missing_members=auto_create_missing_members,
+            column_mappings=_parse_mapping_dict(column_mappings),
+            ignored_columns=_parse_ignored_columns(ignored_columns),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -174,6 +219,8 @@ async def preview_checkins_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
     auto_create_missing_members: bool = Form(False),
+    column_mappings: str | None = Form(None),
+    ignored_columns: str | None = Form(None),
 ) -> ImportPreview:
     _ = request
     lower_filename = (file.filename or "").lower()
@@ -189,6 +236,8 @@ async def preview_checkins_endpoint(
             content,
             filename=file.filename,
             auto_create_missing_members=auto_create_missing_members,
+            column_mappings=_parse_mapping_dict(column_mappings),
+            ignored_columns=_parse_ignored_columns(ignored_columns),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
