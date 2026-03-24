@@ -3,7 +3,7 @@ import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ from app.services.body_composition_service import (
     update_body_composition_evaluation,
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
-from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
+from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
 from app.services.risk import run_daily_risk_processing
@@ -99,6 +99,29 @@ def list_members_endpoint(
         gym_id=current_user.gym_id,
         page=page,
         page_size=page_size,
+        search=search,
+        risk_level=risk_level,
+        status=status,
+        plan_cycle=plan_cycle,
+        min_days_without_checkin=min_days_without_checkin,
+        provisional_only=provisional_only,
+    )
+
+
+@router.get("/index", response_model=list[MemberOut])
+def list_members_index_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    search: str | None = None,
+    risk_level: RiskLevel | None = None,
+    status: MemberStatus | None = None,
+    plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
+    min_days_without_checkin: int | None = Query(default=None, ge=0),
+    provisional_only: bool | None = None,
+) -> list[MemberOut]:
+    return list_member_index(
+        db,
+        gym_id=current_user.gym_id,
         search=search,
         risk_level=risk_level,
         status=status,
@@ -320,6 +343,11 @@ def enqueue_body_composition_actuar_sync_endpoint(
         evaluation_id=evaluation_id,
         created_by_user_id=current_user.id,
     )
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sync Actuar desabilitado para esta academia ou ambiente.",
+        )
     context = get_request_context(request)
     log_audit_event(
         db,

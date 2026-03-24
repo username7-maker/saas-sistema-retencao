@@ -10,9 +10,9 @@ import {
   ASSESSMENT_QUEUE_FILTER_OPTIONS,
   filterAttentionNowItems,
   getQueueRangeLabel,
+  type AssessmentQueueBucket,
   type AssessmentQueueFilter,
   type AssessmentQueueItem,
-  type AssessmentQueueBucket,
 } from "./assessmentOperationsUtils";
 
 interface AssessmentOperationsBoardProps {
@@ -32,11 +32,14 @@ interface AssessmentOperationsBoardProps {
   emptyStateIcon?: LucideIcon;
 }
 
-const BUCKET_STATUS_MAP: Record<AssessmentQueueBucket, { label: string; variant: "neutral" | "success" | "warning" | "danger" }> = {
+const BUCKET_STATUS_MAP: Record<
+  AssessmentQueueBucket,
+  { label: string; variant: "neutral" | "success" | "warning" | "danger" }
+> = {
   overdue: { label: "Atrasada", variant: "danger" },
-  never: { label: "Primeira avaliação", variant: "warning" },
+  never: { label: "Primeira avaliacao", variant: "warning" },
   week: { label: "Esta semana", variant: "warning" },
-  upcoming: { label: "Próxima", variant: "neutral" },
+  upcoming: { label: "Proxima", variant: "neutral" },
   covered: { label: "Cobertura recente", variant: "success" },
 };
 
@@ -53,7 +56,7 @@ function QueueActions({ memberId }: { memberId: string }) {
         to={`/assessments/members/${memberId}?tab=registro`}
         className="inline-flex h-8 items-center justify-center rounded-lg bg-lovable-primary px-3 text-xs font-semibold text-white hover:brightness-105"
       >
-        Registrar avaliação
+        Registrar avaliacao
       </Link>
     </div>
   );
@@ -68,7 +71,7 @@ function AssessmentQueueRow({ member }: { member: AssessmentQueueItem }) {
       </div>
 
       <div className="min-w-0 space-y-2">
-        <p className="truncate text-xs font-medium text-lovable-ink-muted">{member.plan_name || "Plano não informado"}</p>
+        <p className="truncate text-xs font-medium text-lovable-ink-muted">{member.plan_name || "Plano nao informado"}</p>
         <div className="flex flex-wrap items-center gap-2">
           <RiskBadge risk={member.risk_level} />
           <StatusBadge status={member.queue_bucket} map={BUCKET_STATUS_MAP} />
@@ -89,7 +92,7 @@ function AttentionNowList({ items }: { items: AssessmentQueueItem[] }) {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-lovable-border px-4 py-5 text-sm text-lovable-ink-muted">
-        Sem casos críticos no filtro atual.
+        Sem casos criticos no filtro atual.
       </div>
     );
   }
@@ -136,6 +139,8 @@ export function AssessmentOperationsBoard({
   const totalPages = queue ? Math.max(1, Math.ceil(queue.total / queue.page_size)) : 1;
   const coverageRatio = dashboard.total_members > 0 ? Math.round((dashboard.assessed_last_90_days / dashboard.total_members) * 100) : 0;
   const overduePressure = dashboard.total_members > 0 ? Math.round((dashboard.overdue_assessments / dashboard.total_members) * 100) : 0;
+  const activeBaseLabel = `${dashboard.total_members} aluno(s) ativos na base`;
+  const hasHistoricalBacklog = dashboard.historical_backlog_total > 0;
 
   const attentionNow = useMemo(() => {
     const source = hasActiveFilters ? queue?.items ?? [] : dashboard.attention_now ?? [];
@@ -144,22 +149,28 @@ export function AssessmentOperationsBoard({
 
   const executiveRead = [
     dashboard.overdue_assessments > 0
-      ? `${dashboard.overdue_assessments} aluno(s) estão fora da janela ideal e puxam a fila de recuperação.`
-      : "Não há atrasos abertos na janela de avaliação.",
+      ? `${dashboard.overdue_assessments} aluno(s) ativos estao fora da janela ideal e puxam a fila de recuperacao.`
+      : "Nao ha atrasos abertos na janela de avaliacao.",
     dashboard.never_assessed > 0
-      ? `${dashboard.never_assessed} aluno(s) ainda não tiveram a primeira leitura estruturada.`
-      : "Toda a base atual já tem ao menos uma avaliação registrada.",
+      ? `${dashboard.never_assessed} aluno(s) ativos entram agora na fila de primeira avaliacao.`
+      : "Toda a base ativa ja tem ao menos uma avaliacao registrada.",
     dashboard.upcoming_7_days > 0
-      ? `${dashboard.upcoming_7_days} avaliação(ões) entram no radar dos próximos 7 dias.`
-      : "Não há vencimentos imediatos para os próximos 7 dias.",
+      ? `${dashboard.upcoming_7_days} avaliacao(oes) entram no radar dos proximos 7 dias.`
+      : "Nao ha vencimentos imediatos para os proximos 7 dias.",
   ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Avaliações"
-        subtitle="Priorize atrasos, primeiras leituras e próximas janelas sem perder a visão executiva da base."
-        breadcrumb={[{ label: "Workspace" }, { label: "Avaliações" }]}
+        title="Avaliacoes"
+        subtitle="Priorize atrasos, primeiras leituras e proximas janelas sem perder a visao executiva da base ativa."
+        breadcrumb={[{ label: "Workspace" }, { label: "Avaliacoes" }]}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="success">Base ativa</Badge>
+            <Badge variant="neutral">{activeBaseLabel}</Badge>
+          </div>
+        }
       />
 
       <div className="space-y-3">
@@ -185,13 +196,24 @@ export function AssessmentOperationsBoard({
             </Button>
           ))}
         </div>
+
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-3 text-sm text-lovable-ink-muted">
+          Esta tela considera apenas alunos com status ativo. Cancelados e pausados ficam fora da fila operacional de avaliacoes.
+        </div>
+
+        {hasHistoricalBacklog ? (
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+            {dashboard.historical_backlog_total} aluno(s) ficaram fora da fila do dia por serem backlog historico.
+            {" "}Sao {dashboard.historical_never_assessed} sem primeira avaliacao recente e {dashboard.historical_overdue_assessments} reavaliacoes antigas sem engajamento recente.
+          </div>
+        ) : null}
       </div>
 
       <KPIStrip
         items={[
           { label: "Atrasadas", value: dashboard.overdue_assessments, tone: "danger" },
           { label: "Vencem em breve", value: dashboard.upcoming_7_days, tone: "warning" },
-          { label: "Nunca avaliados", value: dashboard.never_assessed, tone: "warning" },
+          { label: "Primeira avaliacao", value: dashboard.never_assessed, tone: "warning" },
           { label: "Cobertura recente", value: `${coverageRatio}%`, tone: coverageRatio >= 70 ? "success" : "neutral" },
         ]}
       />
@@ -200,8 +222,8 @@ export function AssessmentOperationsBoard({
         <Card className="border-lovable-primary/20 bg-lovable-primary-soft/70">
           <CardContent className="space-y-3 pt-5">
             <SectionHeader
-              title="Leitura executiva enxuta"
-              subtitle={`Pressão operacional atual: ${overduePressure}% da base com atraso ativo.`}
+              title="Resumo do dia"
+              subtitle={`Pressao operacional atual: ${overduePressure}% da base ativa com atraso em avaliacao.`}
             />
             <ul className="space-y-2 text-sm text-lovable-ink">
               {executiveRead.map((line) => (
@@ -216,8 +238,8 @@ export function AssessmentOperationsBoard({
         <Card>
           <CardContent className="space-y-3 pt-5">
             <SectionHeader
-              title="Precisa de atenção agora"
-              subtitle="Subconjunto curto para a equipe bater o olho e agir."
+              title="Precisa de atencao agora"
+              subtitle="Subconjunto curto para a equipe agir sem varrer a fila inteira."
               count={attentionNow.length}
             />
             <AttentionNowList items={attentionNow} />
@@ -229,8 +251,8 @@ export function AssessmentOperationsBoard({
         <CardContent className="space-y-4 pt-5">
           <SectionHeader
             title="Fila operacional"
-            subtitle={queue ? getQueueRangeLabel(queue.total, queue.page, queue.page_size) : "Carregando fila..."}
-            actions={queueFetching && !queueLoading ? <Badge variant="neutral">Atualizando…</Badge> : undefined}
+            subtitle={queue ? `${getQueueRangeLabel(queue.total, queue.page, queue.page_size)} na base ativa.` : "Carregando fila..."}
+            actions={queueFetching && !queueLoading ? <Badge variant="neutral">Atualizando...</Badge> : undefined}
             count={queue?.total ?? 0}
           />
 
@@ -239,8 +261,8 @@ export function AssessmentOperationsBoard({
           ) : queueError ? (
             <EmptyState
               icon={AlertTriangle}
-              title="Não foi possível carregar a fila"
-              description="Tente novamente para recuperar a lista completa de alunos da operação."
+              title="Nao foi possivel carregar a fila"
+              description="Tente novamente para recuperar a lista completa de alunos da operacao."
               action={{ label: "Tentar novamente", onClick: onRetryQueue }}
             />
           ) : !queue || queue.items.length === 0 ? (
@@ -250,7 +272,7 @@ export function AssessmentOperationsBoard({
               description={
                 hasActiveFilters
                   ? "Ajuste a busca ou limpe os filtros para voltar a enxergar a fila operacional."
-                  : "Ainda não há alunos disponíveis na fila operacional."
+                  : "Ainda nao ha alunos disponiveis na fila operacional."
               }
               action={hasActiveFilters ? { label: "Limpar filtros", onClick: onClearFilters } : undefined}
             />
@@ -261,7 +283,7 @@ export function AssessmentOperationsBoard({
                   <span>Aluno</span>
                   <span>Risco e cobertura</span>
                   <span>Status operacional</span>
-                  <span className="lg:text-right">Ações</span>
+                  <span className="lg:text-right">Acoes</span>
                 </div>
                 <ul className="divide-y divide-lovable-border">
                   {queue.items.map((member) => (
@@ -278,10 +300,10 @@ export function AssessmentOperationsBoard({
                     Anterior
                   </Button>
                   <Badge variant="neutral">
-                    Página {page} de {totalPages}
+                    Pagina {page} de {totalPages}
                   </Badge>
                   <Button size="sm" variant="secondary" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>
-                    Próxima
+                    Proxima
                     <ChevronRight size={14} />
                   </Button>
                 </div>

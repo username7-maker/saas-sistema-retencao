@@ -25,7 +25,8 @@ from app.schemas import (
     ImportSummary,
     MissingMemberEntry,
 )
-from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.onboarding_service import create_import_playbook_tasks_for_member
+from app.services.risk import refresh_member_risk_snapshot
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
 
@@ -408,6 +409,7 @@ def preview_members_csv(
     seen_external_ids: set[str] = set()
     seen_cpfs: set[str] = set()
     warned_missing_join_date = False
+    warned_import_task_window = False
     warned_updates = False
 
     for row_number, row in _iter_rows(csv_content, filename=filename):
@@ -464,6 +466,15 @@ def preview_members_csv(
             if canonical_join_date is None and not warned_missing_join_date:
                 warnings.append("Linhas sem data confiavel de inicio nao geram onboarding automatico apos a importacao.")
                 warned_missing_join_date = True
+            if (
+                canonical_join_date is not None
+                and _should_create_import_onboarding(canonical_join_date)
+                and not warned_import_task_window
+            ):
+                warnings.append(
+                    "Importacoes recentes geram no maximo a proxima acao operacional do onboarding/follow-up, sem retroagir o playbook completo."
+                )
+                warned_import_task_window = True
 
         if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
             sample_rows.append(
@@ -699,7 +710,9 @@ def import_members_csv(
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
+    updated_existing = 0
     pending_count = 0
+    touched_members: list[Member] = []
     normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
         column_mappings,
         ignored_columns,
@@ -765,7 +778,8 @@ def import_members_csv(
             ):
                 db.add(existing_member)
                 pending_count += 1
-            duplicates += 1
+                touched_members.append(existing_member)
+            updated_existing += 1
             if email:
                 seen_emails.add(email)
             if external_id:
@@ -802,10 +816,10 @@ def import_members_csv(
         db.add(member)
         if _should_create_import_onboarding(canonical_join_date):
             db.flush()
-            create_onboarding_tasks_for_member(db, member, commit=False)
-            create_plan_followup_tasks_for_member(db, member, commit=False)
+            create_import_playbook_tasks_for_member(db, member, commit=False)
         imported += 1
         pending_count += 1
+        touched_members.append(member)
 
         if email:
             seen_emails.add(email)
@@ -820,9 +834,19 @@ def import_members_csv(
 
     if pending_count:
         db.commit()
-    if imported:
-        invalidate_dashboard_cache("members")
-    return ImportSummary(imported=imported, skipped_duplicates=duplicates, ignored_rows=0, errors=errors)
+    touched_member_ids = [member.id for member in touched_members if member.id]
+    if touched_member_ids:
+        refresh_member_risk_snapshot(db, member_ids=touched_member_ids, sync_alerts=True)
+        db.commit()
+    if imported or updated_existing:
+        invalidate_dashboard_cache("members", "risk")
+    return ImportSummary(
+        imported=imported,
+        updated_existing=updated_existing,
+        skipped_duplicates=duplicates,
+        ignored_rows=0,
+        errors=errors,
+    )
 
 
 def import_checkins_csv(
@@ -842,6 +866,7 @@ def import_checkins_csv(
     provisional_members: list[str] = []
     seen_entries: set[tuple[str, str]] = set()
     pending_rows: list[tuple[Member, datetime, CheckinSource, dict[str, str]]] = []
+    touched_member_ids: set[UUID] = set()
     missing_member_counts: Counter[str] = Counter()
     missing_member_plans: dict[str, str | None] = {}
     normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
@@ -923,12 +948,16 @@ def import_checkins_csv(
         if member.last_checkin_at is None or parsed > member.last_checkin_at:
             member.last_checkin_at = parsed
             db.add(member)
+        touched_member_ids.add(member.id)
         db.add(checkin)
         imported += 1
 
     db.commit()
-    if imported:
-        invalidate_dashboard_cache("checkins")
+    if touched_member_ids:
+        refresh_member_risk_snapshot(db, member_ids=touched_member_ids, sync_alerts=True)
+        db.commit()
+    if touched_member_ids:
+        invalidate_dashboard_cache("checkins", "risk")
     if provisional_created:
         invalidate_dashboard_cache("members")
     return ImportSummary(

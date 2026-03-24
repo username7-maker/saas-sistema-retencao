@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import unicodedata
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
@@ -25,9 +26,25 @@ from app.schemas import (
 )
 from app.services.ai_assistant_service import build_retention_assistant
 from app.services.analytics_view_service import get_monthly_member_kpis
+from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
-from app.services.retention_intelligence_service import build_retention_playbook
+from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
+
+_PT_MONTHS = {
+    "janeiro": 1,
+    "fevereiro": 2,
+    "marco": 3,
+    "abril": 4,
+    "maio": 5,
+    "junho": 6,
+    "julho": 7,
+    "agosto": 8,
+    "setembro": 9,
+    "outubro": 10,
+    "novembro": 11,
+    "dezembro": 12,
+}
 
 
 def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
@@ -182,15 +199,91 @@ def get_operational_dashboard(db: Session, page: int = 1, page_size: int = 20) -
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
+    birthday_today = _get_birthday_today_members(db, now.date())
 
     payload = {
         "realtime_checkins": realtime_checkins,
         "heatmap": heatmap,
         "inactive_7d_total": total_inactive,
         "inactive_7d_items": items,
+        "birthday_today_total": len(birthday_today),
+        "birthday_today_items": birthday_today,
     }
     dashboard_cache.set(cache_key, payload)
     return payload
+
+
+def _normalize_month_token(value: str) -> str:
+    return (
+        unicodedata.normalize("NFKD", value)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+        .strip()
+    )
+
+
+def _birthday_label_matches_today(member: Member, today: date) -> bool:
+    extra_data = member.extra_data or {}
+    birthday_label = extra_data.get("birthday_label")
+    if not isinstance(birthday_label, str):
+        return False
+
+    import re
+
+    match = re.search(r"(\d{1,2})\s+de\s+([A-Za-zÀ-ÿ]+)", birthday_label, flags=re.IGNORECASE)
+    if not match:
+        return False
+
+    try:
+        day = int(match.group(1))
+    except ValueError:
+        return False
+
+    month = _PT_MONTHS.get(_normalize_month_token(match.group(2)))
+    if month is None:
+        return False
+
+    return day == today.day and month == today.month
+
+
+def _get_birthday_today_members(db: Session, today: date) -> list[Member]:
+    active_filters = (
+        Member.deleted_at.is_(None),
+        Member.status == MemberStatus.ACTIVE,
+    )
+
+    direct_matches = list(
+        db.scalars(
+            select(Member)
+            .where(
+                *active_filters,
+                Member.birthdate.is_not(None),
+                func.extract("month", Member.birthdate) == today.month,
+                func.extract("day", Member.birthdate) == today.day,
+            )
+            .order_by(Member.full_name.asc())
+        ).all()
+    )
+
+    label_candidates = list(
+        db.scalars(
+            select(Member)
+            .where(
+                *active_filters,
+                Member.birthdate.is_(None),
+                Member.extra_data["birthday_label"].astext.isnot(None),
+            )
+            .order_by(Member.full_name.asc())
+        ).all()
+    )
+
+    combined: dict[str, Member] = {str(member.id): member for member in direct_matches}
+    for member in label_candidates:
+        if _birthday_label_matches_today(member, today):
+            combined[str(member.id)] = member
+
+    return list(combined.values())
 
 
 def get_commercial_dashboard(db: Session) -> dict:
@@ -328,6 +421,43 @@ def _extract_forecast_60d(extra_data: dict | None) -> int | None:
     return None
 
 
+def _materialize_retention_context(
+    db: Session,
+    members: list[Member],
+    *,
+    include_forecast: bool,
+) -> int:
+    changes = 0
+    for member in members:
+        changed = False
+
+        if not member.churn_type:
+            member.churn_type = classify_churn_type(db, member)
+            changed = True
+
+        if include_forecast:
+            extra_data = dict(member.extra_data or {})
+            if _extract_forecast_60d(extra_data) is None:
+                try:
+                    forecast = get_assessment_forecast(db, member.id)
+                except Exception:
+                    forecast = None
+                probability_60d = forecast.get("probability_60d") if isinstance(forecast, dict) else None
+                if isinstance(probability_60d, (int, float)):
+                    extra_data["retention_forecast_60d"] = int(round(probability_60d))
+                    extra_data.setdefault("retention_forecast_source", "assessment_fallback")
+                    member.extra_data = extra_data
+                    changed = True
+
+        if changed:
+            db.add(member)
+            changes += 1
+
+    if changes:
+        db.commit()
+    return changes
+
+
 def _days_without_checkin(member: Member) -> int:
     reference = member.last_checkin_at
     if reference is None:
@@ -384,6 +514,21 @@ def get_retention_queue(
     gym_id=None,
 ) -> PaginatedResponse[RetentionQueueItem]:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
+    members_missing_context = list(
+        db.scalars(
+            select(Member).where(
+                Member.deleted_at.is_(None),
+                Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
+                or_(
+                    Member.churn_type.is_(None),
+                    Member.extra_data["retention_forecast_60d"].astext.is_(None),
+                ),
+            )
+        ).all()
+    )
+    if members_missing_context:
+        _materialize_retention_context(db, members_missing_context, include_forecast=True)
+
     latest_alert_subquery = _latest_open_retention_alert_subquery()
     level_priority = case(
         (RiskAlert.level == RiskLevel.RED, 0),
@@ -483,6 +628,18 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
     cached = dashboard_cache.get(cache_key)
     if cached is not None:
         return cached
+
+    members_missing_churn = list(
+        db.scalars(
+            select(Member).where(
+                Member.deleted_at.is_(None),
+                Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
+                Member.churn_type.is_(None),
+            )
+        ).all()
+    )
+    if members_missing_churn:
+        _materialize_retention_context(db, members_missing_churn, include_forecast=False)
 
     base_red = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
     base_yellow = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)

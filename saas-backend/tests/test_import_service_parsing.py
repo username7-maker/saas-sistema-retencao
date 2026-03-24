@@ -11,6 +11,15 @@ from app.models import CheckinSource, Member, MemberStatus
 from app.services import import_service
 
 
+@pytest.fixture(autouse=True)
+def _stub_risk_snapshot_refresh(monkeypatch):
+    monkeypatch.setattr(
+        import_service,
+        "refresh_member_risk_snapshot",
+        lambda *_args, **_kwargs: {"members_refreshed": 0},
+    )
+
+
 def _build_xlsx_bytes(headers: list[str], rows: list[list[object]]) -> bytes:
     def col_name(index: int) -> str:
         letters = ""
@@ -296,11 +305,12 @@ def test_import_members_csv_updates_existing_duplicate_with_plan_cycle() -> None
     summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
 
     assert summary.imported == 0
-    assert summary.skipped_duplicates == 1
+    assert summary.updated_existing == 1
+    assert summary.skipped_duplicates == 0
     assert member.plan_name == "LIVRE ANUAL"
     assert member.extra_data["plan_cycle"] == "annual"
     assert member.extra_data["plan_cycle_source"] == "conditions"
-    db.commit.assert_called_once()
+    assert db.commit.call_count == 2
 
 
 def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
@@ -365,24 +375,18 @@ def test_preview_members_csv_reports_manual_mapping_metadata() -> None:
     )
 
 
-def test_import_members_csv_creates_onboarding_for_recent_join_date(monkeypatch) -> None:
+def test_import_members_csv_creates_import_playbook_tasks_for_recent_join_date(monkeypatch) -> None:
     db = MagicMock()
     mock_scalars = MagicMock()
     mock_scalars.all.return_value = []
     db.scalars.return_value = mock_scalars
 
-    onboarding_calls: list[str] = []
-    plan_followup_calls: list[str] = []
+    import_task_calls: list[str] = []
 
     monkeypatch.setattr(
         import_service,
-        "create_onboarding_tasks_for_member",
-        lambda _db, member, commit=False: onboarding_calls.append(member.full_name),
-    )
-    monkeypatch.setattr(
-        import_service,
-        "create_plan_followup_tasks_for_member",
-        lambda _db, member, commit=False: plan_followup_calls.append(member.full_name),
+        "create_import_playbook_tasks_for_member",
+        lambda _db, member, commit=False: import_task_calls.append(member.full_name),
     )
 
     csv_content = f"nome,email,data_matricula\nAluno Novo,novo@example.com,{date.today().strftime('%d/%m/%Y')}\n".encode("utf-8")
@@ -390,8 +394,7 @@ def test_import_members_csv_creates_onboarding_for_recent_join_date(monkeypatch)
     summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
 
     assert summary.imported == 1
-    assert onboarding_calls == ["Aluno Novo"]
-    assert plan_followup_calls == ["Aluno Novo"]
+    assert import_task_calls == ["Aluno Novo"]
     assert db.flush.called
 
 
@@ -401,18 +404,12 @@ def test_import_members_csv_skips_onboarding_when_join_date_is_missing(monkeypat
     mock_scalars.all.return_value = []
     db.scalars.return_value = mock_scalars
 
-    onboarding_calls: list[str] = []
-    plan_followup_calls: list[str] = []
+    import_task_calls: list[str] = []
 
     monkeypatch.setattr(
         import_service,
-        "create_onboarding_tasks_for_member",
-        lambda _db, member, commit=False: onboarding_calls.append(member.full_name),
-    )
-    monkeypatch.setattr(
-        import_service,
-        "create_plan_followup_tasks_for_member",
-        lambda _db, member, commit=False: plan_followup_calls.append(member.full_name),
+        "create_import_playbook_tasks_for_member",
+        lambda _db, member, commit=False: import_task_calls.append(member.full_name),
     )
 
     csv_content = "nome,email\nAluno Historico,historico@example.com\n".encode("utf-8")
@@ -420,8 +417,7 @@ def test_import_members_csv_skips_onboarding_when_join_date_is_missing(monkeypat
     summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
 
     assert summary.imported == 1
-    assert onboarding_calls == []
-    assert plan_followup_calls == []
+    assert import_task_calls == []
 
 
 def test_import_members_csv_applies_manual_mapping_to_external_id() -> None:
@@ -439,11 +435,80 @@ def test_import_members_csv_applies_manual_mapping_to_external_id() -> None:
         column_mappings={"registro": "external_id"},
     )
 
-    created_members = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Member)]
+    created_members = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], Member) and call.args[0].email == "novo@example.com"
+    ]
 
     assert summary.imported == 1
     assert len(created_members) == 1
     assert created_members[0].extra_data["external_id"] == "mat-001"
+
+
+def test_import_members_csv_refreshes_risk_snapshot_for_touched_members(monkeypatch) -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    def _assign_ids_on_commit():
+        for call in db.add.call_args_list:
+            candidate = call.args[0]
+            if isinstance(candidate, Member) and candidate.id is None:
+                candidate.id = uuid4()
+
+    db.commit.side_effect = _assign_ids_on_commit
+
+    refreshed_ids: list[set] = []
+    monkeypatch.setattr(
+        import_service,
+        "refresh_member_risk_snapshot",
+        lambda _db, *, member_ids, now=None, sync_alerts=False: refreshed_ids.append(set(member_ids)) or {"members_refreshed": len(set(member_ids))},
+    )
+
+    csv_content = (
+        "nome,email,ult_acesso\n"
+        "Aluno Existente,aluno.existente@example.com,04/03/2026 08:11\n"
+        "Aluno Novo,novo@example.com,04/03/2026 08:11\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    created_members = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], Member) and call.args[0].email == "novo@example.com"
+    ]
+
+    assert summary.imported == 1
+    assert summary.updated_existing == 1
+    assert len(created_members) == 1
+    assert refreshed_ids == [{member.id, created_members[0].id}]
+
+
+def test_preview_members_csv_warns_about_next_action_task_generation() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = f"nome,email,data_matricula\nAluno Novo,novo@example.com,{date.today().strftime('%d/%m/%Y')}\n".encode("utf-8")
+
+    preview = import_service.preview_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert any("proxima acao operacional" in warning for warning in preview.warnings)
 
 
 def test_import_members_csv_rejects_conflicting_manual_mappings() -> None:

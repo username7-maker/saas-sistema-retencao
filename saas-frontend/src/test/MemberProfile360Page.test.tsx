@@ -151,7 +151,9 @@ const minimalMember: Member = {
   risk_score: 54,
   risk_level: "yellow",
   last_checkin_at: null,
-  extra_data: {},
+  extra_data: {
+    birthday_label: "09 de Setembro",
+  },
   suggested_action: null,
   onboarding_status: null,
   onboarding_score: null,
@@ -243,18 +245,20 @@ describe("MemberProfile360Page", () => {
     expect(screen.getByRole("button", { name: "Ver Tarefas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Visao geral" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Registrar avaliacao" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Plano e objetivos" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restricoes e contexto" })).toBeInTheDocument();
+    expect(screen.getByText("Leitura do momento")).toBeInTheDocument();
+    expect(screen.getByText("Radar rapido")).toBeInTheDocument();
+    expect(screen.getAllByText("Plano e objetivos").length).toBeGreaterThan(0);
+    expect(screen.getByText("Restricoes e observacoes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Acoes" })).toBeInTheDocument();
     expect(screen.getAllByText("Sem avaliacao estruturada").length).toBeGreaterThan(0);
-    expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
-    expect(screen.getByText("Diagnostico IA")).toBeInTheDocument();
-    expect(screen.getByText("Notas internas")).toBeInTheDocument();
+    expect(screen.getByText("Check-in e consistencia")).toBeInTheDocument();
+    expect(screen.getByText("Proxima melhor acao")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "+55 (11) 99999-0001" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
       "href",
       expect.stringContaining("https://wa.me/5511999990001?text="),
     );
+    expect(screen.getByText("Aniversario 09 de Setembro - via importacao")).toBeInTheDocument();
   });
 
   it("supports tab navigation through query params and preserves editors", async () => {

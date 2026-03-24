@@ -148,6 +148,9 @@ export interface AssessmentDashboard {
   overdue_assessments: number;
   never_assessed: number;
   upcoming_7_days: number;
+  historical_backlog_total: number;
+  historical_never_assessed: number;
+  historical_overdue_assessments: number;
   attention_now: AssessmentQueueItem[];
   total_members_items: MemberMini[];
   assessed_members: MemberMini[];
@@ -352,6 +355,9 @@ function normalizeAssessmentDashboard(payload: unknown): AssessmentDashboard {
     overdue_assessments: asNumber(data.overdue_assessments),
     never_assessed: asNumber(data.never_assessed),
     upcoming_7_days: asNumber(data.upcoming_7_days),
+    historical_backlog_total: asNumber(data.historical_backlog_total),
+    historical_never_assessed: asNumber(data.historical_never_assessed),
+    historical_overdue_assessments: asNumber(data.historical_overdue_assessments),
     attention_now: Array.isArray(data.attention_now) ? data.attention_now.map(normalizeAssessmentQueueItem) : [],
     total_members_items: Array.isArray(data.total_members_items) ? data.total_members_items.map(normalizeMemberMini) : [],
     assessed_members: Array.isArray(data.assessed_members) ? data.assessed_members.map(normalizeMemberMini) : [],

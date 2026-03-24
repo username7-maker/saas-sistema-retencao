@@ -11,6 +11,7 @@ import {
 function makeSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
   return {
     imported: 0,
+    updated_existing: 0,
     skipped_duplicates: 0,
     ignored_rows: 0,
     provisional_members_created: 0,

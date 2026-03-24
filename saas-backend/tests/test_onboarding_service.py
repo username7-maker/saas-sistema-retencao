@@ -1,12 +1,13 @@
 """Tests for onboarding_service."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app.services.onboarding_service import (
     _detect_plan_type,
+    create_import_playbook_tasks_for_member,
     create_onboarding_tasks_for_member,
     create_plan_followup_tasks_for_member,
 )
@@ -55,6 +56,70 @@ class TestCreatePlanFollowupTasks:
         db.scalar.return_value = 0
         create_plan_followup_tasks_for_member(db, member)
         db.add_all.assert_called_once()
+
+
+class TestCreateImportPlaybookTasks:
+    def test_creates_only_single_recent_onboarding_task_for_import(self):
+        member = SimpleNamespace(
+            id=MEMBER_ID,
+            gym_id=GYM_ID,
+            join_date=date(2026, 3, 4),
+            plan_name="Plano Mensal",
+        )
+        db = MagicMock()
+        db.scalar.side_effect = [0, 0]
+
+        created = create_import_playbook_tasks_for_member(
+            db,
+            member,
+            commit=False,
+            now=datetime(2026, 3, 24, tzinfo=timezone.utc),
+        )
+
+        assert created == {"onboarding": 1, "plan_followup": 0}
+        db.add.assert_called_once()
+        task = db.add.call_args.args[0]
+        assert task.title == "Revisao tecnica de execucao"
+        assert task.extra_data["materialization"] == "import_next_action"
+        db.flush.assert_called_once()
+
+    def test_skips_import_playbook_when_next_action_is_too_far(self):
+        member = SimpleNamespace(
+            id=MEMBER_ID,
+            gym_id=GYM_ID,
+            join_date=date(2026, 3, 24),
+            plan_name="Plano Mensal",
+        )
+        db = MagicMock()
+        db.scalar.side_effect = [0, 0]
+
+        created = create_import_playbook_tasks_for_member(
+            db,
+            member,
+            commit=False,
+            now=datetime(2026, 3, 24, tzinfo=timezone.utc),
+        )
+
+        assert created == {"onboarding": 1, "plan_followup": 0}
+
+    def test_does_not_create_plan_followup_for_recent_import_when_outside_window(self):
+        member = SimpleNamespace(
+            id=MEMBER_ID,
+            gym_id=GYM_ID,
+            join_date=date(2026, 3, 20),
+            plan_name="Plano Mensal",
+        )
+        db = MagicMock()
+        db.scalar.side_effect = [0, 0]
+
+        created = create_import_playbook_tasks_for_member(
+            db,
+            member,
+            commit=False,
+            now=datetime(2026, 3, 24, tzinfo=timezone.utc),
+        )
+
+        assert created["plan_followup"] == 0
 
     def test_creates_for_anual(self):
         member = SimpleNamespace(

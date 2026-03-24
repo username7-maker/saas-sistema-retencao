@@ -15,6 +15,7 @@ class MissingMemberEntry(BaseModel):
 
 class ImportSummary(BaseModel):
     imported: int
+    updated_existing: int = 0
     skipped_duplicates: int
     ignored_rows: int = 0
     provisional_members_created: int = 0

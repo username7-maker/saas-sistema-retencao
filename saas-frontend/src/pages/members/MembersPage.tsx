@@ -28,6 +28,7 @@ import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
 import {
   getMemberExternalId,
+  getUpcomingBirthdayLabel,
   isProvisionalMember,
   PAGE_SIZE,
   RISK_LABELS,
@@ -273,12 +274,10 @@ export function MembersPage() {
               </TableHead>
 
               <TableBody>
-                {data.items.map((member) => (
-                  <TableRow
-                    key={member.id}
-                    className="cursor-pointer"
-                    onClick={() => openDetail(member)}
-                  >
+                {data.items.map((member) => {
+                  const birthdayLabel = getUpcomingBirthdayLabel(member);
+                  return (
+                  <TableRow key={member.id} className="cursor-pointer" onClick={() => openDetail(member)}>
                     <TableCell>
                       <div className="min-w-0">
                         <Link
@@ -298,6 +297,11 @@ export function MembersPage() {
                           {isProvisionalMember(member) ? (
                             <Badge variant="warning" size="sm">
                               Provisorio
+                            </Badge>
+                          ) : null}
+                          {birthdayLabel ? (
+                            <Badge variant="warning" size="sm" className="tracking-normal normal-case">
+                              {birthdayLabel}
                             </Badge>
                           ) : null}
                         </div>
@@ -378,7 +382,7 @@ export function MembersPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                )})}
               </TableBody>
             </TableInner>
           </div>

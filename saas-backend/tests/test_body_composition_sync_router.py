@@ -108,3 +108,30 @@ def test_manual_sync_confirm_logs_audit_and_returns_status(app, client):
     status_mock.assert_called_once()
     audit_mock.assert_called_once()
     db.commit.assert_called_once()
+
+
+def test_enqueue_sync_returns_conflict_when_actuar_is_disabled(app, client):
+    db = MagicMock()
+
+    def _override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.OWNER)
+
+    with patch(
+        "app.routers.members.create_body_composition_sync_job",
+        return_value=None,
+    ) as create_job_mock, patch("app.routers.members.log_audit_event") as audit_mock:
+        try:
+            response = client.post(
+                f"/api/v1/members/{MEMBER_ID}/body-composition/{EVALUATION_ID}/actuar-sync",
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Sync Actuar desabilitado para esta academia ou ambiente."
+    create_job_mock.assert_called_once()
+    audit_mock.assert_not_called()
+    db.commit.assert_not_called()

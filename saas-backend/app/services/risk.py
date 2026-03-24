@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta, timezone
 
@@ -241,6 +242,55 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
     }
 
 
+def refresh_member_risk_snapshot(
+    db: Session,
+    *,
+    member_ids: Iterable[uuid.UUID],
+    now: datetime | None = None,
+    sync_alerts: bool = False,
+) -> dict[str, int]:
+    normalized_member_ids = tuple(dict.fromkeys(member_ids))
+    if not normalized_member_ids:
+        return {"members_refreshed": 0}
+
+    now = now or datetime.now(tz=timezone.utc)
+    members = db.scalars(
+        select(Member).where(
+            Member.id.in_(normalized_member_ids),
+            Member.deleted_at.is_(None),
+            Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+        )
+    ).all()
+    if not members:
+        return {"members_refreshed": 0}
+
+    metrics_by_member = _prefetch_member_checkin_metrics(db, now, member_ids={member.id for member in members})
+    current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True) if sync_alerts else {}
+    refreshed = 0
+    alerts_synced = 0
+    for member in members:
+        result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
+        if member.risk_score != result.score or member.risk_level != result.level:
+            member.risk_score = result.score
+            member.risk_level = result.level
+            db.add(member)
+        if sync_alerts and result.score >= 40:
+            current_alert = current_alerts_by_member.get(member.id)
+            synced_alert = _create_or_update_alert(
+                db,
+                member,
+                result,
+                [],
+                current_alert=current_alert,
+            )
+            current_alerts_by_member[member.id] = synced_alert
+            alerts_synced += 1
+        refreshed += 1
+
+    invalidate_dashboard_cache("risk")
+    return {"members_refreshed": refreshed, "alerts_synced": alerts_synced}
+
+
 def _result_from_member_state(member: Member, result: RiskResult) -> RiskResult:
     if member.risk_score == result.score and member.risk_level == result.level:
         return result
@@ -263,7 +313,11 @@ def _inactivity_points(days_without_checkin: int) -> int:
     return 0
 
 
-def _prefetch_member_checkin_metrics(db: Session, now: datetime) -> dict:
+def _prefetch_member_checkin_metrics(
+    db: Session,
+    now: datetime,
+    member_ids: set[uuid.UUID] | None = None,
+) -> dict:
     ten_weeks_ago = now - timedelta(weeks=10)
     one_week_ago = now - timedelta(weeks=1)
     recent_start = now - timedelta(days=14)
@@ -272,7 +326,7 @@ def _prefetch_member_checkin_metrics(db: Session, now: datetime) -> dict:
 
     # Single SQL query with aggregation — returns O(members) rows instead of O(checkins).
     # PostgreSQL mode() picks arbitrary value on ties (acceptable for shift-change heuristic).
-    rows = db.execute(
+    stmt = (
         select(
             Checkin.member_id,
             func.count(Checkin.id).filter(Checkin.checkin_at >= one_week_ago).label("current_week_count"),
@@ -287,8 +341,12 @@ def _prefetch_member_checkin_metrics(db: Session, now: datetime) -> dict:
         ).where(
             Checkin.checkin_at >= ten_weeks_ago,
             Checkin.checkin_at < now,
-        ).group_by(Checkin.member_id)
-    ).all()
+        )
+    )
+    if member_ids:
+        stmt = stmt.where(Checkin.member_id.in_(member_ids))
+
+    rows = db.execute(stmt.group_by(Checkin.member_id)).all()
 
     metrics_by_member: dict = {}
     for row in rows:

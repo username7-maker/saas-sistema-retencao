@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -18,6 +19,21 @@ from app.utils.email import send_email
 
 
 logger = logging.getLogger(__name__)
+
+_PT_MONTHS = {
+    "janeiro": 1,
+    "fevereiro": 2,
+    "marco": 3,
+    "abril": 4,
+    "maio": 5,
+    "junho": 6,
+    "julho": 7,
+    "agosto": 8,
+    "setembro": 9,
+    "outubro": 10,
+    "novembro": 11,
+    "dezembro": 12,
+}
 
 
 def list_automation_rules(
@@ -366,20 +382,37 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
 
     if trigger == AutomationTrigger.BIRTHDAY:
         today = now.date()
-        # Match members whose extra_data["date_of_birth"] (stored as "YYYY-MM-DD" string in JSONB)
-        # has the same month/day as today. Uses SUBSTRING to avoid a full DATE cast that would
-        # error on malformed values, and avoids loading all members into Python memory.
+        # Support current and legacy birthday storage:
+        # - members.birthdate
+        # - extra_data["date_of_birth"] in YYYY-MM-DD
+        # - extra_data["birthday_label"] from imports (e.g. "09 de Setembro")
         dob_text = Member.extra_data["date_of_birth"].astext
+        birthday_label = Member.extra_data["birthday_label"].astext
         month_expr = func.substring(dob_text, 6, 2).cast(Integer)
         day_expr = func.substring(dob_text, 9, 2).cast(Integer)
-        return list(db.scalars(
+        direct_matches = list(db.scalars(
             base_stmt.where(
-                dob_text.isnot(None),
-                func.length(dob_text) == 10,
-                month_expr == today.month,
-                day_expr == today.day,
+                (
+                    (Member.birthdate.isnot(None))
+                    & (func.extract("month", Member.birthdate) == today.month)
+                    & (func.extract("day", Member.birthdate) == today.day)
+                )
+                | (
+                    dob_text.isnot(None)
+                    & (func.length(dob_text) == 10)
+                    & (month_expr == today.month)
+                    & (day_expr == today.day)
+                )
             )
         ).all())
+
+        label_candidates = list(db.scalars(base_stmt.where(birthday_label.isnot(None))).all())
+        matched_by_label = [member for member in label_candidates if _birthday_label_matches_today(member, today)]
+
+        combined: dict[str, Member] = {}
+        for member in [*direct_matches, *matched_by_label]:
+            combined[str(member.id)] = member
+        return list(combined.values())
 
     if trigger == AutomationTrigger.LEAD_STALE:
         # Lead-scoped trigger: handled separately in run_automation_rules via _execute_lead_stale_rule.
@@ -425,6 +458,38 @@ def _coerce_risk_level(value: object, *, default: str = "red") -> str:
         return raw
     logger.warning("Nivel de risco invalido na automacao: %s. Usando default=%s", raw, default)
     return default
+
+
+def _normalize_month_token(value: str) -> str:
+    return (
+        unicodedata.normalize("NFKD", value)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+        .strip()
+    )
+
+
+def _birthday_label_matches_today(member: Member, today) -> bool:
+    extra_data = member.extra_data or {}
+    birthday_label = extra_data.get("birthday_label")
+    if not isinstance(birthday_label, str):
+        return False
+
+    match = re.search(r"(\d{1,2})\s+de\s+([A-Za-zÀ-ÿ]+)", birthday_label, flags=re.IGNORECASE)
+    if not match:
+        return False
+
+    try:
+        day = int(match.group(1))
+    except ValueError:
+        return False
+
+    month = _PT_MONTHS.get(_normalize_month_token(match.group(2)))
+    if month is None:
+        return False
+
+    return day == today.day and month == today.month
 
 
 def _render(template: str, vars: dict) -> str:

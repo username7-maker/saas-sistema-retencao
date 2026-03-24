@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
-import { AlertTriangle, ArrowLeft, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarDays, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -12,7 +12,9 @@ import {
   ASSESSMENT_WORKSPACE_TABS,
   daysSince,
   formatDateTime,
+  formatBirthdayDayMonth,
   getAge,
+  getBirthdayCountdownLabel,
   getInitials,
   normalizeAssessmentWorkspaceTab,
   riskLabel,
@@ -145,10 +147,10 @@ function openTabWithSearchParams(
 
 function DetailMetric({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
-    <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+    <div className="rounded-2xl border border-lovable-border/70 bg-lovable-surface px-4 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{label}</p>
       <p className="mt-2 text-lg font-semibold text-lovable-ink">{value}</p>
-      <p className="mt-1 text-xs text-lovable-ink-muted">{helper}</p>
+      <p className="mt-1 text-xs leading-relaxed text-lovable-ink-muted">{helper}</p>
     </div>
   );
 }
@@ -691,6 +693,15 @@ export function MemberProfile360Page() {
     assessmentIntelligence.assistant?.suggested_message ?? assessmentIntelligence.next_best_action.suggested_message,
     member.full_name,
   );
+  const importedBirthdayLabel =
+    typeof mergedExtra.birthday_label === "string" && mergedExtra.birthday_label.trim()
+      ? mergedExtra.birthday_label.trim()
+      : null;
+  const birthdayDayMonth = formatBirthdayDayMonth(member.birthdate);
+  const birthdayCountdown = getBirthdayCountdownLabel(member.birthdate);
+  const birthdayFullDate = member.birthdate ? new Date(`${member.birthdate}T12:00:00`).toLocaleDateString("pt-BR") : null;
+  const birthdayDisplay = birthdayDayMonth ? birthdayDayMonth : importedBirthdayLabel;
+  const birthdayMeta = birthdayDayMonth ? birthdayCountdown : importedBirthdayLabel ? "via importacao" : null;
 
   const memberTasks = (memberTasksQuery.data?.items ?? [])
     .filter((task) => task.member_id === memberId)
@@ -776,6 +787,20 @@ export function MemberProfile360Page() {
                     <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
                       <MessageCircle size={12} />
                       WhatsApp indisponivel
+                    </span>
+                  )}
+                  {birthdayDisplay ? (
+                    <span
+                      title={birthdayFullDate ?? undefined}
+                      className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200"
+                    >
+                      <CalendarDays size={12} />
+                      {`Aniversario ${birthdayDisplay}${birthdayMeta ? ` - ${birthdayMeta}` : ""}`}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-lovable-border px-3 py-1.5 text-xs text-lovable-ink-muted">
+                      <CalendarDays size={12} />
+                      Aniversario nao informado
                     </span>
                   )}
                 </div>

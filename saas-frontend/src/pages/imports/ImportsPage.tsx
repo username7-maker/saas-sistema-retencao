@@ -420,6 +420,7 @@ function ImportResult({
       ) : null}
 
       <p>Importados: {summary.imported}</p>
+      {summary.updated_existing > 0 ? <p>Atualizados: {summary.updated_existing}</p> : null}
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
       <p>Linhas ignoradas: {summary.ignored_rows}</p>
       {summary.provisional_members_created > 0 ? <p>Cadastros provisorios criados: {summary.provisional_members_created}</p> : null}

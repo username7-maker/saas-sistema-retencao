@@ -205,6 +205,7 @@ export interface MissingMemberEntry {
 
 export interface ImportSummary {
   imported: number;
+  updated_existing: number;
   skipped_duplicates: number;
   ignored_rows: number;
   provisional_members_created: number;

@@ -361,3 +361,32 @@ def test_execute_rule_get_gym_instance_receives_member_gym_id(monkeypatch):
 
     automation_engine.execute_rule_for_member(db, rule, member)
     assert received == [expected_gym_id]
+
+
+def test_birthday_label_helper_accepts_imported_portuguese_months():
+    member = _make_member()
+    member.extra_data = {"birthday_label": "24 de Março"}
+
+    assert automation_engine._birthday_label_matches_today(
+        member,
+        datetime(2026, 3, 24, tzinfo=timezone.utc).date(),
+    ) is True
+
+
+def test_find_matching_members_supports_birthday_label_import_fallback():
+    db = DummyDB()
+    gym_id = uuid.uuid4()
+    member = _make_member(gym_id=gym_id)
+    member.extra_data = {"birthday_label": "24 de Março"}
+
+    rule = _make_rule(trigger_type=AutomationTrigger.BIRTHDAY, trigger_config={})
+    rule.gym_id = gym_id
+
+    db.values = [
+        [],
+        [member],
+    ]
+
+    results = automation_engine._find_matching_members(db, rule)
+
+    assert results == [member]

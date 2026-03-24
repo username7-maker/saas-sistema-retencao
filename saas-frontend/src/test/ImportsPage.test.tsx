@@ -82,6 +82,7 @@ describe("ImportsPage", () => {
     vi.mocked(importExportService.previewMembers).mockResolvedValue(buildPreview());
     vi.mocked(importExportService.importMembers).mockResolvedValue({
       imported: 1,
+      updated_existing: 0,
       skipped_duplicates: 0,
       ignored_rows: 0,
       provisional_members_created: 0,
@@ -114,6 +115,7 @@ describe("ImportsPage", () => {
     });
     vi.mocked(importExportService.importCheckins).mockResolvedValue({
       imported: 0,
+      updated_existing: 0,
       skipped_duplicates: 0,
       ignored_rows: 0,
       provisional_members_created: 0,

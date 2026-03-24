@@ -26,6 +26,59 @@ def _scoped_statement(statement, gym_id: UUID | None):
     return statement.execution_options(include_all_tenants=True)
 
 
+def _build_member_filters(
+    *,
+    gym_id: UUID | None = None,
+    search: str | None = None,
+    risk_level: RiskLevel | None = None,
+    status: MemberStatus | None = None,
+    plan_cycle: MemberPlanCycle | None = None,
+    min_days_without_checkin: int | None = None,
+    provisional_only: bool | None = None,
+) -> tuple[list, UUID | None]:
+    base_filters = [Member.deleted_at.is_(None)]
+    resolved_gym_id = _resolve_gym_id(gym_id)
+    if resolved_gym_id is not None:
+        base_filters.append(Member.gym_id == resolved_gym_id)
+    if search:
+        stored_external_id = func.coalesce(Member.extra_data["external_id"].astext, "")
+        base_filters.append(
+            or_(
+                Member.full_name.ilike(f"%{search}%"),
+                Member.email.ilike(f"%{search}%"),
+                stored_external_id.ilike(f"%{search}%"),
+            )
+        )
+    if risk_level:
+        base_filters.append(Member.risk_level == risk_level)
+    if status:
+        base_filters.append(Member.status == status)
+    if plan_cycle:
+        plan_label = {
+            "monthly": "mensal",
+            "semiannual": "semestral",
+            "annual": "anual",
+        }[plan_cycle]
+        stored_plan_cycle = func.coalesce(Member.extra_data["plan_cycle"].astext, "")
+        base_filters.append(
+            or_(
+                stored_plan_cycle == plan_cycle,
+                Member.plan_name.ilike(f"%{plan_label}%"),
+            )
+        )
+    if min_days_without_checkin is not None:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
+        base_filters.append(Member.last_checkin_at.is_not(None))
+        base_filters.append(Member.last_checkin_at < cutoff)
+    if provisional_only is not None:
+        provisional_flag = func.coalesce(Member.extra_data["provisional_member"].astext, "false")
+        if provisional_only:
+            base_filters.append(provisional_flag == "true")
+        else:
+            base_filters.append(provisional_flag != "true")
+    return base_filters, resolved_gym_id
+
+
 def create_member(
     db: Session,
     payload: MemberCreate,
@@ -90,46 +143,15 @@ def list_members(
     min_days_without_checkin: int | None = None,
     provisional_only: bool | None = None,
 ) -> PaginatedResponse:
-    base_filters = [Member.deleted_at.is_(None)]
-    resolved_gym_id = _resolve_gym_id(gym_id)
-    if resolved_gym_id is not None:
-        base_filters.append(Member.gym_id == resolved_gym_id)
-    if search:
-        stored_external_id = func.coalesce(Member.extra_data["external_id"].astext, "")
-        base_filters.append(
-            or_(
-                Member.full_name.ilike(f"%{search}%"),
-                Member.email.ilike(f"%{search}%"),
-                stored_external_id.ilike(f"%{search}%"),
-            )
-        )
-    if risk_level:
-        base_filters.append(Member.risk_level == risk_level)
-    if status:
-        base_filters.append(Member.status == status)
-    if plan_cycle:
-        plan_label = {
-            "monthly": "mensal",
-            "semiannual": "semestral",
-            "annual": "anual",
-        }[plan_cycle]
-        stored_plan_cycle = func.coalesce(Member.extra_data["plan_cycle"].astext, "")
-        base_filters.append(
-            or_(
-                stored_plan_cycle == plan_cycle,
-                Member.plan_name.ilike(f"%{plan_label}%"),
-            )
-        )
-    if min_days_without_checkin is not None:
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
-        base_filters.append(Member.last_checkin_at.is_not(None))
-        base_filters.append(Member.last_checkin_at < cutoff)
-    if provisional_only is not None:
-        provisional_flag = func.coalesce(Member.extra_data["provisional_member"].astext, "false")
-        if provisional_only:
-            base_filters.append(provisional_flag == "true")
-        else:
-            base_filters.append(provisional_flag != "true")
+    base_filters, resolved_gym_id = _build_member_filters(
+        gym_id=gym_id,
+        search=search,
+        risk_level=risk_level,
+        status=status,
+        plan_cycle=plan_cycle,
+        min_days_without_checkin=min_days_without_checkin,
+        provisional_only=provisional_only,
+    )
 
     stmt = _scoped_statement(
         select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc()),
@@ -144,6 +166,33 @@ def list_members(
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+def list_member_index(
+    db: Session,
+    *,
+    gym_id: UUID | None = None,
+    search: str | None = None,
+    risk_level: RiskLevel | None = None,
+    status: MemberStatus | None = None,
+    plan_cycle: MemberPlanCycle | None = None,
+    min_days_without_checkin: int | None = None,
+    provisional_only: bool | None = None,
+) -> list[Member]:
+    base_filters, resolved_gym_id = _build_member_filters(
+        gym_id=gym_id,
+        search=search,
+        risk_level=risk_level,
+        status=status,
+        plan_cycle=plan_cycle,
+        min_days_without_checkin=min_days_without_checkin,
+        provisional_only=provisional_only,
+    )
+    stmt = _scoped_statement(
+        select(Member).where(and_(*base_filters)).order_by(Member.full_name.asc(), Member.created_at.desc()),
+        resolved_gym_id,
+    )
+    return list(db.scalars(stmt).all())
 
 
 def get_member_or_404(db: Session, member_id: UUID, gym_id: UUID | None = None) -> Member:

@@ -1,3 +1,4 @@
+import { AxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -416,19 +417,31 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
         await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
       }
     },
-    onError: () => toast.error("Nao foi possivel reagendar a sincronizacao."),
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel reagendar a sincronizacao.");
+    },
   });
 
   const enqueueSyncMutation = useMutation({
     mutationFn: (evaluationId: string) => bodyCompositionService.enqueueActuarSync(memberId, evaluationId),
     onSuccess: async () => {
-      toast.success("Job de sync enviado para o worker do Actuar.");
+      toast.success("Job de sync enviado para processamento do Actuar.");
       await invalidateAssessmentQueries(queryClient, memberId);
       if (focusEvaluation?.id) {
         await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
       }
     },
-    onError: () => toast.error("Nao foi possivel enviar a avaliacao para o Actuar."),
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel enviar a avaliacao para o Actuar.");
+    },
   });
 
   const manualConfirmMutation = useMutation({
@@ -469,7 +482,10 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
 
   const rangeClassifications = buildRangeClassifications(focusEvaluation);
   const canManualConfirm = user?.role === "owner" || user?.role === "manager";
-  const canManageSync = canManageActuarSync(user?.role);
+  const currentSyncMode = syncStatus?.sync_mode ?? focusEvaluation?.actuar_sync_mode ?? "disabled";
+  const syncDisabled = currentSyncMode === "disabled";
+  const canManageSync = canManageActuarSync(user?.role) && !syncDisabled;
+  const canConfirmManualSync = canManualConfirm && !syncDisabled;
   const syncSummary: BodyCompositionManualSyncSummary | null = syncStatus?.fallback_manual_summary ?? null;
 
   async function handleCopyCriticalFields() {
@@ -735,6 +751,13 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     ) : null}
                   </div>
                 ) : null}
+                {ocrReadSession.assistedAttempted &&
+                ocrResult?.engine === "local" &&
+                ocrResult.warnings.some((warning) => warning.message.includes("Leitura assistida por IA indisponivel")) ? (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                    A leitura assistida por IA esta desabilitada neste ambiente. Mantivemos o OCR local para revisao manual.
+                  </div>
+                ) : null}
                 {localOcrText ? (
                   <details className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
                     <summary className="cursor-pointer font-semibold">
@@ -916,6 +939,14 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 </div>
               ) : (
                 <>
+                  {syncDisabled ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      <p className="font-semibold">Sync Actuar desabilitado neste ambiente</p>
+                      <p className="mt-1 text-xs">
+                        Esta academia ou o backend local nao estao configurados para processar o envio automatico ao Actuar.
+                      </p>
+                    </div>
+                  ) : null}
                   <div className={`rounded-2xl border px-4 py-3 text-sm ${syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
                     <p className="font-semibold">
                       {syncStatus?.training_ready
@@ -981,7 +1012,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                         {linkMutation.isPending ? "Salvando vinculo..." : "Vincular aluno Actuar"}
                       </Button>
                     ) : null}
-                    {canManualConfirm ? (
+                    {canConfirmManualSync ? (
                       <Button
                         type="button"
                         variant="ghost"

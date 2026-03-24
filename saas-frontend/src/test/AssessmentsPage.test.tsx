@@ -42,6 +42,7 @@ vi.mock("../services/assessmentService", async () => {
       ...actual.assessmentService,
       dashboard: vi.fn(),
       queue: vi.fn(),
+      actuarSyncQueue: vi.fn().mockResolvedValue([]),
     },
   };
 });
@@ -52,6 +53,9 @@ const dashboard: AssessmentDashboard = {
   overdue_assessments: 180,
   never_assessed: 320,
   upcoming_7_days: 41,
+  historical_backlog_total: 910,
+  historical_never_assessed: 640,
+  historical_overdue_assessments: 270,
   attention_now: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente")],
   total_members_items: [],
   assessed_members: [],
@@ -128,13 +132,15 @@ describe("AssessmentsPage", () => {
   it("renders dashboard summary and paginated queue", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Avaliações" })).toBeInTheDocument();
-    expect(screen.getByText("Precisa de atenção agora")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Avaliacoes" })).toBeInTheDocument();
+    expect(screen.getByText("Base ativa")).toBeInTheDocument();
+    expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getByText(/ficaram fora da fila do dia por serem backlog historico/i)).toBeInTheDocument();
     expect(screen.getByText("Fila operacional")).toBeInTheDocument();
     expect(screen.getByText("Ana Silva")).toBeInTheDocument();
     expect(screen.getAllByText("Abrir workspace").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Registrar avaliação").length).toBeGreaterThan(0);
-    expect(screen.getByText("Página 1 de 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Registrar avaliacao").length).toBeGreaterThan(0);
+    expect(screen.getByText("Pagina 1 de 2")).toBeInTheDocument();
   });
 
   it("changes bucket and resets the queue to matching results", async () => {
@@ -156,7 +162,7 @@ describe("AssessmentsPage", () => {
     renderPage();
 
     await screen.findByText("Ana Silva");
-    fireEvent.click(screen.getByRole("button", { name: /^Próxima$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Proxima$/i }));
     expect(await screen.findByText("Diego Alves")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Buscar por nome, e-mail ou plano do aluno..."), {

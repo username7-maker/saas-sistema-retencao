@@ -30,11 +30,15 @@ def test_operational_dashboard_schema_serializes_member_objects():
         "heatmap": [{"weekday": 1, "hour_bucket": 18, "total_checkins": 12}],
         "inactive_7d_total": 1,
         "inactive_7d_items": [_member_stub()],
+        "birthday_today_total": 1,
+        "birthday_today_items": [_member_stub()],
     }
     parsed = OperationalDashboard.model_validate(payload)
     dumped = parsed.model_dump()
     assert dumped["inactive_7d_total"] == 1
     assert dumped["inactive_7d_items"][0]["full_name"] == "Aluno Demo"
+    assert dumped["birthday_today_total"] == 1
+    assert dumped["birthday_today_items"][0]["full_name"] == "Aluno Demo"
 
 
 def test_retention_dashboard_schema_serializes_member_objects():
