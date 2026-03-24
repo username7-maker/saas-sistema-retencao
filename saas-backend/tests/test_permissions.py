@@ -23,3 +23,10 @@ def test_require_roles_blocks_invalid_role():
     with pytest.raises(HTTPException) as exc_info:
         dependency(user)  # type: ignore[arg-type]
     assert exc_info.value.status_code == 403
+
+
+def test_require_roles_allows_trainer_when_explicitly_granted():
+    dependency = require_roles(RoleEnum.OWNER, RoleEnum.TRAINER)
+    user = DummyUser(RoleEnum.TRAINER)
+    returned = dependency(user)  # type: ignore[arg-type]
+    assert returned.role == RoleEnum.TRAINER

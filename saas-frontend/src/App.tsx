@@ -5,8 +5,11 @@ import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { LoadingPanel } from "./components/common/LoadingPanel";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
+import { useAuth } from "./hooks/useAuth";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { DiagnosticoPage } from "./pages/public/DiagnosticoPage";
+import { NON_TRAINER_ROLES, USER_ADMIN_ROLES, getDefaultRouteForRole } from "./utils/roleAccess";
+import type { Role } from "./types";
 
 const MembersPage = lazy(() => import("./pages/members/MembersPage").then((m) => ({ default: m.MembersPage })));
 const DashboardLovable = lazy(() => import("./pages/dashboard/DashboardLovable").then((m) => ({ default: m.DashboardLovable })));
@@ -39,6 +42,25 @@ function LazyWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+function GuardedLazyRoute({
+  children,
+  allowedRoles,
+}: {
+  children: React.ReactNode;
+  allowedRoles?: Role[];
+}) {
+  return (
+    <ProtectedRoute allowedRoles={allowedRoles}>
+      <LazyWrapper>{children}</LazyWrapper>
+    </ProtectedRoute>
+  );
+}
+
+function RoleHomeRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={getDefaultRouteForRole(user?.role)} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -55,182 +77,189 @@ export default function App() {
         <Route
           path="/members"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <MembersPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/dashboard/executive"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <DashboardLovable />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/dashboard/operational"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <OperationalDashboardPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/dashboard/commercial"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <CommercialDashboardPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/dashboard/financial"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <FinancialDashboardPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/dashboard/retention"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <RetentionDashboardPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/crm"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <CrmPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/tasks"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <TasksPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/goals"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <GoalsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/reports"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <ReportsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/assessments"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute>
               <AssessmentsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/assessments/members/:memberId"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute>
               <MemberProfile360Page />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/assessments/new/:memberId"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute>
               <NewAssessmentPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/notifications"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <NotificationsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/automations"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <AutomationsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/imports"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <ImportsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/settings"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute>
               <SettingsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/settings/users"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={USER_ADMIN_ROLES}>
               <UsersPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/nps"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <NpsPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/audit"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <AuditPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/vendas/briefing/:leadId"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <SalesBriefingPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
         <Route
           path="/vendas/script/:leadId"
           element={
-            <LazyWrapper>
+            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
               <CallScriptPage />
-            </LazyWrapper>
+            </GuardedLazyRoute>
           }
         />
       </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard/executive" replace />} />
+      <Route
+        path="*"
+        element={
+          <ProtectedRoute>
+            <RoleHomeRedirect />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }

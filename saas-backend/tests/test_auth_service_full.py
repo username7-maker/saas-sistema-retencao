@@ -97,6 +97,14 @@ class TestCreateUser:
         added_user = db.add.call_args[0][0]
         assert added_user.role == RoleEnum.OWNER
 
+    def test_accepts_trainer_role(self):
+        db = MagicMock()
+        db.scalar.return_value = None
+        payload = UserRegister(full_name="Trainer Test", email="trainer@t.com", password="Secret123!", role=RoleEnum.TRAINER)
+        create_user(db, payload, gym_id=GYM_ID)
+        added_user = db.add.call_args[0][0]
+        assert added_user.role == RoleEnum.TRAINER
+
 
 # ---------------------------------------------------------------------------
 # authenticate_user

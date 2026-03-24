@@ -14,6 +14,31 @@ revision = "20260323_0022"
 down_revision = "20260321_0021"
 branch_labels = None
 depends_on = None
+_ACTUAR_SYNC_JOB_FK = "fk_bce_actuar_sync_job_id"
+
+
+def _drop_actuar_sync_status_constraints() -> None:
+    op.execute(
+        """
+        DO $$
+        DECLARE constraint_record record;
+        BEGIN
+            FOR constraint_record IN
+                SELECT c.conname
+                FROM pg_constraint AS c
+                JOIN pg_class AS t ON t.oid = c.conrelid
+                WHERE t.relname = 'body_composition_evaluations'
+                  AND c.contype = 'c'
+                  AND pg_get_constraintdef(c.oid) ILIKE '%actuar_sync_status%'
+            LOOP
+                EXECUTE format(
+                    'ALTER TABLE body_composition_evaluations DROP CONSTRAINT IF EXISTS %I',
+                    constraint_record.conname
+                );
+            END LOOP;
+        END $$;
+        """
+    )
 
 
 def upgrade() -> None:
@@ -120,6 +145,7 @@ def upgrade() -> None:
     op.add_column("body_composition_evaluations", sa.Column("sync_last_error_message", sa.Text(), nullable=True))
     op.add_column("body_composition_evaluations", sa.Column("actuar_sync_job_id", postgresql.UUID(as_uuid=True), nullable=True))
     op.alter_column("body_composition_evaluations", "actuar_sync_status", existing_type=sa.String(length=20), type_=sa.String(length=30), existing_nullable=False, server_default="saved")
+    _drop_actuar_sync_status_constraints()
 
     op.execute(
         """
@@ -139,14 +165,13 @@ def upgrade() -> None:
         """
     )
 
-    op.drop_constraint("ck_body_composition_evaluations_bce_actuar_sync_status_valid", "body_composition_evaluations", type_="check")
     op.create_check_constraint(
         "ck_body_composition_evaluations_bce_actuar_sync_status_valid",
         "body_composition_evaluations",
         "actuar_sync_status IN ('draft', 'saved', 'sync_pending', 'syncing', 'synced_to_actuar', 'sync_failed', 'needs_review', 'manual_sync_required')",
     )
     op.create_foreign_key(
-        "fk_body_composition_evaluations_actuar_sync_job_id_actuar_sync_jobs",
+        _ACTUAR_SYNC_JOB_FK,
         "body_composition_evaluations",
         "actuar_sync_jobs",
         ["actuar_sync_job_id"],
@@ -156,8 +181,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_body_composition_evaluations_actuar_sync_job_id_actuar_sync_jobs", "body_composition_evaluations", type_="foreignkey")
-    op.drop_constraint("ck_body_composition_evaluations_bce_actuar_sync_status_valid", "body_composition_evaluations", type_="check")
+    op.drop_constraint(_ACTUAR_SYNC_JOB_FK, "body_composition_evaluations", type_="foreignkey")
+    _drop_actuar_sync_status_constraints()
     op.create_check_constraint(
         "ck_body_composition_evaluations_bce_actuar_sync_status_valid",
         "body_composition_evaluations",

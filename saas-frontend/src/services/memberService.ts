@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { assessmentService, type AssessmentSummary360, type Profile360 } from "./assessmentService";
 import type { AIAssistantPayload, Member, PaginatedResponse, RiskLevel } from "../types";
 
 export type MemberPlanCycle = "monthly" | "semiannual" | "annual";
@@ -86,8 +87,11 @@ export const memberService = {
     return data;
   },
 
-  async getProfile360(memberId: string): Promise<Record<string, unknown>> {
-    const { data } = await api.get<Record<string, unknown>>(`/api/v1/assessments/members/${memberId}/profile`);
-    return data;
+  async getProfile360(memberId: string): Promise<Profile360> {
+    return assessmentService.profile360(memberId);
+  },
+
+  async getAssessmentSummary(memberId: string): Promise<AssessmentSummary360> {
+    return assessmentService.summary360(memberId);
   },
 };

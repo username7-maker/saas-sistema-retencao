@@ -1,6 +1,8 @@
 """Tests for /health and /health/ready endpoints."""
 from unittest.mock import MagicMock, patch
 
+from app.core.config import settings
+
 
 def test_health_returns_ok(client):
     response = client.get("/health")
@@ -28,3 +30,33 @@ def test_health_ready_returns_503_when_db_down(client):
     data = response.json()
     assert data["status"] == "degraded"
     assert data["checks"]["database"]["status"] == "error"
+
+
+def test_health_ready_returns_ok_when_redis_not_required(client):
+    mock_session = MagicMock()
+    with (
+        patch("app.main.SessionLocal", return_value=mock_session),
+        patch("app.main.dashboard_cache.healthcheck", return_value={"available": False, "backend": "memory"}),
+        patch.object(settings, "redis_url", ""),
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["checks"]["cache"]["available"] is False
+
+
+def test_health_ready_returns_503_when_required_redis_is_down(client):
+    mock_session = MagicMock()
+    with (
+        patch("app.main.SessionLocal", return_value=mock_session),
+        patch("app.main.dashboard_cache.healthcheck", return_value={"available": False, "backend": "redis"}),
+        patch.object(settings, "redis_url", "redis://redis:6379/0"),
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["checks"]["cache"]["available"] is False

@@ -153,7 +153,9 @@ class TestUpdateMember:
         from app.services.member_service import update_member
         result = update_member(db, MEMBER_ID, payload)
         assert member.full_name == "Atualizado"
-        db.commit.assert_called_once()
+        assert result is member
+        db.add.assert_called_once_with(member)
+        db.commit.assert_not_called()
 
     @patch("app.services.member_service.invalidate_dashboard_cache")
     @patch("app.services.member_service.get_member_or_404")
@@ -180,4 +182,5 @@ class TestSoftDeleteMember:
         soft_delete_member(db, MEMBER_ID)
         assert member.deleted_at is not None
         assert member.status == MemberStatus.CANCELLED
-        db.commit.assert_called_once()
+        db.add.assert_called_once_with(member)
+        db.commit.assert_not_called()

@@ -505,7 +505,7 @@ export function CrmPage() {
     setDrawerOpen(true);
   }, [leadsQuery.data, searchParams]);
 
-  const allLeads = leadsQuery.data?.items ?? [];
+  const allLeads = useMemo(() => leadsQuery.data?.items ?? [], [leadsQuery.data?.items]);
 
   const leadsAfterBaseFilters = useMemo(() => {
     const normalizedQuery = normalizeText(searchQuery);

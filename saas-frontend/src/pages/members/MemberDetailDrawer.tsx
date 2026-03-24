@@ -36,6 +36,13 @@ export function MemberDetailDrawer({
     staleTime: 2 * 60 * 1000,
   });
 
+  const { data: assessmentSummary, isLoading: loadingSummary } = useQuery({
+    queryKey: ["assessment-summary-360", member?.id],
+    queryFn: () => memberService.getAssessmentSummary(member!.id),
+    enabled: !!member?.id,
+    staleTime: 2 * 60 * 1000,
+  });
+
   if (!member) {
     return null;
   }
@@ -269,24 +276,16 @@ export function MemberDetailDrawer({
           {loadingProfile || profile360 === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
-            const assess = profile.assessment ?? null;
-            const next = assess?.next_assessment ?? null;
-            const latest = assess?.latest ?? profile.latest_assessment ?? null;
-            const deltas = assess?.evolution?.deltas ?? null;
+            const latest = profile360.latest_assessment;
 
             return (
               <>
-                <div className={clsx("rounded-xl border p-3", next?.overdue ? "border-red-200 bg-red-50" : "border-lovable-border")}>
+                <div className="rounded-xl border border-lovable-border p-3">
                   <p className="mb-1 text-[10px] font-semibold uppercase text-lovable-ink-muted">Proxima avaliacao</p>
-                  <p className={clsx("text-sm font-bold", next?.overdue ? "text-red-600" : "text-lovable-ink")}>
-                    {next?.overdue
-                      ? `Atrasada ${typeof next?.days_until_due === "number" ? Math.abs(next.days_until_due) : "?"} dias`
-                      : next?.due_date
-                        ? new Date(next.due_date).toLocaleDateString("pt-BR")
-                        : latest?.next_assessment_due
-                          ? new Date(latest.next_assessment_due).toLocaleDateString("pt-BR")
-                          : "-"}
+                  <p className="text-sm font-bold text-lovable-ink">
+                    {latest?.next_assessment_due
+                      ? new Date(latest.next_assessment_due).toLocaleDateString("pt-BR")
+                      : "-"}
                   </p>
                 </div>
 
@@ -294,10 +293,10 @@ export function MemberDetailDrawer({
                   <div className="rounded-xl border border-lovable-border p-3">
                     <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">Ultima avaliacao</p>
                     <div className="grid grid-cols-3 gap-2 text-center">
-                      {[
+                      {[ 
                         { label: "Peso", value: latest?.weight_kg != null ? `${latest.weight_kg}kg` : "-" },
                         { label: "Gordura", value: latest?.body_fat_pct != null ? `${latest.body_fat_pct}%` : "-" },
-                        { label: "Massa Magra", value: latest?.lean_mass_kg != null ? `${latest.lean_mass_kg}kg` : "-" },
+                        { label: "IMC", value: latest?.bmi != null ? latest.bmi.toFixed(1) : "-" },
                       ].map((item) => (
                         <div key={item.label}>
                           <p className="text-[10px] text-lovable-ink-muted">{item.label}</p>
@@ -313,27 +312,12 @@ export function MemberDetailDrawer({
                   </div>
                 ) : null}
 
-                {deltas ? (
-                  <div className="rounded-xl border border-lovable-border p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">Evolucao desde o inicio</p>
-                    {[
-                      { label: "Peso", key: "weight_kg", unit: "kg", lowerIsBetter: false },
-                      { label: "Gordura", key: "body_fat_pct", unit: "%", lowerIsBetter: true },
-                      { label: "Massa Magra", key: "lean_mass_kg", unit: "kg", lowerIsBetter: false },
-                    ].map(({ label, key, unit, lowerIsBetter }) => {
-                      const val = deltas?.[key];
-                      if (val == null) return null;
-                      const positive = val > 0;
-                      const good = lowerIsBetter ? !positive : positive;
-                      return (
-                        <div key={key} className="flex items-center justify-between border-b border-lovable-border py-1 last:border-0">
-                          <span className="text-xs text-lovable-ink-muted">{label}</span>
-                          <span className={clsx("text-xs font-bold", good ? "text-green-600" : "text-red-500")}>
-                            {positive ? "+" : ""}{val}{unit}
-                          </span>
-                        </div>
-                      );
-                    })}
+                {profile360.insight_summary ? (
+                  <div className="rounded-xl border border-lovable-primary/30 bg-lovable-primary-soft/20 p-3">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">
+                      Insight tecnico
+                    </p>
+                    <p className="text-xs text-lovable-ink">{profile360.insight_summary}</p>
                   </div>
                 ) : null}
               </>
@@ -344,21 +328,20 @@ export function MemberDetailDrawer({
 
       {activeTab === "behavior" && (
         <div className="space-y-3 p-4">
-          {loadingProfile || profile360 === undefined ? (
+          {loadingSummary || assessmentSummary === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
-            const beh = profile.behavior ?? null;
-            const series: number[] = Array.isArray(beh?.weekly_series) ? beh.weekly_series : [];
+            const diagnosis = assessmentSummary.diagnosis;
+            const factors = diagnosis.factors;
 
             return (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: "Check-ins 90d", value: beh?.total_checkins_90d ?? "-" },
-                    { label: "Media semanal", value: beh?.avg_weekly != null ? `${beh.avg_weekly}x/sem` : "-" },
-                    { label: "Consistencia", value: beh?.consistency_pct != null ? `${beh.consistency_pct}%` : "-" },
-                    { label: "Turno favorito", value: beh?.preferred_shift ?? member.preferred_shift ?? "-" },
+                    { label: "Media semanal", value: `${assessmentSummary.recent_weekly_checkins.toFixed(1)}x/sem` },
+                    { label: "Meta semanal", value: `${assessmentSummary.target_frequency_per_week}x/sem` },
+                    { label: "Dias sem check-in", value: assessmentSummary.days_since_last_checkin ?? "-" },
+                    { label: "Gargalo principal", value: diagnosis.primary_bottleneck_label },
                   ].map((item) => (
                     <div key={item.label} className="rounded-xl border border-lovable-border p-3">
                       <p className="text-[10px] text-lovable-ink-muted">{item.label}</p>
@@ -367,24 +350,27 @@ export function MemberDetailDrawer({
                   ))}
                 </div>
 
-                {series.length > 0 ? (
+                <div className="rounded-xl border border-lovable-border p-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">Leitura comportamental</p>
+                  <p className="text-sm text-lovable-ink">{diagnosis.explanation}</p>
+                  <p className="mt-2 text-xs text-lovable-ink-muted">
+                    Benchmark atual: {assessmentSummary.benchmark.position_label} · confianca {diagnosis.confidence}
+                  </p>
+                </div>
+
+                {factors.length > 0 ? (
                   <div className="rounded-xl border border-lovable-border p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">
-                      Treinos por semana (ultimas {series.length} semanas)
-                    </p>
-                    <div className="flex h-10 items-end gap-1">
-                      {series.map((value, index) => {
-                        const max = Math.max(...series, 1);
-                        const height = Math.round((value / max) * 100);
-                        return (
-                          <div
-                            key={index}
-                            className="flex-1 rounded-sm bg-lovable-primary/30 transition-all"
-                            style={{ height: `${height}%`, minHeight: value > 0 ? "2px" : "0" }}
-                            title={`${value} treino${value !== 1 ? "s" : ""}`}
-                          />
-                        );
-                      })}
+                    <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">Fatores observados</p>
+                    <div className="space-y-2">
+                      {factors.map((factor) => (
+                        <div key={factor.key} className="rounded-lg border border-lovable-border px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-lovable-ink">{factor.label}</p>
+                            <span className="text-[11px] font-semibold text-lovable-primary">{factor.score}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-lovable-ink-muted">{factor.reason}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : null}
@@ -396,77 +382,82 @@ export function MemberDetailDrawer({
 
       {activeTab === "retention" && (
         <div className="space-y-3 p-4">
-          {loadingProfile || profile360 === undefined ? (
+          {loadingSummary || assessmentSummary === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
-            const ret = profile.retention ?? null;
-            const ai = profile.ai_engine ?? null;
-            const urgency = ret?.urgency ?? null;
-            const isCritical = urgency === "vip_em_risco" || urgency === "critico";
-            const isWarning = urgency === "atencao";
+            const retentionProbability = assessmentSummary.forecast.probability_60d;
+            const ninetyDayProbability = assessmentSummary.forecast.corrected_probability_90d;
+            const statusTone =
+              retentionProbability >= 60 ? "border-green-200 bg-green-50" : retentionProbability >= 40 ? "border-yellow-200 bg-yellow-50" : "border-red-200 bg-red-50";
 
             return (
               <>
                 <div
-                  className={clsx(
-                    "rounded-xl border p-3",
-                    isCritical ? "border-red-200 bg-red-50" : isWarning ? "border-yellow-200 bg-yellow-50" : "border-green-200 bg-green-50",
-                  )}
+                  className={clsx("rounded-xl border p-3", statusTone)}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase text-lovable-ink-muted">Urgencia</p>
-                      <p className="text-sm font-bold capitalize text-lovable-ink">{urgency ? urgency.replace(/_/g, " ") : "-"}</p>
+                      <p className="text-[10px] font-semibold uppercase text-lovable-ink-muted">Probabilidade de permanencia</p>
+                      <p className="text-sm font-bold text-lovable-ink">{retentionProbability}% em 60 dias</p>
                     </div>
-                    {ret?.churn_type_label ? (
+                    {assessmentSummary.status ? (
                       <span className="rounded-full border border-lovable-border bg-white/70 px-2 py-1 text-[10px] font-semibold text-lovable-ink">
-                        {ret.churn_type_label}
+                        {assessmentSummary.status}
                       </span>
                     ) : null}
                   </div>
                 </div>
 
-                {typeof ret?.forecast_60d === "number" && ret.forecast_60d >= 0 && ret.forecast_60d <= 100 ? (
-                  <div className="rounded-xl border border-lovable-border p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">
-                      Probabilidade de permanencia (60d)
-                    </p>
-                    <div className="flex items-center gap-3">
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-lovable-surface-soft">
-                        <div
-                          className={clsx(
-                            "h-2 rounded-full transition-all",
-                            ret.forecast_60d >= 60 ? "bg-green-500" : ret.forecast_60d >= 40 ? "bg-yellow-400" : "bg-red-500",
-                          )}
-                          style={{ width: `${ret.forecast_60d}%` }}
-                        />
-                      </div>
-                      <span
+                <div className="rounded-xl border border-lovable-border p-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase text-lovable-ink-muted">Forecast corrigido</p>
+                  <div className="flex items-center gap-3">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-lovable-surface-soft">
+                      <div
                         className={clsx(
-                          "text-sm font-bold",
-                          ret.forecast_60d >= 60 ? "text-green-600" : ret.forecast_60d >= 40 ? "text-yellow-600" : "text-red-600",
+                          "h-2 rounded-full transition-all",
+                          ninetyDayProbability >= 60 ? "bg-green-500" : ninetyDayProbability >= 40 ? "bg-yellow-400" : "bg-red-500",
                         )}
-                      >
-                        {ret.forecast_60d}%
-                      </span>
+                        style={{ width: `${ninetyDayProbability}%` }}
+                      />
+                    </div>
+                    <span
+                      className={clsx(
+                        "text-sm font-bold",
+                        ninetyDayProbability >= 60 ? "text-green-600" : ninetyDayProbability >= 40 ? "text-yellow-600" : "text-red-600",
+                      )}
+                    >
+                      {ninetyDayProbability}%
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-lovable-ink-muted">{assessmentSummary.forecast.corrected_summary}</p>
+                </div>
+
+                <div className="rounded-xl border border-lovable-border p-3">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">Narrativa de retencao</p>
+                  <p className="text-xs text-lovable-ink">{assessmentSummary.narratives.retention_summary}</p>
+                </div>
+
+                <div className="rounded-xl border border-lovable-primary/30 bg-lovable-primary-soft/20 p-3">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">
+                    Proxima acao recomendada
+                  </p>
+                  <p className="text-sm font-semibold text-lovable-ink">{assessmentSummary.next_best_action.title}</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">{assessmentSummary.next_best_action.reason}</p>
+                  <p className="mt-2 text-xs text-lovable-ink">{assessmentSummary.next_best_action.suggested_message}</p>
+                </div>
+
+                {assessmentSummary.actions.length > 0 ? (
+                  <div className="rounded-xl border border-lovable-primary/30 bg-lovable-primary-soft/20 p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">Playbook sugerido</p>
+                    <div className="space-y-2">
+                      {assessmentSummary.actions.slice(0, 3).map((action) => (
+                        <div key={action.key} className="rounded-lg border border-lovable-border bg-white/70 px-3 py-2">
+                          <p className="text-xs font-semibold text-lovable-ink">{action.title}</p>
+                          <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ) : null}
-
-                {ai?.next_best_action ? (
-                  <div className="rounded-xl border border-lovable-primary/30 bg-lovable-primary-soft/20 p-3">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">
-                      ✦ IA - Proxima acao recomendada
-                    </p>
-                    <p className="text-xs text-lovable-ink">{ai.next_best_action}</p>
-                  </div>
-                ) : null}
-
-                {!ret && !ai ? (
-                  <p className="text-sm text-lovable-ink-muted">
-                    Dados de retencao ainda nao disponiveis para este aluno.
-                  </p>
                 ) : null}
               </>
             );

@@ -112,7 +112,7 @@ def list_members_endpoint(
 def get_member_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> MemberOut:
     return get_member_or_404(db, member_id, gym_id=current_user.gym_id)
 
@@ -139,6 +139,7 @@ def update_member_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    db.refresh(member)
     return member
 
 
@@ -236,7 +237,7 @@ def get_onboarding_score_endpoint(
 def member_timeline_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
@@ -247,7 +248,7 @@ def member_timeline_endpoint(
 def list_body_composition_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
     limit: int = Query(20, ge=1, le=100),
 ) -> list[BodyCompositionEvaluationRead]:
     evaluations = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
@@ -258,7 +259,7 @@ def list_body_composition_endpoint(
 async def parse_body_composition_image_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     file: UploadFile = File(...),
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
@@ -279,7 +280,7 @@ def create_body_composition_endpoint(
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
     db.commit()
@@ -293,7 +294,7 @@ def update_body_composition_endpoint(
     evaluation_id: UUID,
     payload: BodyCompositionEvaluationUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
     db.commit()
@@ -381,7 +382,7 @@ def get_body_composition_actuar_sync_status_endpoint(
     member_id: UUID,
     evaluation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> BodyCompositionActuarSyncStatusRead:
     return get_body_composition_sync_status(
         db,
@@ -399,7 +400,7 @@ def get_body_composition_manual_sync_summary_endpoint(
     member_id: UUID,
     evaluation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> BodyCompositionManualSyncSummaryRead:
     return get_body_composition_manual_sync_summary(
         db,

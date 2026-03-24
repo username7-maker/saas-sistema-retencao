@@ -201,7 +201,9 @@ def readiness_check() -> JSONResponse:
         db.close()
 
     cache_info = dashboard_cache.healthcheck()
-    healthy = db_status == "ok"
+    cache_required = bool(settings.redis_url)
+    cache_healthy = (not cache_required) or bool(cache_info.get("available"))
+    healthy = db_status == "ok" and cache_healthy
     payload = {
         "status": "ok" if healthy else "degraded",
         "checks": {

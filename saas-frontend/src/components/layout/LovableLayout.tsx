@@ -37,6 +37,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
 import { notificationService } from "../../services/notificationService";
+import { canManageUsers } from "../../utils/roleAccess";
 import { Button, Drawer, Input, cn } from "../ui2";
 
 interface NavItem {
@@ -94,6 +95,13 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+const trainerNavGroups: NavGroup[] = [
+  {
+    label: "Treino",
+    items: [{ to: "/assessments", label: "Avaliacoes", icon: ClipboardList }],
+  },
+];
+
 function resolveHeaderSearchConfig(pathname: string): HeaderSearchConfig | null {
   if (pathname.startsWith("/dashboard/retention")) {
     return { param: "search", placeholder: "Buscar alertas, aluno ou plano..." };
@@ -104,8 +112,8 @@ function resolveHeaderSearchConfig(pathname: string): HeaderSearchConfig | null 
   return null;
 }
 
-function resolveActiveGroup(pathname: string): string | null {
-  for (const group of navGroups) {
+function resolveActiveGroup(pathname: string, groups: NavGroup[] = navGroups): string | null {
+  for (const group of groups) {
     if (group.items.some((item) => pathname.startsWith(item.to))) {
       return group.label;
     }
@@ -125,9 +133,11 @@ function resolveCurrentSection(pathname: string): string {
 }
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth();
   const { pathname } = useLocation();
-  const activeGroup = resolveActiveGroup(pathname);
-  const [openGroups, setOpenGroups] = useState<string[]>(activeGroup ? [activeGroup] : ["Dashboards"]);
+  const groups = user?.role === "trainer" ? trainerNavGroups : navGroups;
+  const activeGroup = resolveActiveGroup(pathname, groups);
+  const [openGroups, setOpenGroups] = useState<string[]>(activeGroup ? [activeGroup] : [groups[0]?.label ?? ""]);
 
   useEffect(() => {
     if (activeGroup && !openGroups.includes(activeGroup)) {
@@ -144,7 +154,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav className="space-y-4 px-3 pb-2">
-      {navGroups.map((group) => {
+      {groups.map((group) => {
         const isOpen = openGroups.includes(group.label);
         const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
 
@@ -222,11 +232,16 @@ export function LovableLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
+  const canOpenUserDirectory = canManageUsers(user?.role);
+  const canViewNotifications = user?.role !== "trainer";
+  const profileTarget = canOpenUserDirectory ? "/settings/users" : "/settings";
+  const showHelpCenter = user?.role !== "trainer";
 
   const { data: notifications } = useQuery({
     queryKey: ["notifications", "unread-count"],
     queryFn: () => notificationService.listNotifications({ unread_only: false }),
     refetchInterval: 60_000,
+    enabled: canViewNotifications,
   });
 
   const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
@@ -298,10 +313,16 @@ export function LovableLayout() {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setWorkspaceMenuOpen((prev) => !prev)}
+                onClick={() => {
+                  if (canOpenUserDirectory) {
+                    setWorkspaceMenuOpen((prev) => !prev);
+                    return;
+                  }
+                  navigate("/settings");
+                }}
                 className="w-full rounded-2xl border border-lovable-border/70 bg-lovable-surface/68 p-3.5 text-left shadow-[inset_0_1px_0_hsl(0_0%_100%/0.04)] transition hover:border-lovable-border-strong/70 hover:bg-lovable-surface/80"
-                aria-expanded={workspaceMenuOpen}
-                aria-label="Abrir menu de usuarios"
+                aria-expanded={canOpenUserDirectory ? workspaceMenuOpen : undefined}
+                aria-label={canOpenUserDirectory ? "Abrir menu de usuarios" : "Abrir configuracoes"}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
@@ -317,14 +338,18 @@ export function LovableLayout() {
                       <p className="mt-1 truncate text-xs text-lovable-ink-muted">{userEmail}</p>
                     </div>
                   </div>
-                  <ChevronDown
-                    size={14}
-                    className={cn("mt-1 shrink-0 text-lovable-ink-muted transition-transform", workspaceMenuOpen ? "rotate-180" : "")}
-                  />
+                  {canOpenUserDirectory ? (
+                    <ChevronDown
+                      size={14}
+                      className={cn("mt-1 shrink-0 text-lovable-ink-muted transition-transform", workspaceMenuOpen ? "rotate-180" : "")}
+                    />
+                  ) : (
+                    <Settings size={14} className="mt-1 shrink-0 text-lovable-ink-muted" />
+                  )}
                 </div>
               </button>
 
-              {workspaceMenuOpen ? (
+              {canOpenUserDirectory && workspaceMenuOpen ? (
                 <div className="absolute left-0 right-0 z-20 mt-2 rounded-2xl border border-lovable-border/70 bg-lovable-surface/96 p-2 shadow-panel backdrop-blur-xl">
                   <button
                     type="button"
@@ -373,14 +398,16 @@ export function LovableLayout() {
               <Settings size={16} />
               Settings
             </button>
-            <button
-              type="button"
-              onClick={() => navigate("/reports")}
-              className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-sm font-medium text-lovable-ink-muted transition hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink"
-            >
-              <HelpCircle size={16} />
-              Help Center
-            </button>
+            {showHelpCenter ? (
+              <button
+                type="button"
+                onClick={() => navigate("/reports")}
+                className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-sm font-medium text-lovable-ink-muted transition hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink"
+              >
+                <HelpCircle size={16} />
+                Help Center
+              </button>
+            ) : null}
           </div>
         </div>
       </aside>
@@ -437,27 +464,29 @@ export function LovableLayout() {
                   {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
                 </Button>
 
-                <button
-                  type="button"
-                  onClick={() => navigate("/notifications")}
-                  className="relative rounded-xl border border-lovable-border/60 bg-lovable-surface/62 p-2.5 text-lovable-ink-muted transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft hover:text-lovable-ink"
-                  title="Notifications"
-                  aria-label={unreadCount > 0 ? `Notifications ${unreadCount} unread` : "Notifications"}
-                >
-                  <Bell size={15} aria-hidden="true" />
-                  {unreadCount > 0 ? (
-                    <span
-                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[hsl(var(--lovable-danger))] text-[10px] font-bold text-white"
-                      aria-hidden="true"
-                    >
-                      {unreadCount > 9 ? "9+" : unreadCount}
-                    </span>
-                  ) : null}
-                </button>
+                {canViewNotifications ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/notifications")}
+                    className="relative rounded-xl border border-lovable-border/60 bg-lovable-surface/62 p-2.5 text-lovable-ink-muted transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft hover:text-lovable-ink"
+                    title="Notifications"
+                    aria-label={unreadCount > 0 ? `Notifications ${unreadCount} unread` : "Notifications"}
+                  >
+                    <Bell size={15} aria-hidden="true" />
+                    {unreadCount > 0 ? (
+                      <span
+                        className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[hsl(var(--lovable-danger))] text-[10px] font-bold text-white"
+                        aria-hidden="true"
+                      >
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
 
                 <button
                   type="button"
-                  onClick={() => navigate("/settings/users")}
+                  onClick={() => navigate(profileTarget)}
                   className="hidden items-center gap-3 rounded-2xl border border-lovable-border/60 bg-lovable-surface/62 px-3 py-1.5 text-left transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft md:flex"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,hsl(var(--lovable-primary)/0.9),hsl(var(--lovable-info)/0.9))] text-sm font-bold text-white shadow-[0_12px_30px_-18px_hsl(var(--lovable-primary)/0.95)]">

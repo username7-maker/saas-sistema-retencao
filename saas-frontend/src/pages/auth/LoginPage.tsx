@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { useAuth } from "../../hooks/useAuth";
 import { Button, Input } from "../../components/ui2";
+import { resolvePostLoginRoute } from "../../utils/roleAccess";
 
 const loginSchema = z.object({
   gym_slug: z.string().min(3, "Informe o slug da academia"),
@@ -36,9 +37,9 @@ export function LoginPage() {
 
   const onSubmit = async (values: LoginFormValues) => {
     try {
-      await login(values);
-      const from = (location.state as { from?: string } | null)?.from ?? "/dashboard/executive";
-      navigate(from, { replace: true });
+      const currentUser = await login(values);
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(resolvePostLoginRoute(currentUser.role, from), { replace: true });
     } catch {
       setError("root", { message: "Falha na autenticacao. Verifique credenciais." });
     }

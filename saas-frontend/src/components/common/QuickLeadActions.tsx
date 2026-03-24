@@ -38,7 +38,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
     setWhatsAppMessage(
       `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
     );
-  }, [lead.id]);
+  }, [lead.full_name, lead.id]);
 
   // Auto-dismiss feedback after 3 seconds
   useEffect(() => {

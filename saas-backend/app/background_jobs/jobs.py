@@ -102,10 +102,11 @@ def daily_nps_dispatch_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 result = run_nps_dispatch(db)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, result=result)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -120,10 +121,11 @@ def daily_crm_followup_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 processed_count = run_followup_automation(db)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, processed_count=processed_count)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -138,10 +140,11 @@ def monthly_reports_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 result = send_monthly_reports(db)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, result=result)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -168,10 +171,11 @@ def daily_automations_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 results = run_automation_rules(db)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, **_extract_rule_metrics(results))
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -197,11 +201,11 @@ def daily_loyalty_update_job() -> None:
                 for member in members:
                     delta = relativedelta(today, member.join_date)
                     member.loyalty_months = max(0, delta.years * 12 + delta.months)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, processed_count=len(members))
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
-        db.commit()
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -217,10 +221,11 @@ def sunday_briefing_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 result = generate_and_send_weekly_briefing(db, gym.id)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, result=result)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()
@@ -266,10 +271,11 @@ def proposal_followup_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 result = process_proposal_followups(db)
+                db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, result=result)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
-                raise
+                db.rollback()
     finally:
         clear_current_gym_id()
         db.close()

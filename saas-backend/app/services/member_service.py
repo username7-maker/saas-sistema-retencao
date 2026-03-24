@@ -161,8 +161,6 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: U
     for key, value in data.items():
         setattr(member, key, value)
     db.add(member)
-    db.commit()
-    db.refresh(member)
     invalidate_dashboard_cache("members", "nps", "risk")
     return member
 
@@ -172,5 +170,4 @@ def soft_delete_member(db: Session, member_id: UUID, gym_id: UUID | None = None)
     member.deleted_at = datetime.now(tz=timezone.utc)
     member.status = MemberStatus.CANCELLED
     db.add(member)
-    db.commit()
     invalidate_dashboard_cache("members", "risk")
