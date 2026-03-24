@@ -31,10 +31,17 @@ Status:
 **Goal:** Criar fluxo dedicado de atualizacao em massa fora da importacao.
 **Requirements**: Atualizacao coletiva segura, com preview e confirmacao.
 **Depends on:** Phase 4
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 5 -> $gsd-plan-phase 5)
+- [x] 05-PLAN.md - bulk update dedicado, com preview de diff e commit bloqueado em caso de pendencias
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
 
 ### Phase 6: Busca operacional por telefone e CPF
 

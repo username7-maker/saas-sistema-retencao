@@ -24,8 +24,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IMP-01 | Phase 4 | Pending |
-| IMP-02 | Phase 4 | Pending |
+| IMP-01 | Phase 4 | Completed |
+| IMP-02 | Phase 4 | Completed |
 | BULK-01 | Phase 5 | Pending |
 | BULK-02 | Phase 5 | Pending |
 | SEARCH-01 | Phase 6 | Pending |
