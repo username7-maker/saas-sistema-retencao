@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Plataforma operacional para academias acompanharem alunos, risco de churn, onboarding, CRM, tarefas e avaliacoes tecnicas em um unico fluxo. Depois do milestone `v3.1.0`, o produto sustenta melhor piloto real e operacao limitada, com superficies mais honestas por papel e leitura operacional mais confiavel.
+Plataforma operacional para academias acompanharem alunos, risco de churn, onboarding, CRM, tarefas e avaliacoes tecnicas em um unico fluxo. Depois do milestone `v3.1.0`, o produto sustenta melhor piloto real e operacao limitada, e o novo ciclo `v3.2.0` foca nos fluxos de base de dados que ainda geram mais atrito operacional.
 
 ## Core Value
 
@@ -13,7 +13,7 @@ A equipe da academia precisa confiar que cada tela mostra o estado real do aluno
 - **Latest shipped milestone:** `v3.1.0 Prontidao Operacional`
 - **Shipped on:** `2026-03-24`
 - **Operational target reached:** `piloto + operacao limitada`
-- **Key result:** CRM, busca operacional e superficie administrativa ficaram mais coerentes com o backend real
+- **Current milestone in planning:** `v3.2.0 Operacao de Base`
 
 ## Requirements
 
@@ -36,21 +36,20 @@ A equipe da academia precisa confiar que cada tela mostra o estado real do aluno
 
 ### Out of Scope
 
-- Nada foi descartado permanentemente; os itens fora do milestone atual foram movidos para backlog `999.x`
+- Nenhum item descartado permanentemente; o foco atual e transformar backlog operacional em escopo executavel
 
 ## Context
 
 - Produto brownfield em FastAPI + SQLAlchemy + React/Vite
-- Tag anterior existente no repo: `v3.0.0`
-- `v3.1.0` consolidou o uso de GSD com fases, UAT e auditoria formal
-- O sistema esta mais maduro para time real, mas continua com backlog claro para importacao assistida, bulk update e busca por dados sensiveis
+- `v3.1.0` consolidou CRM, busca operacional inicial e superficies administrativas mais honestas
+- O maior atrito restante esta na manutencao da base: importar, atualizar e localizar membros por identificadores sensiveis
 
 ## Constraints
 
 - **Tech stack**: Manter FastAPI, SQLAlchemy e React existentes
 - **Authorization**: Nao expandir permissao de backend para acomodar UI
-- **Operational target**: Seguir focado em piloto + operacao limitada, sem redesign amplo
-- **Data integrity**: Continuar evoluindo CRM sem migracoes destrutivas precipitadas
+- **Operational target**: Evoluir de `piloto + operacao limitada` para operacao interna mais robusta
+- **Data sensitivity**: Busca por telefone/CPF so entra com estrategia segura de token/hash/index
 
 ## Key Decisions
 
@@ -59,7 +58,8 @@ A equipe da academia precisa confiar que cada tela mostra o estado real do aluno
 | Usar `v3.1.0` como milestone atual | Existe tag `v3.0.0` no repo e este ciclo e incremental | ✓ Good |
 | Fechar CRM sem migracao destrutiva | Preserva historico legado enquanto estabiliza a timeline | ✓ Good |
 | Tratar matricula via `extra_data.external_id` | Ja e o identificador operacional mais confiavel na base atual | ✓ Good |
-| Nao incluir busca por telefone/CPF agora | Dados estao criptografados em repouso e exigem desenho proprio | ✓ Good |
+| Nao incluir busca por telefone/CPF em `v3.1.0` | Dados estao criptografados em repouso e exigem desenho proprio | ✓ Good |
+| Abrir `v3.2.0` a partir dos itens `999.x` | O backlog ja capturava exatamente os proximos gargalos operacionais | ✓ Planned |
 
 ## Next Milestone Goals
 
@@ -68,4 +68,4 @@ A equipe da academia precisa confiar que cada tela mostra o estado real do aluno
 - Busca operacional por telefone/CPF com token/hash/index
 
 ---
-*Last updated: 2026-03-24 after v3.1.0 milestone completion*
+*Last updated: 2026-03-24 after opening v3.2.0 milestone*
