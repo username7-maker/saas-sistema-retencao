@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 
 import { HeatmapGrid } from "../../components/charts/HeatmapGrid";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickActions } from "../../components/common/QuickActions";
+import { EmptyState } from "../../components/ui";
 import { StatCard } from "../../components/common/StatCard";
 import { Badge } from "../../components/ui2";
 import { useOperationalDashboard } from "../../hooks/useDashboard";
 import { tokenStorage } from "../../services/storage";
 import type { RiskLevel } from "../../types";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
 
 const RISK_BADGE: Record<RiskLevel, "danger" | "warning" | "success"> = {
   red: "danger",
@@ -20,7 +23,7 @@ const RISK_BADGE: Record<RiskLevel, "danger" | "warning" | "success"> = {
 
 const RISK_LABELS: Record<RiskLevel, string> = {
   red: "Alto",
-  yellow: "Médio",
+  yellow: "Medio",
   green: "Baixo",
 };
 
@@ -69,8 +72,15 @@ export function OperationalDashboardPage() {
     return <LoadingPanel text="Carregando dashboard operacional..." />;
   }
 
-  if (!query.data) {
-    return <LoadingPanel text="Sem dados operacionais disponíveis." />;
+  if (query.isError || !query.data) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Nao foi possivel carregar o dashboard operacional"
+        description={getPermissionAwareMessage(query.error, "Tente novamente para recuperar os indicadores operacionais.")}
+        action={{ label: "Tentar novamente", onClick: () => void query.refetch() }}
+      />
+    );
   }
 
   return (
@@ -78,7 +88,7 @@ export function OperationalDashboardPage() {
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Operacional</h2>
-          <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horário e inativos 7+ dias.</p>
+          <p className="text-sm text-lovable-ink-muted">Check-ins em tempo real, heatmap por horario e inativos 7+ dias.</p>
           <p className="mt-1 flex items-center gap-1.5 text-xs text-lovable-ink-muted">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
@@ -101,7 +111,7 @@ export function OperationalDashboardPage() {
       <AiInsightCard dashboard="operational" />
 
       <div className="grid gap-4 md:grid-cols-2">
-        <StatCard label="Check-ins última hora" value={String(query.data.realtime_checkins)} tone="success" />
+        <StatCard label="Check-ins ultima hora" value={String(query.data.realtime_checkins)} tone="success" />
         <StatCard label="Inativos 7+ dias" value={String(query.data.inactive_7d_total)} tone="warning" />
       </div>
 
@@ -115,8 +125,8 @@ export function OperationalDashboardPage() {
               <tr>
                 <th className="px-2 py-2">Aluno</th>
                 <th className="px-2 py-2">Risco</th>
-                <th className="px-2 py-2">Último check-in</th>
-                <th className="px-2 py-2">Ações</th>
+                <th className="px-2 py-2">Ultimo check-in</th>
+                <th className="px-2 py-2">Acoes</th>
               </tr>
             </thead>
             <tbody>

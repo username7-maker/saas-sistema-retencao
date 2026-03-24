@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { AlertTriangle, ArrowLeft, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert } from "lucide-react";
@@ -36,7 +36,16 @@ import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
 import { taskService, type CreateTaskPayload } from "../../services/taskService";
 import { userService } from "../../services/userService";
+import { useAuth } from "../../hooks/useAuth";
 import type { Task } from "../../types";
+import {
+  canAddAssessmentInternalNote,
+  canCreateAssessment,
+  canCreateAssessmentTasks,
+  canViewAssessmentTasks,
+  canViewAssessmentTimeline,
+  getVisibleAssessmentWorkspaceTabs,
+} from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   formatDueDate,
@@ -438,6 +447,7 @@ export function MemberProfile360Page() {
   const { memberId } = useParams<{ memberId: string }>();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
 
   const [noteDraft, setNoteDraft] = useState("");
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
@@ -445,6 +455,12 @@ export function MemberProfile360Page() {
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
 
   const activeTab = normalizeAssessmentWorkspaceTab(searchParams.get("tab"));
+  const visibleTabs = getVisibleAssessmentWorkspaceTabs(user?.role);
+  const canCreateAssessmentRecord = canCreateAssessment(user?.role);
+  const canManageNotes = canAddAssessmentInternalNote(user?.role);
+  const canViewTasks = canViewAssessmentTasks(user?.role);
+  const canCreateTasks = canCreateAssessmentTasks(user?.role);
+  const canViewTimeline = canViewAssessmentTimeline(user?.role);
 
   const profileQuery = useQuery({
     queryKey: ["assessments", "profile360", memberId],
@@ -484,7 +500,7 @@ export function MemberProfile360Page() {
   const timelineQuery = useQuery({
     queryKey: ["member-timeline", memberId],
     queryFn: () => memberTimelineService.list(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && canViewTimeline,
     staleTime: 60 * 1000,
   });
 
@@ -498,14 +514,14 @@ export function MemberProfile360Page() {
   const memberTasksQuery = useQuery({
     queryKey: ["tasks", "member-workspace", memberId],
     queryFn: () => taskService.listAllTasks(),
-    enabled: Boolean(memberId) && (activeTab === "acoes" || isCreateTaskOpen),
+    enabled: Boolean(memberId) && canViewTasks && (activeTab === "acoes" || isCreateTaskOpen),
     staleTime: 60 * 1000,
   });
 
   const usersQuery = useQuery({
     queryKey: ["users", "member-workspace-task-create"],
     queryFn: userService.listUsers,
-    enabled: isCreateTaskOpen,
+    enabled: isCreateTaskOpen && canCreateTasks,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -598,6 +614,13 @@ export function MemberProfile360Page() {
     openTabWithSearchParams(searchParams, tab, setSearchParams);
   }
 
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      openTab(visibleTabs[0] ?? "overview");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, visibleTabs.join("|")]);
+
   async function handleRetryWorkspace() {
     await Promise.all([
       profileQuery.refetch(),
@@ -676,6 +699,22 @@ export function MemberProfile360Page() {
     ...(profile.member.extra_data ?? {}),
     ...(member.extra_data ?? {}),
   };
+  const rawConversionHandoff =
+    typeof mergedExtra.conversion_handoff === "object" && mergedExtra.conversion_handoff !== null
+      ? (mergedExtra.conversion_handoff as Record<string, unknown>)
+      : null;
+  const conversionHandoff = rawConversionHandoff
+    ? {
+        plan_name: typeof rawConversionHandoff.plan_name === "string" ? rawConversionHandoff.plan_name : null,
+        join_date: typeof rawConversionHandoff.join_date === "string" ? rawConversionHandoff.join_date : null,
+        notes: typeof rawConversionHandoff.notes === "string" ? rawConversionHandoff.notes : null,
+        email_confirmed:
+          typeof rawConversionHandoff.email_confirmed === "boolean" ? rawConversionHandoff.email_confirmed : null,
+        phone_confirmed:
+          typeof rawConversionHandoff.phone_confirmed === "boolean" ? rawConversionHandoff.phone_confirmed : null,
+        converted_at: typeof rawConversionHandoff.converted_at === "string" ? rawConversionHandoff.converted_at : null,
+      }
+    : null;
   const apiNotes = parseInternalNotes(mergedExtra);
   const localNotes = parseInternalNotesFromStorage(memberId);
   const notes = apiNotes.length > 0 ? apiNotes : localNotes;
@@ -716,12 +755,16 @@ export function MemberProfile360Page() {
         </Link>
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" onClick={() => openTab("acoes")}>
-            Ver Tarefas
-          </Button>
-          <Button size="sm" variant="primary" onClick={() => openTab("registro")}>
-            Nova Avaliacao
-          </Button>
+          {canViewTasks && visibleTabs.includes("acoes") ? (
+            <Button size="sm" variant="secondary" onClick={() => openTab("acoes")}>
+              Ver Tarefas
+            </Button>
+          ) : null}
+          {canCreateAssessmentRecord && visibleTabs.includes("registro") ? (
+            <Button size="sm" variant="primary" onClick={() => openTab("registro")}>
+              Nova Avaliacao
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -844,7 +887,7 @@ export function MemberProfile360Page() {
       <Tabs value={activeTab} onValueChange={(value) => openTab(value as AssessmentWorkspaceTab)} className="space-y-4">
         <div className="overflow-x-auto pb-1">
           <TabsList className="min-w-max flex-nowrap gap-1">
-            {ASSESSMENT_WORKSPACE_TABS.map((tab) => (
+            {ASSESSMENT_WORKSPACE_TABS.filter((tab) => visibleTabs.includes(tab.key)).map((tab) => (
               <TabsTrigger key={tab.key} value={tab.key} className="whitespace-nowrap">
                 {tab.label}
               </TabsTrigger>
@@ -860,15 +903,22 @@ export function MemberProfile360Page() {
             latestBodyComposition={latestBodyComposition}
             latestNote={latestNote}
             notesCount={notes.length}
+            conversionHandoff={conversionHandoff}
+            canCreateAssessment={canCreateAssessmentRecord && visibleTabs.includes("registro")}
+            canViewContextTab={visibleTabs.includes("contexto")}
+            canManageInternalNotes={canManageNotes}
+            visibleTabs={visibleTabs}
             onAddNote={() => setIsAddNoteOpen(true)}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenTab={openTab}
           />
         </TabsContent>
 
-        <TabsContent value="registro">
-          <AssessmentRegistrationComposer memberId={memberId} onSaved={() => openTab("overview")} />
-        </TabsContent>
+        {visibleTabs.includes("registro") ? (
+          <TabsContent value="registro">
+            <AssessmentRegistrationComposer memberId={memberId} onSaved={() => openTab("overview")} />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="evolucao">
           <div className="space-y-4">
@@ -906,133 +956,151 @@ export function MemberProfile360Page() {
               </Card>
             </div>
 
-            <MemberTimeline360Content
-              member={profile.member}
-              events={timelineQuery.data}
-              isLoading={timelineQuery.isLoading}
-              isError={timelineQuery.isError}
-              showContextCard={false}
-            />
+            {canViewTimeline ? (
+              <MemberTimeline360Content
+                member={profile.member}
+                events={timelineQuery.data}
+                isLoading={timelineQuery.isLoading}
+                isError={timelineQuery.isError}
+                showContextCard={false}
+              />
+            ) : null}
           </div>
         </TabsContent>
 
-        <TabsContent value="plano">
-          <div className="space-y-4">
-            <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-              <MemberGoalsEditor
-                memberId={memberId}
-                goals={profile.goals}
-                defaultAssessmentId={profile.latest_assessment?.id ?? null}
-              />
-              <MemberTrainingPlanEditor
-                memberId={memberId}
-                trainingPlan={profile.active_training_plan}
-                defaultAssessmentId={profile.latest_assessment?.id ?? null}
-              />
-            </div>
-            <GoalsProgress goals={profile.goals} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="contexto">
-          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        {visibleTabs.includes("plano") ? (
+          <TabsContent value="plano">
             <div className="space-y-4">
-              <MemberConstraintsEditor memberId={memberId} constraints={profile.constraints} />
-              <NotesSummaryCard
-                latestNote={latestNote}
-                notesCount={notes.length}
-                onAdd={() => setIsAddNoteOpen(true)}
-                onHistory={() => setIsHistoryOpen(true)}
-              />
+              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                <MemberGoalsEditor
+                  memberId={memberId}
+                  goals={profile.goals}
+                  defaultAssessmentId={profile.latest_assessment?.id ?? null}
+                />
+                <MemberTrainingPlanEditor
+                  memberId={memberId}
+                  trainingPlan={profile.active_training_plan}
+                  defaultAssessmentId={profile.latest_assessment?.id ?? null}
+                />
+              </div>
+              <GoalsProgress goals={profile.goals} />
             </div>
-            <ContextSupportPanel summary={assessmentIntelligence} />
-          </div>
-        </TabsContent>
+          </TabsContent>
+        ) : null}
 
-        <TabsContent value="acoes">
-          <MemberTasksPanel
-            tasks={memberTasks}
-            todayKey={todayKey}
-            isLoading={memberTasksQuery.isLoading}
-            isError={memberTasksQuery.isError}
-            isCreating={createTaskMutation.isPending}
-            onRetry={() => void memberTasksQuery.refetch()}
-            onCreate={() => setIsCreateTaskOpen(true)}
-          />
-        </TabsContent>
+        {visibleTabs.includes("contexto") ? (
+          <TabsContent value="contexto">
+            <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+              <div className="space-y-4">
+                <MemberConstraintsEditor memberId={memberId} constraints={profile.constraints} />
+                {canManageNotes ? (
+                  <NotesSummaryCard
+                    latestNote={latestNote}
+                    notesCount={notes.length}
+                    onAdd={() => setIsAddNoteOpen(true)}
+                    onHistory={() => setIsHistoryOpen(true)}
+                  />
+                ) : null}
+              </div>
+              <ContextSupportPanel summary={assessmentIntelligence} />
+            </div>
+          </TabsContent>
+        ) : null}
 
-        <TabsContent value="bioimpedancia">
-          <MemberBodyCompositionTab memberId={memberId} />
-        </TabsContent>
+        {visibleTabs.includes("acoes") ? (
+          <TabsContent value="acoes">
+            <MemberTasksPanel
+              tasks={memberTasks}
+              todayKey={todayKey}
+              isLoading={memberTasksQuery.isLoading}
+              isError={memberTasksQuery.isError}
+              isCreating={createTaskMutation.isPending}
+              onRetry={() => void memberTasksQuery.refetch()}
+              onCreate={() => setIsCreateTaskOpen(true)}
+            />
+          </TabsContent>
+        ) : null}
+
+        {visibleTabs.includes("bioimpedancia") ? (
+          <TabsContent value="bioimpedancia">
+            <MemberBodyCompositionTab memberId={memberId} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
-      <CreateTaskModal
-        open={isCreateTaskOpen}
-        onClose={() => setIsCreateTaskOpen(false)}
-        members={[member]}
-        users={usersQuery.data ?? []}
-        isPending={createTaskMutation.isPending}
-        initialMemberId={member.id}
-        onSubmit={(payload) => createTaskMutation.mutate(payload)}
-      />
+      {canCreateTasks ? (
+        <CreateTaskModal
+          open={isCreateTaskOpen}
+          onClose={() => setIsCreateTaskOpen(false)}
+          members={[member]}
+          users={usersQuery.data ?? []}
+          isPending={createTaskMutation.isPending}
+          initialMemberId={member.id}
+          onSubmit={(payload) => createTaskMutation.mutate(payload)}
+        />
+      ) : null}
 
-      <Dialog
-        open={isAddNoteOpen}
-        onClose={() => setIsAddNoteOpen(false)}
-        title="Adicionar nota interna"
-        description="Ao salvar, esta nota vira a ultima nota registrada do aluno."
-      >
-        <div className="space-y-3">
-          <Textarea
-            value={noteDraft}
-            onChange={(event) => setNoteDraft(event.target.value)}
-            rows={5}
-            placeholder="Ex: Prefere bike a esteira. Precisa de mais acompanhamento na adesao ao treino."
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setIsAddNoteOpen(false);
-                setNoteDraft("");
-              }}
-              disabled={addNoteMutation.isPending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => addNoteMutation.mutate()}
-              disabled={addNoteMutation.isPending || noteDraft.trim().length === 0}
-            >
-              {addNoteMutation.isPending ? "Salvando..." : "Salvar nota"}
-            </Button>
+      {canManageNotes ? (
+        <Dialog
+          open={isAddNoteOpen}
+          onClose={() => setIsAddNoteOpen(false)}
+          title="Adicionar nota interna"
+          description="Ao salvar, esta nota vira a ultima nota registrada do aluno."
+        >
+          <div className="space-y-3">
+            <Textarea
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              rows={5}
+              placeholder="Ex: Prefere bike a esteira. Precisa de mais acompanhamento na adesao ao treino."
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setIsAddNoteOpen(false);
+                  setNoteDraft("");
+                }}
+                disabled={addNoteMutation.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => addNoteMutation.mutate()}
+                disabled={addNoteMutation.isPending || noteDraft.trim().length === 0}
+              >
+                {addNoteMutation.isPending ? "Salvando..." : "Salvar nota"}
+              </Button>
+            </div>
           </div>
-        </div>
-      </Dialog>
+        </Dialog>
+      ) : null}
 
-      <Dialog
-        open={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
-        title="Historico de notas"
-        description="Notas anteriores da equipe para este aluno."
-        size="md"
-      >
-        {previousNotes.length === 0 ? (
-          <p className="text-sm text-lovable-ink-muted">Sem notas anteriores.</p>
-        ) : (
-          <ul className="max-h-80 space-y-2 overflow-y-auto pr-1">
-            {previousNotes.map((note) => (
-              <li key={note.id} className="rounded-lg border border-lovable-border bg-lovable-surface-soft px-3 py-2">
-                <p className="text-sm text-lovable-ink">{note.text}</p>
-                <p className="mt-1 text-xs text-lovable-ink-muted">{formatDateTime(note.created_at)}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Dialog>
+      {canManageNotes ? (
+        <Dialog
+          open={isHistoryOpen}
+          onClose={() => setIsHistoryOpen(false)}
+          title="Historico de notas"
+          description="Notas anteriores da equipe para este aluno."
+          size="md"
+        >
+          {previousNotes.length === 0 ? (
+            <p className="text-sm text-lovable-ink-muted">Sem notas anteriores.</p>
+          ) : (
+            <ul className="max-h-80 space-y-2 overflow-y-auto pr-1">
+              {previousNotes.map((note) => (
+                <li key={note.id} className="rounded-lg border border-lovable-border bg-lovable-surface-soft px-3 py-2">
+                  <p className="text-sm text-lovable-ink">{note.text}</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">{formatDateTime(note.created_at)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Dialog>
+      ) : null}
     </section>
   );
 }

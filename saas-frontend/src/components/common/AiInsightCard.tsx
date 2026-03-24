@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw, Sparkles } from "lucide-react";
 
+import { useAuth } from "../../hooks/useAuth";
 import { api } from "../../services/api";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
+import { canViewAiInsight } from "../../utils/roleAccess";
 
 interface InsightResponse {
   dashboard: string;
@@ -17,6 +20,8 @@ interface AiInsightCardProps {
 
 export function AiInsightCard({ dashboard }: AiInsightCardProps) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canSeeInsight = canViewAiInsight(user?.role, dashboard);
 
   const query = useQuery({
     queryKey: ["insights", dashboard],
@@ -26,7 +31,12 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
     },
     staleTime: 60 * 60 * 1000,
     retry: 1,
+    enabled: canSeeInsight,
   });
+
+  if (!canSeeInsight) {
+    return null;
+  }
 
   if (query.isLoading) {
     return (
@@ -45,7 +55,9 @@ export function AiInsightCard({ dashboard }: AiInsightCardProps) {
       <article className="rounded-[24px] border border-lovable-border bg-lovable-surface/92 p-4 shadow-panel">
         <div className="flex items-center gap-2 text-lovable-ink-muted">
           <AlertTriangle size={16} />
-          <span className="text-xs">Insights indisponiveis no momento.</span>
+          <span className="text-xs">
+            {getPermissionAwareMessage(query.error, "Insights indisponiveis no momento.", "Insights disponiveis apenas para gestao.")}
+          </span>
         </div>
       </article>
     );

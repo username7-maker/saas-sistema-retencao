@@ -39,8 +39,8 @@ from app.schemas.dashboard import (
     WeeklySummary,
 )
 from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
-from app.schemas.imports import ImportErrorEntry, ImportSummary, MissingMemberEntry
-from app.schemas.lead import LeadCreate, LeadOut, LeadUpdate
+from app.schemas.imports import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.schemas.lead import LeadConversionHandoff, LeadCreate, LeadNoteCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate, OnboardingScoreOut
 from app.schemas.nurturing import NurturingSequenceOut
@@ -103,9 +103,13 @@ __all__ = [
     "GymOwnerRegister",
     "HeatmapPoint",
     "ImportErrorEntry",
+    "ImportPreview",
+    "ImportPreviewRow",
     "ImportSummary",
     "MissingMemberEntry",
     "LeadCreate",
+    "LeadConversionHandoff",
+    "LeadNoteCreate",
     "LeadOut",
     "LeadUpdate",
     "LTVPoint",

@@ -5,8 +5,10 @@ import toast from "react-hot-toast";
 import type { Member } from "../../types";
 import { QuickActions } from "../../components/common/QuickActions";
 import { Badge, Drawer } from "../../components/ui2";
+import { useAuth } from "../../hooks/useAuth";
 import { lgpdService } from "../../services/lgpdService";
 import { memberService } from "../../services/memberService";
+import { canAnonymizeLgpd, canExportLgpd } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
 
@@ -19,6 +21,7 @@ export function MemberDetailDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  const { user } = useAuth();
   const [confirmAnonymize, setConfirmAnonymize] = useState(false);
   const [lgpdLoading, setLgpdLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "assessment" | "behavior" | "retention">("overview");
@@ -58,6 +61,8 @@ export function MemberDetailDrawer({
   const normalizedPhone = normalizeWhatsAppPhone(member.phone);
   const phoneDisplay = formatPhoneDisplay(member.phone);
   const whatsappHref = buildWhatsAppHref(member.phone, undefined, member.full_name);
+  const canExport = canExportLgpd(user?.role);
+  const canAnonymize = canAnonymizeLgpd(user?.role);
 
   const handleExportLgpd = async () => {
     setLgpdLoading(true);
@@ -226,48 +231,54 @@ export function MemberDetailDrawer({
             </div>
           )}
 
-          <div className="border-t border-lovable-border pt-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">LGPD</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void handleExportLgpd()}
-                disabled={lgpdLoading}
-                className="rounded-full border border-lovable-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface-soft disabled:opacity-50"
-              >
-                Exportar dados
-              </button>
-              {!confirmAnonymize ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmAnonymize(true)}
-                  disabled={lgpdLoading}
-                  className="rounded-full border border-lovable-danger/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-danger hover:bg-lovable-danger/5 disabled:opacity-50"
-                >
-                  Anonimizar
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-lovable-danger">Confirmar anonimiazacao?</p>
+          {canExport || canAnonymize ? (
+            <div className="border-t border-lovable-border pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">LGPD</p>
+              <div className="flex flex-wrap gap-2">
+                {canExport ? (
                   <button
                     type="button"
-                    onClick={() => void handleAnonymize()}
+                    onClick={() => void handleExportLgpd()}
                     disabled={lgpdLoading}
-                    className="rounded-full bg-lovable-danger px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                    className="rounded-full border border-lovable-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface-soft disabled:opacity-50"
                   >
-                    {lgpdLoading ? "..." : "Confirmar"}
+                    Exportar dados
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAnonymize(false)}
-                    className="text-xs text-lovable-ink-muted hover:text-lovable-ink"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              )}
+                ) : null}
+                {canAnonymize ? (
+                  !confirmAnonymize ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAnonymize(true)}
+                      disabled={lgpdLoading}
+                      className="rounded-full border border-lovable-danger/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-lovable-danger hover:bg-lovable-danger/5 disabled:opacity-50"
+                    >
+                      Anonimizar
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-lovable-danger">Confirmar anonimiazacao?</p>
+                      <button
+                        type="button"
+                        onClick={() => void handleAnonymize()}
+                        disabled={lgpdLoading}
+                        className="rounded-full bg-lovable-danger px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        {lgpdLoading ? "..." : "Confirmar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmAnonymize(false)}
+                        className="text-xs text-lovable-ink-muted hover:text-lovable-ink"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       )}
 

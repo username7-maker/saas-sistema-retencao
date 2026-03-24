@@ -7,10 +7,12 @@ import { AlertTriangle, ArrowRight, Users } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
+import { useAuth } from "../../hooks/useAuth";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { crmService } from "../../services/crmService";
 import type { Lead } from "../../types";
+import { canDeleteLead } from "../../utils/roleAccess";
 
 const LEAD_SOURCES = [
   "Instagram",
@@ -94,6 +96,27 @@ const leadSchema = z.object({
   estimated_value: z.coerce.number().min(0, "Valor nao pode ser negativo").optional(),
   notes: z.string().optional(),
   lost_reason: z.string().optional(),
+  handoff_plan_name: z.string().optional(),
+  handoff_join_date: z.string().optional(),
+  handoff_notes: z.string().optional(),
+  handoff_email_confirmed: z.boolean().default(false),
+  handoff_phone_confirmed: z.boolean().default(false),
+}).superRefine((data, ctx) => {
+  if (data.stage !== "won") return;
+  if (!data.handoff_plan_name?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe o plano do membro convertido.",
+      path: ["handoff_plan_name"],
+    });
+  }
+  if (!data.handoff_join_date) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe a data de inicio/matricula.",
+      path: ["handoff_join_date"],
+    });
+  }
 });
 
 type LeadFormValues = z.infer<typeof leadSchema>;
@@ -110,6 +133,10 @@ function extractNotesValue(notes: Lead["notes"]): string {
       }
       if (typeof item === "object" && item !== null && "note" in item) {
         const noteValue = (item as { note?: unknown }).note;
+        return typeof noteValue === "string" ? noteValue : "";
+      }
+      if (typeof item === "object" && item !== null && "text" in item) {
+        const noteValue = (item as { text?: unknown }).text;
         return typeof noteValue === "string" ? noteValue : "";
       }
       return "";
@@ -166,6 +193,11 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         estimated_value: lead.estimated_value,
         notes: extractNotesValue(lead.notes),
         lost_reason: lead.lost_reason ?? "",
+        handoff_plan_name: "",
+        handoff_join_date: "",
+        handoff_notes: "",
+        handoff_email_confirmed: Boolean(lead.email),
+        handoff_phone_confirmed: Boolean(lead.phone),
       }
     : {
         full_name: "",
@@ -176,6 +208,11 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         estimated_value: 0,
         notes: "",
         lost_reason: "",
+        handoff_plan_name: "",
+        handoff_join_date: "",
+        handoff_notes: "",
+        handoff_email_confirmed: false,
+        handoff_phone_confirmed: false,
       };
 }
 
@@ -239,6 +276,8 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canRemoveLead = canDeleteLead(user?.role);
 
   const {
     register,
@@ -277,8 +316,23 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
         source: data.source || undefined,
         stage: data.stage,
         estimated_value: data.estimated_value,
-        notes: data.notes || undefined,
+        notes: data.notes
+          ? data.notes
+              .split(/\r?\n/)
+              .map((note) => note.trim())
+              .filter(Boolean)
+              .map((note) => ({ note }))
+          : undefined,
         lost_reason: data.stage === "lost" ? data.lost_reason || undefined : undefined,
+        conversion_handoff: data.stage === "won"
+          ? {
+              plan_name: data.handoff_plan_name?.trim() || "",
+              join_date: data.handoff_join_date || "",
+              email_confirmed: data.handoff_email_confirmed,
+              phone_confirmed: data.handoff_phone_confirmed,
+              notes: data.handoff_notes?.trim() || undefined,
+            }
+          : undefined,
       }),
     onSuccess: () => {
       toast.success("Lead atualizado com sucesso!");
@@ -311,7 +365,13 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
       phone: values.phone || undefined,
       source: values.source || undefined,
       estimated_value: values.estimated_value,
-      notes: values.notes || undefined,
+      notes: values.notes
+        ? values.notes
+            .split(/\r?\n/)
+            .map((note) => note.trim())
+            .filter(Boolean)
+            .map((note) => ({ note }))
+        : undefined,
     });
   }
 
@@ -409,6 +469,33 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
                   <Input {...register("lost_reason")} placeholder="Descreva o motivo..." />
                 </FormField>
               ) : null}
+              {watchedStage === "won" ? (
+                <div className="grid gap-4 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/20 p-4 md:grid-cols-2">
+                  <FormField label="Plano do membro" required error={errors.handoff_plan_name?.message}>
+                    <Input {...register("handoff_plan_name")} placeholder="Ex: Plano Premium" />
+                  </FormField>
+                  <FormField label="Data de inicio/matricula" required error={errors.handoff_join_date?.message}>
+                    <Input {...register("handoff_join_date")} type="date" />
+                  </FormField>
+                  <label className="flex items-center gap-2 text-sm text-lovable-ink">
+                    <input type="checkbox" {...register("handoff_email_confirmed")} className="h-4 w-4 rounded border-lovable-border" />
+                    E-mail confirmado
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-lovable-ink">
+                    <input type="checkbox" {...register("handoff_phone_confirmed")} className="h-4 w-4 rounded border-lovable-border" />
+                    Telefone confirmado
+                  </label>
+                  <div className="md:col-span-2">
+                    <FormField label="Handoff para operacao e professor">
+                      <Textarea
+                        {...register("handoff_notes")}
+                        rows={3}
+                        placeholder="Ex: foco em emagrecimento, prefere horario noturno e chegou por indicacao."
+                      />
+                    </FormField>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -421,7 +508,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
             </Button>
           </div>
 
-          {isEditing && lead ? (
+          {isEditing && lead && canRemoveLead ? (
             <div className="border-t border-lovable-border pt-4">
               <Button
                 type="button"
@@ -784,7 +871,14 @@ export function CrmPage() {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => moveMutation.mutate({ leadId: lead.id, stage: nextStage })}
+                          onClick={() => {
+                            if (nextStage === "won") {
+                              setSelectedLead({ ...lead, stage: "won" });
+                              setDrawerOpen(true);
+                              return;
+                            }
+                            moveMutation.mutate({ leadId: lead.id, stage: nextStage });
+                          }}
                           disabled={moveMutation.isPending}
                         >
                           {advancingThisLead ? "Avancando..." : "Avancar estagio"}

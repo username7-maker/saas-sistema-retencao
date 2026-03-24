@@ -22,6 +22,10 @@ class UserUpdate(BaseModel):
     role: RoleEnum | None = None
 
 
+class UserActivationUpdate(BaseModel):
+    is_active: bool
+
+
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user_endpoint(
     request: Request,
@@ -29,6 +33,8 @@ def create_user_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> User:
+    if current_user.role == RoleEnum.MANAGER and payload.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gerente nao pode criar owner ou gerente")
     new_user = create_user(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
@@ -87,6 +93,42 @@ def update_user_endpoint(
         user=current_user,
         entity_id=target.id,
         details={"updated_fields": payload.model_dump(exclude_none=True)},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.patch("/{user_id}/activation", response_model=UserOut)
+def update_user_activation_endpoint(
+    request: Request,
+    user_id: UUID,
+    payload: UserActivationUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> User:
+    target = db.scalar(
+        select(User).where(User.id == user_id, User.gym_id == current_user.gym_id, User.deleted_at.is_(None))
+    )
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    if target.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível alterar sua própria conta")
+    if current_user.role == RoleEnum.MANAGER and target.role == RoleEnum.OWNER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gerente nao pode ativar ou desativar owner")
+
+    target.is_active = payload.is_active
+    db.add(target)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="user_activation_updated",
+        entity="user",
+        user=current_user,
+        entity_id=target.id,
+        details={"is_active": payload.is_active},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

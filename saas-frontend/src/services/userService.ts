@@ -37,4 +37,9 @@ export const userService = {
     const { data } = await api.patch<StaffUser>(`/api/v1/users/${userId}`, payload);
     return data;
   },
+
+  async setUserActive(userId: string, is_active: boolean): Promise<StaffUser> {
+    const { data } = await api.patch<StaffUser>(`/api/v1/users/${userId}/activation`, { is_active });
+    return data;
+  },
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getDefaultRouteForRole, resolvePostLoginRoute } from "../utils/roleAccess";
+import { canRoleAccessPath, getDefaultRouteForRole, resolvePostLoginRoute } from "../utils/roleAccess";
 
 describe("roleAccess", () => {
   it("routes each role to its default home", () => {
@@ -15,5 +15,12 @@ describe("roleAccess", () => {
     expect(resolvePostLoginRoute("trainer", "/assessments/members/member-1")).toBe("/assessments/members/member-1");
     expect(resolvePostLoginRoute("trainer", "/settings/users")).toBe("/assessments");
     expect(resolvePostLoginRoute("salesperson", "/crm")).toBe("/crm");
+  });
+
+  it("matches the contained navigation surface for receptionist and salesperson", () => {
+    expect(canRoleAccessPath("receptionist", "/crm")).toBe(false);
+    expect(canRoleAccessPath("receptionist", "/imports")).toBe(false);
+    expect(canRoleAccessPath("salesperson", "/dashboard/operational")).toBe(false);
+    expect(canRoleAccessPath("salesperson", "/crm")).toBe(true);
   });
 });

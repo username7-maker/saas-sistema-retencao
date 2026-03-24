@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { ImportSummary } from "../types";
+import type { ImportPreview, ImportSummary } from "../types";
 
 
 function parseFilename(contentDisposition?: string): string {
@@ -20,10 +20,25 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 export const importExportService = {
+  async previewMembers(file: File): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await api.post("/api/v1/imports/members/preview", form, { timeout: 2 * 60 * 1000 });
+    return response.data;
+  },
+
   async importMembers(file: File): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
     const response = await api.post("/api/v1/imports/members", form, { timeout: 10 * 60 * 1000 });
+    return response.data;
+  },
+
+  async previewCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("auto_create_missing_members", String(autoCreateMissingMembers));
+    const response = await api.post("/api/v1/imports/checkins/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 

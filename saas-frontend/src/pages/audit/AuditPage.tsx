@@ -4,7 +4,9 @@ import { Search } from "lucide-react";
 import clsx from "clsx";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { EmptyState } from "../../components/ui";
 import { auditService } from "../../services/auditService";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
 
 type ActionBadgeVariant = "danger" | "warning" | "success" | "primary" | "default";
 
@@ -75,6 +77,17 @@ export function AuditPage() {
 
   if (query.isLoading) {
     return <LoadingPanel text="Carregando logs de auditoria..." />;
+  }
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        icon={Search}
+        title="Nao foi possivel carregar a auditoria"
+        description={getPermissionAwareMessage(query.error, "Tente novamente para recuperar os eventos do sistema.")}
+        action={{ label: "Tentar novamente", onClick: () => void query.refetch() }}
+      />
+    );
   }
 
   const allLogs = query.data ?? [];

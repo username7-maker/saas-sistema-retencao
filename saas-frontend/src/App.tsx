@@ -8,7 +8,7 @@ import { LovableLayout } from "./components/layout/LovableLayout";
 import { useAuth } from "./hooks/useAuth";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { DiagnosticoPage } from "./pages/public/DiagnosticoPage";
-import { NON_TRAINER_ROLES, USER_ADMIN_ROLES, getDefaultRouteForRole } from "./utils/roleAccess";
+import { ROUTE_ACCESS, USER_ADMIN_ROLES, getDefaultRouteForRole } from "./utils/roleAccess";
 import type { Role } from "./types";
 
 const MembersPage = lazy(() => import("./pages/members/MembersPage").then((m) => ({ default: m.MembersPage })));
@@ -77,7 +77,7 @@ export default function App() {
         <Route
           path="/members"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.members]}>
               <MembersPage />
             </GuardedLazyRoute>
           }
@@ -85,7 +85,7 @@ export default function App() {
         <Route
           path="/dashboard/executive"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardExecutive]}>
               <DashboardLovable />
             </GuardedLazyRoute>
           }
@@ -93,7 +93,7 @@ export default function App() {
         <Route
           path="/dashboard/operational"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardOperational]}>
               <OperationalDashboardPage />
             </GuardedLazyRoute>
           }
@@ -101,7 +101,7 @@ export default function App() {
         <Route
           path="/dashboard/commercial"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardCommercial]}>
               <CommercialDashboardPage />
             </GuardedLazyRoute>
           }
@@ -109,7 +109,7 @@ export default function App() {
         <Route
           path="/dashboard/financial"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardFinancial]}>
               <FinancialDashboardPage />
             </GuardedLazyRoute>
           }
@@ -117,7 +117,7 @@ export default function App() {
         <Route
           path="/dashboard/retention"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardRetention]}>
               <RetentionDashboardPage />
             </GuardedLazyRoute>
           }
@@ -125,7 +125,7 @@ export default function App() {
         <Route
           path="/crm"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.crm]}>
               <CrmPage />
             </GuardedLazyRoute>
           }
@@ -133,7 +133,7 @@ export default function App() {
         <Route
           path="/tasks"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.tasks]}>
               <TasksPage />
             </GuardedLazyRoute>
           }
@@ -141,7 +141,7 @@ export default function App() {
         <Route
           path="/goals"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.goals]}>
               <GoalsPage />
             </GuardedLazyRoute>
           }
@@ -149,7 +149,7 @@ export default function App() {
         <Route
           path="/reports"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.reports]}>
               <ReportsPage />
             </GuardedLazyRoute>
           }
@@ -157,7 +157,7 @@ export default function App() {
         <Route
           path="/assessments"
           element={
-            <GuardedLazyRoute>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessments]}>
               <AssessmentsPage />
             </GuardedLazyRoute>
           }
@@ -165,7 +165,7 @@ export default function App() {
         <Route
           path="/assessments/members/:memberId"
           element={
-            <GuardedLazyRoute>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessments]}>
               <MemberProfile360Page />
             </GuardedLazyRoute>
           }
@@ -173,7 +173,7 @@ export default function App() {
         <Route
           path="/assessments/new/:memberId"
           element={
-            <GuardedLazyRoute>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessments]}>
               <NewAssessmentPage />
             </GuardedLazyRoute>
           }
@@ -181,7 +181,7 @@ export default function App() {
         <Route
           path="/notifications"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.notifications]}>
               <NotificationsPage />
             </GuardedLazyRoute>
           }
@@ -189,7 +189,7 @@ export default function App() {
         <Route
           path="/automations"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.automations]}>
               <AutomationsPage />
             </GuardedLazyRoute>
           }
@@ -197,7 +197,7 @@ export default function App() {
         <Route
           path="/imports"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.imports]}>
               <ImportsPage />
             </GuardedLazyRoute>
           }
@@ -221,7 +221,7 @@ export default function App() {
         <Route
           path="/nps"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.nps]}>
               <NpsPage />
             </GuardedLazyRoute>
           }
@@ -229,7 +229,7 @@ export default function App() {
         <Route
           path="/audit"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.audit]}>
               <AuditPage />
             </GuardedLazyRoute>
           }
@@ -237,7 +237,7 @@ export default function App() {
         <Route
           path="/vendas/briefing/:leadId"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.sales]}>
               <SalesBriefingPage />
             </GuardedLazyRoute>
           }
@@ -245,7 +245,7 @@ export default function App() {
         <Route
           path="/vendas/script/:leadId"
           element={
-            <GuardedLazyRoute allowedRoles={NON_TRAINER_ROLES}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.sales]}>
               <CallScriptPage />
             </GuardedLazyRoute>
           }

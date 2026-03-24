@@ -7,6 +7,14 @@ export interface LeadCreatePayload {
   phone?: string;
   source?: string;
   estimated_value?: number;
+  notes?: Array<string | Record<string, unknown>>;
+}
+
+export interface LeadConversionHandoffPayload {
+  plan_name: string;
+  join_date: string;
+  email_confirmed: boolean;
+  phone_confirmed: boolean;
   notes?: string;
 }
 
@@ -17,8 +25,17 @@ export interface LeadUpdatePayload {
   source?: string;
   estimated_value?: number;
   stage?: Lead["stage"];
-  notes?: string;
+  notes?: Array<string | Record<string, unknown>>;
   lost_reason?: string;
+  conversion_handoff?: LeadConversionHandoffPayload;
+}
+
+export interface LeadNotePayload {
+  text: string;
+  entry_type?: string;
+  channel?: string;
+  outcome?: string;
+  occurred_at?: string;
 }
 
 export const crmService = {
@@ -45,5 +62,10 @@ export const crmService = {
 
   async deleteLead(leadId: string): Promise<void> {
     await api.delete(`/api/v1/crm/leads/${leadId}`);
+  },
+
+  async appendLeadNote(leadId: string, payload: LeadNotePayload): Promise<Lead> {
+    const { data } = await api.post<Lead>(`/api/v1/crm/leads/${leadId}/notes`, payload);
+    return data;
   },
 };

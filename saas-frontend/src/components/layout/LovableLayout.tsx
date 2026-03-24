@@ -37,13 +37,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
 import { notificationService } from "../../services/notificationService";
-import { canManageUsers } from "../../utils/roleAccess";
+import { canAccessRoute, canManageUsers } from "../../utils/roleAccess";
 import { Button, Drawer, Input, cn } from "../ui2";
+import type { RouteAccessKey } from "../../utils/roleAccess";
 
 interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  route: RouteAccessKey;
   badge?: string;
 }
 
@@ -61,36 +63,36 @@ const navGroups: NavGroup[] = [
   {
     label: "Dashboards",
     items: [
-      { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard },
-      { to: "/dashboard/operational", label: "Operacional", icon: Activity },
-      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, badge: "new" },
-      { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
+      { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard, route: "dashboardExecutive" },
+      { to: "/dashboard/operational", label: "Operacional", icon: Activity, route: "dashboardOperational" },
+      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, route: "dashboardCommercial", badge: "new" },
+      { to: "/dashboard/financial", label: "Financeiro", icon: Wallet, route: "dashboardFinancial" },
+      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert, route: "dashboardRetention" },
     ],
   },
   {
     label: "Gestao",
     items: [
-      { to: "/members", label: "Membros", icon: UserSquare2 },
-      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
-      { to: "/crm", label: "CRM", icon: Users, badge: "6" },
-      { to: "/tasks", label: "Tarefas", icon: CheckSquare },
+      { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
+      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
+      { to: "/crm", label: "CRM", icon: Users, route: "crm", badge: "6" },
+      { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
   {
     label: "Resultados",
     items: [
-      { to: "/goals", label: "Metas", icon: Target },
-      { to: "/nps", label: "NPS", icon: Star },
-      { to: "/reports", label: "Relatorios", icon: FileText },
+      { to: "/goals", label: "Metas", icon: Target, route: "goals" },
+      { to: "/nps", label: "NPS", icon: Star, route: "nps" },
+      { to: "/reports", label: "Relatorios", icon: FileText, route: "reports" },
     ],
   },
   {
     label: "Sistema",
     items: [
-      { to: "/automations", label: "Automacoes", icon: Bot },
-      { to: "/imports", label: "Importacoes", icon: Upload },
-      { to: "/audit", label: "Auditoria", icon: ScrollText },
+      { to: "/automations", label: "Automacoes", icon: Bot, route: "automations" },
+      { to: "/imports", label: "Importacoes", icon: Upload, route: "imports" },
+      { to: "/audit", label: "Auditoria", icon: ScrollText, route: "audit" },
     ],
   },
 ];
@@ -98,7 +100,7 @@ const navGroups: NavGroup[] = [
 const trainerNavGroups: NavGroup[] = [
   {
     label: "Treino",
-    items: [{ to: "/assessments", label: "Avaliacoes", icon: ClipboardList }],
+    items: [{ to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" }],
   },
 ];
 
@@ -135,7 +137,17 @@ function resolveCurrentSection(pathname: string): string {
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
-  const groups = user?.role === "trainer" ? trainerNavGroups : navGroups;
+  const groups = useMemo(() => {
+    if (user?.role === "trainer") {
+      return trainerNavGroups;
+    }
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => canAccessRoute(user?.role, item.route)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [user?.role]);
   const activeGroup = resolveActiveGroup(pathname, groups);
   const [openGroups, setOpenGroups] = useState<string[]>(activeGroup ? [activeGroup] : [groups[0]?.label ?? ""]);
 
@@ -233,9 +245,9 @@ export function LovableLayout() {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
   const canOpenUserDirectory = canManageUsers(user?.role);
-  const canViewNotifications = user?.role !== "trainer";
+  const canViewNotifications = canAccessRoute(user?.role, "notifications");
   const profileTarget = canOpenUserDirectory ? "/settings/users" : "/settings";
-  const showHelpCenter = user?.role !== "trainer";
+  const showHelpCenter = canAccessRoute(user?.role, "reports");
 
   const { data: notifications } = useQuery({
     queryKey: ["notifications", "unread-count"],

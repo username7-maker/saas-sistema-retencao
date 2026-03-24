@@ -67,7 +67,7 @@ export interface Lead {
   owner_id: string | null;
   last_contact_at: string | null;
   converted_member_id: string | null;
-  notes: Array<string | { note: string; created_at?: string }>;
+  notes: Array<string | Record<string, unknown>>;
   lost_reason: string | null;
   created_at: string;
   updated_at: string;
@@ -210,6 +210,29 @@ export interface ImportSummary {
   provisional_members_created: number;
   provisional_members: string[];
   missing_members: MissingMemberEntry[];
+  errors: ImportErrorEntry[];
+}
+
+export interface ImportPreviewRow {
+  row_number: number;
+  action: string;
+  preview: Record<string, unknown>;
+}
+
+export interface ImportPreview {
+  preview_kind: string;
+  total_rows: number;
+  valid_rows: number;
+  would_create: number;
+  would_update: number;
+  would_skip: number;
+  ignored_rows: number;
+  provisional_members_possible: number;
+  recognized_columns: string[];
+  unrecognized_columns: string[];
+  missing_members: MissingMemberEntry[];
+  warnings: string[];
+  sample_rows: ImportPreviewRow[];
   errors: ImportErrorEntry[];
 }
 

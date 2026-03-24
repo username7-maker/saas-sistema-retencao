@@ -4,7 +4,7 @@ import { Download, FileUp } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { importExportService } from "../../services/importExportService";
-import type { ImportSummary, MissingMemberEntry } from "../../types";
+import type { ImportPreview, ImportSummary, MissingMemberEntry } from "../../types";
 import {
   getIgnoredRowsHint,
   getImportSummaryNotice,
@@ -36,8 +36,12 @@ function downloadCsv(filename: string, rows: string[][]): void {
 }
 
 function exportMissingMembers(summary: ImportSummary): void {
+  exportMissingMembersEntries(summary.missing_members);
+}
+
+function exportMissingMembersEntries(missingMembers: MissingMemberEntry[]): void {
   const rows: string[][] = [["nome", "ocorrencias", "plano_exemplo"]];
-  for (const item of summary.missing_members) {
+  for (const item of missingMembers) {
     rows.push([item.name, String(item.occurrences), item.sample_plan ?? ""]);
   }
   downloadCsv("pendencias-catraca.csv", rows);
@@ -87,6 +91,117 @@ function CreatedMembersPanel({ names }: { names: string[] }) {
       </ul>
       {names.length > 16 ? (
         <p className="mt-2 text-xs text-emerald-900/80">Mostrando 16 de {names.length} nomes criados.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => formatPreviewValue(item)).join(", ");
+  }
+  return JSON.stringify(value);
+}
+
+function PreviewResult({
+  preview,
+  allowMissingExport = false,
+}: {
+  preview: ImportPreview | null;
+  allowMissingExport?: boolean;
+}) {
+  if (!preview) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-sky-300 bg-sky-50 p-3 text-xs text-sky-950">
+      <div className="rounded-lg border border-sky-200 bg-white/80 px-3 py-2">
+        <p className="font-semibold">Preview validado. Nada foi gravado ainda.</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-sky-900/80">
+          Revise o impacto previsto antes de confirmar a importacao final.
+        </p>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <p>Total de linhas: {preview.total_rows}</p>
+        <p>Linhas validas: {preview.valid_rows}</p>
+        <p>Serao criados: {preview.would_create}</p>
+        {preview.would_update > 0 ? <p>Serao atualizados: {preview.would_update}</p> : null}
+        <p>Serao ignorados: {preview.would_skip}</p>
+        {preview.ignored_rows > 0 ? <p>Linhas ignoradas: {preview.ignored_rows}</p> : null}
+        {preview.provisional_members_possible > 0 ? (
+          <p>Cadastros provisorios possiveis: {preview.provisional_members_possible}</p>
+        ) : null}
+      </div>
+
+      {preview.recognized_columns.length > 0 ? (
+        <div className="mt-3">
+          <p className="font-semibold">Colunas reconhecidas</p>
+          <p className="mt-1 text-[11px] text-sky-900/80">{preview.recognized_columns.join(", ")}</p>
+        </div>
+      ) : null}
+
+      {preview.unrecognized_columns.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">
+          <p className="font-semibold">Colunas nao reconhecidas</p>
+          <p className="mt-1 text-[11px] leading-relaxed">{preview.unrecognized_columns.join(", ")}</p>
+        </div>
+      ) : null}
+
+      {preview.warnings.length > 0 ? (
+        <ul className="mt-3 space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-950">
+          {preview.warnings.map((warning) => (
+            <li key={warning}>- {warning}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {preview.sample_rows.length > 0 ? (
+        <div className="mt-3">
+          <p className="font-semibold">Amostra do impacto</p>
+          <ul className="mt-2 space-y-2">
+            {preview.sample_rows.map((row) => (
+              <li key={`${row.row_number}-${row.action}`} className="rounded-lg border border-sky-200 bg-white/80 px-3 py-2">
+                <p className="font-medium">
+                  Linha {row.row_number} - {row.action}
+                </p>
+                <div className="mt-1 grid gap-1 text-[11px] text-sky-900/80">
+                  {Object.entries(row.preview).map(([key, value]) => (
+                    <p key={key}>
+                      <span className="font-medium">{key}:</span> {formatPreviewValue(value)}
+                    </p>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <MissingMembersPanel missingMembers={preview.missing_members} />
+
+      {allowMissingExport && preview.missing_members.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => exportMissingMembersEntries(preview.missing_members)}
+          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+        >
+          <Download size={14} />
+          Exportar pendentes CSV
+        </button>
+      ) : null}
+
+      {preview.errors.length > 0 ? (
+        <ul className="mt-3 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
+          {preview.errors.slice(0, 20).map((error, index) => (
+            <li key={`${error.row_number}-${index}`}>
+              Linha {error.row_number}: {error.reason}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -196,6 +311,8 @@ export function ImportsPage() {
   const queryClient = useQueryClient();
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
+  const [membersPreview, setMembersPreview] = useState<ImportPreview | null>(null);
+  const [checkinsPreview, setCheckinsPreview] = useState<ImportPreview | null>(null);
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
   const [dateFrom, setDateFrom] = useState("");
@@ -221,8 +338,19 @@ export function ImportsPage() {
     mutationFn: (file: File) => importExportService.importMembers(file),
     onSuccess: (summary) => {
       setMembersSummary(summary);
+      setMembersPreview(null);
       refreshImportedDataViews();
       toast.success("Importacao de alunos concluida.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const previewMembersMutation = useMutation({
+    mutationFn: (file: File) => importExportService.previewMembers(file),
+    onSuccess: (preview) => {
+      setMembersPreview(preview);
+      setMembersSummary(null);
+      toast.success("Preview de alunos gerado. Revise o impacto antes de confirmar.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -232,6 +360,7 @@ export function ImportsPage() {
       importExportService.importCheckins(file, autoCreate),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
+      setCheckinsPreview(null);
       refreshImportedDataViews();
       if (isDuplicateOnlyImport(summary)) {
         toast.success("Esse arquivo ja tinha sido importado antes. Nenhum check-in novo foi duplicado.");
@@ -242,6 +371,17 @@ export function ImportsPage() {
         return;
       }
       toast.success("Importacao de check-ins concluida.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const previewCheckinsMutation = useMutation({
+    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
+      importExportService.previewCheckins(file, autoCreate),
+    onSuccess: (preview) => {
+      setCheckinsPreview(preview);
+      setCheckinsSummary(null);
+      toast.success("Preview de check-ins gerado. Revise o impacto antes de confirmar.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -286,18 +426,31 @@ export function ImportsPage() {
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => setMembersFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              setMembersFile(event.target.files?.[0] ?? null);
+              setMembersPreview(null);
+              setMembersSummary(null);
+            }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!membersFile || importMembersMutation.isPending}
-              onClick={() => membersFile && importMembersMutation.mutate(membersFile)}
+              disabled={!membersFile || previewMembersMutation.isPending}
+              onClick={() => membersFile && previewMembersMutation.mutate(membersFile)}
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {importMembersMutation.isPending ? "Importando..." : "Importar arquivo"}
+              {previewMembersMutation.isPending ? "Validando..." : "Validar arquivo"}
+            </button>
+            <button
+              type="button"
+              disabled={!membersFile || !membersPreview || membersPreview.valid_rows === 0 || importMembersMutation.isPending}
+              onClick={() => membersFile && importMembersMutation.mutate(membersFile)}
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              <FileUp size={14} />
+              {importMembersMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
             </button>
             <button
               type="button"
@@ -309,6 +462,7 @@ export function ImportsPage() {
               Template alunos
             </button>
           </div>
+          <PreviewResult preview={membersPreview} />
           <ImportResult summary={membersSummary} />
         </article>
 
@@ -320,14 +474,21 @@ export function ImportsPage() {
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => setCheckinsFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              setCheckinsFile(event.target.files?.[0] ?? null);
+              setCheckinsPreview(null);
+              setCheckinsSummary(null);
+            }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
           <label className="mt-3 flex items-start gap-2 text-sm text-lovable-ink">
             <input
               type="checkbox"
               checked={autoCreateMissingMembers}
-              onChange={(event) => setAutoCreateMissingMembers(event.target.checked)}
+              onChange={(event) => {
+                setAutoCreateMissingMembers(event.target.checked);
+                setCheckinsPreview(null);
+              }}
               className="mt-1 h-4 w-4 rounded border-lovable-border text-brand-500 focus:ring-brand-500"
             />
             <span>
@@ -340,15 +501,27 @@ export function ImportsPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!checkinsFile || importCheckinsMutation.isPending}
+              disabled={!checkinsFile || previewCheckinsMutation.isPending}
               onClick={() =>
                 checkinsFile &&
-                importCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+                previewCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
               }
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {importCheckinsMutation.isPending ? "Importando..." : "Importar arquivo"}
+              {previewCheckinsMutation.isPending ? "Validando..." : "Validar arquivo"}
+            </button>
+            <button
+              type="button"
+              disabled={!checkinsFile || !checkinsPreview || checkinsPreview.valid_rows === 0 || importCheckinsMutation.isPending}
+              onClick={() =>
+                checkinsFile &&
+                importCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              <FileUp size={14} />
+              {importCheckinsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
             </button>
             <button
               type="button"
@@ -369,6 +542,7 @@ export function ImportsPage() {
               Exportar pendentes
             </button>
           </div>
+          <PreviewResult preview={checkinsPreview} allowMissingExport />
           <ImportResult summary={checkinsSummary} allowMissingExport />
         </article>
       </section>

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -8,8 +9,10 @@ import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickLeadActions } from "../../components/common/QuickLeadActions";
 import { StatCard } from "../../components/common/StatCard";
+import { EmptyState } from "../../components/ui";
 import { Badge } from "../../components/ui2";
 import { useCommercialDashboard } from "../../hooks/useDashboard";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
 
 const STAGE_LABELS: Record<string, string> = {
   new: "Novo",
@@ -52,8 +55,15 @@ export function CommercialDashboardPage() {
     return <LoadingPanel text="Carregando dashboard comercial..." />;
   }
 
-  if (!query.data) {
-    return <LoadingPanel text="Sem dados comerciais." />;
+  if (query.isError || !query.data) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Nao foi possivel carregar o dashboard comercial"
+        description={getPermissionAwareMessage(query.error, "Tente novamente para recuperar pipeline, conversao e leads parados.")}
+        action={{ label: "Tentar novamente", onClick: () => void query.refetch() }}
+      />
+    );
   }
 
   return (
@@ -61,7 +71,7 @@ export function CommercialDashboardPage() {
       <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Comercial</h2>
-          <p className="text-sm text-lovable-ink-muted">Pipeline, conversão por origem e CAC.</p>
+          <p className="text-sm text-lovable-ink-muted">Pipeline, conversao por origem e CAC.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <DashboardActions dashboard="commercial" />
@@ -82,9 +92,8 @@ export function CommercialDashboardPage() {
         <StatCard label="Fechados" value={String(query.data.pipeline.won ?? 0)} tone="success" />
       </div>
 
-      {/* Pipeline chart — bars colored by stage */}
       <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estágio</p>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estagio</p>
         <ResponsiveContainer width="100%" height="90%">
           <BarChart data={pipelineData}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
@@ -109,7 +118,7 @@ export function CommercialDashboardPage() {
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Conversão por origem</h3>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Conversao por origem</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
@@ -117,7 +126,7 @@ export function CommercialDashboardPage() {
                 <th className="px-2 py-2">Origem</th>
                 <th className="px-2 py-2">Total</th>
                 <th className="px-2 py-2">Fechados</th>
-                <th className="px-2 py-2">Conversão</th>
+                <th className="px-2 py-2">Conversao</th>
               </tr>
             </thead>
             <tbody>
@@ -150,7 +159,7 @@ export function CommercialDashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-lovable-ink">{lead.full_name}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-lovable-ink-muted">
-                        <span>Estágio: {STAGE_LABELS[lead.stage] ?? lead.stage}</span>
+                        <span>Estagio: {STAGE_LABELS[lead.stage] ?? lead.stage}</span>
                         <span>Origem: {lead.source}</span>
                         {dias !== null && (
                           <Badge variant={dias > 7 ? "danger" : "warning"}>

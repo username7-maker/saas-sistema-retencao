@@ -25,6 +25,15 @@ interface NoteSummary {
   created_at: string;
 }
 
+interface ConversionHandoffSummary {
+  plan_name?: string | null;
+  join_date?: string | null;
+  notes?: string | null;
+  email_confirmed?: boolean | null;
+  phone_confirmed?: boolean | null;
+  converted_at?: string | null;
+}
+
 interface AssessmentWorkspaceOverviewProps {
   profile: Profile360;
   summary: AssessmentSummary360;
@@ -32,6 +41,11 @@ interface AssessmentWorkspaceOverviewProps {
   latestBodyComposition: BodyCompositionEvaluation | null;
   latestNote: NoteSummary | null;
   notesCount: number;
+  conversionHandoff: ConversionHandoffSummary | null;
+  canCreateAssessment: boolean;
+  canViewContextTab: boolean;
+  canManageInternalNotes: boolean;
+  visibleTabs: AssessmentWorkspaceTab[];
   onAddNote: () => void;
   onOpenHistory: () => void;
   onOpenTab: (tab: AssessmentWorkspaceTab) => void;
@@ -50,6 +64,11 @@ export function AssessmentWorkspaceOverview({
   latestBodyComposition,
   latestNote,
   notesCount,
+  conversionHandoff,
+  canCreateAssessment,
+  canViewContextTab,
+  canManageInternalNotes,
+  visibleTabs,
   onAddNote,
   onOpenHistory,
   onOpenTab,
@@ -72,6 +91,10 @@ export function AssessmentWorkspaceOverview({
       tone: summary.forecast.adherence_score >= 70 ? ("success" as const) : ("warning" as const),
     },
   ];
+
+  const canViewPlanTab = visibleTabs.includes("plano");
+  const canViewEvolutionTab = visibleTabs.includes("evolucao");
+  const canViewBodyCompositionTab = visibleTabs.includes("bioimpedancia");
 
   return (
     <div className="space-y-6">
@@ -144,14 +167,20 @@ export function AssessmentWorkspaceOverview({
                 </p>
               </article>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="primary" onClick={() => onOpenTab("registro")}>
-                Registrar agora
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => onOpenTab("contexto")}>
-                Abrir contexto
-              </Button>
-            </div>
+            {canCreateAssessment || canViewContextTab ? (
+              <div className="flex flex-wrap gap-2">
+                {canCreateAssessment ? (
+                  <Button size="sm" variant="primary" onClick={() => onOpenTab("registro")}>
+                    Registrar agora
+                  </Button>
+                ) : null}
+                {canViewContextTab ? (
+                  <Button size="sm" variant="secondary" onClick={() => onOpenTab("contexto")}>
+                    Abrir contexto
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Acoes recomendadas</p>
               {actions.length > 0 ? (
@@ -178,7 +207,7 @@ export function AssessmentWorkspaceOverview({
               title="Notas internas"
               subtitle="Contexto da equipe e observacoes comportamentais."
               count={notesCount}
-              actions={
+              actions={canManageInternalNotes ? (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="primary" onClick={onAddNote}>
                     + Adicionar nota
@@ -187,7 +216,7 @@ export function AssessmentWorkspaceOverview({
                     Historico
                   </Button>
                 </div>
-              }
+              ) : undefined}
             />
 
             {latestNote ? (
@@ -222,6 +251,27 @@ export function AssessmentWorkspaceOverview({
                 <p className="mt-1 text-xs text-lovable-ink-muted">{summary.benchmark.percentile} percentil no cohort</p>
               </article>
             </div>
+            {conversionHandoff ? (
+              <article className="rounded-xl border border-lovable-primary/20 bg-lovable-primary-soft/40 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Handoff da conversao</p>
+                <p className="mt-2 text-sm font-semibold text-lovable-ink">
+                  Plano: {conversionHandoff.plan_name || "Nao informado"}
+                </p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  Inicio/matricula: {conversionHandoff.join_date ? formatDate(conversionHandoff.join_date) : "Nao informado"}
+                </p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  Contato confirmado: e-mail {conversionHandoff.email_confirmed ? "ok" : "pendente"} | telefone{" "}
+                  {conversionHandoff.phone_confirmed ? "ok" : "pendente"}
+                </p>
+                {conversionHandoff.notes ? <p className="mt-2 text-sm text-lovable-ink">{conversionHandoff.notes}</p> : null}
+                {conversionHandoff.converted_at ? (
+                  <p className="mt-2 text-xs text-lovable-ink-muted">
+                    Conversao registrada em {formatDateTime(conversionHandoff.converted_at)}
+                  </p>
+                ) : null}
+              </article>
+            ) : null}
           </CardContent>
         </Card>
       </section>
@@ -232,9 +282,11 @@ export function AssessmentWorkspaceOverview({
             <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Plano e objetivos</p>
             <p className="mt-3 text-sm font-semibold text-lovable-ink">{summarizeGoals(profile.goals)}</p>
             <p className="mt-2 text-xs text-lovable-ink-muted">{summarizeTrainingPlan(profile.active_training_plan)}</p>
-            <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("plano")}>
-              Abrir plano e objetivos
-            </Button>
+            {canViewPlanTab ? (
+              <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("plano")}>
+                Abrir plano e objetivos
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -245,9 +297,11 @@ export function AssessmentWorkspaceOverview({
             <p className="mt-2 text-xs text-lovable-ink-muted">
               Gargalo dominante: {summary.diagnosis.primary_bottleneck_label}
             </p>
-            <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("contexto")}>
-              Abrir contexto completo
-            </Button>
+            {canViewContextTab ? (
+              <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("contexto")}>
+                Abrir contexto completo
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -258,9 +312,11 @@ export function AssessmentWorkspaceOverview({
             <p className="mt-2 text-xs text-lovable-ink-muted">
               {latestBodyComposition ? `Ultimo registro: ${formatDate(latestBodyComposition.evaluation_date)}` : "Historico disponivel na aba dedicada"}
             </p>
-            <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("bioimpedancia")}>
-              Abrir bioimpedancia
-            </Button>
+            {canViewBodyCompositionTab ? (
+              <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("bioimpedancia")}>
+                Abrir bioimpedancia
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -273,9 +329,11 @@ export function AssessmentWorkspaceOverview({
             <p className="mt-2 text-xs text-lovable-ink-muted">
               {assessments.length > 0 ? "Use a aba de evolucao para comparar historico e timeline." : "Comece pelo registro estruturado para ativar o historico."}
             </p>
-            <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("evolucao")}>
-              Abrir evolucao
-            </Button>
+            {canViewEvolutionTab ? (
+              <Button size="sm" variant="ghost" className="mt-3 px-0" onClick={() => onOpenTab("evolucao")}>
+                Abrir evolucao
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       </section>

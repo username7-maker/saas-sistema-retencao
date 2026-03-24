@@ -10,6 +10,7 @@ import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { userService, type StaffUser } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
 import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
+import { canCreateUsers, canToggleTargetUser, getAssignableUserRoles } from "../../utils/roleAccess";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
   owner: "Proprietário",
@@ -27,13 +28,6 @@ const ROLE_BADGE: Record<StaffUser["role"], string> = {
   trainer: "bg-lovable-surface-soft text-lovable-ink-muted",
 };
 
-const ROLE_OPTIONS: Array<{ value: StaffUser["role"]; label: string }> = [
-  { value: "manager", label: "Gerente" },
-  { value: "receptionist", label: "Recepcionista" },
-  { value: "salesperson", label: "Vendedor" },
-  { value: "trainer", label: "Instrutor" },
-];
-
 const createSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   email: z.string().email("E-mail inválido"),
@@ -47,9 +41,14 @@ interface CreateUserDrawerProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  assignableRoles: StaffUser["role"][];
 }
 
-function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
+function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUserDrawerProps) {
+  const roleOptions = assignableRoles.map((value) => ({
+    value,
+    label: ROLE_LABELS[value],
+  }));
   const {
     register,
     handleSubmit,
@@ -57,7 +56,7 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
     formState: { errors, isSubmitting },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { role: "receptionist" },
+    defaultValues: { role: (roleOptions[0]?.value ?? "receptionist") as CreateFormValues["role"] },
   });
 
   const createMutation = useMutation({
@@ -93,7 +92,7 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
 
         <FormField label="Função" required error={errors.role?.message}>
           <Select {...register("role")}>
-            {ROLE_OPTIONS.map((option) => (
+            {roleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -117,17 +116,20 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
 function UserRow({
   user,
   currentUserId,
+  currentUserRole,
   onDeactivate,
   onActivate,
   isPending,
 }: {
   user: StaffUser;
   currentUserId: string;
+  currentUserRole: StaffUser["role"];
   onDeactivate: (user: StaffUser) => void;
   onActivate: (user: StaffUser) => void;
   isPending: boolean;
 }) {
   const isSelf = user.id === currentUserId;
+  const canToggle = canToggleTargetUser(currentUserRole, user.role, isSelf);
 
   return (
     <article className="flex flex-col gap-3 rounded-2xl border border-lovable-border bg-lovable-surface p-4 md:flex-row md:items-center md:justify-between">
@@ -145,7 +147,7 @@ function UserRow({
         </span>
       </div>
 
-      {isSelf ? null : (
+      {!canToggle ? null : (
         <div className="flex items-center gap-2">
           {user.is_active ? (
             <Button
@@ -191,7 +193,7 @@ export function UsersPage() {
 
   const toggleMutation = useMutation({
     mutationFn: ({ userId, is_active }: { userId: string; is_active: boolean }) =>
-      userService.updateUser(userId, { is_active }),
+      userService.setUserActive(userId, is_active),
     onSuccess: (_, variables) => {
       if (variables.is_active) {
         toast.success("Usuário reativado com sucesso.");
@@ -210,6 +212,8 @@ export function UsersPage() {
 
   const allUsers = usersQuery.data ?? [];
   const users = roleFilter === "all" ? allUsers : allUsers.filter((u) => u.role === roleFilter);
+  const assignableRoles = getAssignableUserRoles(currentUser?.role);
+  const canCreateTeamUsers = canCreateUsers(currentUser?.role);
 
   return (
     <section className="space-y-6">
@@ -218,10 +222,12 @@ export function UsersPage() {
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuários</h2>
           <p className="text-sm text-lovable-ink-muted">Gerencie a equipe da academia.</p>
         </div>
-        <Button variant="primary" onClick={() => setDrawerOpen(true)}>
-          <UserPlus size={14} />
-          Novo Usuário
-        </Button>
+        {canCreateTeamUsers ? (
+          <Button variant="primary" onClick={() => setDrawerOpen(true)}>
+            <UserPlus size={14} />
+            Novo Usuário
+          </Button>
+        ) : null}
       </header>
 
       <div className="flex items-center gap-3">
@@ -252,6 +258,7 @@ export function UsersPage() {
               key={staff.id}
               user={staff}
               currentUserId={currentUser?.id ?? ""}
+              currentUserRole={currentUser?.role ?? "owner"}
               isPending={toggleMutation.isPending}
               onDeactivate={(targetUser) => setUserToDeactivate(targetUser)}
               onActivate={(targetUser) => toggleMutation.mutate({ userId: targetUser.id, is_active: true })}
@@ -261,9 +268,10 @@ export function UsersPage() {
       )}
 
       <CreateUserDrawer
-        open={drawerOpen}
+        open={drawerOpen && canCreateTeamUsers}
         onClose={() => setDrawerOpen(false)}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
+        assignableRoles={assignableRoles}
       />
 
       <Dialog

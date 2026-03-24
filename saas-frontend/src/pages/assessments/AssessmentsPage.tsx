@@ -109,6 +109,13 @@ export function AssessmentsPage() {
 
           {actuarQueueQuery.isLoading ? (
             <SkeletonList rows={4} cols={2} />
+          ) : actuarQueueQuery.isError ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Nao foi possivel carregar as pendencias Actuar"
+              description="Tente novamente para validar o status real de sincronizacao das avaliacoes."
+              action={{ label: "Tentar novamente", onClick: () => void actuarQueueQuery.refetch() }}
+            />
           ) : !actuarQueueQuery.data?.length ? (
             <p className="text-sm text-lovable-ink-muted">Sem pendencias Actuar no filtro atual.</p>
           ) : (

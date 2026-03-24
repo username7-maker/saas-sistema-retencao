@@ -20,11 +20,14 @@ import { AIAssistantPanel } from "../../components/common/AIAssistantPanel";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { QuickActions } from "../../components/common/QuickActions";
+import { useAuth } from "../../hooks/useAuth";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
 import { dashboardService, type RetentionQueueItem } from "../../services/dashboardService";
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
+import { canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
@@ -244,12 +247,14 @@ function RetentionQueueDrawer({
   onOpenProfile,
   onResolve,
   resolving,
+  canResolve,
 }: {
   item: RetentionQueueItem | null;
   onClose: () => void;
   onOpenProfile: (memberId: string) => void;
   onResolve: (alertId: string) => void;
   resolving: boolean;
+  canResolve: boolean;
 }) {
   const normalizedPhone = normalizeWhatsAppPhone(item?.phone);
   const phoneDisplay = formatPhoneDisplay(item?.phone);
@@ -440,10 +445,12 @@ function RetentionQueueDrawer({
                 <ArrowUpRight size={14} />
                 Abrir perfil 360
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => onResolve(item.alert_id)} disabled={resolving}>
-                <CheckCheck size={14} />
-                {resolving ? "Resolvendo..." : "Marcar resolvido"}
-              </Button>
+              {canResolve ? (
+                <Button size="sm" variant="ghost" onClick={() => onResolve(item.alert_id)} disabled={resolving}>
+                  <CheckCheck size={14} />
+                  {resolving ? "Resolvendo..." : "Marcar resolvido"}
+                </Button>
+              ) : null}
             </div>
             <div className="mt-4">
               <QuickActions
@@ -464,6 +471,7 @@ function RetentionQueueDrawer({
 }
 
 export function RetentionDashboardPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -520,6 +528,7 @@ export function RetentionDashboardPage() {
   });
 
   const activeFilterCount = [searchInput.trim().length > 0, level !== "all", churnType !== "all"].filter(Boolean).length;
+  const canResolveAlerts = canResolveRetentionAlert(user?.role);
 
   const kpis = useMemo(() => {
     const data = summaryQuery.data;
@@ -594,7 +603,7 @@ export function RetentionDashboardPage() {
         <EmptyState
           icon={AlertTriangle}
           title="Não foi possível carregar a visão de retenção"
-          description="Tente novamente para recuperar as métricas e a fila operacional."
+          description={getPermissionAwareMessage(summaryQuery.error, "Tente novamente para recuperar as metricas e a fila operacional.")}
           action={{ label: "Tentar novamente", onClick: () => void summaryQuery.refetch() }}
         />
       </section>
@@ -796,15 +805,17 @@ export function RetentionDashboardPage() {
                         <CalendarClock size={14} />
                         Ver playbook
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={resolveMutation.isPending && resolveMutation.variables === item.alert_id}
-                        onClick={() => resolveMutation.mutate(item.alert_id)}
-                      >
-                        <CheckCheck size={14} />
-                        Resolver
-                      </Button>
+                      {canResolveAlerts ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={resolveMutation.isPending && resolveMutation.variables === item.alert_id}
+                          onClick={() => resolveMutation.mutate(item.alert_id)}
+                        >
+                          <CheckCheck size={14} />
+                          Resolver
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -835,6 +846,7 @@ export function RetentionDashboardPage() {
         onOpenProfile={handleOpenProfile}
         onResolve={(alertId) => resolveMutation.mutate(alertId)}
         resolving={resolveMutation.isPending && resolveMutation.variables === selectedItem?.alert_id}
+        canResolve={canResolveAlerts}
       />
     </section>
   );

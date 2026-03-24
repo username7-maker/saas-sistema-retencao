@@ -11,9 +11,9 @@ type CallOutcome = "answered" | "no_answer" | "voicemail" | "invalid_number";
 
 const OUTCOME_LABELS: Record<CallOutcome, string> = {
   answered: "Atendeu",
-  no_answer: "Não atendeu",
+  no_answer: "Nao atendeu",
   voicemail: "Voicemail",
-  invalid_number: "Nº inválido",
+  invalid_number: "Numero invalido",
 };
 
 interface QuickLeadActionsProps {
@@ -28,19 +28,17 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
   const [callOutcome, setCallOutcome] = useState<CallOutcome | null>(null);
   const [callNote, setCallNote] = useState("");
   const [whatsAppMessage, setWhatsAppMessage] = useState(
-    `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
+    `Ola ${lead.full_name}, tudo bem? Passando para saber se voce ainda tem interesse em conhecer nossos planos da academia.`,
   );
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset message template when lead changes
   useEffect(() => {
     setWhatsAppMessage(
-      `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
+      `Ola ${lead.full_name}, tudo bem? Passando para saber se voce ainda tem interesse em conhecer nossos planos da academia.`,
     );
   }, [lead.full_name, lead.id]);
 
-  // Auto-dismiss feedback after 3 seconds
   useEffect(() => {
     if (feedback) {
       if (dismissRef.current) clearTimeout(dismissRef.current);
@@ -77,7 +75,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
     try {
       window.location.href = `tel:${lead.phone}`;
     } catch {
-      // desktop fallback — no-op
+      // Desktop fallback.
     }
     setShowCallLog(true);
     setShowWhatsApp(false);
@@ -88,17 +86,19 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
     setSending(true);
     try {
       const label = OUTCOME_LABELS[callOutcome];
-      const noteText = callNote.trim()
-        ? `Ligação (${label}): ${callNote.trim()}`
-        : `Ligação (${label})`;
-      await crmService.updateLead(lead.id, { notes: noteText });
-      setFeedback({ type: "success", text: "Ligação registrada!" });
+      await crmService.appendLeadNote(lead.id, {
+        text: callNote.trim() || `Ligacao registrada com resultado ${label}.`,
+        entry_type: "contact_log",
+        channel: "phone",
+        outcome: callOutcome,
+      });
+      setFeedback({ type: "success", text: "Ligacao registrada!" });
       setShowCallLog(false);
       setCallOutcome(null);
       setCallNote("");
       onActionComplete?.();
     } catch {
-      setFeedback({ type: "error", text: "Falha ao registrar ligação" });
+      setFeedback({ type: "error", text: "Falha ao registrar ligacao" });
     } finally {
       setSending(false);
     }
@@ -110,7 +110,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
       await taskService.createTask({
         lead_id: lead.id,
         title: `Follow-up com ${lead.full_name}`,
-        description: `Lead no estágio ${lead.stage}. Realizar contato comercial.`,
+        description: `Lead no estagio ${lead.stage}. Realizar contato comercial.`,
         priority: "high",
         status: "todo",
       });
@@ -161,7 +161,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
         </button>
       </div>
 
-      {showWhatsApp && (
+      {showWhatsApp ? (
         <div className="rounded-lg border border-lovable-border bg-lovable-surface p-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold text-lovable-ink">Mensagem WhatsApp</p>
@@ -190,12 +190,12 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
             {sending ? "Enviando..." : "Enviar"}
           </button>
         </div>
-      )}
+      ) : null}
 
-      {showCallLog && (
+      {showCallLog ? (
         <div className="rounded-lg border border-lovable-border bg-lovable-surface p-3">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-lovable-ink">Resultado da ligação</p>
+            <p className="text-xs font-semibold text-lovable-ink">Resultado da ligacao</p>
             <button
               type="button"
               aria-label="Fechar"
@@ -215,7 +215,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
                   "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors",
                   callOutcome === outcome
                     ? "bg-lovable-primary text-white"
-                    : "border border-lovable-border text-lovable-ink hover:border-lovable-border-strong"
+                    : "border border-lovable-border text-lovable-ink hover:border-lovable-border-strong",
                 )}
               >
                 {OUTCOME_LABELS[outcome]}
@@ -226,7 +226,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
             value={callNote}
             onChange={(event) => setCallNote(event.target.value)}
             rows={2}
-            placeholder="Observação (opcional)"
+            placeholder="Observacao (opcional)"
             className="mt-2 w-full rounded-md border border-lovable-border bg-lovable-surface px-2 py-1.5 text-sm text-lovable-ink placeholder:text-lovable-ink-muted focus:border-lovable-primary focus:outline-none focus:ring-1 focus:ring-lovable-primary"
           />
           <button
@@ -238,18 +238,18 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
             {sending ? "Salvando..." : "Salvar"}
           </button>
         </div>
-      )}
+      ) : null}
 
-      {feedback && (
+      {feedback ? (
         <p
           className={clsx(
             "text-xs font-medium",
-            feedback.type === "success" ? "text-lovable-success" : "text-lovable-danger"
+            feedback.type === "success" ? "text-lovable-success" : "text-lovable-danger",
           )}
         >
           {feedback.text}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

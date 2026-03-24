@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, CheckinSource, Member, MemberStatus
-from app.schemas import ImportErrorEntry, ImportSummary, MissingMemberEntry
+from app.schemas import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
 
@@ -115,6 +116,311 @@ _PLAN_CYCLE_CLEANUP_PATTERN = re.compile(
 
 
 _IMPORT_BATCH_SIZE = 500
+_IMPORT_PREVIEW_SAMPLE_LIMIT = 5
+_IMPORT_ONBOARDING_WINDOW_DAYS = 30
+_MEMBER_PREVIEW_COLUMNS = set(
+    NAME_KEYS
+    + FIRST_NAME_KEYS
+    + LAST_NAME_KEYS
+    + EMAIL_KEYS
+    + PHONE_KEYS
+    + CPF_KEYS
+    + PLAN_KEYS
+    + MONTHLY_FEE_KEYS
+    + JOIN_DATE_KEYS
+    + LAST_ACCESS_KEYS
+    + PREFERRED_SHIFT_KEYS
+    + STATUS_KEYS
+    + EXTERNAL_ID_KEYS
+)
+_CHECKIN_PREVIEW_COLUMNS = set(
+    NAME_KEYS
+    + FIRST_NAME_KEYS
+    + LAST_NAME_KEYS
+    + EMAIL_KEYS
+    + PHONE_KEYS
+    + CPF_KEYS
+    + PLAN_KEYS
+    + EXTERNAL_ID_KEYS
+    + MEMBER_ID_KEYS
+    + CHECKIN_AT_KEYS
+    + CHECKIN_DATE_KEYS
+    + CHECKIN_TIME_KEYS
+    + CHECKIN_SOURCE_KEYS
+)
+
+
+def _should_create_import_onboarding(join_date: date | None) -> bool:
+    if join_date is None:
+        return False
+    today = datetime.now(tz=timezone.utc).date()
+    if join_date > today:
+        return False
+    return (today - join_date).days <= _IMPORT_ONBOARDING_WINDOW_DAYS
+
+
+def _build_preview_columns(seen_columns: set[str], allowed_columns: set[str]) -> tuple[list[str], list[str]]:
+    recognized = sorted(column for column in seen_columns if column in allowed_columns)
+    unrecognized = sorted(column for column in seen_columns if column not in allowed_columns)
+    return recognized, unrecognized
+
+
+def _preview_member_snapshot(
+    *,
+    full_name: str,
+    email: str | None,
+    plan_name: str,
+    join_date: date,
+    row: dict[str, str],
+    action: str,
+) -> dict:
+    return {
+        "full_name": full_name,
+        "email": email,
+        "plan_name": plan_name,
+        "join_date": join_date.isoformat(),
+        "preferred_shift": _extract_preferred_shift(row),
+        "action": action,
+    }
+
+
+def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportPreview:
+    errors: list[ImportErrorEntry] = []
+    warnings: list[str] = []
+    sample_rows: list[ImportPreviewRow] = []
+    total_rows = 0
+    valid_rows = 0
+    would_create = 0
+    would_update = 0
+    would_skip = 0
+    seen_columns: set[str] = set()
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+    seen_emails: set[str] = set()
+    seen_external_ids: set[str] = set()
+    seen_cpfs: set[str] = set()
+    warned_missing_join_date = False
+    warned_updates = False
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        total_rows += 1
+        seen_columns.update(row.keys())
+        full_name = _extract_member_name(row)
+        if not full_name:
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
+            continue
+
+        email = _truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL)
+        external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
+        cpf_digits = _digits(_pick_first(row, CPF_KEYS))
+
+        if email and email in seen_emails:
+            would_skip += 1
+            continue
+        if external_id and external_id in seen_external_ids:
+            would_skip += 1
+            continue
+        if cpf_digits and cpf_digits in seen_cpfs:
+            would_skip += 1
+            continue
+
+        try:
+            _parse_decimal(_pick_first(row, MONTHLY_FEE_KEYS))
+            canonical_join_date = _parse_date(_pick_first(row, JOIN_DATE_KEYS))
+            join_date = canonical_join_date or datetime.now(tz=timezone.utc).date()
+            _parse_datetime(_pick_first(row, LAST_ACCESS_KEYS))
+        except ValueError:
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Formato invalido de valor/data",
+                    payload=row,
+                )
+            )
+            continue
+
+        valid_rows += 1
+        existing_member = _find_existing_member_by_import_keys(lookup, email=email, external_id=external_id, cpf_digits=cpf_digits)
+        plan_name, _, _ = _extract_plan_metadata(row, join_date=join_date)
+        action = "update_member" if existing_member else "create_member"
+
+        if existing_member:
+            would_update += 1
+            if not warned_updates:
+                warnings.append("Linhas que batem com membros existentes serao atualizadas no commit final.")
+                warned_updates = True
+        else:
+            would_create += 1
+            if canonical_join_date is None and not warned_missing_join_date:
+                warnings.append("Linhas sem data confiavel de inicio nao geram onboarding automatico apos a importacao.")
+                warned_missing_join_date = True
+
+        if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+            sample_rows.append(
+                ImportPreviewRow(
+                    row_number=row_number,
+                    action=action,
+                    preview=_preview_member_snapshot(
+                        full_name=full_name,
+                        email=email,
+                        plan_name=plan_name,
+                        join_date=join_date,
+                        row=row,
+                        action=action,
+                    ),
+                )
+            )
+
+        if email:
+            seen_emails.add(email)
+        if external_id:
+            seen_external_ids.add(external_id)
+        if cpf_digits:
+            seen_cpfs.add(cpf_digits)
+
+    recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _MEMBER_PREVIEW_COLUMNS)
+    return ImportPreview(
+        preview_kind="members",
+        total_rows=total_rows,
+        valid_rows=valid_rows,
+        would_create=would_create,
+        would_update=would_update,
+        would_skip=would_skip,
+        recognized_columns=recognized_columns,
+        unrecognized_columns=unrecognized_columns,
+        warnings=warnings,
+        sample_rows=sample_rows,
+        errors=errors,
+    )
+
+
+def preview_checkins_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    auto_create_missing_members: bool = False,
+) -> ImportPreview:
+    errors: list[ImportErrorEntry] = []
+    warnings: list[str] = []
+    sample_rows: list[ImportPreviewRow] = []
+    total_rows = 0
+    valid_rows = 0
+    would_create = 0
+    would_skip = 0
+    ignored = 0
+    provisional_members_possible = 0
+    seen_columns: set[str] = set()
+    seen_entries: set[tuple[str, str]] = set()
+    pending_existing_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        total_rows += 1
+        seen_columns.update(row.keys())
+        if _is_ignorable_checkin_row(row):
+            ignored += 1
+            continue
+
+        parsed = _parse_checkin_datetime(
+            checkin_raw=_pick_first(row, CHECKIN_AT_KEYS),
+            date_raw=_pick_first(row, CHECKIN_DATE_KEYS),
+            time_raw=_pick_first(row, CHECKIN_TIME_KEYS),
+        )
+        if not parsed:
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
+            continue
+
+        member = _resolve_member_from_row(row, lookup)
+        if not member and auto_create_missing_members:
+            full_name = _extract_member_name(row)
+            if _is_viable_member_name(full_name):
+                provisional_members_possible += 1
+                valid_rows += 1
+                would_create += 1
+                if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+                    sample_rows.append(
+                        ImportPreviewRow(
+                            row_number=row_number,
+                            action="create_provisional_member",
+                            preview={
+                                "full_name": full_name,
+                                "checkin_at": parsed.isoformat(),
+                                "plan_name": _extract_plan_name(row),
+                                "action": "create_provisional_member",
+                            },
+                        )
+                    )
+                continue
+
+        if not member:
+            missing_name = _extract_member_name(row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
+            would_skip += 1
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
+                    payload=row,
+                )
+            )
+            continue
+
+        valid_rows += 1
+        unique_key = (str(member.id), parsed.isoformat())
+        if unique_key in seen_entries:
+            would_skip += 1
+            continue
+        seen_entries.add(unique_key)
+        pending_existing_rows.append((member, parsed, row_number, row))
+
+    existing_keys = _fetch_existing_checkin_keys(db, [(member.id, parsed) for member, parsed, _, _ in pending_existing_rows])
+    for member, parsed, row_number, row in pending_existing_rows:
+        unique_key = (str(member.id), parsed.isoformat())
+        if unique_key in existing_keys:
+            would_skip += 1
+            continue
+        would_create += 1
+        if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+            sample_rows.append(
+                ImportPreviewRow(
+                    row_number=row_number,
+                    action="create_checkin",
+                    preview={
+                        "member_id": str(member.id),
+                        "member_name": member.full_name,
+                        "checkin_at": parsed.isoformat(),
+                        "action": "create_checkin",
+                    },
+                )
+            )
+
+    if auto_create_missing_members and provisional_members_possible > 0:
+        warnings.append("Cadastros provisiorios criados por catraca nao geram onboarding automatico.")
+
+    recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _CHECKIN_PREVIEW_COLUMNS)
+    return ImportPreview(
+        preview_kind="checkins",
+        total_rows=total_rows,
+        valid_rows=valid_rows,
+        would_create=would_create,
+        would_skip=would_skip,
+        ignored_rows=ignored,
+        provisional_members_possible=provisional_members_possible,
+        recognized_columns=recognized_columns,
+        unrecognized_columns=unrecognized_columns,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        warnings=warnings,
+        sample_rows=sample_rows,
+        errors=errors,
+    )
 
 
 def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
@@ -153,7 +459,8 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         join_date_raw = _pick_first(row, JOIN_DATE_KEYS)
         try:
             monthly_fee = _parse_decimal(monthly_fee_raw)
-            join_date = _parse_date(join_date_raw) or datetime.now(tz=timezone.utc).date()
+            canonical_join_date = _parse_date(join_date_raw)
+            join_date = canonical_join_date or datetime.now(tz=timezone.utc).date()
             last_checkin_at = _parse_datetime(_pick_first(row, LAST_ACCESS_KEYS))
         except ValueError:
             errors.append(
@@ -214,6 +521,10 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             extra_data=extra_data,
         )
         db.add(member)
+        if _should_create_import_onboarding(canonical_join_date):
+            db.flush()
+            create_onboarding_tasks_for_member(db, member, commit=False)
+            create_plan_followup_tasks_for_member(db, member, commit=False)
         imported += 1
         pending_count += 1
 

@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import LeadStage, RoleEnum, User
-from app.schemas import APIMessage, LeadCreate, LeadOut, LeadUpdate, PaginatedResponse
+from app.schemas import APIMessage, LeadCreate, LeadNoteCreate, LeadOut, LeadUpdate, PaginatedResponse
 from app.services.audit_service import log_audit_event
 from app.services.crm_service import (
+    append_lead_note_entry,
     create_lead,
     delete_lead,
     dispatch_lead_post_commit_effects,
@@ -74,6 +75,39 @@ def update_lead_endpoint(
         user=current_user,
         entity_id=lead.id,
         details={"updated_fields": list(payload.model_dump(exclude_unset=True).keys()), "stage": lead.stage.value},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    dispatch_lead_post_commit_effects(lead)
+    return lead
+
+
+@router.post("/leads/{lead_id}/notes", response_model=LeadOut)
+def append_lead_note_endpoint(
+    request: Request,
+    lead_id: UUID,
+    payload: LeadNoteCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
+) -> LeadOut:
+    lead = append_lead_note_entry(
+        db,
+        lead_id,
+        payload,
+        author_id=current_user.id,
+        author_name=current_user.full_name,
+        author_role=current_user.role.value,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="lead_note_appended",
+        entity="lead",
+        user=current_user,
+        entity_id=lead.id,
+        details={"entry_type": payload.entry_type, "channel": payload.channel, "outcome": payload.outcome},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

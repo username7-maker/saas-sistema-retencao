@@ -1,7 +1,7 @@
 """Tests for crm_service covering lead CRUD, follow-up automation, and CAC."""
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -130,7 +130,9 @@ class TestUpdateLead:
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
     @patch("app.services.crm_service.send_email")
-    def test_won_creates_member(self, mock_email, mock_cache):
+    @patch("app.services.crm_service.create_plan_followup_tasks_for_member")
+    @patch("app.services.crm_service.create_onboarding_tasks_for_member")
+    def test_won_creates_member(self, mock_onboarding, mock_plan_followup, mock_email, mock_cache):
         lead = _mock_lead(email="lead@t.com")
         db = MagicMock()
         db.get.return_value = lead
@@ -144,8 +146,17 @@ class TestUpdateLead:
                     obj.id = uuid.uuid4()
         db.flush.side_effect = _fake_flush
 
-        from app.schemas import LeadUpdate
-        payload = LeadUpdate(stage=LeadStage.WON)
+        from app.schemas import LeadConversionHandoff, LeadUpdate
+        payload = LeadUpdate(
+            stage=LeadStage.WON,
+            conversion_handoff=LeadConversionHandoff(
+                plan_name="Plano Premium",
+                join_date=date(2026, 3, 1),
+                email_confirmed=True,
+                phone_confirmed=True,
+                notes="Aluno convertido com foco em emagrecimento.",
+            ),
+        )
         from app.services.crm_service import update_lead
 
         def _email_side_effect(*_args, **_kwargs):
@@ -156,10 +167,14 @@ class TestUpdateLead:
         update_lead(db, LEAD_ID, payload)
         assert lead.converted_member_id is not None
         mock_email.assert_called_once()
+        mock_onboarding.assert_called_once()
+        mock_plan_followup.assert_called_once()
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
     @patch("app.services.crm_service.send_email")
-    def test_won_commit_false_keeps_commit_in_caller(self, mock_email, mock_cache):
+    @patch("app.services.crm_service.create_plan_followup_tasks_for_member")
+    @patch("app.services.crm_service.create_onboarding_tasks_for_member")
+    def test_won_commit_false_keeps_commit_in_caller(self, mock_onboarding, mock_plan_followup, mock_email, mock_cache):
         lead = _mock_lead(email="lead@t.com")
         db = MagicMock()
         db.get.return_value = lead
@@ -173,8 +188,17 @@ class TestUpdateLead:
 
         db.flush.side_effect = _fake_flush
 
-        from app.schemas import LeadUpdate
-        payload = LeadUpdate(stage=LeadStage.WON)
+        from app.schemas import LeadConversionHandoff, LeadUpdate
+        payload = LeadUpdate(
+            stage=LeadStage.WON,
+            conversion_handoff=LeadConversionHandoff(
+                plan_name="Plano Premium",
+                join_date=date(2026, 3, 1),
+                email_confirmed=True,
+                phone_confirmed=True,
+                notes="Handoff comercial confirmado.",
+            ),
+        )
         from app.services.crm_service import update_lead
 
         updated = update_lead(db, LEAD_ID, payload, commit=False)
@@ -184,6 +208,8 @@ class TestUpdateLead:
         assert db.flush.call_count >= 2
         mock_email.assert_not_called()
         assert getattr(updated, "_pending_welcome_email") == "lead@t.com"
+        mock_onboarding.assert_called_once()
+        mock_plan_followup.assert_called_once()
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
     @patch("app.services.crm_service.send_email")
@@ -193,14 +219,38 @@ class TestUpdateLead:
         db.get.return_value = lead
         db.refresh = MagicMock()
 
-        from app.schemas import LeadUpdate
-        payload = LeadUpdate(stage=LeadStage.WON)
+        from app.schemas import LeadConversionHandoff, LeadUpdate
+        payload = LeadUpdate(
+            stage=LeadStage.WON,
+            conversion_handoff=LeadConversionHandoff(
+                plan_name="Plano Premium",
+                join_date=date(2026, 3, 1),
+                email_confirmed=True,
+                phone_confirmed=True,
+            ),
+        )
         from app.services.crm_service import update_lead
 
         updated = update_lead(db, LEAD_ID, payload, commit=False)
 
         mock_email.assert_not_called()
         assert not hasattr(updated, "_pending_welcome_email")
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_won_requires_conversion_handoff(self, mock_cache):
+        lead = _mock_lead(email="lead@t.com")
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        from app.schemas import LeadUpdate
+        from app.services.crm_service import update_lead
+
+        with pytest.raises(HTTPException) as exc_info:
+            update_lead(db, LEAD_ID, LeadUpdate(stage=LeadStage.WON), commit=False)
+
+        assert exc_info.value.status_code == 400
+        assert "handoff" in str(exc_info.value.detail).lower()
 
     @patch("app.services.crm_service.send_email", return_value=True)
     def test_dispatch_post_commit_effects_clears_pending_marker(self, mock_email):
@@ -322,3 +372,32 @@ class TestAppendLeadNote:
         from app.services.crm_service import append_lead_note
         result = append_lead_note(db, lead, {"new": True})
         assert len(result.notes) == 2
+
+    def test_appends_structured_contact_entry(self):
+        lead = _mock_lead(notes=[])
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        from app.schemas import LeadNoteCreate
+        from app.services.crm_service import append_lead_note_entry
+
+        updated = append_lead_note_entry(
+            db,
+            LEAD_ID,
+            LeadNoteCreate(
+                text="Ligacao feita e visita agendada.",
+                entry_type="contact_log",
+                channel="phone",
+                outcome="visit_booked",
+            ),
+            author_id=uuid.uuid4(),
+            author_name="Manager Teste",
+            author_role="manager",
+            commit=False,
+        )
+
+        assert updated.notes[-1]["type"] == "contact_log"
+        assert updated.notes[-1]["channel"] == "phone"
+        assert updated.notes[-1]["outcome"] == "visit_booked"
+        assert updated.notes[-1]["author_name"] == "Manager Teste"

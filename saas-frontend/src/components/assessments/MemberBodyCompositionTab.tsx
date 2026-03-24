@@ -29,6 +29,8 @@ import type {
   EvaluationSource,
 } from "../../types";
 import { useAuth } from "../../hooks/useAuth";
+import { getPermissionAwareMessage } from "../../utils/httpErrors";
+import { canManageActuarSync } from "../../utils/roleAccess";
 import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
 import { FormField } from "../ui2/FormField";
@@ -467,6 +469,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
 
   const rangeClassifications = buildRangeClassifications(focusEvaluation);
   const canManualConfirm = user?.role === "owner" || user?.role === "manager";
+  const canManageSync = canManageActuarSync(user?.role);
   const syncSummary: BodyCompositionManualSyncSummary | null = syncStatus?.fallback_manual_summary ?? null;
 
   async function handleCopyCriticalFields() {
@@ -876,7 +879,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle>Sync Actuar</CardTitle>
               <div className="flex flex-wrap gap-2">
-                {focusEvaluation?.id ? (
+                {focusEvaluation?.id && canManageSync ? (
                   <Button
                     type="button"
                     size="sm"
@@ -888,7 +891,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     {enqueueSyncMutation.isPending ? "Enviando..." : "Enviar para Actuar"}
                   </Button>
                 ) : null}
-                {focusEvaluation?.id && syncStatus?.can_retry ? (
+                {focusEvaluation?.id && canManageSync && syncStatus?.can_retry ? (
                   <Button
                     type="button"
                     size="sm"
@@ -907,6 +910,10 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 <p className="text-sm text-lovable-ink-muted">Salve uma avaliacao para acompanhar o sync externo.</p>
               ) : syncLoading ? (
                 <Skeleton className="h-24 w-full rounded-2xl" />
+              ) : !syncStatus ? (
+                <div className="rounded-2xl border border-lovable-danger/20 bg-red-50 px-4 py-3 text-sm text-red-800">
+                  {getPermissionAwareMessage(null, "Nao foi possivel carregar o status de sync do Actuar.")}
+                </div>
               ) : (
                 <>
                   <div className={`rounded-2xl border px-4 py-3 text-sm ${syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
@@ -963,10 +970,17 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                       <Copy size={14} />
                       Copiar campos criticos
                     </Button>
-                    <Button type="button" variant="ghost" onClick={handleLinkMember} disabled={linkMutation.isPending}>
-                      <Link2 size={14} />
-                      {linkMutation.isPending ? "Salvando vinculo..." : "Vincular aluno Actuar"}
-                    </Button>
+                    {canManageSync ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleLinkMember}
+                        disabled={linkMutation.isPending}
+                      >
+                        <Link2 size={14} />
+                        {linkMutation.isPending ? "Salvando vinculo..." : "Vincular aluno Actuar"}
+                      </Button>
+                    ) : null}
                     {canManualConfirm ? (
                       <Button
                         type="button"

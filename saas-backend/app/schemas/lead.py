@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -19,6 +19,22 @@ class LeadCreate(BaseModel):
     notes: list = Field(default_factory=list)
 
 
+class LeadNoteCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    entry_type: str = Field(default="note", min_length=2, max_length=50)
+    channel: str | None = Field(default=None, max_length=50)
+    outcome: str | None = Field(default=None, max_length=80)
+    occurred_at: datetime | None = None
+
+
+class LeadConversionHandoff(BaseModel):
+    plan_name: str = Field(min_length=2, max_length=100)
+    join_date: date
+    email_confirmed: bool = False
+    phone_confirmed: bool = False
+    notes: str | None = Field(default=None, max_length=1000)
+
+
 class LeadUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
@@ -32,6 +48,7 @@ class LeadUpdate(BaseModel):
     lost_reason: str | None = None
     last_contact_at: datetime | None = None
     converted_member_id: UUID | None = None
+    conversion_handoff: LeadConversionHandoff | None = None
 
 
 class LeadOut(BaseModel):

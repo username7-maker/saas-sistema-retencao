@@ -5,8 +5,10 @@ import toast from "react-hot-toast";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { StatCard } from "../../components/common/StatCard";
 import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
+import { useAuth } from "../../hooks/useAuth";
 import { npsService, type NpsResponse } from "../../services/npsService";
 import { taskService } from "../../services/taskService";
+import { canDispatchNps } from "../../utils/roleAccess";
 
 function sentimentVariantClasses(sentiment: string): string {
   const s = sentiment.toLowerCase();
@@ -97,6 +99,8 @@ function DetractorRow({ response }: DetractorRowProps) {
 
 export function NpsPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canDispatch = canDispatchNps(user?.role);
 
   const evolutionQuery = useQuery({
     queryKey: ["nps", "evolution"],
@@ -139,14 +143,16 @@ export function NpsPage() {
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">NPS — Net Promoter Score</h2>
           <p className="text-sm text-lovable-ink-muted">Evolução mensal, detratores e disparo de pesquisa.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => dispatchMutation.mutate()}
-          disabled={dispatchMutation.isPending}
-          className="rounded-full bg-lovable-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
-        >
-          {dispatchMutation.isPending ? "Disparando..." : "Disparar pesquisa NPS"}
-        </button>
+        {canDispatch ? (
+          <button
+            type="button"
+            onClick={() => dispatchMutation.mutate()}
+            disabled={dispatchMutation.isPending}
+            className="rounded-full bg-lovable-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
+          >
+            {dispatchMutation.isPending ? "Disparando..." : "Disparar pesquisa NPS"}
+          </button>
+        ) : null}
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">

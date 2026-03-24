@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -9,11 +9,25 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
-from app.schemas import LeadCreate, LeadUpdate, PaginatedResponse
+from app.schemas import LeadCreate, LeadNoteCreate, LeadUpdate, PaginatedResponse
+from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
 _PENDING_WELCOME_EMAIL_ATTR = "_pending_welcome_email"
+_RECENT_CONVERSION_ONBOARDING_DAYS = 30
+
+
+def _compute_loyalty_months(join_date: date) -> int:
+    today = datetime.now(tz=timezone.utc).date()
+    if join_date > today:
+        return 0
+    return max(0, (today.year - join_date.year) * 12 + (today.month - join_date.month))
+
+
+def _should_create_onboarding(join_date: date) -> bool:
+    today = datetime.now(tz=timezone.utc).date()
+    return (today - join_date).days <= _RECENT_CONVERSION_ONBOARDING_DAYS
 
 
 def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
@@ -66,6 +80,7 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
 
     previous_stage = lead.stage
     data = payload.model_dump(exclude_unset=True)
+    data.pop("conversion_handoff", None)
     for key, value in data.items():
         setattr(lead, key, value)
     if payload.stage and payload.stage != previous_stage:
@@ -73,12 +88,32 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
 
     member_converted = False
     if lead.stage == LeadStage.WON and not lead.converted_member_id:
+        if not payload.conversion_handoff:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Conversao exige handoff com plano e data de inicio.",
+            )
+        handoff_payload = payload.conversion_handoff
+        extra_data = {
+            "conversion_handoff": {
+                "lead_id": str(lead.id),
+                "plan_name": handoff_payload.plan_name,
+                "join_date": handoff_payload.join_date.isoformat(),
+                "email_confirmed": handoff_payload.email_confirmed,
+                "phone_confirmed": handoff_payload.phone_confirmed,
+                "notes": handoff_payload.notes,
+                "converted_at": datetime.now(tz=timezone.utc).isoformat(),
+            }
+        }
         member = Member(
             full_name=lead.full_name,
             email=lead.email,
             phone=lead.phone,
-            plan_name="Plano Base",
+            plan_name=handoff_payload.plan_name,
             monthly_fee=lead.estimated_value,
+            join_date=handoff_payload.join_date,
+            loyalty_months=_compute_loyalty_months(handoff_payload.join_date),
+            extra_data=extra_data,
         )
         db.add(member)
         db.flush()
@@ -86,6 +121,9 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
         member_converted = True
         if lead.email:
             setattr(lead, _PENDING_WELCOME_EMAIL_ATTR, lead.email)
+        if _should_create_onboarding(handoff_payload.join_date):
+            create_onboarding_tasks_for_member(db, member, commit=False)
+            create_plan_followup_tasks_for_member(db, member, commit=False)
 
     db.add(lead)
     if commit:
@@ -280,4 +318,35 @@ def append_lead_note(db: Session, lead: Lead, note: dict) -> Lead:
     lead.notes = notes
     db.add(lead)
     db.flush()
+    return lead
+
+
+def append_lead_note_entry(
+    db: Session,
+    lead_id: UUID,
+    payload: LeadNoteCreate,
+    *,
+    author_id: UUID | None,
+    author_name: str | None,
+    author_role: str | None,
+    commit: bool = True,
+) -> Lead:
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
+
+    note = {
+        "type": payload.entry_type,
+        "channel": payload.channel,
+        "outcome": payload.outcome,
+        "note": payload.text.strip(),
+        "created_at": (payload.occurred_at or datetime.now(tz=timezone.utc)).isoformat(),
+        "author_id": str(author_id) if author_id else None,
+        "author_name": author_name,
+        "author_role": author_role,
+    }
+    append_lead_note(db, lead, note)
+    if commit:
+        db.commit()
+        db.refresh(lead)
     return lead

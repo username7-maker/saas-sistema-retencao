@@ -18,9 +18,11 @@ import {
   TableInner,
   TableRow,
 } from "../../components/ui2";
+import { useAuth } from "../../hooks/useAuth";
 import { memberService } from "../../services/memberService";
 import type { MemberPlanCycle } from "../../services/memberService";
 import type { Member, RiskLevel } from "../../types";
+import { canDeleteMember, canManageMemberDirectory } from "../../utils/roleAccess";
 import { AddMemberDrawer } from "./AddMemberDrawer";
 import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
@@ -44,6 +46,7 @@ function isCurrentMonth(value: string): boolean {
 }
 
 export function MembersPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<MemberQueryFilters>({});
   const [search, setSearch] = useState("");
@@ -127,17 +130,15 @@ export function MembersPage() {
     filters.risk_level,
     filters.plan_cycle,
   ].filter((value) => value !== undefined && value !== "").length;
+  const canManageDirectory = canManageMemberDirectory(user?.role);
+  const canRemoveMember = canDeleteMember(user?.role);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Membros"
         subtitle="Gestão e acompanhamento da base de alunos"
-        actions={
-          <Button variant="primary" onClick={() => setAddOpen(true)}>
-            + Adicionar Membro
-          </Button>
-        }
+        actions={canManageDirectory ? <Button variant="primary" onClick={() => setAddOpen(true)}>+ Adicionar Membro</Button> : undefined}
       />
 
       <KPIStrip items={kpiItems} />
@@ -209,7 +210,7 @@ export function MembersPage() {
             icon={Users}
             title="Nenhum membro encontrado"
             description="Tente ajustar os filtros ou adicione um novo membro"
-            action={{ label: "Adicionar Membro", onClick: () => setAddOpen(true) }}
+            action={canManageDirectory ? { label: "Adicionar Membro", onClick: () => setAddOpen(true) } : undefined}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -291,26 +292,30 @@ export function MembersPage() {
                         >
                           <Eye size={14} />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(event) => openEdit(member, event)}
-                          title="Editar"
-                          aria-label={`Editar ${member.full_name}`}
-                          className="px-2"
-                        >
-                          <Edit2 size={14} />
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => setMemberToDelete(member)}
-                          title="Excluir"
-                          aria-label={`Excluir ${member.full_name}`}
-                          className="px-2"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                        {canManageDirectory ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(event) => openEdit(member, event)}
+                            title="Editar"
+                            aria-label={`Editar ${member.full_name}`}
+                            className="px-2"
+                          >
+                            <Edit2 size={14} />
+                          </Button>
+                        ) : null}
+                        {canRemoveMember ? (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => setMemberToDelete(member)}
+                            title="Excluir"
+                            aria-label={`Excluir ${member.full_name}`}
+                            className="px-2"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -330,7 +335,7 @@ export function MembersPage() {
         ) : null}
       </Table>
 
-      <AddMemberDrawer open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddMemberDrawer open={addOpen && canManageDirectory} onClose={() => setAddOpen(false)} />
       <MemberDetailDrawer member={selectedMember} open={detailOpen} onClose={() => setDetailOpen(false)} />
       <EditMemberDrawer member={editMember} open={editOpen} onClose={() => setEditOpen(false)} />
 

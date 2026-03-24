@@ -7,6 +7,12 @@ import { CrmPage } from "../pages/crm/CrmPage";
 import { crmService } from "../services/crmService";
 import type { Lead, PaginatedResponse } from "../types";
 
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({
+    user: { id: "owner-1", full_name: "Owner Teste", role: "owner" },
+  }),
+}));
+
 vi.mock("../services/crmService", () => ({
   crmService: {
     listLeads: vi.fn(),
