@@ -5,6 +5,20 @@
 
 ## v3.2.0 Requirements
 
+### Hardening P0
+
+- [ ] **HARD-01**: `birthday_label` importado funciona em dashboards e automacoes de aniversario
+- [ ] **HARD-02**: recalc manual de risco deixa de usar thread daemon e vira solicitacao duravel consumida pelo worker
+- [ ] **HARD-03**: realtime/WebSocket funciona com mais de um worker da API usando Redis Pub/Sub
+- [ ] **HARD-04**: suites backend/frontend voltam a ficar totalmente verdes antes do piloto
+
+### Coerencia Operacional P1
+
+- [ ] **OPS-01**: routers passam a orquestrar commits dos fluxos criticos do piloto, sem commit implicito espalhado nos services centrais
+- [ ] **OPS-02**: frontend reflete as capacidades reais do backend para recepcao, comercial e trainer
+- [ ] **OPS-03**: trainer resolve tarefas tecnicas dentro de `Assessments` sem abrir o modulo geral de tasks
+- [ ] **OPS-04**: CI do frontend roda lint e testes unitarios alem de typecheck/build/e2e
+
 ### Import Flow
 
 - [ ] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
@@ -24,19 +38,28 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| HARD-01 | Phase 4.1 | Completed |
+| HARD-02 | Phase 4.1 | Completed |
+| HARD-03 | Phase 4.1 | Completed |
+| HARD-04 | Phase 4.1 | Completed |
+| OPS-01 | Phase 4.2 | Completed |
+| OPS-02 | Phase 4.2 | Completed |
+| OPS-03 | Phase 4.2 | Completed |
+| OPS-04 | Phase 4.2 | Completed |
 | IMP-01 | Phase 4 | Completed |
 | IMP-02 | Phase 4 | Completed |
-| BULK-01 | Phase 5 | Pending |
-| BULK-02 | Phase 5 | Pending |
-| SEARCH-01 | Phase 6 | Pending |
-| SEARCH-02 | Phase 6 | Pending |
+| BULK-01 | Phase 5 | Deferred until post-pilot |
+| BULK-02 | Phase 5 | Deferred until post-pilot |
+| SEARCH-01 | Phase 6 | Deferred until post-pilot |
+| SEARCH-02 | Phase 6 | Deferred until post-pilot |
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Novo redesign da tela de membros | O foco e fluxo/base operacional, nao repaginacao ampla |
-| Expansao de permissoes de backend | A estrategia continua sendo superficie verdadeira |
+| Novo redesign amplo de Members ou Profile 360 | O ciclo atual e de hardening e piloto, nao de repaginacao |
+| Expansao de permissoes de backend so para caber na UI | A estrategia continua sendo superficie verdadeira |
+| Bulk update e busca sensivel antes do piloto | Foram explicitamente pausados ate validacao do piloto |
 
 ---
 *Requirements defined: 2026-03-24 for v3.2.0*
