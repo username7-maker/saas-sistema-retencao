@@ -23,6 +23,7 @@ from app.services.onboarding_score_service import run_daily_onboarding_score
 from app.services.report_service import send_monthly_reports
 from app.services.retention_intelligence_service import run_daily_retention_intelligence
 from app.services.risk import run_daily_risk_processing
+from app.services.risk_recalculation_service import process_pending_risk_recalculation_requests
 from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,13 @@ def proposal_followup_job() -> None:
 def actuar_sync_queue_job() -> None:
     job_name = "actuar_sync_queue"
     processed_count = process_pending_actuar_sync_jobs(batch_size=3)
+    _log_job_metrics(job_name, processed_count=processed_count)
+
+
+@with_distributed_lock("risk_recalculation_queue", ttl_seconds=300, fail_open=_critical_lock_fail_open)
+def risk_recalculation_queue_job() -> None:
+    job_name = "risk_recalculation_queue"
+    processed_count = process_pending_risk_recalculation_requests(batch_size=3)
     _log_job_metrics(job_name, processed_count=processed_count)
 
 

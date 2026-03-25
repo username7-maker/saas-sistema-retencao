@@ -7,11 +7,13 @@ export const ROUTE_ACCESS = {
   dashboardCommercial: ["owner", "manager", "salesperson"],
   dashboardFinancial: ["owner", "manager"],
   dashboardRetention: ["owner", "manager", "receptionist"],
-  crm: ["owner", "manager", "salesperson"],
+  crm: ["owner", "manager", "salesperson", "receptionist"],
   tasks: ["owner", "manager", "receptionist", "salesperson"],
   goals: ["owner", "manager"],
   reports: ["owner", "manager"],
   assessments: ["owner", "manager", "receptionist", "trainer"],
+  assessmentContext: ["owner", "manager", "receptionist", "salesperson", "trainer"],
+  assessmentRegistration: ["owner", "manager", "trainer"],
   notifications: ["owner", "manager", "receptionist", "salesperson"],
   automations: ["owner", "manager"],
   imports: ["owner", "manager"],
@@ -42,6 +44,8 @@ const ROUTE_MATCHERS: Array<{ route: RouteAccessKey; matches: (path: string) => 
   { route: "tasks", matches: (path) => path.startsWith("/tasks") },
   { route: "goals", matches: (path) => path.startsWith("/goals") },
   { route: "reports", matches: (path) => path.startsWith("/reports") },
+  { route: "assessmentContext", matches: (path) => path.startsWith("/assessments/members/") },
+  { route: "assessmentRegistration", matches: (path) => path.startsWith("/assessments/new/") },
   { route: "assessments", matches: (path) => path.startsWith("/assessments") },
   { route: "notifications", matches: (path) => path.startsWith("/notifications") },
   { route: "automations", matches: (path) => path.startsWith("/automations") },
@@ -197,10 +201,14 @@ export function canAddAssessmentInternalNote(role: Role | null | undefined): boo
 }
 
 export function canViewAssessmentTasks(role: Role | null | undefined): boolean {
-  return role === "owner" || role === "manager" || role === "receptionist";
+  return role === "owner" || role === "manager" || role === "receptionist" || role === "trainer";
 }
 
 export function canCreateAssessmentTasks(role: Role | null | undefined): boolean {
+  return role === "owner" || role === "manager" || role === "receptionist";
+}
+
+export function canUpdateAssessmentTasks(role: Role | null | undefined): boolean {
   return canViewAssessmentTasks(role);
 }
 
@@ -218,7 +226,10 @@ export function canManageActuarSync(role: Role | null | undefined): boolean {
 
 export function getVisibleAssessmentWorkspaceTabs(role: Role | null | undefined): AssessmentWorkspaceTab[] {
   if (role === "trainer") {
-    return ["overview", "registro", "evolucao", "plano", "contexto", "bioimpedancia"];
+    return ["overview", "registro", "evolucao", "plano", "contexto", "acoes", "bioimpedancia"];
+  }
+  if (role === "salesperson") {
+    return ["overview", "evolucao"];
   }
   if (role === "receptionist") {
     return ["overview", "evolucao", "acoes", "bioimpedancia"];

@@ -236,7 +236,7 @@ async def updates_websocket(websocket: WebSocket, token: str = Query(...)) -> No
             await websocket.close(code=4401)
             return
 
-        await websocket_manager.connect(str(gym_id), websocket)
+        await websocket_manager.connect(str(gym_id), websocket, user_id=str(user.id))
         await websocket.send_json({"event": "connected", "payload": {"user_id": str(user.id), "gym_id": str(gym_id)}})
         while True:
             await websocket.receive_text()

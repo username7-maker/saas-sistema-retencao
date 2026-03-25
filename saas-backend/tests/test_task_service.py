@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.models import TaskPriority, TaskStatus
+from app.models import RoleEnum, TaskPriority, TaskStatus
 from app.schemas import TaskCreate, TaskUpdate
 
 
@@ -43,6 +43,16 @@ def _mock_task(status=TaskStatus.TODO, **kwargs):
     return SimpleNamespace(**defaults)
 
 
+def _mock_user(role=RoleEnum.OWNER, **kwargs):
+    defaults = dict(
+        id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+        gym_id=GYM_ID,
+        role=role,
+    )
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
 class TestCreateTask:
     @patch("app.services.task_service.invalidate_dashboard_cache")
     @patch("app.services.task_service._load_with_relations")
@@ -68,6 +78,20 @@ class TestCreateTask:
         create_task(db, payload)
         added_task = db.add.call_args[0][0]
         assert added_task.completed_at is not None
+
+    @patch("app.services.task_service.invalidate_dashboard_cache")
+    @patch("app.services.task_service._load_with_relations")
+    def test_create_task_supports_flush_without_commit(self, mock_load, mock_cache):
+        task = _mock_task()
+        mock_load.return_value = task
+        db = MagicMock()
+        payload = TaskCreate(title="Buffered task", gym_id=GYM_ID)
+        from app.services.task_service import create_task
+
+        create_task(db, payload, commit=False)
+
+        db.flush.assert_called_once()
+        db.commit.assert_not_called()
 
 
 class TestUpdateTask:
@@ -100,6 +124,52 @@ class TestUpdateTask:
         from app.services.task_service import update_task
         with pytest.raises(HTTPException):
             update_task(db, TASK_ID, payload)
+
+    def test_trainer_cannot_update_non_technical_task(self):
+        task = _mock_task(extra_data={"source": "manual"}, member_id=uuid.uuid4())
+        db = MagicMock()
+        db.get.return_value = task
+        payload = TaskUpdate(status=TaskStatus.DOING)
+        from app.services.task_service import update_task
+
+        with pytest.raises(HTTPException) as exc_info:
+            update_task(db, TASK_ID, payload, current_user=_mock_user(role=RoleEnum.TRAINER))
+
+        assert exc_info.value.status_code == 404
+
+    def test_trainer_can_only_change_task_status_fields(self):
+        task = _mock_task(extra_data={"source": "assessment_intelligence", "owner_role": "coach"}, member_id=uuid.uuid4())
+        db = MagicMock()
+        db.get.return_value = task
+        payload = TaskUpdate(title="Novo titulo")
+        from app.services.task_service import update_task
+
+        with pytest.raises(HTTPException) as exc_info:
+            update_task(db, TASK_ID, payload, current_user=_mock_user(role=RoleEnum.TRAINER))
+
+        assert exc_info.value.status_code == 403
+
+    @patch("app.services.task_service.invalidate_dashboard_cache")
+    @patch("app.services.task_service._load_with_relations")
+    def test_trainer_can_update_technical_task_status(self, mock_load, mock_cache):
+        task = _mock_task(extra_data={"source": "assessment_intelligence", "owner_role": "coach"}, member_id=uuid.uuid4())
+        mock_load.return_value = task
+        db = MagicMock()
+        db.get.return_value = task
+        payload = TaskUpdate(status=TaskStatus.DONE)
+        from app.services.task_service import update_task
+
+        result = update_task(
+            db,
+            TASK_ID,
+            payload,
+            current_user=_mock_user(role=RoleEnum.TRAINER),
+            commit=False,
+        )
+
+        assert result.status == TaskStatus.DONE
+        db.flush.assert_called_once()
+        db.commit.assert_not_called()
 
     @patch("app.services.task_service.invalidate_dashboard_cache")
     @patch("app.services.task_service._load_with_relations")

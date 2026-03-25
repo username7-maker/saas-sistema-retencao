@@ -33,6 +33,7 @@ from app.models.nps_response import NPSResponse
 from app.models.nurturing_sequence import NurturingSequence
 from app.models.objection_response import ObjectionResponse
 from app.models.risk_alert import RiskAlert
+from app.models.risk_recalculation_request import RiskRecalculationRequest
 from app.models.task import Task
 from app.models.user import User
 
@@ -70,6 +71,7 @@ __all__ = [
     "ObjectionResponse",
     "OnboardingStatus",
     "RiskAlert",
+    "RiskRecalculationRequest",
     "RiskLevel",
     "RoleEnum",
     "Task",

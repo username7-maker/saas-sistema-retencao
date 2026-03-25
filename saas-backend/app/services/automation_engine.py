@@ -1,6 +1,5 @@
 import logging
 import re
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -15,26 +14,11 @@ from app.models.lead import Lead
 from app.models.message_log import MessageLog
 from app.services.notification_service import create_notification
 from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
+from app.utils.birthday import birthday_label_matches_today
 from app.utils.email import send_email
 
 
 logger = logging.getLogger(__name__)
-
-_PT_MONTHS = {
-    "janeiro": 1,
-    "fevereiro": 2,
-    "marco": 3,
-    "abril": 4,
-    "maio": 5,
-    "junho": 6,
-    "julho": 7,
-    "agosto": 8,
-    "setembro": 9,
-    "outubro": 10,
-    "novembro": 11,
-    "dezembro": 12,
-}
-
 
 def list_automation_rules(
     db: Session,
@@ -460,36 +444,9 @@ def _coerce_risk_level(value: object, *, default: str = "red") -> str:
     return default
 
 
-def _normalize_month_token(value: str) -> str:
-    return (
-        unicodedata.normalize("NFKD", value)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .lower()
-        .strip()
-    )
-
-
 def _birthday_label_matches_today(member: Member, today) -> bool:
     extra_data = member.extra_data or {}
-    birthday_label = extra_data.get("birthday_label")
-    if not isinstance(birthday_label, str):
-        return False
-
-    match = re.search(r"(\d{1,2})\s+de\s+([A-Za-zÀ-ÿ]+)", birthday_label, flags=re.IGNORECASE)
-    if not match:
-        return False
-
-    try:
-        day = int(match.group(1))
-    except ValueError:
-        return False
-
-    month = _PT_MONTHS.get(_normalize_month_token(match.group(2)))
-    if month is None:
-        return False
-
-    return day == today.day and month == today.month
+    return birthday_label_matches_today(extra_data.get("birthday_label"), today)
 
 
 def _render(template: str, vars: dict) -> str:

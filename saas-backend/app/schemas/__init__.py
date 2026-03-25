@@ -61,6 +61,7 @@ from app.schemas.public_diagnosis import (
     PublicProposalRequest,
 )
 from app.schemas.risk import RiskAlertOut, RiskAlertResolveInput
+from app.schemas.risk_recalculation import RiskRecalculationRequestOut
 from app.schemas.sales import (
     BookingStatusOut,
     CallEventCreate,
@@ -156,6 +157,7 @@ __all__ = [
     "RetentionQueueItem",
     "RevenuePoint",
     "RiskAlertOut",
+    "RiskRecalculationRequestOut",
     "RiskAlertResolveInput",
     "BookingStatusOut",
     "CallEventCreate",

@@ -44,6 +44,7 @@ import {
   canAddAssessmentInternalNote,
   canCreateAssessment,
   canCreateAssessmentTasks,
+  canUpdateAssessmentTasks,
   canViewAssessmentTasks,
   canViewAssessmentTimeline,
   getVisibleAssessmentWorkspaceTabs,
@@ -320,8 +321,20 @@ function ProfileHeaderSkeleton() {
   );
 }
 
-function MemberTaskRow({ task, todayKey }: { task: Task; todayKey: string }) {
+function MemberTaskRow({
+  task,
+  todayKey,
+  isPending,
+  onSetStatus,
+}: {
+  task: Task;
+  todayKey: string;
+  isPending: boolean;
+  onSetStatus?: (task: Task, status: Task["status"]) => void;
+}) {
   const overdue = isOverdue(task, todayKey);
+  const canStart = task.status === "todo";
+  const canComplete = task.status !== "done" && task.status !== "cancelled";
 
   return (
     <li className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
@@ -335,13 +348,41 @@ function MemberTaskRow({ task, todayKey }: { task: Task; todayKey: string }) {
           {task.description ? <p className="mt-1 text-xs text-lovable-ink-muted">{task.description}</p> : null}
         </div>
 
-        <div
-          className={`inline-flex shrink-0 items-center gap-1 text-xs ${
-            overdue ? "font-semibold text-lovable-danger" : "text-lovable-ink-muted"
-          }`}
-        >
-          {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
-          {formatDueDate(task.due_date)}
+        <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+          <div
+            className={`inline-flex items-center gap-1 text-xs ${
+              overdue ? "font-semibold text-lovable-danger" : "text-lovable-ink-muted"
+            }`}
+          >
+            {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
+            {formatDueDate(task.due_date)}
+          </div>
+          {onSetStatus ? (
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              {canStart ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={isPending}
+                  onClick={() => onSetStatus(task, "doing")}
+                >
+                  {isPending ? "Atualizando..." : "Iniciar"}
+                </Button>
+              ) : null}
+              {canComplete ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={isPending}
+                  onClick={() => onSetStatus(task, "done")}
+                >
+                  {isPending ? "Atualizando..." : "Concluir"}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </li>
@@ -354,17 +395,23 @@ function MemberTasksPanel({
   isLoading,
   isError,
   isCreating,
+  isUpdating,
   onRetry,
   onCreate,
+  onSetStatus,
 }: {
   tasks: Task[];
   todayKey: string;
   isLoading: boolean;
   isError: boolean;
   isCreating: boolean;
+  isUpdating: boolean;
   onRetry: () => void;
-  onCreate: () => void;
+  onCreate?: () => void;
+  onSetStatus?: (task: Task, status: Task["status"]) => void;
 }) {
+  const hasCreateAction = Boolean(onCreate);
+
   return (
     <Card>
       <CardContent className="pt-5">
@@ -372,11 +419,11 @@ function MemberTasksPanel({
           title="Acoes do aluno"
           subtitle="Tarefas e follow-ups diretamente relacionados a este perfil."
           count={tasks.length}
-          actions={
+          actions={hasCreateAction ? (
             <Button size="sm" variant="primary" onClick={onCreate} disabled={isCreating}>
               + Nova Tarefa
             </Button>
-          }
+          ) : undefined}
         />
 
         {isLoading ? (
@@ -392,13 +439,23 @@ function MemberTasksPanel({
           <EmptyState
             icon={ListTodo}
             title="Nenhuma tarefa relacionada"
-            description="Crie uma tarefa para acompanhar este aluno de forma operacional."
-            action={{ label: "Nova Tarefa", onClick: onCreate }}
+            description={
+              hasCreateAction
+                ? "Crie uma tarefa para acompanhar este aluno de forma operacional."
+                : "Nenhuma tarefa tecnica pendente para este aluno no momento."
+            }
+            action={hasCreateAction && onCreate ? { label: "Nova Tarefa", onClick: onCreate } : undefined}
           />
         ) : (
           <ul className="space-y-3">
             {tasks.map((task) => (
-              <MemberTaskRow key={task.id} task={task} todayKey={todayKey} />
+              <MemberTaskRow
+                key={task.id}
+                task={task}
+                todayKey={todayKey}
+                isPending={isUpdating}
+                onSetStatus={onSetStatus}
+              />
             ))}
           </ul>
         )}
@@ -424,6 +481,7 @@ export function MemberProfile360Page() {
   const canManageNotes = canAddAssessmentInternalNote(user?.role);
   const canViewTasks = canViewAssessmentTasks(user?.role);
   const canCreateTasks = canCreateAssessmentTasks(user?.role);
+  const canUpdateTasks = canUpdateAssessmentTasks(user?.role);
   const canViewTimeline = canViewAssessmentTimeline(user?.role);
 
   const profileQuery = useQuery({
@@ -567,6 +625,19 @@ export function MemberProfile360Page() {
     },
     onError: () => {
       toast.error("Erro ao criar tarefa.");
+    },
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) =>
+      taskService.updateTask(taskId, { status }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks", "member-workspace", memberId] });
+      toast.success("Tarefa atualizada.");
+    },
+    onError: () => {
+      toast.error("Nao foi possivel atualizar a tarefa.");
     },
   });
 
@@ -997,8 +1068,14 @@ export function MemberProfile360Page() {
               isLoading={memberTasksQuery.isLoading}
               isError={memberTasksQuery.isError}
               isCreating={createTaskMutation.isPending}
+              isUpdating={updateTaskMutation.isPending}
               onRetry={() => void memberTasksQuery.refetch()}
-              onCreate={() => setIsCreateTaskOpen(true)}
+              onCreate={canCreateTasks ? () => setIsCreateTaskOpen(true) : undefined}
+              onSetStatus={
+                canUpdateTasks
+                  ? (task, status) => updateTaskMutation.mutate({ taskId: task.id, status })
+                  : undefined
+              }
             />
           </TabsContent>
         ) : null}

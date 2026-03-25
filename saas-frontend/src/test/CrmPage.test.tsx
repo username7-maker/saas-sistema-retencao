@@ -7,9 +7,17 @@ import { CrmPage } from "../pages/crm/CrmPage";
 import { crmService } from "../services/crmService";
 import type { Lead, PaginatedResponse } from "../types";
 
+const authState = vi.hoisted(() => ({
+  user: {
+    id: "owner-1",
+    full_name: "Owner Teste",
+    role: "owner" as "owner" | "manager" | "receptionist" | "salesperson" | "trainer",
+  },
+}));
+
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "owner-1", full_name: "Owner Teste", role: "owner" },
+    user: authState.user,
   }),
 }));
 
@@ -120,6 +128,7 @@ function renderPage() {
 describe("CrmPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = { id: "owner-1", full_name: "Owner Teste", role: "owner" };
     vi.mocked(crmService.listLeads).mockResolvedValue(response);
     vi.mocked(crmService.createLead).mockResolvedValue(leads[0]);
     vi.mocked(crmService.updateLead).mockResolvedValue(leads[1]);
@@ -289,5 +298,21 @@ describe("CrmPage", () => {
     expect(await screen.findByText("Nenhum lead encontrado")).toBeInTheDocument();
     expect(screen.getByText("Tente ajustar os filtros ou adicione um novo lead")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Novo Lead" }).length).toBeGreaterThan(0);
+  });
+
+  it("renders CRM in read-only mode for receptionist without mutation CTAs", async () => {
+    authState.user = { id: "reception-1", full_name: "Recepcao Teste", role: "receptionist" };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Bruno Lima"));
+
+    expect(screen.getByText("Detalhes do Lead")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar alteracoes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Adicionar ao historico/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Avancar estagio/i })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: "Novo Lead" })).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Fechar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remover Lead" })).not.toBeInTheDocument();
   });
 });

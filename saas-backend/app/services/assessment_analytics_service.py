@@ -466,7 +466,7 @@ def get_assessments_dashboard(db: Session) -> dict:
     }
 
 
-def generate_ai_insights(db: Session, current: Assessment) -> None:
+def generate_ai_insights(db: Session, current: Assessment, *, commit: bool = True) -> None:
     try:
         previous_assessments = list(
             db.scalars(
@@ -501,7 +501,10 @@ def generate_ai_insights(db: Session, current: Assessment) -> None:
         if not settings.claude_api_key or claude_circuit_breaker.is_open():
             _apply_fallback_analysis(current, previous_assessments)
             db.add(current)
-            db.commit()
+            if commit:
+                db.commit()
+            else:
+                db.flush()
             return
 
         import anthropic
@@ -526,13 +529,19 @@ def generate_ai_insights(db: Session, current: Assessment) -> None:
         current.ai_recommendations = (parsed.get("recommendations") or "")[:2000]
         current.ai_risk_flags = (parsed.get("risk_flags") or "")[:2000]
         db.add(current)
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
         logger.exception("Erro ao gerar insights de avaliacao - usando fallback")
         try:
             _apply_fallback_analysis(current, [])
             db.add(current)
-            db.commit()
+            if commit:
+                db.commit()
+            else:
+                db.flush()
         except Exception:
             logger.exception("Fallback de analise tambem falhou")
 

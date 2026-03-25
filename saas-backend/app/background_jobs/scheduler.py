@@ -20,6 +20,7 @@ from app.background_jobs.jobs import (
     nurturing_followup_job,
     proposal_followup_job,
     refresh_dashboard_views_job,
+    risk_recalculation_queue_job,
     sunday_briefing_job,
 )
 from app.core.config import settings
@@ -188,6 +189,14 @@ def build_scheduler() -> BackgroundScheduler:
         trigger="cron",
         minute="*/1",
         id="actuar_sync_queue",
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("risk_recalculation_queue", risk_recalculation_queue_job),
+        trigger="cron",
+        minute="*/1",
+        id="risk_recalculation_queue",
         coalesce=True,
         misfire_grace_time=60,
     )

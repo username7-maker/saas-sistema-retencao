@@ -95,13 +95,14 @@ def get_assessment_actions(db: Session, member_id: UUID) -> list[dict]:
     return get_assessment_summary_360(db, member_id)["actions"]
 
 
-def sync_assessment_intelligence_tasks(db: Session, member_id: UUID) -> None:
+def sync_assessment_intelligence_tasks(db: Session, member_id: UUID, *, commit: bool = True) -> None:
     summary = get_assessment_summary_360(db, member_id)
     sync_assessment_tasks(
         db,
         summary["member"],
         summary["latest_assessment"],
         actions=summary["actions"],
+        commit=commit,
     )
 
 
