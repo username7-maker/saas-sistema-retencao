@@ -84,6 +84,8 @@ export const dashboardService = {
     heatmap: HeatmapPoint[];
     inactive_7d_total: number;
     inactive_7d_items: Member[];
+    birthday_today_total: number;
+    birthday_today_items: Member[];
   }> {
     const { data } = await api.get("/api/v1/dashboards/operational");
     return data;

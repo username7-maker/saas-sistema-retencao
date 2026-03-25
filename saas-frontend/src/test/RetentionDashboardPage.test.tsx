@@ -3,10 +3,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AuthContext } from "../contexts/AuthContext";
 import { RetentionDashboardPage } from "../pages/dashboard/RetentionDashboardPage";
 import { useRetentionDashboard } from "../hooks/useDashboard";
 import { dashboardService, type RetentionQueueItem, type RetentionQueueResponse } from "../services/dashboardService";
 import { riskAlertService } from "../services/riskAlertService";
+import type { User } from "../types";
 
 vi.mock("../hooks/useDashboard", () => ({
   useRetentionDashboard: vi.fn(),
@@ -144,6 +146,16 @@ const searchResult: RetentionQueueResponse = {
   page_size: 50,
 };
 
+const authUser: User = {
+  id: "user-1",
+  gym_id: "gym-1",
+  full_name: "Owner Teste",
+  email: "owner@teste.com",
+  role: "owner",
+  is_active: true,
+  created_at: "2026-03-20T10:00:00Z",
+};
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -154,9 +166,19 @@ function renderPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <RetentionDashboardPage />
-      </MemoryRouter>
+      <AuthContext.Provider
+        value={{
+          user: authUser,
+          loading: false,
+          isAuthenticated: true,
+          login: vi.fn(),
+          logout: vi.fn(),
+        }}
+      >
+        <MemoryRouter>
+          <RetentionDashboardPage />
+        </MemoryRouter>
+      </AuthContext.Provider>
     </QueryClientProvider>,
   );
 }

@@ -165,7 +165,7 @@ export default function App() {
         <Route
           path="/assessments/members/:memberId"
           element={
-            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessments]}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessmentContext]}>
               <MemberProfile360Page />
             </GuardedLazyRoute>
           }
@@ -173,7 +173,7 @@ export default function App() {
         <Route
           path="/assessments/new/:memberId"
           element={
-            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessments]}>
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessmentRegistration]}>
               <NewAssessmentPage />
             </GuardedLazyRoute>
           }

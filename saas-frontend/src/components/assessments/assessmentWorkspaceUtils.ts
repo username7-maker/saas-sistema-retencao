@@ -55,6 +55,13 @@ function normalizeDate(value: unknown): Date | null {
   return new Date(parsed);
 }
 
+function normalizeCalendarDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 export function getAge(extraData: Record<string, unknown> | undefined): number | null {
   if (!extraData) return null;
 
@@ -87,6 +94,31 @@ export function formatDate(value: string | null | undefined): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
   return parsed.toLocaleDateString("pt-BR");
+}
+
+export function formatBirthdayDayMonth(value: string | null | undefined): string | null {
+  const parsed = normalizeCalendarDate(value);
+  if (!parsed) return null;
+  return parsed.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+export function getBirthdayCountdownLabel(value: string | null | undefined, now = new Date()): string | null {
+  const birthdate = normalizeCalendarDate(value);
+  if (!birthdate) return null;
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let nextBirthday = new Date(today.getFullYear(), birthdate.getMonth(), birthdate.getDate());
+  if (nextBirthday < today) {
+    nextBirthday = new Date(today.getFullYear() + 1, birthdate.getMonth(), birthdate.getDate());
+  }
+
+  const diffDays = Math.round((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "Hoje";
+  if (diffDays === 1) return "Amanhã";
+  return `Em ${diffDays} dias`;
 }
 
 export function formatDateTime(value: string | null | undefined): string {

@@ -81,6 +81,24 @@ Defina `VITE_API_BASE_URL` apontando para o backend.
 
 ## Deploy
 
+### Recomendado para piloto: Railway + Vercel
+
+Para o primeiro piloto real com academia, o caminho recomendado deste repo e:
+
+- `Supabase` para Postgres
+- `Railway` para API + worker + Redis
+- `Vercel` para frontend
+
+Guia exato:
+
+- [deploy/RAILWAY_VERCEL_PILOT.md](deploy/RAILWAY_VERCEL_PILOT.md)
+
+Templates de variaveis:
+
+- [deploy/railway-api.env.example](deploy/railway-api.env.example)
+- [deploy/railway-worker.env.example](deploy/railway-worker.env.example)
+- [deploy/vercel.env.example](deploy/vercel.env.example)
+
 ### Docker Compose
 
 1. Copie `.env.example` da raiz para `.env`.
@@ -113,6 +131,10 @@ Defina `VITE_API_BASE_URL` apontando para o backend.
 2. Build command: `npm run build`.
 3. Output: `dist`.
 4. Env: `VITE_API_BASE_URL=https://seu-backend.railway.app`.
+
+### Checklist do piloto
+
+- [DEPLOY_PILOT_CHECKLIST.md](DEPLOY_PILOT_CHECKLIST.md)
 
 ## CI/CD (GitHub Actions)
 

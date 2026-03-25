@@ -42,12 +42,27 @@ function LocationEcho() {
   return <div>{location.pathname}</div>;
 }
 
-function makeMember(id: string, full_name: string, extra_data: Record<string, unknown> = {}): Member {
+function formatIsoDate(offsetDays: number): string {
+  const reference = new Date();
+  const next = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate() + offsetDays);
+  const year = next.getFullYear();
+  const month = String(next.getMonth() + 1).padStart(2, "0");
+  const day = String(next.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function makeMember(
+  id: string,
+  full_name: string,
+  extra_data: Record<string, unknown> = {},
+  birthdate?: string | null,
+): Member {
   return {
     id,
     full_name,
     email: `${id}@teste.com`,
     phone: null,
+    birthdate: birthdate ?? null,
     status: "active",
     plan_name: "Plano Mensal",
     monthly_fee: 199.9,
@@ -69,7 +84,7 @@ function makeMember(id: string, full_name: string, extra_data: Record<string, un
 
 const membersResponse: PaginatedResponse<Member> = {
   items: [
-    makeMember("member-1", "Ana Silva", { external_id: "MAT-001", provisional_member: true }),
+    makeMember("member-1", "Ana Silva", { external_id: "MAT-001", provisional_member: true }, formatIsoDate(2)),
     makeMember("member-2", "Bruno Lima"),
   ],
   total: 2,
@@ -129,6 +144,7 @@ describe("MembersPage", () => {
     expect(screen.getByPlaceholderText("Buscar por nome, email ou matricula...")).toBeInTheDocument();
     expect(screen.getByText("Matricula MAT-001")).toBeInTheDocument();
     expect(screen.getByText("Provisorio")).toBeInTheDocument();
+    expect(screen.getByText("Aniversário em 2 dias")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("combobox", { name: "Sem check-in" }), {
       target: { value: "14" },

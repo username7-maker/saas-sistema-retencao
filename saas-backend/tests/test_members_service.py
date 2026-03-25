@@ -97,6 +97,19 @@ class TestListMembers:
         compiled = stmt.compile()
         assert "external_id" in compiled.params.values()
 
+    def test_list_member_index_returns_unpaginated_members(self, mock_member):
+        from app.services.member_service import list_member_index
+
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_member]
+        db.scalars.return_value = mock_scalars
+
+        result = list_member_index(db, gym_id=GYM_ID)
+
+        assert result == [mock_member]
+        db.scalars.assert_called_once()
+
 
 class TestGetMemberOr404:
     def test_raises_404_when_not_found(self):

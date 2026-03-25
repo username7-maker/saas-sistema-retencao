@@ -81,7 +81,14 @@ def build_actions(member: Member, latest_assessment: Assessment | None, *, diagn
     return actions
 
 
-def sync_assessment_tasks(db: Session, member: Member, latest_assessment: Assessment | None, *, actions: list[dict]) -> None:
+def sync_assessment_tasks(
+    db: Session,
+    member: Member,
+    latest_assessment: Assessment | None,
+    *,
+    actions: list[dict],
+    commit: bool = True,
+) -> None:
     now = datetime.now(tz=timezone.utc)
     created_any = False
     for action in actions:
@@ -109,6 +116,7 @@ def sync_assessment_tasks(db: Session, member: Member, latest_assessment: Assess
             extra_data={
                 "source": "assessment_intelligence",
                 "action_key": action["key"],
+                "owner_role": action["owner_role"],
                 "assessment_id": str(latest_assessment.id) if latest_assessment else None,
             },
         )
@@ -116,7 +124,10 @@ def sync_assessment_tasks(db: Session, member: Member, latest_assessment: Assess
         created_any = True
 
     if created_any:
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         invalidate_dashboard_cache("tasks")
 
 

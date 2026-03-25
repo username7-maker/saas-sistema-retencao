@@ -90,6 +90,9 @@ def assessments_dashboard_endpoint(
         overdue_assessments=payload["overdue_assessments"],
         never_assessed=payload["never_assessed"],
         upcoming_7_days=payload["upcoming_7_days"],
+        historical_backlog_total=payload.get("historical_backlog_total", 0),
+        historical_never_assessed=payload.get("historical_never_assessed", 0),
+        historical_overdue_assessments=payload.get("historical_overdue_assessments", 0),
         attention_now=[AssessmentQueueItemOut.model_validate(item) for item in payload.get("attention_now", [])],
         total_members_items=[MemberMiniOut.model_validate(item) for item in payload.get("total_members_items", [])],
         assessed_members=[MemberMiniOut.model_validate(item) for item in payload.get("assessed_members", [])],
@@ -207,7 +210,13 @@ def create_assessment_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> AssessmentOut:
-    assessment = create_assessment(db, member_id, current_user.id, payload.model_dump(exclude_unset=True))
+    assessment = create_assessment(
+        db,
+        member_id,
+        current_user.id,
+        payload.model_dump(exclude_unset=True),
+        commit=False,
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -250,7 +259,7 @@ def upsert_constraints_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> MemberConstraintsOut:
-    constraints = upsert_constraints(db, member_id, payload.model_dump(exclude_unset=True))
+    constraints = upsert_constraints(db, member_id, payload.model_dump(exclude_unset=True), commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -275,7 +284,7 @@ def create_member_goal_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> MemberGoalOut:
-    goal = create_goal(db, member_id, payload.model_dump(exclude_unset=True))
+    goal = create_goal(db, member_id, payload.model_dump(exclude_unset=True), commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -310,7 +319,7 @@ def update_member_goal_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> MemberGoalOut:
-    goal = update_goal(db, member_id, goal_id, payload.model_dump(exclude_unset=True))
+    goal = update_goal(db, member_id, goal_id, payload.model_dump(exclude_unset=True), commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -335,7 +344,13 @@ def create_training_plan_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> TrainingPlanOut:
-    plan = create_training_plan(db, member_id, current_user.id, payload.model_dump(exclude_unset=True))
+    plan = create_training_plan(
+        db,
+        member_id,
+        current_user.id,
+        payload.model_dump(exclude_unset=True),
+        commit=False,
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -361,7 +376,14 @@ def update_training_plan_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> TrainingPlanOut:
-    plan = update_training_plan(db, member_id, plan_id, current_user.id, payload.model_dump(exclude_unset=True))
+    plan = update_training_plan(
+        db,
+        member_id,
+        plan_id,
+        current_user.id,
+        payload.model_dump(exclude_unset=True),
+        commit=False,
+    )
     context = get_request_context(request)
     log_audit_event(
         db,

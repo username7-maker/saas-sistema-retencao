@@ -62,6 +62,8 @@ class OperationalDashboard(BaseModel):
     heatmap: list[HeatmapPoint]
     inactive_7d_total: int
     inactive_7d_items: list[MemberOut]
+    birthday_today_total: int = 0
+    birthday_today_items: list[MemberOut] = []
 
 
 class CommercialDashboard(BaseModel):

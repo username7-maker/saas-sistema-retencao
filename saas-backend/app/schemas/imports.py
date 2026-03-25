@@ -15,6 +15,7 @@ class MissingMemberEntry(BaseModel):
 
 class ImportSummary(BaseModel):
     imported: int
+    updated_existing: int = 0
     skipped_duplicates: int
     ignored_rows: int = 0
     provisional_members_created: int = 0
@@ -27,6 +28,16 @@ class ImportPreviewRow(BaseModel):
     row_number: int
     action: str
     preview: dict
+
+
+class ImportPreviewSourceColumn(BaseModel):
+    source_key: str
+    source_label: str
+    status: str
+    suggested_target: str | None = None
+    applied_target: str | None = None
+    sample_values: list[str] = Field(default_factory=list)
+    can_ignore: bool = True
 
 
 class ImportPreview(BaseModel):
@@ -43,4 +54,11 @@ class ImportPreview(BaseModel):
     missing_members: list[MissingMemberEntry] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     sample_rows: list[ImportPreviewRow] = Field(default_factory=list)
+    mapping_required: bool = False
+    can_confirm: bool = True
+    resolved_mappings: dict[str, str] = Field(default_factory=dict)
+    ignored_columns: list[str] = Field(default_factory=list)
+    conflicting_targets: list[str] = Field(default_factory=list)
+    blocking_issues: list[str] = Field(default_factory=list)
+    source_columns: list[ImportPreviewSourceColumn] = Field(default_factory=list)
     errors: list[ImportErrorEntry] = Field(default_factory=list)

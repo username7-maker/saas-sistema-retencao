@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,9 +17,17 @@ import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import type { Member } from "../types";
 
+const authState = vi.hoisted(() => ({
+  user: {
+    id: "owner-1",
+    full_name: "Owner Teste",
+    role: "owner" as "owner" | "manager" | "receptionist" | "salesperson" | "trainer",
+  },
+}));
+
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "owner-1", full_name: "Owner Teste", role: "owner" },
+    user: authState.user,
   }),
 }));
 
@@ -91,8 +99,9 @@ vi.mock("../services/memberService", () => ({
 
 vi.mock("../services/taskService", () => ({
   taskService: {
-    listTasks: vi.fn(),
+    listAllTasks: vi.fn(),
     createTask: vi.fn(),
+    updateTask: vi.fn(),
   },
 }));
 
@@ -151,7 +160,9 @@ const minimalMember: Member = {
   risk_score: 54,
   risk_level: "yellow",
   last_checkin_at: null,
-  extra_data: {},
+  extra_data: {
+    birthday_label: "09 de Setembro",
+  },
   suggested_action: null,
   onboarding_status: null,
   onboarding_score: null,
@@ -181,6 +192,7 @@ function renderPage(initialEntry = "/assessments/members/member-1") {
 describe("MemberProfile360Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = { id: "owner-1", full_name: "Owner Teste", role: "owner" };
     window.localStorage.clear();
 
     vi.mocked(assessmentService.profile360).mockResolvedValue(sparseProfile);
@@ -196,7 +208,7 @@ describe("MemberProfile360Page", () => {
     vi.mocked(memberTimelineService.list).mockResolvedValue([]);
     vi.mocked(memberService.getMember).mockResolvedValue(minimalMember);
     vi.mocked(memberService.updateMember).mockResolvedValue(minimalMember);
-    vi.mocked(taskService.listTasks).mockResolvedValue({
+    vi.mocked(taskService.listAllTasks).mockResolvedValue({
       items: [],
       total: 0,
       page: 1,
@@ -221,6 +233,25 @@ describe("MemberProfile360Page", () => {
       created_at: "2026-03-19T10:00:00Z",
       updated_at: "2026-03-19T10:00:00Z",
     });
+    vi.mocked(taskService.updateTask).mockResolvedValue({
+      id: "task-1",
+      title: "Ligar para Ana",
+      description: null,
+      member_id: "member-1",
+      lead_id: null,
+      assigned_to_user_id: null,
+      member_name: "Ana Silva",
+      lead_name: null,
+      priority: "high",
+      status: "done",
+      kanban_column: "done",
+      due_date: "2026-03-20T00:00:00Z",
+      completed_at: "2026-03-20T12:00:00Z",
+      suggested_message: null,
+      extra_data: {},
+      created_at: "2026-03-19T10:00:00Z",
+      updated_at: "2026-03-20T12:00:00Z",
+    });
     vi.mocked(userService.listUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -243,18 +274,20 @@ describe("MemberProfile360Page", () => {
     expect(screen.getByRole("button", { name: "Ver Tarefas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Visao geral" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Registrar avaliacao" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Plano e objetivos" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restricoes e contexto" })).toBeInTheDocument();
+    expect(screen.getByText("Leitura do momento")).toBeInTheDocument();
+    expect(screen.getByText("Radar rapido")).toBeInTheDocument();
+    expect(screen.getAllByText("Plano e objetivos").length).toBeGreaterThan(0);
+    expect(screen.getByText("Restricoes e observacoes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Acoes" })).toBeInTheDocument();
     expect(screen.getAllByText("Sem avaliacao estruturada").length).toBeGreaterThan(0);
-    expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
-    expect(screen.getByText("Diagnostico IA")).toBeInTheDocument();
-    expect(screen.getByText("Notas internas")).toBeInTheDocument();
+    expect(screen.getByText("Check-in e consistencia")).toBeInTheDocument();
+    expect(screen.getByText("Proxima melhor acao")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "+55 (11) 99999-0001" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
       "href",
       expect.stringContaining("https://wa.me/5511999990001?text="),
     );
+    expect(screen.getByText("Aniversario 09 de Setembro - via importacao")).toBeInTheDocument();
   });
 
   it("supports tab navigation through query params and preserves editors", async () => {
@@ -272,6 +305,50 @@ describe("MemberProfile360Page", () => {
 
     expect(await screen.findByText("Acoes do aluno")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /nova tarefa/i }).length).toBeGreaterThan(0);
+  });
+
+  it("lets trainer resolve technical tasks inside assessments without task creation", async () => {
+    authState.user = { id: "trainer-1", full_name: "Trainer Teste", role: "trainer" };
+    vi.mocked(taskService.listAllTasks).mockResolvedValue({
+      items: [
+        {
+          id: "task-1",
+          title: "Professor revisar restricoes de Ana Silva",
+          description: "Task tecnica",
+          member_id: "member-1",
+          lead_id: null,
+          assigned_to_user_id: null,
+          member_name: "Ana Silva",
+          lead_name: null,
+          priority: "high",
+          status: "todo",
+          kanban_column: "todo",
+          due_date: "2026-03-20T00:00:00Z",
+          completed_at: null,
+          suggested_message: null,
+          extra_data: {
+            source: "assessment_intelligence",
+            owner_role: "coach",
+          },
+          created_at: "2026-03-19T10:00:00Z",
+          updated_at: "2026-03-19T10:00:00Z",
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 50,
+    });
+
+    renderPage("/assessments/members/member-1?tab=acoes");
+
+    expect(await screen.findByText("Professor revisar restricoes de Ana Silva")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /nova tarefa/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
+
+    await waitFor(() => {
+      expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "done" });
+    });
   });
 
   it("does not read internal notes from localStorage anymore", async () => {

@@ -54,7 +54,14 @@ def _calculate_next_assessment_due(db: Session, member_id: UUID, assessment_date
     return (assessment_date + timedelta(days=due_days)).date()
 
 
-def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: dict) -> Assessment:
+def create_assessment(
+    db: Session,
+    member_id: UUID,
+    evaluator_id: UUID,
+    data: dict,
+    *,
+    commit: bool = True,
+) -> Assessment:
     get_member_or_404(db, member_id)
     previous_count = db.scalar(
         select(func.count(Assessment.id)).where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
@@ -94,11 +101,19 @@ def create_assessment(db: Session, member_id: UUID, evaluator_id: UUID, data: di
         extra_data=data.get("extra_data") or {},
     )
     db.add(assessment)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(assessment)
 
-    generate_ai_insights(db, assessment)
-    sync_assessment_intelligence_tasks(db, member_id)
+    generate_ai_insights(db, assessment, commit=False)
+    sync_assessment_intelligence_tasks(db, member_id, commit=False)
+
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
     return assessment
 

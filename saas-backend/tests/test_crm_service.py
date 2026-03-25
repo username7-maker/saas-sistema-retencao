@@ -318,6 +318,22 @@ class TestRunFollowupAutomation:
         created = run_followup_automation(db)
         assert created == 0
 
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_commit_false_keeps_followup_uncommitted(self, mock_cache):
+        lead = _mock_lead(last_contact_at=datetime.now(tz=timezone.utc) - timedelta(days=3))
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [lead]
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = None
+        from app.services.crm_service import run_followup_automation
+
+        created = run_followup_automation(db, commit=False)
+
+        assert created == 1
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
 
 class TestCalculateCac:
     def test_with_conversions(self):

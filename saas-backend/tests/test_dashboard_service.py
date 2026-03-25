@@ -10,6 +10,25 @@ from app.models import MemberStatus, RiskLevel
 
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+_PT_MONTH_LABELS = {
+    1: "Janeiro",
+    2: "Fevereiro",
+    3: "Março",
+    4: "Abril",
+    5: "Maio",
+    6: "Junho",
+    7: "Julho",
+    8: "Agosto",
+    9: "Setembro",
+    10: "Outubro",
+    11: "Novembro",
+    12: "Dezembro",
+}
+
+
+def _today_birthday_label() -> str:
+    today = datetime.now(tz=timezone.utc).date()
+    return f"{today.day} de {_PT_MONTH_LABELS[today.month]}"
 
 
 def _db_with_counts(total=100, active=80, mrr=Decimal("9990"), nps=8.5, green=60, yellow=15, red=5):
@@ -109,12 +128,26 @@ class TestGetOperationalDashboard:
         db.scalar.side_effect = [5, 10]  # realtime_checkins, total_inactive
         db.execute.return_value.all.return_value = []  # heatmap
         mock_scalars = MagicMock()
-        mock_scalars.all.return_value = []
+        birthday_member = SimpleNamespace(
+            id="birthday-1",
+            full_name="Ana",
+            birthdate=None,
+            extra_data={"birthday_label": _today_birthday_label()},
+            status="active",
+            deleted_at=None,
+        )
+        mock_scalars.all.side_effect = [
+            [],  # inactive_7d_items
+            [],  # direct birthdate matches
+            [birthday_member],  # birthday label candidates
+        ]
         db.scalars.return_value = mock_scalars
         from app.services.dashboard_service import get_operational_dashboard
         result = get_operational_dashboard(db)
         assert result["realtime_checkins"] == 5
         assert result["heatmap"] == []
+        assert result["birthday_today_total"] == 1
+        assert result["birthday_today_items"][0].full_name == "Ana"
 
 
 class TestGetCommercialDashboard:

@@ -205,6 +205,7 @@ export interface MissingMemberEntry {
 
 export interface ImportSummary {
   imported: number;
+  updated_existing: number;
   skipped_duplicates: number;
   ignored_rows: number;
   provisional_members_created: number;
@@ -217,6 +218,18 @@ export interface ImportPreviewRow {
   row_number: number;
   action: string;
   preview: Record<string, unknown>;
+}
+
+export type ImportSourceColumnStatus = "recognized" | "mapped" | "needs_mapping" | "ignored" | "conflict";
+
+export interface ImportPreviewSourceColumn {
+  source_key: string;
+  source_label: string;
+  status: ImportSourceColumnStatus;
+  suggested_target: string | null;
+  applied_target: string | null;
+  sample_values: string[];
+  can_ignore: boolean;
 }
 
 export interface ImportPreview {
@@ -233,6 +246,13 @@ export interface ImportPreview {
   missing_members: MissingMemberEntry[];
   warnings: string[];
   sample_rows: ImportPreviewRow[];
+  mapping_required: boolean;
+  can_confirm: boolean;
+  resolved_mappings: Record<string, string>;
+  ignored_columns: string[];
+  conflicting_targets: string[];
+  blocking_issues: string[];
+  source_columns: ImportPreviewSourceColumn[];
   errors: ImportErrorEntry[];
 }
 

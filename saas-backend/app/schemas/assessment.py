@@ -243,6 +243,9 @@ class AssessmentDashboardOut(BaseModel):
     overdue_assessments: int
     never_assessed: int
     upcoming_7_days: int
+    historical_backlog_total: int = 0
+    historical_never_assessed: int = 0
+    historical_overdue_assessments: int = 0
     attention_now: list[AssessmentQueueItemOut] = Field(default_factory=list)
     total_members_items: list[MemberMiniOut] = Field(default_factory=list)
     assessed_members: list[MemberMiniOut] = Field(default_factory=list)

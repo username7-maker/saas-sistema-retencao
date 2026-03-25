@@ -180,7 +180,7 @@ def dispatch_lead_post_commit_effects(lead: Lead) -> None:
             delattr(lead, _PENDING_WELCOME_EMAIL_ATTR)
 
 
-def run_followup_automation(db: Session) -> int:
+def run_followup_automation(db: Session, *, commit: bool = True) -> int:
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=2)
     leads = db.scalars(
         select(Lead).where(
@@ -215,7 +215,10 @@ def run_followup_automation(db: Session) -> int:
         db.add(task)
         created += 1
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     if created:
         invalidate_dashboard_cache("tasks", "leads")
     return created

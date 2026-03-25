@@ -11,6 +11,84 @@ from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
 
 
 class TestRetentionQueueService:
+    @patch("app.services.dashboard_service.get_assessment_forecast")
+    @patch("app.services.dashboard_service.classify_churn_type")
+    @patch("app.services.dashboard_service.build_retention_playbook")
+    @patch("app.services.dashboard_service.get_current_gym_id")
+    def test_materializes_missing_churn_type_and_forecast_for_queue(
+        self,
+        mock_get_current_gym_id,
+        mock_build_playbook,
+        mock_classify_churn_type,
+        mock_get_assessment_forecast,
+        gym_id,
+    ):
+        from app.services.dashboard_service import get_retention_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        mock_build_playbook.return_value = [
+            {
+                "action": "call",
+                "priority": "high",
+                "title": "Ligar hoje",
+                "message": "Contato imediato.",
+                "due_days": 0,
+                "owner": "reception",
+            }
+        ]
+        mock_classify_churn_type.return_value = "voluntary_dissatisfaction"
+        mock_get_assessment_forecast.return_value = {"probability_60d": 41}
+
+        member_id = UUID("33333333-3333-3333-3333-333333333339")
+        db = MagicMock()
+        db.scalar.return_value = 1
+        db.scalars.return_value.all.return_value = []
+
+        member = SimpleNamespace(
+            id=member_id,
+            full_name="Membro Sem Contexto",
+            email="membro@teste.com",
+            phone="5511999991111",
+            plan_name="Plano Mensal",
+            risk_score=82,
+            risk_level=RiskLevel.RED,
+            nps_last_score=4,
+            last_checkin_at=datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
+            churn_type=None,
+            extra_data={},
+            join_date=date(2025, 9, 1),
+        )
+        db.scalars.return_value.all.return_value = [member]
+
+        queue_rows = MagicMock()
+        queue_rows.all.return_value = [
+            (
+                SimpleNamespace(
+                    id=UUID("44444444-4444-4444-4444-444444444449"),
+                    score=82,
+                    level=RiskLevel.RED,
+                    reasons={"frequency_drop_pct": 48},
+                    action_history=[],
+                    automation_stage="d14",
+                    created_at=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),
+                ),
+                member,
+            )
+        ]
+
+        contact_rows = MagicMock()
+        contact_rows.all.return_value = []
+        db.execute.side_effect = [queue_rows, contact_rows]
+
+        result = get_retention_queue(db, page=1, page_size=50)
+
+        assert db.commit.called
+        assert member.churn_type == "voluntary_dissatisfaction"
+        assert member.extra_data["retention_forecast_60d"] == 41
+        assert member.extra_data["retention_forecast_source"] == "assessment_fallback"
+        assert result.items[0].churn_type == "voluntary_dissatisfaction"
+        assert result.items[0].forecast_60d == 41
+
     @patch("app.services.dashboard_service.build_retention_playbook")
     @patch("app.services.dashboard_service.get_current_gym_id")
     def test_returns_paginated_alert_queue_with_member_snapshot(self, mock_get_current_gym_id, mock_build_playbook, gym_id):

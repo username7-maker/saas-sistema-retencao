@@ -23,7 +23,7 @@ def create_task_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
 ) -> TaskOut:
-    task = create_task(db, payload)
+    task = create_task(db, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -43,13 +43,20 @@ def create_task_endpoint(
 @router.get("/", response_model=PaginatedResponse[TaskOut])
 def list_tasks_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: TaskStatus | None = None,
     assigned_to_user_id: UUID | None = None,
 ) -> PaginatedResponse[TaskOut]:
-    return list_tasks(db, page=page, page_size=page_size, status=status, assigned_to_user_id=assigned_to_user_id)
+    return list_tasks(
+        db,
+        page=page,
+        page_size=page_size,
+        status=status,
+        assigned_to_user_id=assigned_to_user_id,
+        current_user=current_user,
+    )
 
 
 @router.patch("/{task_id}", response_model=TaskOut)
@@ -58,9 +65,9 @@ def update_task_endpoint(
     task_id: UUID,
     payload: TaskUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> TaskOut:
-    task = update_task(db, task_id, payload)
+    task = update_task(db, task_id, payload, current_user=current_user, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -96,7 +103,7 @@ def delete_task_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> None:
-    delete_task(db, task_id)
+    delete_task(db, task_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

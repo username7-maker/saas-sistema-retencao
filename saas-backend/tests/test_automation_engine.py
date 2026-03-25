@@ -9,6 +9,22 @@ from app.models.automation_rule import AutomationAction, AutomationTrigger
 from app.services import automation_engine
 
 
+_PT_MONTH_LABELS = {
+    1: "Janeiro",
+    2: "Fevereiro",
+    3: "Março",
+    4: "Abril",
+    5: "Maio",
+    6: "Junho",
+    7: "Julho",
+    8: "Agosto",
+    9: "Setembro",
+    10: "Outubro",
+    11: "Novembro",
+    12: "Dezembro",
+}
+
+
 class DummyDB:
     def __init__(self) -> None:
         self.added: list = []
@@ -41,6 +57,11 @@ class DummyDB:
             if hasattr(obj, "id") and obj.id == rule_id:
                 return obj
         return None
+
+
+def _today_birthday_label() -> str:
+    today = datetime.now(tz=timezone.utc).date()
+    return f"{today.day} de {_PT_MONTH_LABELS[today.month]}"
 
 
 def _make_member(
@@ -361,3 +382,32 @@ def test_execute_rule_get_gym_instance_receives_member_gym_id(monkeypatch):
 
     automation_engine.execute_rule_for_member(db, rule, member)
     assert received == [expected_gym_id]
+
+
+def test_birthday_label_helper_accepts_imported_portuguese_months():
+    member = _make_member()
+    member.extra_data = {"birthday_label": "24 de Março"}
+
+    assert automation_engine._birthday_label_matches_today(
+        member,
+        datetime(2026, 3, 24, tzinfo=timezone.utc).date(),
+    ) is True
+
+
+def test_find_matching_members_supports_birthday_label_import_fallback():
+    db = DummyDB()
+    gym_id = uuid.uuid4()
+    member = _make_member(gym_id=gym_id)
+    member.extra_data = {"birthday_label": _today_birthday_label()}
+
+    rule = _make_rule(trigger_type=AutomationTrigger.BIRTHDAY, trigger_config={})
+    rule.gym_id = gym_id
+
+    db.values = [
+        [],
+        [member],
+    ]
+
+    results = automation_engine._find_matching_members(db, rule)
+
+    assert results == [member]

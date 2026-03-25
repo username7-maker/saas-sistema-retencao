@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import NamedTuple
 
 from sqlalchemy import func, select
@@ -236,6 +236,9 @@ PLAN_FOLLOWUP_PLAYBOOK: dict[str, list[PlaybookStep]] = {
     ],
 }
 
+_IMPORT_PLAYBOOK_GRACE_DAYS = 7
+_IMPORT_PLAYBOOK_LOOKAHEAD_DAYS = 7
+
 
 def create_onboarding_tasks_for_member(db: Session, member: object, *, commit: bool = True) -> None:
     existing_count = db.scalar(
@@ -308,3 +311,121 @@ def create_plan_followup_tasks_for_member(db: Session, member: object, *, commit
         db.commit()
     else:
         db.flush()
+
+
+def _select_import_playbook_step(
+    steps: list[PlaybookStep],
+    *,
+    join_date: date,
+    now: datetime,
+    grace_days: int = _IMPORT_PLAYBOOK_GRACE_DAYS,
+    lookahead_days: int = _IMPORT_PLAYBOOK_LOOKAHEAD_DAYS,
+) -> PlaybookStep | None:
+    days_since_join = max(0, (now.date() - join_date).days)
+
+    due_candidates = [
+        step
+        for step in steps
+        if step.days <= days_since_join and (days_since_join - step.days) <= grace_days
+    ]
+    if due_candidates:
+        return due_candidates[-1]
+
+    upcoming_candidates = [
+        step
+        for step in steps
+        if step.days > days_since_join and (step.days - days_since_join) <= lookahead_days
+    ]
+    if upcoming_candidates:
+        return upcoming_candidates[0]
+
+    return None
+
+
+def _create_playbook_task(
+    db: Session,
+    *,
+    member: object,
+    step: PlaybookStep,
+    extra_data: dict,
+) -> None:
+    base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
+    task = Task(
+        gym_id=member.gym_id,  # type: ignore[attr-defined]
+        member_id=member.id,  # type: ignore[attr-defined]
+        title=step.title,
+        description=step.description,
+        suggested_message=step.suggested_message,
+        status=TaskStatus.TODO,
+        priority=step.priority,
+        kanban_column="todo",
+        due_date=base + timedelta(days=step.days),
+        extra_data=extra_data,
+    )
+    db.add(task)
+
+
+def create_import_playbook_tasks_for_member(
+    db: Session,
+    member: object,
+    *,
+    commit: bool = True,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    now = now or datetime.now(tz=timezone.utc)
+    created = {"onboarding": 0, "plan_followup": 0}
+
+    onboarding_existing = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.member_id == member.id,  # type: ignore[attr-defined]
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == "onboarding",
+        )
+    ) or 0
+    if onboarding_existing == 0:
+        onboarding_step = _select_import_playbook_step(ONBOARDING_PLAYBOOK, join_date=member.join_date, now=now)  # type: ignore[attr-defined]
+        if onboarding_step is not None:
+            _create_playbook_task(
+                db,
+                member=member,
+                step=onboarding_step,
+                extra_data={
+                    "source": "onboarding",
+                    "onboarding_phase": "initial",
+                    "day_offset": onboarding_step.days,
+                    "materialization": "import_next_action",
+                },
+            )
+            created["onboarding"] = 1
+
+    plan_type = _detect_plan_type(member.plan_name)  # type: ignore[attr-defined]
+    plan_steps = PLAN_FOLLOWUP_PLAYBOOK.get(plan_type, [])
+    plan_existing = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.member_id == member.id,  # type: ignore[attr-defined]
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == "plan_followup",
+        )
+    ) or 0
+    if plan_existing == 0 and plan_steps:
+        plan_step = _select_import_playbook_step(plan_steps, join_date=member.join_date, now=now)  # type: ignore[attr-defined]
+        if plan_step is not None:
+            _create_playbook_task(
+                db,
+                member=member,
+                step=plan_step,
+                extra_data={
+                    "source": "plan_followup",
+                    "plan_type": plan_type,
+                    "day_offset": plan_step.days,
+                    "materialization": "import_next_action",
+                },
+            )
+            created["plan_followup"] = 1
+
+    if commit and (created["onboarding"] or created["plan_followup"]):
+        db.commit()
+    elif created["onboarding"] or created["plan_followup"]:
+        db.flush()
+
+    return created

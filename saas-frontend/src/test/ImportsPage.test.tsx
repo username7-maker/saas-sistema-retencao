@@ -43,33 +43,46 @@ function renderPage() {
   );
 }
 
+function buildPreview(overrides: Partial<Awaited<ReturnType<typeof importExportService.previewMembers>>> = {}) {
+  return {
+    preview_kind: "members",
+    total_rows: 1,
+    valid_rows: 1,
+    would_create: 1,
+    would_update: 0,
+    would_skip: 0,
+    ignored_rows: 0,
+    provisional_members_possible: 0,
+    recognized_columns: ["nome", "email"],
+    unrecognized_columns: [],
+    missing_members: [],
+    warnings: [],
+    sample_rows: [
+      {
+        row_number: 2,
+        action: "create_member",
+        preview: { full_name: "Ana Silva", email: "ana@teste.com", plan_name: "Plano Base" },
+      },
+    ],
+    mapping_required: false,
+    can_confirm: true,
+    resolved_mappings: {},
+    ignored_columns: [],
+    conflicting_targets: [],
+    blocking_issues: [],
+    source_columns: [],
+    errors: [],
+    ...overrides,
+  };
+}
+
 describe("ImportsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(importExportService.previewMembers).mockResolvedValue({
-      preview_kind: "members",
-      total_rows: 1,
-      valid_rows: 1,
-      would_create: 1,
-      would_update: 0,
-      would_skip: 0,
-      ignored_rows: 0,
-      provisional_members_possible: 0,
-      recognized_columns: ["nome", "email"],
-      unrecognized_columns: [],
-      missing_members: [],
-      warnings: [],
-      sample_rows: [
-        {
-          row_number: 2,
-          action: "create_member",
-          preview: { full_name: "Ana Silva", email: "ana@teste.com", plan_name: "Plano Base" },
-        },
-      ],
-      errors: [],
-    });
+    vi.mocked(importExportService.previewMembers).mockResolvedValue(buildPreview());
     vi.mocked(importExportService.importMembers).mockResolvedValue({
       imported: 1,
+      updated_existing: 0,
       skipped_duplicates: 0,
       ignored_rows: 0,
       provisional_members_created: 0,
@@ -91,10 +104,18 @@ describe("ImportsPage", () => {
       missing_members: [],
       warnings: [],
       sample_rows: [],
+      mapping_required: false,
+      can_confirm: true,
+      resolved_mappings: {},
+      ignored_columns: [],
+      conflicting_targets: [],
+      blocking_issues: [],
+      source_columns: [],
       errors: [],
     });
     vi.mocked(importExportService.importCheckins).mockResolvedValue({
       imported: 0,
+      updated_existing: 0,
       skipped_duplicates: 0,
       ignored_rows: 0,
       provisional_members_created: 0,
@@ -122,7 +143,80 @@ describe("ImportsPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Confirmar importacao" })[0]);
 
     await waitFor(() => {
-      expect(importExportService.importMembers).toHaveBeenCalledWith(file);
+      expect(importExportService.importMembers).toHaveBeenCalledWith(file, undefined);
+    });
+  });
+
+  it("requires revalidation after manual column mapping before confirming", async () => {
+    vi.mocked(importExportService.previewMembers)
+      .mockResolvedValueOnce(
+        buildPreview({
+          recognized_columns: ["nome", "email"],
+          unrecognized_columns: ["registro"],
+          mapping_required: true,
+          source_columns: [
+            {
+              source_key: "registro",
+              source_label: "registro",
+              status: "needs_mapping",
+              suggested_target: "external_id",
+              applied_target: null,
+              sample_values: ["MAT-001"],
+              can_ignore: true,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildPreview({
+          recognized_columns: ["nome", "email", "registro"],
+          unrecognized_columns: [],
+          resolved_mappings: { registro: "external_id" },
+          source_columns: [
+            {
+              source_key: "registro",
+              source_label: "registro",
+              status: "mapped",
+              suggested_target: null,
+              applied_target: "external_id",
+              sample_values: ["MAT-001"],
+              can_ignore: true,
+            },
+          ],
+        }),
+      );
+
+    const { container } = renderPage();
+    const fileInputs = container.querySelectorAll('input[type="file"]');
+    const membersFileInput = fileInputs[0] as HTMLInputElement;
+    const file = new File(["nome,email,registro\nAna Silva,ana@teste.com,MAT-001"], "membros.csv", { type: "text/csv" });
+
+    fireEvent.change(membersFileInput, { target: { files: [file] } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Validar arquivo" })[0]);
+
+    expect(await screen.findByText("Reconciliar colunas")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "external_id" } });
+
+    expect(screen.getByRole("button", { name: "Revalidar preview" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Confirmar importacao" })[0]).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revalidar preview" }));
+
+    await waitFor(() => {
+      expect(importExportService.previewMembers).toHaveBeenLastCalledWith(file, {
+        columnMappings: { registro: "external_id" },
+        ignoredColumns: [],
+      });
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Confirmar importacao" })[0]);
+
+    await waitFor(() => {
+      expect(importExportService.importMembers).toHaveBeenCalledWith(file, {
+        columnMappings: { registro: "external_id" },
+        ignoredColumns: [],
+      });
     });
   });
 });

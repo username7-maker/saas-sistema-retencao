@@ -63,6 +63,14 @@ export const memberService = {
     return data;
   },
 
+  async listMemberIndex(filters: Omit<MemberFilters, "page" | "page_size"> = {}): Promise<Member[]> {
+    const { data } = await api.get<Member[]>("/api/v1/members/index", {
+      params: filters,
+      timeout: 60_000,
+    });
+    return data;
+  },
+
   async getMember(memberId: string): Promise<Member> {
     const { data } = await api.get<Member>(`/api/v1/members/${memberId}`);
     return data;

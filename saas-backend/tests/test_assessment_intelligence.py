@@ -182,3 +182,4 @@ class TestSyncAssessmentTasks:
         mock_cache.assert_called_once_with("tasks")
         created_task = db.add.call_args[0][0]
         assert created_task.extra_data["source"] == "assessment_intelligence"
+        assert created_task.extra_data["owner_role"] == "reception"

@@ -12,7 +12,7 @@ import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonLis
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { crmService, normalizeLeadNotes } from "../../services/crmService";
 import type { Lead, LeadNoteEntry } from "../../types";
-import { canDeleteLead } from "../../utils/roleAccess";
+import { canDeleteLead, canMutateCrm } from "../../utils/roleAccess";
 
 const LEAD_SOURCES = [
   "Instagram",
@@ -259,10 +259,11 @@ interface LeadFormDrawerProps {
   open: boolean;
   onClose: () => void;
   lead?: Lead | null;
+  readOnly: boolean;
   onSaved: () => void;
 }
 
-function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
+function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
@@ -356,6 +357,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   });
 
   function onSubmit(values: LeadFormValues) {
+    if (readOnly) return;
     if (isEditing && lead) {
       updateMutation.mutate({ id: lead.id, data: values });
       return;
@@ -378,7 +380,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
   }
 
   function handleAppendNote() {
-    if (!lead) return;
+    if (!lead || readOnly) return;
     const text = noteDraft.trim();
     if (!text) {
       toast.error("Digite uma observacao para adicionar ao historico.");
@@ -391,9 +393,9 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
 
   return (
     <>
-      <Drawer open={open} onClose={onClose} title={isEditing ? "Editar Lead" : "Novo Lead"}>
+      <Drawer open={open} onClose={onClose} title={readOnly ? "Detalhes do Lead" : isEditing ? "Editar Lead" : "Novo Lead"}>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 p-4">
-          {isEditing && lead ? (
+          {isEditing && lead && !readOnly ? (
             <div className="grid gap-2 md:grid-cols-2">
               <Button
                 variant="secondary"
@@ -420,21 +422,21 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
             <SectionHeader title="Dados do lead" subtitle="Informacoes principais e origem do contato." />
             <div className="grid gap-4">
               <FormField label="Nome" required error={errors.full_name?.message}>
-                <Input {...register("full_name")} placeholder="Nome completo" />
+                <Input {...register("full_name")} placeholder="Nome completo" readOnly={readOnly} disabled={readOnly} />
               </FormField>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField label="E-mail" error={errors.email?.message}>
-                  <Input {...register("email")} type="email" placeholder="email@exemplo.com" />
+                  <Input {...register("email")} type="email" placeholder="email@exemplo.com" readOnly={readOnly} disabled={readOnly} />
                 </FormField>
 
                 <FormField label="Telefone">
-                  <Input {...register("phone")} placeholder="(11) 99999-9999" />
+                  <Input {...register("phone")} placeholder="(11) 99999-9999" readOnly={readOnly} disabled={readOnly} />
                 </FormField>
               </div>
 
               <FormField label="Origem">
-                <Select {...register("source")}>
+                <Select {...register("source")} disabled={readOnly}>
                   <option value="">Selecione a origem</option>
                   {LEAD_SOURCES.map((source) => (
                     <option key={source} value={source}>
@@ -450,7 +452,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
             <SectionHeader title="Pipeline" subtitle="Estagio atual e valor estimado da oportunidade." />
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="Estagio">
-                <Select {...register("stage")} disabled={!isEditing}>
+                <Select {...register("stage")} disabled={readOnly || !isEditing}>
                   {STAGE_ORDER.map((stage) => (
                     <option key={stage} value={stage}>
                       {STAGE_LABELS[stage]}
@@ -460,7 +462,7 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
               </FormField>
 
               <FormField label="Valor estimado (R$)" error={errors.estimated_value?.message}>
-                <Input {...register("estimated_value")} type="number" min={0} step={0.01} placeholder="0,00" />
+                <Input {...register("estimated_value")} type="number" min={0} step={0.01} placeholder="0,00" readOnly={readOnly} disabled={readOnly} />
               </FormField>
             </div>
           </div>
@@ -499,55 +501,61 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
                     </div>
                   )}
 
-                  <FormField label="Adicionar observacao ao historico">
-                    <Textarea
-                      value={noteDraft}
-                      onChange={(event) => setNoteDraft(event.target.value)}
-                      placeholder="Ex: cliente pediu retorno na sexta, prefere horario noturno."
-                      rows={3}
-                    />
-                  </FormField>
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={appendNoteMutation.isPending}
-                      onClick={handleAppendNote}
-                    >
-                      <MessageSquareText size={14} />
-                      {appendNoteMutation.isPending ? "Adicionando..." : "Adicionar ao historico"}
-                    </Button>
-                  </div>
+                  {!readOnly ? (
+                    <FormField label="Adicionar observacao ao historico">
+                      <Textarea
+                        value={noteDraft}
+                        onChange={(event) => setNoteDraft(event.target.value)}
+                        placeholder="Ex: cliente pediu retorno na sexta, prefere horario noturno."
+                        rows={3}
+                      />
+                    </FormField>
+                  ) : null}
+                  {!readOnly ? (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={appendNoteMutation.isPending}
+                        onClick={handleAppendNote}
+                      >
+                        <MessageSquareText size={14} />
+                        {appendNoteMutation.isPending ? "Adicionando..." : "Adicionar ao historico"}
+                      </Button>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <FormField label="Notas iniciais">
                   <Textarea
                     {...register("notes")}
                     placeholder="Ex: cliente busca plano para casal, melhor horario noturno."
-                    rows={4}
+                    rows={3}
+                    readOnly={readOnly}
+                    disabled={readOnly}
                   />
                 </FormField>
               )}
 
               {watchedStage === "lost" ? (
                 <FormField label="Motivo da perda">
-                  <Input {...register("lost_reason")} placeholder="Descreva o motivo..." />
+                  <Input {...register("lost_reason")} placeholder="Descreva o motivo..." readOnly={readOnly} disabled={readOnly} />
                 </FormField>
               ) : null}
               {watchedStage === "won" ? (
                 <div className="grid gap-4 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/20 p-4 md:grid-cols-2">
                   <FormField label="Plano do membro" required error={errors.handoff_plan_name?.message}>
-                    <Input {...register("handoff_plan_name")} placeholder="Ex: Plano Premium" />
+                    <Input {...register("handoff_plan_name")} placeholder="Ex: Plano Premium" readOnly={readOnly} disabled={readOnly} />
                   </FormField>
                   <FormField label="Data de inicio/matricula" required error={errors.handoff_join_date?.message}>
-                    <Input {...register("handoff_join_date")} type="date" />
+                    <Input {...register("handoff_join_date")} type="date" readOnly={readOnly} disabled={readOnly} />
                   </FormField>
                   <label className="flex items-center gap-2 text-sm text-lovable-ink">
-                    <input type="checkbox" {...register("handoff_email_confirmed")} className="h-4 w-4 rounded border-lovable-border" />
+                    <input type="checkbox" {...register("handoff_email_confirmed")} className="h-4 w-4 rounded border-lovable-border" disabled={readOnly} />
                     E-mail confirmado
                   </label>
                   <label className="flex items-center gap-2 text-sm text-lovable-ink">
-                    <input type="checkbox" {...register("handoff_phone_confirmed")} className="h-4 w-4 rounded border-lovable-border" />
+                    <input type="checkbox" {...register("handoff_phone_confirmed")} className="h-4 w-4 rounded border-lovable-border" disabled={readOnly} />
                     Telefone confirmado
                   </label>
                   <div className="md:col-span-2">
@@ -556,6 +564,8 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
                         {...register("handoff_notes")}
                         rows={3}
                         placeholder="Ex: foco em emagrecimento, prefere horario noturno e chegou por indicacao."
+                        readOnly={readOnly}
+                        disabled={readOnly}
                       />
                     </FormField>
                   </div>
@@ -565,15 +575,17 @@ function LeadFormDrawer({ open, onClose, lead, onSaved }: LeadFormDrawerProps) {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-              {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Criar Lead"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={onClose}>
-              Cancelar
+            {!readOnly ? (
+              <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
+                {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Criar Lead"}
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" onClick={onClose} className={readOnly ? "flex-1" : undefined}>
+              {readOnly ? "Fechar" : "Cancelar"}
             </Button>
           </div>
 
-          {isEditing && lead && canRemoveLead ? (
+          {isEditing && lead && canRemoveLead && !readOnly ? (
             <div className="border-t border-lovable-border pt-4">
               <Button
                 type="button"
@@ -628,6 +640,8 @@ export function CrmPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | Lead["stage"]>("all");
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
+  const { user } = useAuth();
+  const canMutate = canMutateCrm(user?.role);
 
   const leadsQuery = useQuery({
     queryKey: ["crm", "leads"],
@@ -801,11 +815,11 @@ export function CrmPage() {
       <PageHeader
         title="CRM"
         subtitle="Pipeline de conversao e gestao de leads"
-        actions={
+        actions={canMutate ? (
           <Button variant="primary" onClick={handleNewLead}>
             Novo Lead
           </Button>
-        }
+        ) : undefined}
       />
 
       <KPIStrip items={kpiItems} />
@@ -886,8 +900,8 @@ export function CrmPage() {
             <EmptyState
               icon={Users}
               title="Nenhum lead encontrado"
-              description="Tente ajustar os filtros ou adicione um novo lead"
-              action={{ label: "Novo Lead", onClick: handleNewLead }}
+              description={canMutate ? "Tente ajustar os filtros ou adicione um novo lead" : "Tente ajustar os filtros para localizar um lead."}
+              action={canMutate ? { label: "Novo Lead", onClick: handleNewLead } : undefined}
             />
           ) : (
             <div className="space-y-2">
@@ -932,7 +946,7 @@ export function CrmPage() {
                     </div>
 
                     <div className="flex items-center justify-start lg:justify-end" onClick={(event) => event.stopPropagation()}>
-                      {nextStage ? (
+                      {canMutate && nextStage ? (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -959,7 +973,13 @@ export function CrmPage() {
         </CardContent>
       </Card>
 
-      <LeadFormDrawer open={drawerOpen} onClose={handleDrawerClose} lead={selectedLead} onSaved={handleSaved} />
+      <LeadFormDrawer
+        open={drawerOpen}
+        onClose={handleDrawerClose}
+        lead={selectedLead}
+        readOnly={!canMutate}
+        onSaved={handleSaved}
+      />
     </section>
   );
 }

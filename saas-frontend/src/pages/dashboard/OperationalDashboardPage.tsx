@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CalendarDays } from "lucide-react";
 
 import { HeatmapGrid } from "../../components/charts/HeatmapGrid";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
@@ -114,6 +114,48 @@ export function OperationalDashboardPage() {
         <StatCard label="Check-ins ultima hora" value={String(query.data.realtime_checkins)} tone="success" />
         <StatCard label="Inativos 7+ dias" value={String(query.data.inactive_7d_total)} tone="warning" />
       </div>
+
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Aniversariantes de hoje</h3>
+            <p className="mt-1 text-sm text-lovable-ink-muted">
+              Visibilidade rápida para contato, surpresa e validação da automação de aniversário.
+            </p>
+          </div>
+          <Badge variant={query.data.birthday_today_total > 0 ? "warning" : "neutral"}>
+            {query.data.birthday_today_total} hoje
+          </Badge>
+        </div>
+
+        {query.data.birthday_today_items.length > 0 ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {query.data.birthday_today_items.map((member) => (
+              <div
+                key={member.id}
+                className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
+                    <p className="truncate text-xs text-lovable-ink-muted">{member.plan_name}</p>
+                  </div>
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/12 text-amber-300">
+                    <CalendarDays size={16} />
+                  </span>
+                </div>
+                <div className="mt-3">
+                  <QuickActions member={member} onActionComplete={handleActionComplete} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-lovable-border px-4 py-4 text-sm text-lovable-ink-muted">
+            Nenhum aniversariante hoje.
+          </div>
+        )}
+      </section>
 
       <HeatmapGrid data={query.data.heatmap ?? []} />
 

@@ -1,20 +1,24 @@
 import logging
-import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.core.cache import invalidate_dashboard_cache
-from app.core.config import settings
-from app.core.distributed_lock import with_distributed_lock
-from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
+from app.database import get_db
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
-from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, OnboardingScoreOut, PaginatedResponse
+from app.schemas import (
+    APIMessage,
+    MemberCreate,
+    MemberOut,
+    MemberUpdate,
+    OnboardingScoreOut,
+    PaginatedResponse,
+    RiskRecalculationRequestOut,
+)
 from app.schemas.body_composition import (
     ActuarManualSyncConfirmInput,
     ActuarMemberLinkRead,
@@ -45,10 +49,14 @@ from app.services.body_composition_service import (
     update_body_composition_evaluation,
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
-from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
+from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
-from app.services.risk import run_daily_risk_processing
+from app.services.risk_recalculation_service import (
+    enqueue_risk_recalculation_request,
+    get_risk_recalculation_request,
+    serialize_risk_recalculation_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +107,29 @@ def list_members_endpoint(
         gym_id=current_user.gym_id,
         page=page,
         page_size=page_size,
+        search=search,
+        risk_level=risk_level,
+        status=status,
+        plan_cycle=plan_cycle,
+        min_days_without_checkin=min_days_without_checkin,
+        provisional_only=provisional_only,
+    )
+
+
+@router.get("/index", response_model=list[MemberOut])
+def list_members_index_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    search: str | None = None,
+    risk_level: RiskLevel | None = None,
+    status: MemberStatus | None = None,
+    plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
+    min_days_without_checkin: int | None = Query(default=None, ge=0),
+    provisional_only: bool | None = None,
+) -> list[MemberOut]:
+    return list_member_index(
+        db,
+        gym_id=current_user.gym_id,
         search=search,
         risk_level=risk_level,
         status=status,
@@ -166,60 +197,46 @@ def delete_member_endpoint(
     return APIMessage(message="Membro removido com soft delete")
 
 
-@router.post("/recalculate-risk", status_code=202)
+@router.post("/recalculate-risk", response_model=RiskRecalculationRequestOut, status_code=202)
 def recalculate_risk_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
-) -> JSONResponse:
+) -> RiskRecalculationRequestOut:
     gym_id = current_user.gym_id
+    request_record, created = enqueue_risk_recalculation_request(
+        db,
+        gym_id=gym_id,
+        requested_by_user_id=current_user.id,
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
         action="risk_recalculation_triggered",
         entity="member",
         user=current_user,
-        details={"status": "started_background"},
+        details={"status": "queued", "request_id": str(request_record.id), "created": created},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
     db.commit()
+    return RiskRecalculationRequestOut.model_validate(serialize_risk_recalculation_request(request_record))
 
-    threading.Thread(
-        target=_run_risk_recalculation_background,
-        args=(gym_id,),
-        daemon=True,
-    ).start()
 
-    return JSONResponse(
-        status_code=202,
-        content={"message": "Recalculo de risco iniciado em segundo plano", "status": "processing"},
+@router.get("/recalculate-risk/{request_id}", response_model=RiskRecalculationRequestOut)
+def get_recalculate_risk_status_endpoint(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> RiskRecalculationRequestOut:
+    request_record = get_risk_recalculation_request(
+        db,
+        request_id=request_id,
+        gym_id=current_user.gym_id,
     )
-
-
-def _run_risk_recalculation_background(gym_id: UUID) -> None:
-    @with_distributed_lock(
-        "daily_risk",
-        ttl_seconds=1800,
-        fail_open=lambda: settings.scheduler_critical_lock_fail_open,
-    )
-    def _inner() -> None:
-        db = SessionLocal()
-        try:
-            set_current_gym_id(gym_id)
-            result = run_daily_risk_processing(db)
-            logger.info("Background risk recalculation completed for gym %s: %s", gym_id, result)
-        except Exception:
-            logger.exception("Background risk recalculation failed for gym %s", gym_id)
-            db.rollback()
-        finally:
-            clear_current_gym_id()
-            db.close()
-
-    try:
-        _inner()
-    except Exception:
-        logger.warning("Risk recalculation skipped - lock already held (daily job running)")
+    if request_record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solicitacao de recalculo nao encontrada")
+    return RiskRecalculationRequestOut.model_validate(serialize_risk_recalculation_request(request_record))
 
 
 @router.get("/{member_id}/onboarding-score", response_model=OnboardingScoreOut)
@@ -320,6 +337,11 @@ def enqueue_body_composition_actuar_sync_endpoint(
         evaluation_id=evaluation_id,
         created_by_user_id=current_user.id,
     )
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sync Actuar desabilitado para esta academia ou ambiente.",
+        )
     context = get_request_context(request)
     log_audit_event(
         db,

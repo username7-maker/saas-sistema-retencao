@@ -27,7 +27,7 @@ vi.mock("../services/taskService", () => ({
 
 vi.mock("../services/memberService", () => ({
   memberService: {
-    listMembers: vi.fn(),
+    listMemberIndex: vi.fn(),
     getOnboardingScore: vi.fn(),
   },
 }));
@@ -238,12 +238,7 @@ describe("TasksPage", () => {
     vi.mocked(taskService.deleteTask).mockResolvedValue();
     vi.mocked(taskService.createTask).mockResolvedValue(tasks[0]);
 
-    vi.mocked(memberService.listMembers).mockResolvedValue({
-      items: members,
-      total: members.length,
-      page: 1,
-      page_size: 100,
-    });
+    vi.mocked(memberService.listMemberIndex).mockResolvedValue(members);
     vi.mocked(memberService.getOnboardingScore).mockResolvedValue({
       score: 32,
       status: "at_risk",

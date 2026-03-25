@@ -16,7 +16,7 @@ from app.services.assessment_service import (
 )
 
 
-def upsert_constraints(db: Session, member_id: UUID, data: dict) -> MemberConstraints:
+def upsert_constraints(db: Session, member_id: UUID, data: dict, *, commit: bool = True) -> MemberConstraints:
     get_member_or_404(db, member_id)
 
     current = db.scalar(
@@ -44,12 +44,15 @@ def upsert_constraints(db: Session, member_id: UUID, data: dict) -> MemberConstr
         current.restrictions = data.get("restrictions") or {}
 
     db.add(current)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(current)
     return current
 
 
-def create_goal(db: Session, member_id: UUID, data: dict) -> MemberGoal:
+def create_goal(db: Session, member_id: UUID, data: dict, *, commit: bool = True) -> MemberGoal:
     get_member_or_404(db, member_id)
     assessment_id = data.get("assessment_id")
     if assessment_id:
@@ -81,7 +84,10 @@ def create_goal(db: Session, member_id: UUID, data: dict) -> MemberGoal:
         extra_data=data.get("extra_data") or {},
     )
     db.add(goal)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(goal)
     return goal
 
@@ -97,7 +103,7 @@ def list_goals(db: Session, member_id: UUID) -> list[MemberGoal]:
     )
 
 
-def update_goal(db: Session, member_id: UUID, goal_id: UUID, data: dict) -> MemberGoal:
+def update_goal(db: Session, member_id: UUID, goal_id: UUID, data: dict, *, commit: bool = True) -> MemberGoal:
     get_member_or_404(db, member_id)
     goal = db.scalar(
         select(MemberGoal).where(
@@ -137,12 +143,22 @@ def update_goal(db: Session, member_id: UUID, goal_id: UUID, data: dict) -> Memb
     goal.extra_data = data.get("extra_data") or {}
 
     db.add(goal)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(goal)
     return goal
 
 
-def create_training_plan(db: Session, member_id: UUID, created_by: UUID, data: dict) -> TrainingPlan:
+def create_training_plan(
+    db: Session,
+    member_id: UUID,
+    created_by: UUID,
+    data: dict,
+    *,
+    commit: bool = True,
+) -> TrainingPlan:
     get_member_or_404(db, member_id)
     assessment_id = data.get("assessment_id")
     if assessment_id:
@@ -179,12 +195,23 @@ def create_training_plan(db: Session, member_id: UUID, created_by: UUID, data: d
         extra_data=data.get("extra_data") or {},
     )
     db.add(training_plan)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(training_plan)
     return training_plan
 
 
-def update_training_plan(db: Session, member_id: UUID, plan_id: UUID, created_by: UUID, data: dict) -> TrainingPlan:
+def update_training_plan(
+    db: Session,
+    member_id: UUID,
+    plan_id: UUID,
+    created_by: UUID,
+    data: dict,
+    *,
+    commit: bool = True,
+) -> TrainingPlan:
     get_member_or_404(db, member_id)
     training_plan = db.scalar(
         select(TrainingPlan).where(
@@ -230,6 +257,9 @@ def update_training_plan(db: Session, member_id: UUID, plan_id: UUID, created_by
     training_plan.extra_data = data.get("extra_data") or {}
 
     db.add(training_plan)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(training_plan)
     return training_plan

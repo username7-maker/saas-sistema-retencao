@@ -142,7 +142,7 @@ def run_followup_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> APIMessage:
-    created = run_followup_automation(db)
+    created = run_followup_automation(db, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

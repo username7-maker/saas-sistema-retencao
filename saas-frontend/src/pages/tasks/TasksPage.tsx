@@ -17,18 +17,7 @@ import { isOnboardingActiveMember, type SourceFilter } from "../../components/ta
 type WorkspaceTab = "operations" | "onboarding";
 
 async function listAllMembers(): Promise<Member[]> {
-  const pageSize = 100;
-  const firstPage = await memberService.listMembers({ page: 1, page_size: pageSize });
-  const totalPages = Math.ceil(firstPage.total / pageSize);
-  if (totalPages <= 1) return firstPage.items;
-
-  const nextPages = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) =>
-      memberService.listMembers({ page: index + 2, page_size: pageSize }).then((response) => response.items),
-    ),
-  );
-
-  return [...firstPage.items, ...nextPages.flat()];
+  return memberService.listMemberIndex();
 }
 
 export function TasksPage() {

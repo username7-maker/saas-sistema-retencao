@@ -21,13 +21,17 @@ describe("roleAccess", () => {
     expect(resolvePostLoginRoute("trainer", "/assessments/members/member-1")).toBe("/assessments/members/member-1");
     expect(resolvePostLoginRoute("trainer", "/settings/users")).toBe("/assessments");
     expect(resolvePostLoginRoute("salesperson", "/crm")).toBe("/crm");
+    expect(resolvePostLoginRoute("salesperson", "/assessments/members/member-1")).toBe("/assessments/members/member-1");
   });
 
   it("matches the contained navigation surface for receptionist and salesperson", () => {
-    expect(canRoleAccessPath("receptionist", "/crm")).toBe(false);
+    expect(canRoleAccessPath("receptionist", "/crm")).toBe(true);
     expect(canRoleAccessPath("receptionist", "/imports")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/dashboard/operational")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/crm")).toBe(true);
+    expect(canRoleAccessPath("salesperson", "/assessments/members/member-1")).toBe(true);
+    expect(canRoleAccessPath("salesperson", "/assessments/new/member-1")).toBe(false);
+    expect(canRoleAccessPath("trainer", "/assessments/new/member-1")).toBe(true);
   });
 
   it("keeps seed and delete automation controls owner-only", () => {

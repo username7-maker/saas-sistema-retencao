@@ -93,8 +93,35 @@ class TestAssessmentQueueService:
         stmt = db.execute.call_args.args[0]
         compiled = str(stmt)
         assert "last_assessment_date" in compiled
+        assert "members.status" in compiled
+        assert "members.join_date" in compiled
         assert stmt._limit_clause.value == 50
         assert stmt._offset_clause.value == 50
+
+    @patch("app.services.assessment_analytics_service.get_current_gym_id")
+    @patch("app.services.assessment_analytics_service.get_assessments_queue")
+    def test_dashboard_counts_scope_assessments_to_active_members(self, mock_get_queue, mock_get_current_gym_id, gym_id):
+        from app.services.assessment_analytics_service import get_assessments_dashboard
+
+        mock_get_current_gym_id.return_value = gym_id
+        mock_get_queue.return_value = PaginatedResponse(items=[], total=0, page=1, page_size=6)
+        db = MagicMock()
+        db.scalar.side_effect = [120, 64, 80, 18, 12, 5, 3]
+        scalars_result = MagicMock()
+        scalars_result.all.return_value = []
+        db.scalars.return_value = scalars_result
+
+        payload = get_assessments_dashboard(db)
+
+        assert payload["total_members"] == 120
+        assert payload["never_assessed"] == 12
+        assert payload["overdue_assessments"] == 18
+        assert payload["historical_backlog_total"] == 31
+        assert payload["historical_never_assessed"] == 28
+        assert payload["historical_overdue_assessments"] == 3
+
+        compiled_scalars = [str(call.args[0]) for call in db.scalar.call_args_list]
+        assert any("JOIN members" in stmt and "members.status" in stmt for stmt in compiled_scalars)
 
 
 class TestAssessmentQueueRoute:

@@ -14,11 +14,11 @@ from app.models.lead import Lead
 from app.models.message_log import MessageLog
 from app.services.notification_service import create_notification
 from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
+from app.utils.birthday import birthday_label_matches_today
 from app.utils.email import send_email
 
 
 logger = logging.getLogger(__name__)
-
 
 def list_automation_rules(
     db: Session,
@@ -366,20 +366,37 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
 
     if trigger == AutomationTrigger.BIRTHDAY:
         today = now.date()
-        # Match members whose extra_data["date_of_birth"] (stored as "YYYY-MM-DD" string in JSONB)
-        # has the same month/day as today. Uses SUBSTRING to avoid a full DATE cast that would
-        # error on malformed values, and avoids loading all members into Python memory.
+        # Support current and legacy birthday storage:
+        # - members.birthdate
+        # - extra_data["date_of_birth"] in YYYY-MM-DD
+        # - extra_data["birthday_label"] from imports (e.g. "09 de Setembro")
         dob_text = Member.extra_data["date_of_birth"].astext
+        birthday_label = Member.extra_data["birthday_label"].astext
         month_expr = func.substring(dob_text, 6, 2).cast(Integer)
         day_expr = func.substring(dob_text, 9, 2).cast(Integer)
-        return list(db.scalars(
+        direct_matches = list(db.scalars(
             base_stmt.where(
-                dob_text.isnot(None),
-                func.length(dob_text) == 10,
-                month_expr == today.month,
-                day_expr == today.day,
+                (
+                    (Member.birthdate.isnot(None))
+                    & (func.extract("month", Member.birthdate) == today.month)
+                    & (func.extract("day", Member.birthdate) == today.day)
+                )
+                | (
+                    dob_text.isnot(None)
+                    & (func.length(dob_text) == 10)
+                    & (month_expr == today.month)
+                    & (day_expr == today.day)
+                )
             )
         ).all())
+
+        label_candidates = list(db.scalars(base_stmt.where(birthday_label.isnot(None))).all())
+        matched_by_label = [member for member in label_candidates if _birthday_label_matches_today(member, today)]
+
+        combined: dict[str, Member] = {}
+        for member in [*direct_matches, *matched_by_label]:
+            combined[str(member.id)] = member
+        return list(combined.values())
 
     if trigger == AutomationTrigger.LEAD_STALE:
         # Lead-scoped trigger: handled separately in run_automation_rules via _execute_lead_stale_rule.
@@ -425,6 +442,11 @@ def _coerce_risk_level(value: object, *, default: str = "red") -> str:
         return raw
     logger.warning("Nivel de risco invalido na automacao: %s. Usando default=%s", raw, default)
     return default
+
+
+def _birthday_label_matches_today(member: Member, today) -> bool:
+    extra_data = member.extra_data or {}
+    return birthday_label_matches_today(extra_data.get("birthday_label"), today)
 
 
 def _render(template: str, vars: dict) -> str:
