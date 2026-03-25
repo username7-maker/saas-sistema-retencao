@@ -1,17 +1,35 @@
 # Deploy Pilot Checklist
 
+Stack alvo deste checklist:
+
+- frontend na Vercel
+- API + worker + Redis no Railway
+- Postgres no Supabase
+
+Escopo do piloto:
+
+- core do sistema
+- e-mail
+- WhatsApp
+
+Ficam desligados no go-live inicial:
+
+- Claude
+- leitura assistida de bioimpedancia
+- Actuar
+
 ## Env Vars Obrigatorias
 
 - `DATABASE_URL`
+- `REDIS_URL`
 - `JWT_SECRET_KEY`
 - `CPF_ENCRYPTION_KEY`
 - `CORS_ORIGINS`
 - `FRONTEND_URL`
-- `REDIS_URL`
+- `PUBLIC_BACKEND_URL`
 - `ENABLE_SCHEDULER`
 - `ENABLE_SCHEDULER_IN_API`
 - `SCHEDULER_CRITICAL_LOCK_FAIL_OPEN=false`
-- `PUBLIC_DIAG_GYM_ID`
 - `WHATSAPP_WEBHOOK_TOKEN`
 - `SENDGRID_API_KEY` e `SENDGRID_SENDER` se o piloto usar e-mail
 - `WHATSAPP_API_URL`, `WHATSAPP_API_TOKEN` e `WHATSAPP_INSTANCE` se o piloto usar WhatsApp
@@ -21,25 +39,43 @@
 - API: `ENABLE_SCHEDULER=false`
 - API: `ENABLE_SCHEDULER_IN_API=false`
 - Worker: `ENABLE_SCHEDULER=true`
+- Worker: `ENABLE_SCHEDULER_IN_API=false`
 - Worker: `SCHEDULER_CRITICAL_LOCK_FAIL_OPEN=false`
 - Manter desligado:
   - `PUBLIC_OBJECTION_RESPONSE_ENABLED=false`
   - `PUBLIC_PROPOSAL_ENABLED=false`
+  - `ACTUAR_ENABLED=false`
+  - `ACTUAR_SYNC_ENABLED=false`
+  - `ACTUAR_SYNC_MODE=disabled`
+  - `BODY_COMPOSITION_IMAGE_AI_ENABLED=false`
 
 ## Comandos Corretos
 
 - API: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Worker: `python -m app.worker`
 
+## Provisionamento
+
+1. Criar banco no Supabase
+2. Criar projeto Railway com:
+   - `api`
+   - `worker`
+   - `redis`
+3. Criar frontend na Vercel
+4. Rodar migration no banco antes de liberar o frontend
+
 ## Validacoes Pos-Deploy
 
 - `GET /health/ready` responde `200`
 - Login funciona e refresh token continua valido para usuario ativo
 - Criacao de member gera membro, tarefas de onboarding e audit log
-- `POST /api/v1/public/booking/confirm` confirma booking sem erro
+- Importacao pequena de membros funciona com preview e commit
+- Retencao, Tasks, Avaliacoes e Profile 360 carregam sem erro
 - WebSocket em `/ws/updates` conecta com access token valido
 - Logs do worker mostram jobs iniciando normalmente
 - Logs do worker nao mostram `job_skipped_lock_unavailable`
+- E-mail real via SendGrid funciona
+- Um fluxo real de WhatsApp funciona
 
 ## Sanity Checks de Operacao
 
@@ -53,6 +89,7 @@
 
 - Desligar o worker se houver incidente de jobs
 - Reverter para o release anterior no Railway
+- Reverter o frontend na Vercel
 - Manter `PUBLIC_OBJECTION_RESPONSE_ENABLED=false`
 - Manter `PUBLIC_PROPOSAL_ENABLED=false`
 - Revalidar `GET /health/ready` e login apos rollback
