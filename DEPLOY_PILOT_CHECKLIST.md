@@ -18,6 +18,12 @@ Ficam desligados no go-live inicial:
 - leitura assistida de bioimpedancia
 - Actuar
 
+## Artefatos De Execucao
+
+- runbook do piloto: [deploy/CONTROLLED_PILOT_RUNBOOK.md](./deploy/CONTROLLED_PILOT_RUNBOOK.md)
+- checklist diario: [deploy/CONTROLLED_PILOT_DAILY_CHECKLIST.md](./deploy/CONTROLLED_PILOT_DAILY_CHECKLIST.md)
+- template de incidente: [deploy/CONTROLLED_PILOT_INCIDENT_TEMPLATE.md](./deploy/CONTROLLED_PILOT_INCIDENT_TEMPLATE.md)
+
 ## Env Vars Obrigatorias
 
 - `DATABASE_URL`

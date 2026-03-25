@@ -7,22 +7,22 @@
 
 ### Hardening P0
 
-- [ ] **HARD-01**: `birthday_label` importado funciona em dashboards e automacoes de aniversario
-- [ ] **HARD-02**: recalc manual de risco deixa de usar thread daemon e vira solicitacao duravel consumida pelo worker
-- [ ] **HARD-03**: realtime/WebSocket funciona com mais de um worker da API usando Redis Pub/Sub
-- [ ] **HARD-04**: suites backend/frontend voltam a ficar totalmente verdes antes do piloto
+- [x] **HARD-01**: `birthday_label` importado funciona em dashboards e automacoes de aniversario
+- [x] **HARD-02**: recalc manual de risco deixa de usar thread daemon e vira solicitacao duravel consumida pelo worker
+- [x] **HARD-03**: realtime/WebSocket funciona com mais de um worker da API usando Redis Pub/Sub
+- [x] **HARD-04**: suites backend/frontend voltam a ficar totalmente verdes antes do piloto
 
 ### Coerencia Operacional P1
 
-- [ ] **OPS-01**: routers passam a orquestrar commits dos fluxos criticos do piloto, sem commit implicito espalhado nos services centrais
-- [ ] **OPS-02**: frontend reflete as capacidades reais do backend para recepcao, comercial e trainer
-- [ ] **OPS-03**: trainer resolve tarefas tecnicas dentro de `Assessments` sem abrir o modulo geral de tasks
-- [ ] **OPS-04**: CI do frontend roda lint e testes unitarios alem de typecheck/build/e2e
+- [x] **OPS-01**: routers passam a orquestrar commits dos fluxos criticos do piloto, sem commit implicito espalhado nos services centrais
+- [x] **OPS-02**: frontend reflete as capacidades reais do backend para recepcao, comercial e trainer
+- [x] **OPS-03**: trainer resolve tarefas tecnicas dentro de `Assessments` sem abrir o modulo geral de tasks
+- [x] **OPS-04**: CI do frontend roda lint e testes unitarios alem de typecheck/build/e2e
 
 ### Import Flow
 
-- [ ] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
-- [ ] **IMP-02**: Operador consegue revisar impacto, warnings e colunas nao reconhecidas antes de gravar
+- [x] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
+- [x] **IMP-02**: Operador consegue revisar impacto, warnings e colunas nao reconhecidas antes de gravar
 
 ### Bulk Update
 

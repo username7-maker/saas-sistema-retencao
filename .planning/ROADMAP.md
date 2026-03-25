@@ -74,7 +74,7 @@ Status:
 - [x] context
 - [ ] ui-spec
 - [x] plan
-- [ ] execute
+- [~] execute (kickoff package ready; piloto em campo pendente)
 - [ ] verify/validate
 
 ### Phase 5: Bulk update dedicado de membros

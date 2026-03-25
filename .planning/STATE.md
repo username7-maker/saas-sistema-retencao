@@ -2,8 +2,8 @@
 milestone: v3.2.0
 phase: 4.3
 plan: "04.3-PLAN.md"
-status: Phase 4.3 ready for controlled pilot
-last_activity: 2026-03-25 - phases 4.1 and 4.2 executed, verified and validated locally
+status: Phase 4.3 kickoff package prepared for controlled pilot
+last_activity: 2026-03-25 - pilot runbook, daily checklist and incident template prepared
 ---
 
 # STATE
@@ -19,8 +19,8 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Phase:** 4.3
 **Plan:** `04.3-PLAN.md`
-**Status:** Hardening P0 e coerencia operacional P1 concluidos; piloto pronto para ser executado em campo
-**Last activity:** 2026-03-25 - backend 608/608, frontend 64/64, lint e build verdes apos hardening e alinhamento de papais
+**Status:** Hardening P0 e coerencia operacional P1 concluidos; kickoff operacional do piloto preparado
+**Last activity:** 2026-03-25 - runbook e checklist do piloto adicionados para iniciar execucao controlada
 
 ## Progress Snapshot
 
