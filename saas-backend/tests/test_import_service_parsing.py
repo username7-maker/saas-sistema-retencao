@@ -120,6 +120,34 @@ def _build_xlsx_bytes(headers: list[str], rows: list[list[object]]) -> bytes:
     return buffer.getvalue()
 
 
+class _FakeScalars:
+    def __init__(self, members: list[Member]) -> None:
+        self._members = members
+
+    def all(self) -> list[Member]:
+        return list(self._members)
+
+
+class _FakeMemberImportDB:
+    def __init__(self, members: list[Member] | None = None) -> None:
+        self.members = list(members or [])
+        self.commit_count = 0
+        self.flush_count = 0
+
+    def scalars(self, _query) -> _FakeScalars:
+        return _FakeScalars(self.members)
+
+    def add(self, obj) -> None:
+        if isinstance(obj, Member) and obj not in self.members:
+            self.members.append(obj)
+
+    def commit(self) -> None:
+        self.commit_count += 1
+
+    def flush(self) -> None:
+        self.flush_count += 1
+
+
 def test_detect_delimiter_semicolon() -> None:
     csv_content = "nome;email\nJoao;joao@example.com\n".encode("utf-8")
     rows = list(import_service._iter_rows(csv_content))
@@ -349,6 +377,32 @@ def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
     assert len(preview.sample_rows) == 2
 
 
+def test_preview_members_csv_matches_existing_member_by_name_without_strong_identifiers() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Tais Tomasi",
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,telefones\nTais Tomasi,54999990000\n".encode("utf-8")
+
+    preview = import_service.preview_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert preview.would_update == 1
+    assert preview.would_create == 0
+    assert preview.sample_rows[0].action == "update_member"
+
+
 def test_preview_members_csv_reports_manual_mapping_metadata() -> None:
     db = MagicMock()
     mock_scalars = MagicMock()
@@ -398,6 +452,32 @@ def test_import_members_csv_creates_import_playbook_tasks_for_recent_join_date(m
     assert db.flush.called
 
 
+def test_import_members_csv_updates_existing_member_by_name_without_strong_identifiers() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Tais Tomasi",
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,telefones\nTais Tomasi,54999990000\n".encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert summary.imported == 0
+    assert summary.updated_existing == 1
+    assert member.phone == "54999990000"
+
+
 def test_import_members_csv_skips_onboarding_when_join_date_is_missing(monkeypatch) -> None:
     db = MagicMock()
     mock_scalars = MagicMock()
@@ -444,6 +524,74 @@ def test_import_members_csv_applies_manual_mapping_to_external_id() -> None:
     assert summary.imported == 1
     assert len(created_members) == 1
     assert created_members[0].extra_data["external_id"] == "mat-001"
+
+
+def test_import_members_csv_reuses_lookup_for_duplicate_name_only_rows() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = "nome,telefones\nTais Tomasi,54999990000\nTais Tomasi,54999990000\n".encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    created_members = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Member)]
+
+    assert summary.imported == 1
+    assert summary.updated_existing == 1
+    assert len([member for member in created_members if member.full_name == "Tais Tomasi"]) == 1
+
+
+def test_preview_members_csv_second_reimport_stays_at_updates_for_name_only_rows() -> None:
+    db = _FakeMemberImportDB()
+    csv_content = "nome\nTais Tomasi\nAna Silva\n".encode("utf-8")
+
+    first_import = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+    second_preview = import_service.preview_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert first_import.imported == 2
+    assert second_preview.would_create == 0
+    assert second_preview.would_update == 2
+    assert second_preview.would_skip == 0
+
+
+def test_import_members_csv_second_reimport_does_not_create_name_only_rows_again() -> None:
+    db = _FakeMemberImportDB()
+    csv_content = "nome\nTais Tomasi\nAna Silva\n".encode("utf-8")
+
+    first_import = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+    second_import = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert first_import.imported == 2
+    assert second_import.imported == 0
+    assert second_import.updated_existing == 2
+    assert len([member for member in db.members if member.full_name in {"Tais Tomasi", "Ana Silva"}]) == 2
+
+
+def test_add_member_to_lookups_is_idempotent_for_name_indexes() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Tais Tomasi",
+        email="tais@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    lookup = import_service._build_member_lookups([member])
+
+    import_service._add_member_to_lookups(member, lookup)
+
+    name_key = import_service._normalize_text(member.full_name)
+    compact_key = import_service._compact_name(member.full_name)
+    core_key = import_service._core_name_key(member.full_name)
+
+    assert len(lookup["by_name"][name_key]) == 1
+    assert len(lookup["by_name_compact"][compact_key]) == 1
+    assert len(lookup["by_name_core"][core_key]) == 1
 
 
 def test_import_members_csv_refreshes_risk_snapshot_for_touched_members(monkeypatch) -> None:

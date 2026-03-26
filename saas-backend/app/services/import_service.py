@@ -452,7 +452,7 @@ def preview_members_csv(
             continue
 
         valid_rows += 1
-        existing_member = _find_existing_member_by_import_keys(lookup, email=email, external_id=external_id, cpf_digits=cpf_digits)
+        existing_member = _resolve_member_from_row(mapped_row, lookup)
         plan_name, _, _ = _extract_plan_metadata(mapped_row, join_date=join_date)
         action = "update_member" if existing_member else "create_member"
 
@@ -498,6 +498,25 @@ def preview_members_csv(
             seen_external_ids.add(external_id)
         if cpf_digits:
             seen_cpfs.add(cpf_digits)
+
+        if not existing_member:
+            preview_member = Member(
+                full_name=full_name,
+                email=email,
+                phone=_normalize_phone(_pick_first(mapped_row, PHONE_KEYS)),
+                cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
+                status=_parse_member_status(_pick_first(mapped_row, STATUS_KEYS)),
+                plan_name=plan_name,
+                monthly_fee=_parse_decimal(_pick_first(mapped_row, MONTHLY_FEE_KEYS)),
+                join_date=join_date,
+                loyalty_months=_compute_loyalty_months(join_date),
+                preferred_shift=_extract_preferred_shift(mapped_row),
+                last_checkin_at=_parse_datetime(_pick_first(mapped_row, LAST_ACCESS_KEYS)),
+                extra_data={},
+            )
+            if external_id:
+                preview_member.extra_data = {"external_id": external_id}
+            _add_member_to_lookups(preview_member, lookup)
 
     (
         recognized_columns,
@@ -764,7 +783,7 @@ def import_members_csv(
             )
             continue
 
-        existing_member = _find_existing_member_by_import_keys(lookup, email=email, external_id=external_id, cpf_digits=cpf_digits)
+        existing_member = _resolve_member_from_row(mapped_row, lookup)
         if existing_member:
             if _refresh_existing_member_from_import_row(
                 existing_member,
@@ -779,6 +798,7 @@ def import_members_csv(
                 db.add(existing_member)
                 pending_count += 1
                 touched_members.append(existing_member)
+            _add_member_to_lookups(existing_member, lookup)
             updated_existing += 1
             if email:
                 seen_emails.add(email)
@@ -820,6 +840,7 @@ def import_members_csv(
         imported += 1
         pending_count += 1
         touched_members.append(member)
+        _add_member_to_lookups(member, lookup)
 
         if email:
             seen_emails.add(email)
@@ -1527,13 +1548,24 @@ def _add_member_to_lookups(member: Member, lookup: dict[str, dict]) -> None:
             pass
 
     name_key = _normalize_text(member.full_name)
-    lookup["by_name"].setdefault(name_key, []).append(member)
+    _append_lookup_member(lookup["by_name"], name_key, member)
     compact_key = _compact_name(member.full_name)
     if compact_key:
-        lookup["by_name_compact"].setdefault(compact_key, []).append(member)
+        _append_lookup_member(lookup["by_name_compact"], compact_key, member)
     core_key = _core_name_key(member.full_name)
     if core_key:
-        lookup["by_name_core"].setdefault(core_key, []).append(member)
+        _append_lookup_member(lookup["by_name_core"], core_key, member)
+
+
+def _append_lookup_member(bucket: dict[str, list[Member]], key: str, member: Member) -> None:
+    candidates = bucket.setdefault(key, [])
+    member_id = getattr(member, "id", None)
+    for existing in candidates:
+        if existing is member:
+            return
+        if member_id is not None and getattr(existing, "id", None) == member_id:
+            return
+    candidates.append(member)
 
 
 def _find_existing_member_by_import_keys(
