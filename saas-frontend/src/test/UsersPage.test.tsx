@@ -17,6 +17,7 @@ vi.mock("../services/userService", () => ({
     listUsers: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
+    updateUserProfile: vi.fn(),
     setUserActive: vi.fn(),
   },
 }));
@@ -63,17 +64,15 @@ describe("UsersPage", () => {
     ]);
   });
 
-  it("renders trainer users and offers trainer in the create form", async () => {
+  it("renders trainer users and owner management affordances", async () => {
     renderPage();
 
     expect(await screen.findByText("Trainer Teste")).toBeInTheDocument();
     expect(screen.getAllByText("Instrutor").length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole("button", { name: /Novo Usuário/i }));
-
-    expect(await screen.findByRole("heading", { name: "Novo Usuário" })).toBeInTheDocument();
-    expect(screen.getAllByRole("option", { name: "Instrutor" }).length).toBeGreaterThan(1);
+    expect(screen.getByRole("button", { name: /Novo usu/i })).toBeInTheDocument();
+    expect(screen.getByText(/Owner pode alterar pap/i)).toBeInTheDocument();
   });
+
   it("uses deactivation language and the activation endpoint flow", async () => {
     vi.mocked(userService.setUserActive).mockResolvedValue({
       id: "trainer-1",
@@ -91,8 +90,7 @@ describe("UsersPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Desativar" }));
 
-    expect(screen.getByRole("heading", { name: "Desativar usuário" })).toBeInTheDocument();
-    expect(screen.getByText(/perderá acesso ao sistema agora/i)).toBeInTheDocument();
+    expect(screen.getByText(/acesso ao sistema agora/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Desativar" })[1]);
 

@@ -77,6 +77,8 @@ def create_user(db: Session, payload: UserRegister, *, gym_id: UUID, force_role:
         email=payload.email,
         hashed_password=hash_password(payload.password),
         role=role,
+        job_title=payload.job_title,
+        avatar_url=payload.avatar_url,
     )
     db.add(user)
     db.commit()

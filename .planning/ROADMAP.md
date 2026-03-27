@@ -3,7 +3,7 @@
 ## Milestones
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
-- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 5, 6
+- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 5, 6
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
@@ -126,6 +126,23 @@ Status:
 - [ ] ui-spec
 - [ ] plan
 - [ ] execute
+- [ ] verify/validate
+
+### Phase 4.34: Superficies administrativas e relatorios do piloto
+
+**Goal:** Corrigir bugs reais do piloto em notificacoes, metas e relatorios, melhorar o vazio/clareza do NPS e permitir personalizacao basica de usuarios com foto, cargo e ajuste de papel.
+**Requirements**: `ADMIN-01` a `ADMIN-05`
+**Depends on:** Phase 4.32
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.34-PLAN.md - corrigir contratos de rota, serializacao de PDF, acabamento de NPS e editar perfil/equipe sem promessas falsas
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [~] execute
 - [ ] verify/validate
 
 ### Phase 5: Bulk update dedicado de membros

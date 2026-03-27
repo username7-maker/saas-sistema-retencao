@@ -38,6 +38,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
 import { notificationService } from "../../services/notificationService";
 import { canAccessRoute, canManageUsers } from "../../utils/roleAccess";
+import { UserAvatar } from "../common/UserAvatar";
 import { Button, Drawer, Input, cn } from "../ui2";
 import type { RouteAccessKey } from "../../utils/roleAccess";
 
@@ -126,6 +127,7 @@ function resolveActiveGroup(pathname: string, groups: NavGroup[] = navGroups): s
 function resolveCurrentSection(pathname: string): string {
   if (pathname.startsWith("/settings/users")) return "Usuarios";
   if (pathname.startsWith("/settings")) return "Configuracoes";
+  if (pathname.startsWith("/notifications")) return "Notificacoes";
 
   for (const group of navGroups) {
     const item = group.items.find((candidate) => pathname.startsWith(candidate.to));
@@ -258,15 +260,7 @@ export function LovableLayout() {
 
   const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
   const userEmail = user?.email ?? "owner@demo.local";
-  const userInitials = useMemo(() => {
-    const source = user?.full_name ?? "Owner";
-    return source
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join("");
-  }, [user?.full_name]);
+  const userRoleLabel = user?.job_title?.trim() || user?.role || "owner";
 
   useEffect(() => {
     setWorkspaceMenuOpen(false);
@@ -501,12 +495,10 @@ export function LovableLayout() {
                   onClick={() => navigate(profileTarget)}
                   className="hidden items-center gap-3 rounded-2xl border border-lovable-border/60 bg-lovable-surface/62 px-3 py-1.5 text-left transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft md:flex"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,hsl(var(--lovable-primary)/0.9),hsl(var(--lovable-info)/0.9))] text-sm font-bold text-white shadow-[0_12px_30px_-18px_hsl(var(--lovable-primary)/0.95)]">
-                    {userInitials}
-                  </div>
+                  <UserAvatar fullName={user?.full_name} avatarUrl={user?.avatar_url} size="md" />
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">{user?.full_name ?? "Owner"}</p>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-lovable-ink-muted">{user?.role ?? "owner"}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-lovable-ink-muted">{userRoleLabel}</p>
                   </div>
                 </button>
 

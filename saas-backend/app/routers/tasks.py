@@ -48,6 +48,7 @@ def list_tasks_endpoint(
     page_size: int = Query(20, ge=1, le=100),
     status: TaskStatus | None = None,
     assigned_to_user_id: UUID | None = None,
+    include_retention: bool = Query(False),
 ) -> PaginatedResponse[TaskOut]:
     return list_tasks(
         db,
@@ -56,6 +57,7 @@ def list_tasks_endpoint(
         status=status,
         assigned_to_user_id=assigned_to_user_id,
         current_user=current_user,
+        include_retention=include_retention,
     )
 
 

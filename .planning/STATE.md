@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.32
-plan: "04.32-STATUS.md"
-status: Phase 4.3 segue em execucao no piloto, com 4.31 publicada e 4.32 aberta para fechar canais reais do piloto
-last_activity: 2026-03-26 - 4.31 publicada no piloto; 4.32 entrou em execucao com foco em avaliacao assistida, exportacao Actuar e WhatsApp
+phase: 4.34
+plan: "04.34-STATUS.md"
+status: Piloto segue em execucao e entrou em hardening urgente das superficies administrativas, notificacoes, metas, NPS e relatorios, com personalizacao de usuarios
+last_activity: 2026-03-26 - fase 4.34 aberta para corrigir bugs reais do piloto em relatorios/goals/notificacoes e fechar perfil de usuario com foto, cargo e edicao de papel
 ---
 
 # STATE
@@ -17,15 +17,15 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.32
-**Plan:** `04.32-STATUS.md`
-**Status:** Piloto controlado segue ativo em 4.3, com 4.31 publicada e 4.32 em execucao para fechar canais reais e consolidar o comportamento de avaliacao assistida/Actuar no ambiente publicado
-**Last activity:** 2026-03-26 - avaliacao assistida validada com fallback deterministico, exportacao Actuar colocada em modo bridge e WhatsApp mapeado como bloqueio externo de credencial
+**Phase:** 4.34
+**Plan:** `04.34-STATUS.md`
+**Status:** Piloto controlado segue ativo, e a frente urgente atual ataca as superficies administrativas e de reporte que ainda quebram a confianca do uso real
+**Last activity:** 2026-03-26 - bugs de producao em notificacoes, goals e relatorios mapeados como problemas de contrato/serializacao; personalizacao de usuarios entrou na mesma fase urgente
 
 ## Progress Snapshot
 
 **Active milestone:** v3.2.0
-**Phases planned:** 9
+**Phases planned:** 10
 **Plans planned:** 6
 **Plans completed:** 3
 
@@ -37,6 +37,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4 concluiu import mapper com reconciliacao manual e preview seguro
 - Phase 4.1 fechou birthday importado, recalc duravel de risco, websocket distribuido e suites verdes
 - Phase 4.2 alinhou RBAC com backend, criou task-lite do trainer e completou CI do frontend
+- Phase 4.32 colocou WhatsApp real no piloto e validou a trilha premium/OpenAI da bioimpedancia
 
 ### Current Milestone Scope
 
@@ -45,7 +46,8 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.2: coerencia operacional P1 - concluida
 - Phase 4.3: piloto controlado - em execucao
 - Phase 4.31: bioimpedancia assistida e Actuar readiness - publicada no piloto
-- Phase 4.32: canais reais do piloto - em execucao
+- Phase 4.32: canais reais do piloto - publicada no piloto, com pendencia apenas de credenciais reais do Actuar automatico
 - Phase 4.33: transparencia de IA e fluxos publicos - aguardando 4.32
+- Phase 4.34: superficies administrativas e relatorios do piloto - em execucao
 - Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes
 - Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5

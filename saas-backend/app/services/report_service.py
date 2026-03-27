@@ -105,13 +105,16 @@ def _write_executive(write_line, db: Session) -> None:  # type: ignore[no-untype
     data = get_executive_dashboard(db)
     write_line(" ")
     write_line("[Executivo]")
-    write_line(f"- Total de alunos: {data.total_members}")
-    write_line(f"- Alunos ativos: {data.active_members}")
-    write_line(f"- MRR: R$ {data.mrr:.2f}")
-    write_line(f"- Churn: {data.churn_rate:.2f}%")
-    write_line(f"- NPS medio: {data.nps_avg:.2f}")
+    write_line(f"- Total de alunos: {_read_value(data, 'total_members', 0)}")
+    write_line(f"- Alunos ativos: {_read_value(data, 'active_members', 0)}")
+    write_line(f"- MRR: R$ {float(_read_value(data, 'mrr', 0.0)):.2f}")
+    write_line(f"- Churn: {float(_read_value(data, 'churn_rate', 0.0)):.2f}%")
+    write_line(f"- NPS medio: {float(_read_value(data, 'nps_avg', 0.0)):.2f}")
     write_line(
-        f"- Risco (G/Y/R): {data.risk_distribution['green']}/{data.risk_distribution['yellow']}/{data.risk_distribution['red']}",
+        "- Risco (G/Y/R): "
+        f"{_read_value(_read_value(data, 'risk_distribution', {}), 'green', 0)}/"
+        f"{_read_value(_read_value(data, 'risk_distribution', {}), 'yellow', 0)}/"
+        f"{_read_value(_read_value(data, 'risk_distribution', {}), 'red', 0)}",
         spacer=True,
     )
 

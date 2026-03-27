@@ -36,6 +36,14 @@
 - [ ] **AI-01**: dashboards e narrativas deixam explicito quando o conteudo vem de IA real versus fallback automatico
 - [ ] **PUB-01**: fluxos publicos do piloto ficam claramente ativados ou escondidos, sem endpoints semi-prometidos e desabilitados
 
+### Superficies administrativas e relatorios do piloto
+
+- [ ] **ADMIN-01**: notificacoes do piloto carregam sem redirects quebrando autenticacao
+- [ ] **ADMIN-02**: metas podem ser criadas e listadas no piloto sem erro de contrato de rota
+- [ ] **ADMIN-03**: relatorios executivo, consolidado e disparo mensal geram PDF sem falhar quando o dashboard vem serializado do cache
+- [ ] **ADMIN-04**: NPS deixa explicito o estado vazio e nao parece modulo quebrado quando ainda nao ha respostas
+- [ ] **ADMIN-05**: usuarios podem editar foto por URL, cargo e campos basicos de perfil; owner pode ajustar papel e dados da equipe com regras coerentes
+
 ### Import Flow
 
 - [x] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
@@ -71,6 +79,11 @@
 | COMMS-02 | Phase 4.32 | Planned |
 | AI-01 | Phase 4.33 | Planned |
 | PUB-01 | Phase 4.33 | Planned |
+| ADMIN-01 | Phase 4.34 | Planned |
+| ADMIN-02 | Phase 4.34 | Planned |
+| ADMIN-03 | Phase 4.34 | Planned |
+| ADMIN-04 | Phase 4.34 | Planned |
+| ADMIN-05 | Phase 4.34 | Planned |
 | IMP-01 | Phase 4 | Completed |
 | IMP-02 | Phase 4 | Completed |
 | BULK-01 | Phase 5 | Deferred until post-pilot |
@@ -86,6 +99,7 @@
 | Expansao de permissoes de backend so para caber na UI | A estrategia continua sendo superficie verdadeira |
 | Bulk update e busca sensivel antes do piloto | Foram explicitamente pausados ate validacao do piloto |
 | Bioimpedancia com IA real, Actuar, canais e fluxos publicos tratados como detalhe de configuracao | Agora fazem parte do readiness real do piloto e ganharam fases urgentes proprias |
+| Upload real de avatar com storage dedicado neste ciclo | Nesta rodada o piloto fecha avatar por URL para nao abrir infra extra antes da validacao |
 
 ---
 *Requirements defined: 2026-03-24 for v3.2.0*

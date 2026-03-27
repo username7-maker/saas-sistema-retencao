@@ -11,6 +11,8 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     role: RoleEnum = RoleEnum.RECEPTIONIST
+    job_title: str | None = Field(default=None, max_length=120)
+    avatar_url: str | None = Field(default=None, max_length=500)
 
 
 class GymOwnerRegister(BaseModel):
@@ -34,6 +36,8 @@ class UserOut(BaseModel):
     email: EmailStr
     role: RoleEnum
     is_active: bool
+    job_title: str | None = None
+    avatar_url: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

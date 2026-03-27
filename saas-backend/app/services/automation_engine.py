@@ -142,6 +142,11 @@ def execute_rule_for_member(
         suggested_msg = action_config.get("suggested_message", "")
         if suggested_msg:
             suggested_msg = _render(suggested_msg, template_vars)
+        task_extra = action_config.get("extra_data")
+        extra_data = dict(task_extra) if isinstance(task_extra, dict) else {}
+        source = action_config.get("source")
+        if isinstance(source, str) and source.strip():
+            extra_data["source"] = source.strip()
 
         task = Task(
             member_id=member.id,
@@ -152,6 +157,7 @@ def execute_rule_for_member(
             status=TaskStatus.TODO,
             kanban_column=TaskStatus.TODO.value,
             suggested_message=suggested_msg or None,
+            extra_data=extra_data,
         )
         db.add(task)
         db.flush()
@@ -530,6 +536,8 @@ def seed_default_rules(db: Session, gym_id: UUID) -> list[AutomationRule]:
                 "description": "Aluno em risco amarelo. Score: {score}. Entrar em contato.",
                 "priority": "high",
                 "suggested_message": "Ola {nome}, tudo bem? Notamos sua ausencia e gostavamos de saber como podemos te ajudar.",
+                "source": "retention_automation",
+                "extra_data": {"owner_role": "reception"},
             },
         },
         {
@@ -550,6 +558,8 @@ def seed_default_rules(db: Session, gym_id: UUID) -> list[AutomationRule]:
                 "title": "Follow-up NPS baixo - {nome}",
                 "description": "Aluno com NPS {nps}. Agendar conversa para entender insatisfacao.",
                 "priority": "high",
+                "source": "retention_automation",
+                "extra_data": {"owner_role": "manager"},
             },
         },
         {

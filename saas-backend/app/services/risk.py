@@ -747,6 +747,11 @@ def _ensure_call_task(
         status=TaskStatus.TODO,
         kanban_column=TaskStatus.TODO.value,
         suggested_message=suggested_message,
+        extra_data={
+            "source": "retention_automation",
+            "stage": stage,
+            "owner_role": "reception",
+        },
     )
     db.add(task)
     if existing_task_member_ids is not None:
@@ -804,6 +809,11 @@ def _ensure_manager_alert_task(
         priority=TaskPriority.URGENT,
         status=TaskStatus.TODO,
         kanban_column=TaskStatus.TODO.value,
+        extra_data={
+            "source": "retention_automation",
+            "stage": "21d",
+            "owner_role": "manager",
+        },
     )
     db.add(task)
     if existing_task_pairs is not None:

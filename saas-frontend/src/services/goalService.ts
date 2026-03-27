@@ -41,7 +41,7 @@ export interface GoalCreateInput {
 
 export const goalService = {
   async list(activeOnly = false): Promise<Goal[]> {
-    const { data } = await api.get<Goal[]>("/api/v1/goals", {
+    const { data } = await api.get<Goal[]>("/api/v1/goals/", {
       params: { active_only: activeOnly },
     });
     return data;
@@ -55,7 +55,7 @@ export const goalService = {
   },
 
   async create(payload: GoalCreateInput): Promise<Goal> {
-    const { data } = await api.post<Goal>("/api/v1/goals", payload);
+    const { data } = await api.post<Goal>("/api/v1/goals/", payload);
     return data;
   },
 

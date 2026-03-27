@@ -89,6 +89,8 @@ export function GoalsPage() {
     return <LoadingPanel text="Erro ao carregar metas. Tente novamente." />;
   }
 
+  const progressItems = progressQuery.data ?? [];
+
   return (
     <section className="space-y-6">
       <header>
@@ -148,8 +150,14 @@ export function GoalsPage() {
         </form>
       </section>
 
-      <section className="space-y-3">
-        {(progressQuery.data ?? []).map((item) => {
+      {progressItems.length === 0 ? (
+        <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center shadow-panel">
+          <p className="text-sm font-semibold text-lovable-ink">Nenhuma meta cadastrada ainda.</p>
+          <p className="mt-1 text-sm text-lovable-ink-muted">Crie a primeira meta para começar a acompanhar progresso e risco de não atingimento.</p>
+        </section>
+      ) : (
+        <section className="space-y-3">
+          {progressItems.map((item) => {
           const progressClamped = Math.max(0, Math.min(100, item.progress_pct));
           const tone =
             item.status === "achieved"
@@ -201,8 +209,9 @@ export function GoalsPage() {
               </p>
             </article>
           );
-        })}
-      </section>
+          })}
+        </section>
+      )}
     </section>
   );
 }

@@ -145,6 +145,28 @@ def test_execute_rule_create_task_skips_when_no_existing(monkeypatch):
     assert result["action"] == AutomationAction.CREATE_TASK
 
 
+def test_execute_rule_create_task_persists_source_metadata():
+    db = DummyDB()
+    db.values = [None]
+    member = _make_member()
+    rule = _make_rule(
+        action_type=AutomationAction.CREATE_TASK,
+        action_config={
+            "title": "Contatar {nome}",
+            "priority": "high",
+            "source": "retention_automation",
+            "extra_data": {"owner_role": "manager"},
+        },
+    )
+
+    result = automation_engine.execute_rule_for_member(db, rule, member)
+
+    created_task = next(obj for obj in db.added if getattr(obj, "title", None) == "Contatar Aluno Teste")
+    assert result["status"] == "created"
+    assert created_task.extra_data["source"] == "retention_automation"
+    assert created_task.extra_data["owner_role"] == "manager"
+
+
 def test_execute_rule_create_task_skips_duplicate(monkeypatch):
     db = DummyDB()
     existing_task = SimpleNamespace(id="task-existing")
@@ -244,6 +266,10 @@ def test_seed_default_rules_creates_when_empty():
     rules = automation_engine.seed_default_rules(db, uuid.uuid4())
 
     assert len(rules) == 5
+    yellow_rule = next(rule for rule in rules if "Risco Amarelo" in rule.name)
+    nps_rule = next(rule for rule in rules if "NPS baixo" in rule.name)
+    assert yellow_rule.action_config["source"] == "retention_automation"
+    assert nps_rule.action_config["source"] == "retention_automation"
     assert db.flushed is True
 
 

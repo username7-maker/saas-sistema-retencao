@@ -7,6 +7,8 @@ export interface User {
   email: string;
   role: Role;
   is_active: boolean;
+  job_title?: string | null;
+  avatar_url?: string | null;
   created_at: string;
 }
 

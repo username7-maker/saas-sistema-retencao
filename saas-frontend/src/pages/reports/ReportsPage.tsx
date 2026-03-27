@@ -1,5 +1,5 @@
-﻿import { useState } from "react";
-import { BarChart3, ShieldAlert, Briefcase, Wallet, Activity, FileText, Send } from "lucide-react";
+import { useState } from "react";
+import { Activity, BarChart3, Briefcase, FileText, Send, ShieldAlert, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -33,6 +33,10 @@ function initialLoadingMap(): Record<DashboardReportType, boolean> {
   };
 }
 
+function reportCardTitle(type: DashboardReportType): string {
+  return REPORT_CARDS.find((card) => card.type === type)?.title ?? type;
+}
+
 export default function ReportsPage() {
   const [loadingByType, setLoadingByType] = useState<Record<DashboardReportType, boolean>>(initialLoadingMap);
   const [dispatching, setDispatching] = useState(false);
@@ -42,9 +46,9 @@ export default function ReportsPage() {
     setLoadingByType((prev) => ({ ...prev, [type]: true }));
     try {
       await reportService.exportDashboardPdf(type);
-      toast.success(`Relatório ${type} gerado com sucesso!`);
+      toast.success(`Relatório ${reportCardTitle(type)} baixado com sucesso.`);
     } catch {
-      toast.error("Falha ao exportar PDF.");
+      toast.error("Falha ao exportar PDF. Verifique se os dados desse dashboard estão disponíveis.");
     } finally {
       setLoadingByType((prev) => ({ ...prev, [type]: false }));
     }
@@ -53,8 +57,8 @@ export default function ReportsPage() {
   const handleDispatchMonthly = async () => {
     setDispatching(true);
     try {
-      await reportService.dispatchMonthlyReports();
-      toast.success("Relatório mensal enviado por e-mail!");
+      const result = await reportService.dispatchMonthlyReports();
+      toast.success(result.message);
     } catch {
       toast.error("Falha ao disparar relatório mensal.");
     } finally {
@@ -67,11 +71,11 @@ export default function ReportsPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Relatórios</h2>
-          <p className="text-sm text-lovable-ink-muted">Gere exports PDF por dashboard e dispare o consolidado mensal.</p>
+          <p className="text-sm text-lovable-ink-muted">Baixe relatórios em PDF por dashboard e dispare o consolidado mensal para a liderança.</p>
         </div>
         <Button variant="primary" onClick={() => setConfirmDispatch(true)} disabled={dispatching}>
           <Send size={14} />
-          {dispatching ? "Enviando..." : "Disparar Relatório Mensal"}
+          {dispatching ? "Enviando..." : "Disparar relatório mensal"}
         </Button>
       </header>
 
@@ -105,11 +109,20 @@ export default function ReportsPage() {
         })}
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Como usar esta área</CardTitle>
+          <CardDescription>
+            Os PDFs são gerados com o estado atual dos dashboards. Use os relatórios individuais para análise pontual e o consolidado para o resumo mensal da academia.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
       <Dialog
         open={confirmDispatch}
         onClose={() => setConfirmDispatch(false)}
-        title="Disparar Relatório Mensal"
-        description="O relatório consolidado será gerado e enviado por e-mail para todos os gestores. Deseja continuar?"
+        title="Disparar relatório mensal"
+        description="O relatório consolidado será gerado e enviado por e-mail para os usuários de liderança. Deseja continuar?"
       >
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setConfirmDispatch(false)}>

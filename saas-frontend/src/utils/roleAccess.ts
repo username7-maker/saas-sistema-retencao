@@ -96,6 +96,18 @@ export function canToggleTargetUser(actorRole: Role | null | undefined, targetRo
   return false;
 }
 
+export function canEditTargetUserProfile(actorRole: Role | null | undefined, targetRole: Role, isSelf: boolean): boolean {
+  if (isSelf) return false;
+  if (actorRole === "owner") return true;
+  if (actorRole === "manager") return targetRole !== "owner";
+  return false;
+}
+
+export function canEditTargetUserRole(actorRole: Role | null | undefined, targetRole: Role, isSelf: boolean): boolean {
+  if (isSelf) return false;
+  return actorRole === "owner" && targetRole !== "owner";
+}
+
 export function canManageMemberDirectory(role: Role | null | undefined): boolean {
   return role === "owner" || role === "manager" || role === "receptionist";
 }

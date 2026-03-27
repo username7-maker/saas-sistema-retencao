@@ -3,7 +3,7 @@ import type { InAppNotification, PaginatedResponse } from "../types";
 
 export const notificationService = {
   async listNotifications(params?: { unread_only?: boolean; include_all?: boolean }): Promise<PaginatedResponse<InAppNotification>> {
-    const { data } = await api.get<PaginatedResponse<InAppNotification>>("/api/v1/notifications", {
+    const { data } = await api.get<PaginatedResponse<InAppNotification>>("/api/v1/notifications/", {
       params: {
         page_size: 50,
         unread_only: params?.unread_only ?? false,

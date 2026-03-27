@@ -28,7 +28,8 @@ export const reportService = {
     triggerBrowserDownload(response.data, filename);
   },
 
-  async dispatchMonthlyReports(): Promise<void> {
-    await api.post("/api/v1/reports/monthly-dispatch");
+  async dispatchMonthlyReports(): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>("/api/v1/reports/monthly-dispatch");
+    return data;
   },
 };

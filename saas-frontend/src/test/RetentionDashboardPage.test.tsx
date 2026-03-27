@@ -173,6 +173,7 @@ function renderPage() {
           isAuthenticated: true,
           login: vi.fn(),
           logout: vi.fn(),
+          refreshUser: vi.fn().mockResolvedValue(authUser),
         }}
       >
         <MemoryRouter>

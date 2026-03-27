@@ -50,6 +50,20 @@ def _is_trainer_technical_task(task: Task) -> bool:
     )
 
 
+def _is_retention_intelligence_task(task: Task) -> bool:
+    extra_data = _task_extra(task)
+    source = str(extra_data.get("source") or "").lower()
+    title = (task.title or "").lower()
+    description = (task.description or "").lower()
+    if source in {"retention_intelligence", "retention_automation"}:
+        return True
+    return (
+        title.startswith("escalar churn - ")
+        or "automacao de retencao" in description
+        or "entrar em contato para reten" in description
+    )
+
+
 def _ensure_task_access(task: Task, current_user: User | None) -> None:
     if current_user is None:
         return
@@ -82,6 +96,7 @@ def list_tasks(
     status: TaskStatus | None = None,
     assigned_to_user_id: UUID | None = None,
     current_user: User | None = None,
+    include_retention: bool = False,
 ) -> PaginatedResponse:
     filters = [Task.deleted_at.is_(None)]
     if status:
@@ -103,9 +118,14 @@ def list_tasks(
         items = [_enrich(task) for task in page_items]
         return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
-    total = db.scalar(select(func.count()).select_from(Task).where(and_(*filters))) or 0
     offset = (page - 1) * page_size
-    tasks = db.scalars(stmt.offset(offset).limit(page_size)).unique().all()
+    if not include_retention:
+        visible_tasks = [task for task in db.scalars(stmt).unique().all() if not _is_retention_intelligence_task(task)]
+        total = len(visible_tasks)
+        tasks = visible_tasks[offset : offset + page_size]
+    else:
+        total = db.scalar(select(func.count()).select_from(Task).where(and_(*filters))) or 0
+        tasks = db.scalars(stmt.offset(offset).limit(page_size)).unique().all()
     items = [_enrich(task) for task in tasks]
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 

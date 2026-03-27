@@ -7,6 +7,8 @@ export interface StaffUser {
   email: string;
   role: "owner" | "manager" | "receptionist" | "salesperson" | "trainer";
   is_active: boolean;
+  job_title?: string | null;
+  avatar_url?: string | null;
   created_at: string;
 }
 
@@ -15,11 +17,23 @@ export interface UserCreatePayload {
   email: string;
   password: string;
   role: StaffUser["role"];
+  job_title?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface UserUpdatePayload {
+  full_name?: string;
+  email?: string;
   is_active?: boolean;
+  job_title?: string | null;
+  avatar_url?: string | null;
   role?: StaffUser["role"];
+}
+
+export interface UserProfileUpdatePayload {
+  full_name?: string;
+  job_title?: string | null;
+  avatar_url?: string | null;
 }
 
 export const userService = {
@@ -35,6 +49,16 @@ export const userService = {
 
   async updateUser(userId: string, payload: UserUpdatePayload): Promise<StaffUser> {
     const { data } = await api.patch<StaffUser>(`/api/v1/users/${userId}`, payload);
+    return data;
+  },
+
+  async updateUserProfile(userId: string, payload: UserProfileUpdatePayload): Promise<StaffUser> {
+    const { data } = await api.patch<StaffUser>(`/api/v1/users/${userId}/profile`, payload);
+    return data;
+  },
+
+  async updateMyProfile(payload: UserProfileUpdatePayload): Promise<StaffUser> {
+    const { data } = await api.patch<StaffUser>("/api/v1/users/me/profile", payload);
     return data;
   },
 

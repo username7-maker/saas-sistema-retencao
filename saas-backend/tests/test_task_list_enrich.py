@@ -89,3 +89,57 @@ class TestListTasks:
         from app.services.task_service import list_tasks
         result = list_tasks(db, assigned_to_user_id=user_id)
         assert result.total == 0
+
+    def test_hides_retention_tasks_by_default(self):
+        manual_task = _task_ns(id=uuid.uuid4(), title="Ligar para lead", extra_data={"source": "manual"})
+        retention_task = _task_ns(id=uuid.uuid4(), title="Escalar churn - Ana", extra_data={"source": "retention_intelligence"})
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.unique.return_value = mock_scalars
+        mock_scalars.all.return_value = [manual_task, retention_task]
+        db.scalars.return_value = mock_scalars
+
+        from app.services.task_service import list_tasks
+
+        result = list_tasks(db)
+
+        assert result.total == 1
+        assert [item.title for item in result.items] == ["Ligar para lead"]
+
+    def test_hides_legacy_retention_tasks_without_extra_data(self):
+        manual_task = _task_ns(id=uuid.uuid4(), title="Confirmar visita guiada", description="Follow-up comercial", extra_data={})
+        retention_task = _task_ns(
+            id=uuid.uuid4(),
+            title="Escalar churn - Ana",
+            description="Aluno com 21+ dias sem treino. Acionar gerente responsavel.",
+            extra_data={},
+        )
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.unique.return_value = mock_scalars
+        mock_scalars.all.return_value = [manual_task, retention_task]
+        db.scalars.return_value = mock_scalars
+
+        from app.services.task_service import list_tasks
+
+        result = list_tasks(db)
+
+        assert result.total == 1
+        assert [item.title for item in result.items] == ["Confirmar visita guiada"]
+
+    def test_can_include_retention_tasks_when_requested(self):
+        manual_task = _task_ns(id=uuid.uuid4(), title="Ligar para lead", extra_data={"source": "manual"})
+        retention_task = _task_ns(id=uuid.uuid4(), title="Escalar churn - Ana", extra_data={"source": "retention_intelligence"})
+        db = MagicMock()
+        db.scalar.return_value = 2
+        mock_scalars = MagicMock()
+        mock_scalars.unique.return_value = mock_scalars
+        mock_scalars.all.return_value = [manual_task, retention_task]
+        db.scalars.return_value = mock_scalars
+
+        from app.services.task_service import list_tasks
+
+        result = list_tasks(db, include_retention=True)
+
+        assert result.total == 2
+        assert [item.title for item in result.items] == ["Ligar para lead", "Escalar churn - Ana"]

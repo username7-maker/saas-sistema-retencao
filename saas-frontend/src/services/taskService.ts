@@ -26,25 +26,27 @@ export interface UpdateTaskPayload {
 }
 
 const PAGE_SIZE = 50;
+type ListTaskParams = { page?: number; page_size?: number; include_retention?: boolean };
 
 export const taskService = {
-  async listTasks(params?: { page?: number; page_size?: number }): Promise<PaginatedResponse<Task>> {
-    const { page = 1, page_size = PAGE_SIZE } = params ?? {};
+  async listTasks(params?: ListTaskParams): Promise<PaginatedResponse<Task>> {
+    const { page = 1, page_size = PAGE_SIZE, include_retention = false } = params ?? {};
     const { data } = await api.get<PaginatedResponse<Task>>("/api/v1/tasks/", {
-      params: { page, page_size },
+      params: { page, page_size, include_retention },
     });
     return data;
   },
 
-  async listAllTasks(): Promise<PaginatedResponse<Task>> {
-    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE });
+  async listAllTasks(params?: Pick<ListTaskParams, "include_retention">): Promise<PaginatedResponse<Task>> {
+    const include_retention = params?.include_retention ?? false;
+    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE, include_retention });
 
     if (first.total <= PAGE_SIZE) return first;
 
     const totalPages = Math.ceil(first.total / PAGE_SIZE);
     const rest: Task[] = [];
     for (let page = 2; page <= totalPages; page += 1) {
-      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE });
+      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE, include_retention });
       rest.push(...response.items);
     }
 

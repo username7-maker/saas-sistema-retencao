@@ -121,3 +121,44 @@ def test_automation_3d_marks_stage_when_email_channel_is_blocked(monkeypatch):
     assert actions[0]["status"] == "blocked"
     assert actions[0]["reason"] == "sender_identity_unverified"
     assert triggered == ["automation_3d"]
+
+
+def test_ensure_call_task_marks_retention_source():
+    created = []
+
+    class TaskDB(DummyDB):
+        def add(self, obj):
+            created.append(obj)
+
+    member = SimpleNamespace(
+        id="member-7d",
+        full_name="Aluno Risco",
+        assigned_user_id="user-1",
+    )
+
+    risk_service._ensure_call_task(TaskDB(), member, "7d", existing_task_member_ids=set())
+
+    task = created[0]
+    assert task.extra_data["source"] == "retention_automation"
+    assert task.extra_data["stage"] == "7d"
+    assert task.extra_data["owner_role"] == "reception"
+
+
+def test_ensure_manager_alert_task_marks_retention_source():
+    created = []
+
+    class TaskDB(DummyDB):
+        def add(self, obj):
+            created.append(obj)
+
+    member = SimpleNamespace(
+        id="member-21d",
+        full_name="Aluno Churn",
+    )
+
+    risk_service._ensure_manager_alert_task(TaskDB(), member, "manager-1", existing_task_pairs=set())
+
+    task = created[0]
+    assert task.extra_data["source"] == "retention_automation"
+    assert task.extra_data["stage"] == "21d"
+    assert task.extra_data["owner_role"] == "manager"

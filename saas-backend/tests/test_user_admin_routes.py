@@ -19,6 +19,9 @@ def _current_user(role: RoleEnum, user_id: str = "22222222-2222-2222-2222-222222
         email=f"{role.value}@teste.com",
         role=role,
         is_active=True,
+        job_title=None,
+        avatar_url=None,
+        created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
         deleted_at=None,
     )
 
@@ -31,6 +34,8 @@ def _target_user(role: RoleEnum, user_id: str) -> SimpleNamespace:
         email=f"{role.value}.alvo@teste.com",
         role=role,
         is_active=True,
+        job_title=None,
+        avatar_url=None,
         deleted_at=None,
         created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
     )
@@ -93,5 +98,77 @@ def test_manager_cannot_toggle_owner_activation(app, client):
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Gerente nao pode ativar ou desativar owner"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_owner_can_update_team_profile_fields(app, client):
+    target = _target_user(RoleEnum.RECEPTIONIST, "55555555-5555-5555-5555-555555555555")
+    mock_db = MagicMock()
+    mock_db.scalar.return_value = target
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.OWNER)
+
+    try:
+        response = client.patch(
+            f"/api/v1/users/{target.id}/profile",
+            json={
+                "full_name": "Recepcao Editada",
+                "job_title": "Atendimento",
+                "avatar_url": "https://cdn.exemplo.com/avatar.png",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["full_name"] == "Recepcao Editada"
+        assert body["job_title"] == "Atendimento"
+        assert body["avatar_url"] == "https://cdn.exemplo.com/avatar.png"
+        mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_manager_cannot_edit_owner_profile(app, client):
+    target = _target_user(RoleEnum.OWNER, "66666666-6666-6666-6666-666666666666")
+    mock_db = MagicMock()
+    mock_db.scalar.return_value = target
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.MANAGER)
+
+    try:
+        response = client.patch(
+            f"/api/v1/users/{target.id}/profile",
+            json={"job_title": "Diretoria"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Gerente nao pode editar perfil do owner"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_user_can_update_own_profile(app, client):
+    current_user = _current_user(RoleEnum.RECEPTIONIST)
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    try:
+        response = client.patch(
+            "/api/v1/users/me/profile",
+            json={
+                "full_name": "Recepcao Piloto",
+                "job_title": "Front desk",
+                "avatar_url": "https://cdn.exemplo.com/me.png",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["full_name"] == "Recepcao Piloto"
+        assert body["job_title"] == "Front desk"
+        assert body["avatar_url"] == "https://cdn.exemplo.com/me.png"
+        mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
