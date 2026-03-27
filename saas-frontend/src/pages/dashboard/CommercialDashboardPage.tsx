@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { AiInsightCard } from "../../components/common/AiInsightCard";
+import { getChartSeriesState } from "../../components/charts/chartState";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickLeadActions } from "../../components/common/QuickLeadActions";
@@ -47,6 +48,10 @@ export function CommercialDashboardPage() {
     }));
   }, [query.data]);
 
+  const pipelineState = getChartSeriesState(pipelineData, ["total"]);
+  const hasPipeline = pipelineState.hasMeaningfulValues;
+  const hasCommercialBase = hasPipeline || (query.data?.conversion_by_source.length ?? 0) > 0 || (query.data?.stale_leads_total ?? 0) > 0;
+
   const handleActionComplete = () => {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
   };
@@ -87,60 +92,76 @@ export function CommercialDashboardPage() {
       <AiInsightCard dashboard="commercial" />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="CAC" value={`R$ ${query.data.cac.toFixed(2)}`} tone="warning" />
+        <StatCard label="CAC" value={hasCommercialBase ? `R$ ${query.data.cac.toFixed(2)}` : "Sem base"} tone="warning" />
         <StatCard label="Leads em proposta" value={String(query.data.pipeline.proposal ?? 0)} tone="neutral" />
         <StatCard label="Fechados" value={String(query.data.pipeline.won ?? 0)} tone="success" />
       </div>
 
       <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estagio</p>
-        <ResponsiveContainer width="100%" height="90%">
-          <BarChart data={pipelineData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
-            <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
-            <YAxis stroke="hsl(var(--lovable-ink-muted))" />
-            <Tooltip
-              contentStyle={{
-                background: "hsl(var(--lovable-surface))",
-                border: "1px solid hsl(var(--lovable-border))",
-                borderRadius: "0.75rem",
-              }}
-              labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
-              itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
+        {hasPipeline ? (
+          <ResponsiveContainer width="100%" height="90%">
+            <BarChart data={pipelineData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+              <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
+              <YAxis stroke="hsl(var(--lovable-ink-muted))" />
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--lovable-surface))",
+                  border: "1px solid hsl(var(--lovable-border))",
+                  borderRadius: "0.75rem",
+                }}
+                labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
+              />
+              <Bar dataKey="total" radius={[8, 8, 0, 0]}>
+                {pipelineData.map((entry) => (
+                  <Cell key={entry.stage} fill={stageColor(entry.stage)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-lovable-border">
+            <EmptyState
+              icon={BarChart3}
+              title="Pipeline ainda sem base util"
+              description="Quando houver leads e mudancas reais de estagio, o grafico comercial passa a mostrar a distribuicao do funil."
             />
-            <Bar dataKey="total" radius={[8, 8, 0, 0]}>
-              {pipelineData.map((entry) => (
-                <Cell key={entry.stage} fill={stageColor(entry.stage)} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Conversao por origem</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
-              <tr>
-                <th className="px-2 py-2">Origem</th>
-                <th className="px-2 py-2">Total</th>
-                <th className="px-2 py-2">Fechados</th>
-                <th className="px-2 py-2">Conversao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.data.conversion_by_source.map((row) => (
-                <tr key={row.source} className="border-t border-lovable-border">
-                  <td className="px-2 py-2 font-medium text-lovable-ink">{row.source}</td>
-                  <td className="px-2 py-2 text-lovable-ink-muted">{row.total}</td>
-                  <td className="px-2 py-2 text-lovable-ink-muted">{row.won}</td>
-                  <td className="px-2 py-2 font-medium text-lovable-ink">{row.conversion_rate}%</td>
+        {(query.data.conversion_by_source ?? []).length === 0 ? (
+          <div className="rounded-xl border border-dashed border-lovable-border px-4 py-4 text-sm text-lovable-ink-muted">
+            Ainda nao ha volume suficiente por origem para calcular conversao de forma confiavel.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
+                <tr>
+                  <th className="px-2 py-2">Origem</th>
+                  <th className="px-2 py-2">Total</th>
+                  <th className="px-2 py-2">Fechados</th>
+                  <th className="px-2 py-2">Conversao</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {query.data.conversion_by_source.map((row) => (
+                  <tr key={row.source} className="border-t border-lovable-border">
+                    <td className="px-2 py-2 font-medium text-lovable-ink">{row.source}</td>
+                    <td className="px-2 py-2 text-lovable-ink-muted">{row.total}</td>
+                    <td className="px-2 py-2 text-lovable-ink-muted">{row.won}</td>
+                    <td className="px-2 py-2 font-medium text-lovable-ink">{row.conversion_rate}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-lovable-warning/30 bg-lovable-surface p-4 shadow-panel">

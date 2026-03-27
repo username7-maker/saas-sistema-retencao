@@ -213,4 +213,31 @@ describe("DashboardLovable", () => {
       screen.getByText("A fila esta sob controle. Volte mais tarde para acompanhar novas oportunidades."),
     ).toBeInTheDocument();
   });
+
+  it("shows a contextual empty state when churn and NPS have no useful historical variation", async () => {
+    dashboardHooks.useRetentionDashboard.mockReturnValue(
+      queryResult({
+        ...retentionData,
+        nps_trend: [],
+      }),
+    );
+    dashboardHooks.useChurnDashboard.mockReturnValue(
+      queryResult([
+        { month: "2025-12", churn_rate: 0 },
+        { month: "2026-01", churn_rate: 0 },
+        { month: "2026-02", churn_rate: 0 },
+        { month: "2026-03", churn_rate: 0 },
+      ]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Sem base historica util para o grafico")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "O piloto ainda nao acumulou NPS ou churn com variacao suficiente. Assim que houver respostas e cancelamentos registrados, a curva aparece aqui com contexto real.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();
+  });
 });

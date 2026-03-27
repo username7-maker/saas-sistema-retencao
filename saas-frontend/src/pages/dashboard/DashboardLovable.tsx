@@ -17,6 +17,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
+import { getChartSeriesState } from "../../components/charts/chartState";
 import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Button, Skeleton, cn } from "../../components/ui2";
 import {
@@ -305,6 +306,11 @@ export function DashboardLovable() {
     return points;
   }, [chartRange, viewModel.retentionChart]);
 
+  const retentionChartState = useMemo(
+    () => getChartSeriesState(chartData, ["churn_rate", "nps_avg"]),
+    [chartData],
+  );
+
   const kpiItems = [
     {
       label: "Total membros",
@@ -387,6 +393,14 @@ export function DashboardLovable() {
                     description="Ajuste o intervalo ou aguarde mais historico para visualizar a evolucao."
                   />
                 </div>
+              ) : !retentionChartState.hasMeaningfulValues ? (
+                <div className="flex h-full items-center justify-center rounded-[22px] border border-dashed border-lovable-border">
+                  <EmptyState
+                    icon={BarChart3}
+                    title="Sem base historica util para o grafico"
+                    description="O piloto ainda nao acumulou NPS ou churn com variacao suficiente. Assim que houver respostas e cancelamentos registrados, a curva aparece aqui com contexto real."
+                  />
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData}>
@@ -451,6 +465,11 @@ export function DashboardLovable() {
                 </ResponsiveContainer>
               )}
             </div>
+            {retentionChartState.hasMeaningfulValues && retentionChartState.isFlat ? (
+              <p className="mt-3 text-xs text-lovable-ink-muted">
+                Serie praticamente estavel no periodo. Use Retencao e NPS para validar se a estabilidade reflete operacao real ou falta de novos eventos.
+              </p>
+            ) : null}
           </DashboardZone>
 
           <DashboardZone>
