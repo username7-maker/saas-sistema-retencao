@@ -120,6 +120,36 @@ def _build_xlsx_bytes(headers: list[str], rows: list[list[object]]) -> bytes:
     return buffer.getvalue()
 
 
+def _build_zip_with_total_size(total_size: int) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("xl/workbook.xml", "x" * total_size)
+    return buffer.getvalue()
+
+
+def test_iter_rows_csv_rejects_excessive_columns():
+    headers = ",".join(f"col_{index}" for index in range(201))
+    csv_content = f"{headers}\nvalor\n".encode("utf-8")
+
+    with pytest.raises(ValueError, match="200 colunas"):
+        list(import_service._iter_rows(csv_content, filename="clientes.csv"))
+
+
+def test_iter_rows_xlsx_rejects_excessive_uncompressed_size():
+    xlsx_content = _build_zip_with_total_size((25 * 1024 * 1024) + 1)
+
+    with pytest.raises(ValueError, match="descompressao"):
+        list(import_service._iter_rows(xlsx_content, filename="clientes.xlsx"))
+
+
+def test_iter_rows_csv_rejects_excessive_field_size():
+    huge_value = "a" * ((1 * 1024 * 1024) + 1)
+    csv_content = f"nome,email\nAluno,{huge_value}\n".encode("utf-8")
+
+    with pytest.raises(ValueError, match="campos excessivamente grandes"):
+        list(import_service._iter_rows(csv_content, filename="clientes.csv"))
+
+
 class _FakeScalars:
     def __init__(self, members: list[Member]) -> None:
         self._members = members

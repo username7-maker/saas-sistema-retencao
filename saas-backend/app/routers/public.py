@@ -184,7 +184,7 @@ def public_whatsapp_webhook(
     x_webhook_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> PublicWhatsappWebhookResponse:
-    provided_token = x_webhook_token or _extract_bearer_token(authorization) or request.query_params.get("token")
+    provided_token = x_webhook_token or _extract_bearer_token(authorization)
     if not settings.whatsapp_webhook_token or provided_token != settings.whatsapp_webhook_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Webhook token invalido")
 

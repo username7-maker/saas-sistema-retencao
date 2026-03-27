@@ -1,11 +1,12 @@
 import asyncio
+import json
 import logging
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from uuid import UUID
 
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -59,10 +60,20 @@ from app.routers import (
     users,
     whatsapp,
 )
-from app.core.limiter import RateLimitExceeded, SlowAPIMiddleware, limiter, rate_limit_enabled, rate_limit_exceeded_handler
+from app.core.limiter import (
+    RateLimitExceeded,
+    SlowAPIMiddleware,
+    ensure_rate_limiting_ready,
+    limiter,
+    rate_limit_enabled,
+    rate_limit_exceeded_handler,
+)
 from app.services.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
+
+
+ensure_rate_limiting_ready(settings.environment)
 
 
 @asynccontextmanager
@@ -192,34 +203,58 @@ def health_check() -> dict[str, str]:
 @app.get("/health/ready")
 def readiness_check() -> JSONResponse:
     db_status = "ok"
-    db_error = ""
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
     except Exception as exc:
         db_status = "error"
-        db_error = str(exc)
+        logger.warning("Readiness database check failed", exc_info=exc)
     finally:
         db.close()
 
     cache_info = dashboard_cache.healthcheck()
     cache_required = bool(settings.redis_url)
     cache_healthy = (not cache_required) or bool(cache_info.get("available"))
+    cache_status = "ok" if cache_healthy else ("not_configured" if not cache_required else "error")
     healthy = db_status == "ok" and cache_healthy
     payload = {
         "status": "ok" if healthy else "degraded",
         "checks": {
-            "database": {"status": db_status, "error": db_error},
-            "cache": cache_info,
+            "database": {"status": db_status},
+            "cache": {"status": cache_status},
         },
     }
     status_code = 200 if healthy else 503
     return JSONResponse(status_code=status_code, content=payload)
 
 
-@app.websocket("/ws/updates")
-async def updates_websocket(websocket: WebSocket, token: str = Query(...)) -> None:
+def _extract_websocket_auth_token(message: str) -> str | None:
     try:
+        payload = json.loads(message)
+    except json.JSONDecodeError:
+        return None
+
+    if payload.get("type") != "auth":
+        return None
+
+    token = payload.get("token")
+    if not isinstance(token, str):
+        return None
+
+    normalized = token.strip()
+    return normalized or None
+
+
+@app.websocket("/ws/updates")
+async def updates_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    try:
+        auth_message = await asyncio.wait_for(websocket.receive_text(), timeout=5)
+        token = _extract_websocket_auth_token(auth_message)
+        if not token:
+            await websocket.close(code=4401)
+            return
+
         payload = decode_token(token)
         if payload.get("type") != "access":
             await websocket.close(code=4401)

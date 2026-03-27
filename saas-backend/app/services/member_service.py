@@ -7,7 +7,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.database import get_current_gym_id
+from app.database import get_current_gym_id, include_all_tenants
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
@@ -23,7 +23,7 @@ def _resolve_gym_id(gym_id: UUID | None = None) -> UUID | None:
 def _scoped_statement(statement, gym_id: UUID | None):
     if gym_id is None:
         return statement
-    return statement.execution_options(include_all_tenants=True)
+    return include_all_tenants(statement, reason="member_service.explicit_gym_scope")
 
 
 def _build_member_filters(

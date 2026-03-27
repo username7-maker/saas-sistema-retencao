@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+from app.database import SessionLocal, clear_current_gym_id, include_all_tenants, set_current_gym_id
 from app.models.risk_recalculation_request import RiskRecalculationRequest
 from app.services.risk import run_daily_risk_processing
 
@@ -84,23 +84,25 @@ def _claim_next_request(db: Session, *, worker_id: str) -> RiskRecalculationRequ
     now = _utcnow()
     stale_before = now - _STALE_LOCK_AFTER
     request = db.scalar(
-        select(RiskRecalculationRequest)
-        .execution_options(include_all_tenants=True)
-        .where(
-            or_(
-                RiskRecalculationRequest.status == "pending",
-                and_(
-                    RiskRecalculationRequest.status == "processing",
-                    RiskRecalculationRequest.locked_at.is_not(None),
-                    RiskRecalculationRequest.locked_at < stale_before,
-                ),
+        include_all_tenants(
+            select(RiskRecalculationRequest)
+            .where(
+                or_(
+                    RiskRecalculationRequest.status == "pending",
+                    and_(
+                        RiskRecalculationRequest.status == "processing",
+                        RiskRecalculationRequest.locked_at.is_not(None),
+                        RiskRecalculationRequest.locked_at < stale_before,
+                    ),
+                )
             )
+            .order_by(
+                case((RiskRecalculationRequest.status == "pending", 0), else_=1),
+                RiskRecalculationRequest.created_at.asc(),
+            )
+            .limit(1),
+            reason="risk_recalculation.claim_next_request",
         )
-        .order_by(
-            case((RiskRecalculationRequest.status == "pending", 0), else_=1),
-            RiskRecalculationRequest.created_at.asc(),
-        )
-        .limit(1)
     )
     if request is None:
         return None

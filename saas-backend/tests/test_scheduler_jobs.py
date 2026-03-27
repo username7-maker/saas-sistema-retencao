@@ -46,13 +46,15 @@ def test_multi_tenant_jobs_continue_after_a_gym_failure(job_func, runner_patch, 
 
 def test_daily_loyalty_update_job_commits_per_successful_gym():
     first_scalars = RuntimeError("boom")
-    second_scalars = MagicMock()
-    second_scalars.all.return_value = [
+    second_batch = MagicMock()
+    second_batch.all.return_value = [
         SimpleNamespace(join_date=date(2025, 1, 15), loyalty_months=0),
         SimpleNamespace(join_date=date(2024, 12, 1), loyalty_months=0),
     ]
+    empty_batch = MagicMock()
+    empty_batch.all.return_value = []
     db = MagicMock()
-    db.scalars.side_effect = [first_scalars, second_scalars]
+    db.scalars.side_effect = [first_scalars, second_batch, empty_batch]
     gyms = [_gym("gym-a"), _gym("gym-b")]
 
     with (
@@ -61,10 +63,12 @@ def test_daily_loyalty_update_job_commits_per_successful_gym():
         patch("app.background_jobs.jobs.set_current_gym_id") as mock_set_gym,
         patch("app.background_jobs.jobs.clear_current_gym_id"),
         patch.object(settings, "scheduler_critical_lock_fail_open", True),
+        patch.object(settings, "loyalty_update_batch_size", 500),
     ):
         jobs.daily_loyalty_update_job()
 
     assert db.rollback.call_count == 1
     assert db.commit.call_count == 1
+    assert db.flush.call_count == 1
     mock_set_gym.assert_has_calls([call("gym-a"), call("gym-b")])
     db.close.assert_called_once()

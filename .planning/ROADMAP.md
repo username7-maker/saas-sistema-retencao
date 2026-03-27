@@ -3,7 +3,7 @@
 ## Milestones
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
-- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 5, 6
+- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 5, 6
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
@@ -145,11 +145,113 @@ Status:
 - [~] execute
 - [ ] verify/validate
 
+### Phase 4.35: Upload real de foto e funcoes mais ricas por usuario
+
+**Goal:** Evoluir a personalizacao basica por URL para um fluxo real de foto com upload e separar melhor `role` operacional de `funcao/cargo` no produto.
+**Requirements**: `IDENTITY-01` a `IDENTITY-04`
+**Depends on:** Phase 4.34
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.35-PLAN.md - upload real de avatar com storage seguro, papel versus funcao mais claro e superficies administrativas sem promessas falsas
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
+### Phase 4.36: Higiene de tokens e lockdown de superficies publicas
+
+**Goal:** Remover segredos em query string, endurecer as superficies publicas e impedir que protecoes de abuso desaparecam silenciosamente em producao.
+**Requirements**: `SEC-01` a `SEC-04`
+**Depends on:** Phase 4.35
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.36-PLAN.md - trocar query-string secrets por contratos seguros, tornar rate limiting obrigatorio em producao e rebaixar exposicao dos endpoints publicos e de readiness
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
+### Phase 4.37: Protecao de PII e seguranca de import/export
+
+**Goal:** Fechar os pontos mais perigosos de LGPD e integridade operacional em PII, CSV/XLSX e trilhas de auditoria.
+**Requirements**: `DATA-01` a `DATA-04`
+**Depends on:** Phase 4.36
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.37-PLAN.md - neutralizar formula injection, impor guardrails reais em XLSX/CSV, reduzir PII em claro e redigir melhor logs/auditoria
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
+### Phase 4.38: Resiliencia de consultas, jobs e DoS logico
+
+**Goal:** Tirar o sistema da zona de risco de escala facil, removendo filtros em memoria, batches sem limite e jobs com timeout desativado.
+**Requirements**: `PERF-01` a `PERF-03`
+**Depends on:** Phase 4.37
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.38-PLAN.md - migrar filtros pesados para SQL, batchar jobs e impor limites de custo previsiveis em operacoes de volume
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
+### Phase 4.39: Guardrails de tenant e consistencia transacional
+
+**Goal:** Reduzir os bypasses manuais do multi-tenant e padronizar ownership transacional dos fluxos criticos.
+**Requirements**: `TENANT-01`, `TENANT-02`, `ARCH-01`
+**Depends on:** Phase 4.38
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.39-PLAN.md - reduzir include_all_tenants/unscoped access, criar testes de isolamento e unificar a fronteira de commit nos fluxos criticos
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
+### Phase 4.40: Hardening de sessao e borda de producao
+
+**Goal:** Redesenhar a exposicao de sessao do frontend e estabelecer um baseline de borda segura para producao.
+**Requirements**: `SESSION-01`, `EDGE-01`, `EDGE-02`
+**Depends on:** Phase 4.39
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.40-PLAN.md - mover a sessao para um modelo de menor blast radius e travar headers, CSP e defaults inseguros de build/producao
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
 ### Phase 5: Bulk update dedicado de membros
 
 **Goal:** Criar fluxo dedicado de atualizacao em massa fora da importacao.
 **Requirements**: `BULK-01`, `BULK-02`
-**Depends on:** Phase 4.33
+**Depends on:** Phase 4.40
 **Plans:** 1 plan
 
 Plans:

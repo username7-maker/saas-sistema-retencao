@@ -156,9 +156,13 @@ class TestRiskHistory:
         monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
         monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_a, **_kw: None)
         monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_count_active_members_for_risk_processing", lambda *_: 1)
+        monkeypatch.setattr(risk_service, "_iter_active_members_for_risk_processing", lambda *_a, **_kw: [[member]])
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_open_call_tasks", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_find_manager", lambda *_a, **_kw: None)
 
         db = MagicMock()
-        db.scalars.return_value.all.return_value = [member]
         db.execute.return_value.all.return_value = []
 
         risk_service.run_daily_risk_processing(db)
@@ -184,9 +188,13 @@ class TestRiskHistory:
         monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
         monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_a, **_kw: None)
         monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_count_active_members_for_risk_processing", lambda *_: 1)
+        monkeypatch.setattr(risk_service, "_iter_active_members_for_risk_processing", lambda *_a, **_kw: [[member]])
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_open_call_tasks", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_find_manager", lambda *_a, **_kw: None)
 
         db = MagicMock()
-        db.scalars.return_value.all.return_value = [member]
         db.execute.return_value.all.return_value = []
 
         risk_service.run_daily_risk_processing(db)
@@ -195,6 +203,38 @@ class TestRiskHistory:
         from app.models.member_risk_history import MemberRiskHistory
         history_entries = [obj for obj in added_objects if isinstance(obj, MemberRiskHistory)]
         assert len(history_entries) == 0
+
+    def test_apply_risk_statement_timeout_uses_configured_limit(self, monkeypatch):
+        db = MagicMock()
+        monkeypatch.setattr(risk_service.settings, "risk_processing_statement_timeout_ms", 45000)
+
+        risk_service._apply_risk_statement_timeout(db)
+
+        assert db.execute.call_count == 1
+        rendered_query = str(db.execute.call_args.args[0])
+        assert "SET LOCAL statement_timeout = 45000" in rendered_query
+
+    def test_apply_risk_statement_timeout_can_be_disabled(self, monkeypatch):
+        db = MagicMock()
+        monkeypatch.setattr(risk_service.settings, "risk_processing_statement_timeout_ms", 0)
+
+        risk_service._apply_risk_statement_timeout(db)
+
+        db.execute.assert_not_called()
+
+    def test_iter_active_members_for_risk_processing_uses_batches(self):
+        first_batch = MagicMock()
+        first_batch.all.return_value = [SimpleNamespace(id="m1"), SimpleNamespace(id="m2")]
+        second_batch = MagicMock()
+        second_batch.all.return_value = [SimpleNamespace(id="m3")]
+        db = MagicMock()
+        db.scalars.side_effect = [first_batch, second_batch]
+
+        batches = list(risk_service._iter_active_members_for_risk_processing(db, batch_size=2))
+
+        assert len(batches) == 2
+        assert len(batches[0]) == 2
+        assert len(batches[1]) == 1
 
 
 # ===========================================================================

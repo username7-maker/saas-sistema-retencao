@@ -133,7 +133,7 @@ def execute_all_rules_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> list[dict]:
-    results = run_automation_rules(db)
+    results = run_automation_rules(db, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

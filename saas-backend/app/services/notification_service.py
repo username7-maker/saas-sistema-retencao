@@ -77,6 +77,7 @@ def mark_notification_read(
     notification_id: UUID,
     current_user: User,
     read: bool = True,
+    commit: bool = True,
 ) -> InAppNotification:
     notification = db.get(InAppNotification, notification_id)
     if not notification:
@@ -89,6 +90,9 @@ def mark_notification_read(
 
     notification.read_at = datetime.now(tz=timezone.utc) if read else None
     db.add(notification)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(notification)
     return notification

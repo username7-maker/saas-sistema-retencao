@@ -5,6 +5,36 @@ from sqlalchemy.orm import Session
 from app.database import get_current_gym_id
 from app.models import AuditLog, User
 
+_SENSITIVE_DETAIL_KEYS = {
+    "access_token",
+    "authorization",
+    "cpf",
+    "email",
+    "gym_slug",
+    "phone",
+    "prospect_email",
+    "prospect_whatsapp",
+    "recipient",
+    "refresh_token",
+    "token",
+    "whatsapp",
+}
+
+_REDACTION_BY_KEY = {
+    "access_token": "[redacted-secret]",
+    "authorization": "[redacted-secret]",
+    "cpf": "[redacted-document]",
+    "email": "[redacted-email]",
+    "gym_slug": "[redacted-slug]",
+    "phone": "[redacted-phone]",
+    "prospect_email": "[redacted-email]",
+    "prospect_whatsapp": "[redacted-phone]",
+    "recipient": "[redacted-recipient]",
+    "refresh_token": "[redacted-secret]",
+    "token": "[redacted-secret]",
+    "whatsapp": "[redacted-phone]",
+}
+
 
 def log_audit_event(
     db: Session,
@@ -31,7 +61,7 @@ def log_audit_event(
         action=action,
         entity=entity,
         entity_id=entity_id,
-        details=details or {},
+        details=_sanitize_audit_details(details or {}),
         ip_address=ip_address,
         user_agent=user_agent,
     )
@@ -39,3 +69,21 @@ def log_audit_event(
     if flush:
         db.flush()
     return event
+
+
+def _sanitize_audit_details(details: dict) -> dict:
+    return {str(key): _sanitize_audit_value(str(key), value) for key, value in details.items()}
+
+
+def _sanitize_audit_value(key: str, value):
+    normalized_key = key.strip().lower()
+    if normalized_key in _SENSITIVE_DETAIL_KEYS:
+        return _REDACTION_BY_KEY.get(normalized_key, "[redacted]")
+
+    if isinstance(value, dict):
+        return {str(child_key): _sanitize_audit_value(str(child_key), child_value) for child_key, child_value in value.items()}
+
+    if isinstance(value, list):
+        return [_sanitize_audit_value(normalized_key, item) for item in value]
+
+    return value

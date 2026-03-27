@@ -33,14 +33,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/hour")
 def register_user(request: Request, payload: GymOwnerRegister, db: Annotated[Session, Depends(get_db)]) -> User:
-    gym = create_gym(db, name=payload.gym_name, slug=payload.gym_slug)
+    gym = create_gym(db, name=payload.gym_name, slug=payload.gym_slug, commit=False)
     user_payload = UserRegister(
         full_name=payload.full_name,
         email=payload.email,
         password=payload.password,
         role=RoleEnum.OWNER,
     )
-    user = create_user(db, user_payload, gym_id=gym.id, force_role=RoleEnum.OWNER)
+    user = create_user(db, user_payload, gym_id=gym.id, force_role=RoleEnum.OWNER, commit=False)
     log_audit_event(
         db,
         action="auth_bootstrap_register",
@@ -58,7 +58,7 @@ def register_user(request: Request, payload: GymOwnerRegister, db: Annotated[Ses
 def login(request: Request, payload: UserLogin, db: Annotated[Session, Depends(get_db)]) -> TokenPair:
     context = get_request_context(request)
     try:
-        user = authenticate_user(db, payload)
+        user = authenticate_user(db, payload, commit=False)
     except HTTPException:
         log_audit_event(
             db,
@@ -80,12 +80,14 @@ def login(request: Request, payload: UserLogin, db: Annotated[Session, Depends(g
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
-    return issue_tokens(db, user)
+    tokens = issue_tokens(db, user, commit=False)
+    db.commit()
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenPair)
 def refresh(request: Request, payload: RefreshTokenInput, db: Annotated[Session, Depends(get_db)]) -> TokenPair:
-    tokens = refresh_access_token(db, payload.refresh_token)
+    tokens = refresh_access_token(db, payload.refresh_token, commit=False)
     context = get_request_context(request)
     try:
         decoded = decode_token(payload.refresh_token)
@@ -103,6 +105,7 @@ def refresh(request: Request, payload: RefreshTokenInput, db: Annotated[Session,
             db.commit()
     except Exception:
         logger.warning("Falha ao registrar audit de refresh", exc_info=True)
+        db.commit()
     return tokens
 
 
@@ -122,7 +125,8 @@ def logout_session(
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
-    logout(db, current_user)
+    logout(db, current_user, commit=False)
+    db.commit()
     return APIMessage(message="Sessao encerrada")
 
 

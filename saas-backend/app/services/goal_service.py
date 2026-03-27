@@ -10,13 +10,16 @@ from app.schemas.goal import GoalCreate, GoalProgressOut, GoalUpdate
 from app.services.dashboard_service import get_churn_dashboard, get_executive_dashboard
 
 
-def create_goal(db: Session, payload: GoalCreate) -> Goal:
+def create_goal(db: Session, payload: GoalCreate, *, commit: bool = True) -> Goal:
     if payload.period_end < payload.period_start:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="period_end deve ser >= period_start")
 
     goal = Goal(**payload.model_dump())
     db.add(goal)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(goal)
     return goal
 
@@ -35,7 +38,7 @@ def get_goal_or_404(db: Session, goal_id: UUID) -> Goal:
     return goal
 
 
-def update_goal(db: Session, goal_id: UUID, payload: GoalUpdate) -> Goal:
+def update_goal(db: Session, goal_id: UUID, payload: GoalUpdate, *, commit: bool = True) -> Goal:
     goal = get_goal_or_404(db, goal_id)
     data = payload.model_dump(exclude_unset=True)
 
@@ -48,15 +51,21 @@ def update_goal(db: Session, goal_id: UUID, payload: GoalUpdate) -> Goal:
         setattr(goal, key, value)
 
     db.add(goal)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(goal)
     return goal
 
 
-def delete_goal(db: Session, goal_id: UUID) -> None:
+def delete_goal(db: Session, goal_id: UUID, *, commit: bool = True) -> None:
     goal = get_goal_or_404(db, goal_id)
     db.delete(goal)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def list_goal_progress(db: Session, *, active_only: bool = True) -> list[GoalProgressOut]:

@@ -225,6 +225,21 @@ def test_whatsapp_invalid_token_returns_401(monkeypatch):
     assert exc.value.status_code == 401
 
 
+def test_whatsapp_query_token_is_not_accepted(monkeypatch):
+    monkeypatch.setattr("app.routers.public.settings.whatsapp_webhook_token", "secret")
+
+    with pytest.raises(HTTPException) as exc:
+        public_whatsapp_webhook(
+            payload={},
+            request=_build_request(query_string=b"token=secret"),
+            db=MagicMock(),
+            x_webhook_token=None,
+            authorization=None,
+        )
+
+    assert exc.value.status_code == 401
+
+
 def test_whatsapp_message_without_active_sequence_is_ignored(monkeypatch):
     db = MagicMock()
     monkeypatch.setattr("app.services.nurturing_service.find_active_sequence_by_phone", lambda *_args, **_kwargs: None)

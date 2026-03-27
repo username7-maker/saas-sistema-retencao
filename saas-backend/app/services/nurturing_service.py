@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
+from app.database import include_all_tenants
 from app.models import Lead, LeadStage, Member, MessageLog, NurturingSequence
 from app.models.gym import Gym
 from app.services.audit_service import log_audit_event
@@ -248,14 +249,16 @@ def find_active_sequence_by_phone(
     target_phone = format_phone(phone)
     candidates = list(
         db.scalars(
-            select(NurturingSequence)
-            .execution_options(include_all_tenants=True)
-            .where(
-                NurturingSequence.gym_id == target_gym_id,
-                NurturingSequence.completed.is_(False),
-                NurturingSequence.paused_at.is_(None),
+            include_all_tenants(
+                select(NurturingSequence)
+                .where(
+                    NurturingSequence.gym_id == target_gym_id,
+                    NurturingSequence.completed.is_(False),
+                    NurturingSequence.paused_at.is_(None),
+                )
+                .order_by(NurturingSequence.created_at.desc()),
+                reason="nurturing.find_active_sequence_by_phone",
             )
-            .order_by(NurturingSequence.created_at.desc())
         ).all()
     )
     for item in candidates:
@@ -275,11 +278,13 @@ def _find_member_by_phone(db: Session, gym_id: UUID | None, phone: str) -> Membe
 
     candidates = list(
         db.scalars(
-            select(Member)
-            .execution_options(include_all_tenants=True)
-            .where(
-                Member.gym_id == gym_id,
-                Member.deleted_at.is_(None),
+            include_all_tenants(
+                select(Member)
+                .where(
+                    Member.gym_id == gym_id,
+                    Member.deleted_at.is_(None),
+                ),
+                reason="nurturing.find_member_by_phone",
             )
         ).all()
     )

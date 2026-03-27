@@ -77,6 +77,20 @@ class TestExportMembersCsv:
         rows = _parse_csv_bytes(buffer)
         assert len(rows) == 0
 
+    def test_neutralizes_formula_injection_in_text_cells(self):
+        member = _mock_member(full_name="=CMD()", email="+danger@test.com", phone="@evil")
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [member]
+        db = MagicMock()
+        db.scalars.return_value = mock_scalars
+
+        buffer, _filename = export_members_csv(db)
+        rows = _parse_csv_bytes(buffer)
+
+        assert rows[0]["full_name"] == "'=CMD()"
+        assert rows[0]["email"] == "'+danger@test.com"
+        assert rows[0]["phone"] == "'@evil"
+
 
 class TestExportCheckinsCsv:
     def test_generates_csv_with_dates(self):

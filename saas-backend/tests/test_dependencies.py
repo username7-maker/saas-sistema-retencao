@@ -25,4 +25,5 @@ def test_get_current_user_reads_user_with_unscoped_query():
     db.scalar.assert_called_once()
     statement = db.scalar.call_args.args[0]
     assert statement.get_execution_options()["include_all_tenants"] is True
+    assert statement.get_execution_options()["tenant_bypass_reason"] == "dependencies.get_current_user"
     set_gym_id.assert_called_once_with(GYM_ID)

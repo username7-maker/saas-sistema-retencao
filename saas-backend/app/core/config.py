@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     redis_url: str = ""
     dashboard_cache_ttl_seconds: int = 300
     dashboard_cache_maxsize: int = 512
+    risk_processing_statement_timeout_ms: int = 30000
+    risk_processing_batch_size: int = 250
+    loyalty_update_batch_size: int = 500
     actuar_enabled: bool = False
     actuar_sync_mode: str = "disabled"
     actuar_base_url: str = ""

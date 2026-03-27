@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+from app.database import SessionLocal, clear_current_gym_id, include_all_tenants, set_current_gym_id
 from app.integrations.actuar.base import ActuarSyncOutcome
 from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
 from app.integrations.actuar.csv_export_provider import ActuarCsvExportProvider
@@ -392,21 +392,23 @@ def process_pending_actuar_sync_jobs(batch_size: int = 3, worker_id: str | None 
 def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob | None:
     now = _now()
     candidate = db.scalar(
-        select(ActuarSyncJob)
-        .where(
-            or_(
-                ActuarSyncJob.status == "pending",
-                (
-                    (ActuarSyncJob.status == "failed")
-                    & (ActuarSyncJob.next_retry_at.is_not(None))
-                    & (ActuarSyncJob.next_retry_at <= now)
-                    & (ActuarSyncJob.retry_count < ActuarSyncJob.max_retries)
-                ),
+        include_all_tenants(
+            select(ActuarSyncJob)
+            .where(
+                or_(
+                    ActuarSyncJob.status == "pending",
+                    (
+                        (ActuarSyncJob.status == "failed")
+                        & (ActuarSyncJob.next_retry_at.is_not(None))
+                        & (ActuarSyncJob.next_retry_at <= now)
+                        & (ActuarSyncJob.retry_count < ActuarSyncJob.max_retries)
+                    ),
+                )
             )
+            .order_by(ActuarSyncJob.created_at.asc())
+            .limit(1),
+            reason="actuar_sync.claim_next_job",
         )
-        .order_by(ActuarSyncJob.created_at.asc())
-        .execution_options(include_all_tenants=True)
-        .limit(1)
     )
     if not candidate:
         return None
@@ -416,7 +418,7 @@ def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob 
         update(ActuarSyncJob)
         .where(ActuarSyncJob.id == candidate.id, ActuarSyncJob.status == current_status)
         .values(status="processing", locked_at=now, locked_by=worker_id)
-        .execution_options(include_all_tenants=True)
+        .execution_options(include_all_tenants=True, tenant_bypass_reason="actuar_sync.claim_job_lock")
     )
     if not result.rowcount:
         db.rollback()
@@ -437,17 +439,19 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
         provider: object | None = None
         try:
             job = db.scalar(
-                select(ActuarSyncJob).where(ActuarSyncJob.id == job_id).execution_options(include_all_tenants=True)
+                include_all_tenants(select(ActuarSyncJob).where(ActuarSyncJob.id == job_id), reason="actuar_sync.execute_job")
             )
             if not job:
                 return
             evaluation = db.scalar(
-                select(BodyCompositionEvaluation)
-                .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id)
-                .execution_options(include_all_tenants=True)
+                include_all_tenants(
+                    select(BodyCompositionEvaluation)
+                    .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id),
+                    reason="actuar_sync.load_evaluation",
+                )
             )
             member = db.scalar(
-                select(Member).where(Member.id == job.member_id).execution_options(include_all_tenants=True)
+                include_all_tenants(select(Member).where(Member.id == job.member_id), reason="actuar_sync.load_member")
             )
             gym = _get_gym(db, job.gym_id)
             if not evaluation or not member:
@@ -577,7 +581,7 @@ def _should_auto_sync(gym: Gym) -> bool:
 
 
 def _get_gym(db: Session, gym_id: UUID) -> Gym:
-    gym = db.scalar(select(Gym).where(Gym.id == gym_id).execution_options(include_all_tenants=True))
+    gym = db.scalar(include_all_tenants(select(Gym).where(Gym.id == gym_id), reason="actuar_sync.fetch_gym"))
     if not gym:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academia nao encontrada")
     return gym
@@ -586,28 +590,35 @@ def _get_gym(db: Session, gym_id: UUID) -> Gym:
 def _get_current_sync_job(db: Session, evaluation: BodyCompositionEvaluation) -> ActuarSyncJob | None:
     if evaluation.actuar_sync_job_id:
         job = db.scalar(
-            select(ActuarSyncJob).where(ActuarSyncJob.id == evaluation.actuar_sync_job_id).execution_options(include_all_tenants=True)
+            include_all_tenants(
+                select(ActuarSyncJob).where(ActuarSyncJob.id == evaluation.actuar_sync_job_id),
+                reason="actuar_sync.fetch_current_job_by_id",
+            )
         )
         if job:
             return job
     return db.scalar(
-        select(ActuarSyncJob)
-        .where(ActuarSyncJob.body_composition_evaluation_id == evaluation.id)
-        .order_by(desc(ActuarSyncJob.created_at))
-        .execution_options(include_all_tenants=True)
-        .limit(1)
+        include_all_tenants(
+            select(ActuarSyncJob)
+            .where(ActuarSyncJob.body_composition_evaluation_id == evaluation.id)
+            .order_by(desc(ActuarSyncJob.created_at))
+            .limit(1),
+            reason="actuar_sync.fetch_current_job_latest",
+        )
     )
 
 
 def _cancel_superseded_jobs(db: Session, evaluation_id: UUID) -> None:
     jobs = list(
         db.scalars(
-            select(ActuarSyncJob)
-            .where(
-                ActuarSyncJob.body_composition_evaluation_id == evaluation_id,
-                ActuarSyncJob.status.in_(ACTIVE_JOB_STATUSES),
+            include_all_tenants(
+                select(ActuarSyncJob)
+                .where(
+                    ActuarSyncJob.body_composition_evaluation_id == evaluation_id,
+                    ActuarSyncJob.status.in_(ACTIVE_JOB_STATUSES),
+                ),
+                reason="actuar_sync.cancel_superseded_jobs",
             )
-            .execution_options(include_all_tenants=True)
         ).all()
     )
     for job in jobs:
@@ -679,22 +690,26 @@ def _finalize_sync_failure(
     error: ActuarSyncServiceError,
     provider: ActuarPlaywrightProvider | None,
 ) -> None:
-    job = db.scalar(select(ActuarSyncJob).where(ActuarSyncJob.id == job_id).execution_options(include_all_tenants=True))
+    job = db.scalar(include_all_tenants(select(ActuarSyncJob).where(ActuarSyncJob.id == job_id), reason="actuar_sync.finalize_failure_job"))
     if not job:
         return
     evaluation = db.scalar(
-        select(BodyCompositionEvaluation)
-        .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id)
-        .execution_options(include_all_tenants=True)
+        include_all_tenants(
+            select(BodyCompositionEvaluation)
+            .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id),
+            reason="actuar_sync.finalize_failure_evaluation",
+        )
     )
     if not evaluation:
         return
     attempt = db.scalar(
-        select(ActuarSyncAttempt)
-        .where(ActuarSyncAttempt.sync_job_id == job.id)
-        .order_by(desc(ActuarSyncAttempt.started_at))
-        .execution_options(include_all_tenants=True)
-        .limit(1)
+        include_all_tenants(
+            select(ActuarSyncAttempt)
+            .where(ActuarSyncAttempt.sync_job_id == job.id)
+            .order_by(desc(ActuarSyncAttempt.started_at))
+            .limit(1),
+            reason="actuar_sync.finalize_failure_attempt",
+        )
     )
     now = _now()
     evidence = {"screenshot_path": None, "page_html_path": None}

@@ -185,7 +185,7 @@ def execute_rule_for_member(
     return result
 
 
-def run_automation_rules(db: Session) -> list[dict]:
+def run_automation_rules(db: Session, *, commit: bool = True) -> list[dict]:
     rules = list_automation_rules(db, active_only=True)
     all_results: list[dict] = []
 
@@ -250,7 +250,10 @@ def run_automation_rules(db: Session) -> list[dict]:
                     pass
                 all_results.append(err_result)
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return all_results
 
 

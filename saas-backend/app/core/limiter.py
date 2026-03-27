@@ -27,3 +27,8 @@ except ImportError:
 
     limiter = _NoopLimiter()
     rate_limit_enabled = False
+
+
+def ensure_rate_limiting_ready(environment: str) -> None:
+    if environment.lower() == "production" and not rate_limit_enabled:
+        raise RuntimeError("Rate limiting real e obrigatorio em producao")

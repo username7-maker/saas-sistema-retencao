@@ -11,7 +11,7 @@ from app.utils.claude import analyze_sentiment
 from app.utils.email import send_email
 
 
-def create_response(db: Session, payload: NPSResponseCreate) -> NPSResponse:
+def create_response(db: Session, payload: NPSResponseCreate, *, commit: bool = True) -> NPSResponse:
     sentiment, summary = analyze_sentiment(payload.score, payload.comment)
     response = NPSResponse(
         member_id=payload.member_id,
@@ -38,13 +38,16 @@ def create_response(db: Session, payload: NPSResponseCreate) -> NPSResponse:
                     details={"score": payload.score, "summary": summary},
                 )
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(response)
     invalidate_dashboard_cache("nps", "risk")
     return response
 
 
-def run_nps_dispatch(db: Session) -> dict[str, int]:
+def run_nps_dispatch(db: Session, *, commit: bool = True) -> dict[str, int]:
     today = date.today()
     sent_counts = {
         NPSTrigger.AFTER_SIGNUP_7D.value: 0,
@@ -68,7 +71,10 @@ def run_nps_dispatch(db: Session) -> dict[str, int]:
             if _send_nps_email(db, member, NPSTrigger.POST_CANCELLATION):
                 sent_counts[NPSTrigger.POST_CANCELLATION.value] += 1
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return sent_counts
 
 

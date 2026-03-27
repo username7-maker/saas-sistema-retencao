@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Checkin, Member
 
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
 
 def export_members_csv(db: Session) -> tuple[BytesIO, str]:
     members = list(
@@ -178,6 +180,17 @@ def _dict_rows_to_csv(headers: list[str], rows: list[dict[str, str]]) -> BytesIO
     stream = StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=headers)
     writer.writeheader()
-    writer.writerows(rows)
+    safe_rows = [{key: _csv_safe_text(value) for key, value in row.items()} for row in rows]
+    writer.writerows(safe_rows)
     payload = stream.getvalue().encode("utf-8-sig")
     return BytesIO(payload)
+
+
+def _csv_safe_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+
+    if value.startswith(_CSV_FORMULA_PREFIXES):
+        return f"'{value}"
+
+    return value

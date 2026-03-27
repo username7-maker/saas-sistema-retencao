@@ -18,7 +18,16 @@ from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 logger = logging.getLogger(__name__)
 
 
-def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) -> tuple[Lead, LeadBooking]:
+def confirm_public_booking(
+    db: Session,
+    payload: PublicBookingConfirmRequest,
+    *,
+    commit: bool = True,
+    dispatch_confirmation_whatsapp: bool = True,
+) -> tuple[Lead, LeadBooking]:
+    if dispatch_confirmation_whatsapp and not commit:
+        raise ValueError("dispatch_confirmation_whatsapp requer commit=True para evitar side effect antes da persistencia")
+
     public_gym_id = _resolve_public_gym_id()
     lead = _resolve_or_create_public_lead(db, public_gym_id, payload)
     booking = _upsert_booking(db, lead, payload)
@@ -39,25 +48,30 @@ def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) ->
     pause_sequences_for_lead(db, lead.id, "meeting_scheduled")
     db.add(lead)
     db.add(booking)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(lead)
     db.refresh(booking)
-    try:
-        _send_booking_confirmation_whatsapp(db, lead, booking)
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception(
-            "Booking confirmation WhatsApp failed after booking persistence.",
-            extra={
-                "extra_fields": {
-                    "event": "booking_confirmation_whatsapp_failed",
-                    "lead_id": str(lead.id),
-                    "booking_id": str(booking.id),
-                    "status": "failed",
-                }
-            },
-        )
+
+    if dispatch_confirmation_whatsapp:
+        try:
+            _send_booking_confirmation_whatsapp(db, lead, booking)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Booking confirmation WhatsApp failed after booking persistence.",
+                extra={
+                    "extra_fields": {
+                        "event": "booking_confirmation_whatsapp_failed",
+                        "lead_id": str(lead.id),
+                        "booking_id": str(booking.id),
+                        "status": "failed",
+                    }
+                },
+            )
     return lead, booking
 
 

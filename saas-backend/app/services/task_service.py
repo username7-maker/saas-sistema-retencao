@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.cache import invalidate_dashboard_cache
@@ -64,6 +64,25 @@ def _is_retention_intelligence_task(task: Task) -> bool:
     )
 
 
+def _trainer_technical_task_filter():
+    return and_(
+        Task.lead_id.is_(None),
+        Task.extra_data["source"].astext == "assessment_intelligence",
+        Task.extra_data["owner_role"].astext == "coach",
+    )
+
+
+def _retention_intelligence_task_filter():
+    source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
+    description = func.lower(func.coalesce(Task.description, ""))
+    return or_(
+        source.in_(("retention_intelligence", "retention_automation")),
+        Task.title.ilike("Escalar churn - %"),
+        description.contains("automacao de retencao"),
+        description.contains("entrar em contato para reten"),
+    )
+
+
 def _ensure_task_access(task: Task, current_user: User | None) -> None:
     if current_user is None:
         return
@@ -104,28 +123,23 @@ def list_tasks(
     if assigned_to_user_id:
         filters.append(Task.assigned_to_user_id == assigned_to_user_id)
 
-    stmt = select(Task).options(joinedload(Task.member), joinedload(Task.lead)).where(and_(*filters)).order_by(Task.created_at.desc())
-
     if current_user and current_user.role == RoleEnum.TRAINER:
-        tasks = [
-            task
-            for task in db.scalars(stmt).unique().all()
-            if task.gym_id == current_user.gym_id and _is_trainer_technical_task(task)
-        ]
-        total = len(tasks)
-        offset = (page - 1) * page_size
-        page_items = tasks[offset : offset + page_size]
-        items = [_enrich(task) for task in page_items]
-        return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+        filters.append(Task.gym_id == current_user.gym_id)
+        filters.append(_trainer_technical_task_filter())
+    elif not include_retention:
+        filters.append(not_(_retention_intelligence_task_filter()))
+
+    criteria = and_(*filters)
+    stmt = (
+        select(Task)
+        .options(joinedload(Task.member), joinedload(Task.lead))
+        .where(criteria)
+        .order_by(Task.created_at.desc())
+    )
 
     offset = (page - 1) * page_size
-    if not include_retention:
-        visible_tasks = [task for task in db.scalars(stmt).unique().all() if not _is_retention_intelligence_task(task)]
-        total = len(visible_tasks)
-        tasks = visible_tasks[offset : offset + page_size]
-    else:
-        total = db.scalar(select(func.count()).select_from(Task).where(and_(*filters))) or 0
-        tasks = db.scalars(stmt.offset(offset).limit(page_size)).unique().all()
+    total = db.scalar(select(func.count()).select_from(Task).where(criteria)) or 0
+    tasks = db.scalars(stmt.offset(offset).limit(page_size)).unique().all()
     items = [_enrich(task) for task in tasks]
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 

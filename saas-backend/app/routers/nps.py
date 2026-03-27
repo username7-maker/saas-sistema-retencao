@@ -21,7 +21,7 @@ def create_response_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> NPSResponse:
-    response = create_response(db, payload)
+    response = create_response(db, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -44,7 +44,7 @@ def dispatch_nps_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> dict[str, int]:
-    result = run_nps_dispatch(db)
+    result = run_nps_dispatch(db, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

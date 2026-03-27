@@ -32,7 +32,7 @@ def create_goal_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> GoalOut:
-    goal = create_goal(db, payload)
+    goal = create_goal(db, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -56,7 +56,7 @@ def update_goal_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> GoalOut:
-    goal = update_goal(db, goal_id, payload)
+    goal = update_goal(db, goal_id, payload, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -79,7 +79,7 @@ def delete_goal_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> APIMessage:
-    delete_goal(db, goal_id)
+    delete_goal(db, goal_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

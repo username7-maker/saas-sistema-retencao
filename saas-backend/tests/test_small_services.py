@@ -51,6 +51,30 @@ class TestLogAuditEvent:
         log_audit_event(db, "CREATE", "member", user=user, flush=False)
         db.flush.assert_not_called()
 
+    def test_redacts_sensitive_details(self):
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
+        db = MagicMock()
+        from app.services.audit_service import log_audit_event
+
+        result = log_audit_event(
+            db,
+            "LOGIN_FAILED",
+            "user",
+            user=user,
+            details={
+                "email": "owner@gym.test",
+                "gym_slug": "academia-centro",
+                "recipient": "lead@gym.test",
+                "context": {"whatsapp": "5511999999999"},
+            },
+        )
+
+        assert result is not None
+        assert result.details["email"] == "[redacted-email]"
+        assert result.details["gym_slug"] == "[redacted-slug]"
+        assert result.details["recipient"] == "[redacted-recipient]"
+        assert result.details["context"]["whatsapp"] == "[redacted-phone]"
+
 
 # ---------------------------------------------------------------------------
 # checkin_service
@@ -75,6 +99,30 @@ class TestCreateCheckin:
         result = create_checkin(db, payload)
         db.commit.assert_called_once()
         assert member.last_checkin_at is not None
+
+    @patch("app.services.checkin_service.invalidate_dashboard_cache")
+    def test_creates_checkin_without_committing_when_router_owns_transaction(self, mock_cache):
+        member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
+        db = MagicMock()
+        db.scalar.side_effect = [member, None]
+        db.refresh = MagicMock()
+
+        from app.models.enums import CheckinSource
+        from app.schemas import CheckinCreate
+
+        payload = CheckinCreate(
+            member_id=MEMBER_ID,
+            checkin_at=datetime(2026, 3, 10, 18, 30, tzinfo=timezone.utc),
+            source=CheckinSource.MANUAL,
+        )
+        from app.services.checkin_service import create_checkin
+
+        result = create_checkin(db, payload, commit=False)
+
+        assert result is not None
+        assert member.last_checkin_at is not None
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
     def test_member_not_found_raises(self):
         db = MagicMock()
@@ -184,6 +232,21 @@ class TestMarkNotificationRead:
         from app.services.notification_service import mark_notification_read
         result = mark_notification_read(db, notification_id=notif.id, current_user=user)
         assert result.read_at is not None
+
+    def test_marks_read_without_committing_when_router_owns_transaction(self):
+        notif = SimpleNamespace(id=uuid.uuid4(), user_id=USER_ID, read_at=None)
+        user = SimpleNamespace(id=USER_ID, role=RoleEnum.OWNER)
+        db = MagicMock()
+        db.get.return_value = notif
+        db.refresh = MagicMock()
+
+        from app.services.notification_service import mark_notification_read
+
+        result = mark_notification_read(db, notification_id=notif.id, current_user=user, commit=False)
+
+        assert result.read_at is not None
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
     def test_not_found_raises(self):
         user = SimpleNamespace(id=USER_ID, role=RoleEnum.OWNER)

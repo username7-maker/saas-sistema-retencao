@@ -18,6 +18,7 @@ from app.core.security import (
     verify_password,
     verify_refresh_token,
 )
+from app.database import include_all_tenants
 from app.models import Gym, RoleEnum, User
 from app.schemas import TokenPair, UserLogin, UserRegister
 from app.utils.email import send_email
@@ -41,11 +42,11 @@ def _normalize_gym_slug(raw_slug: str) -> str:
     return slug
 
 
-def _include_all_tenants(statement):
-    return statement.execution_options(include_all_tenants=True)
+def _include_all_tenants(statement, *, reason: str):
+    return include_all_tenants(statement, reason=reason)
 
 
-def create_gym(db: Session, *, name: str, slug: str) -> Gym:
+def create_gym(db: Session, *, name: str, slug: str, commit: bool = True) -> Gym:
     normalized_slug = _normalize_gym_slug(slug)
     existing = db.scalar(select(Gym).where(Gym.slug == normalized_slug))
     if existing:
@@ -53,18 +54,31 @@ def create_gym(db: Session, *, name: str, slug: str) -> Gym:
 
     gym = Gym(name=name.strip(), slug=normalized_slug, is_active=True)
     db.add(gym)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(gym)
     return gym
 
 
-def create_user(db: Session, payload: UserRegister, *, gym_id: UUID, force_role: RoleEnum | None = None) -> User:
+def create_user(
+    db: Session,
+    payload: UserRegister,
+    *,
+    gym_id: UUID,
+    force_role: RoleEnum | None = None,
+    commit: bool = True,
+) -> User:
     existing = db.scalar(
-        _include_all_tenants(select(User).where(
-            User.email == payload.email,
-            User.gym_id == gym_id,
-            User.deleted_at.is_(None),
-        ))
+        _include_all_tenants(
+            select(User).where(
+                User.email == payload.email,
+                User.gym_id == gym_id,
+                User.deleted_at.is_(None),
+            ),
+            reason="auth.create_user_lookup",
+        )
     )
     if existing:
         raise _already_exists_exception()
@@ -81,23 +95,29 @@ def create_user(db: Session, payload: UserRegister, *, gym_id: UUID, force_role:
         avatar_url=payload.avatar_url,
     )
     db.add(user)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(user)
     return user
 
 
-def authenticate_user(db: Session, payload: UserLogin) -> User:
+def authenticate_user(db: Session, payload: UserLogin, *, commit: bool = True) -> User:
     gym_slug = _normalize_gym_slug(payload.gym_slug)
     gym = db.scalar(select(Gym).where(Gym.slug == gym_slug, Gym.is_active.is_(True)))
     if not gym:
         raise _auth_exception()
 
     user = db.scalar(
-        _include_all_tenants(select(User).where(
-            User.email == payload.email,
-            User.gym_id == gym.id,
-            User.deleted_at.is_(None),
-        ))
+        _include_all_tenants(
+            select(User).where(
+                User.email == payload.email,
+                User.gym_id == gym.id,
+                User.deleted_at.is_(None),
+            ),
+            reason="auth.authenticate_user_lookup",
+        )
     )
     if not user or not verify_password(payload.password, user.hashed_password):
         raise _auth_exception()
@@ -105,21 +125,27 @@ def authenticate_user(db: Session, payload: UserLogin) -> User:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inativo")
     user.last_login_at = datetime.now(tz=timezone.utc)
     db.add(user)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return user
 
 
-def issue_tokens(db: Session, user: User) -> TokenPair:
+def issue_tokens(db: Session, user: User, *, commit: bool = True) -> TokenPair:
     access = create_access_token(user.id, user.role.value, user.gym_id)
     refresh = create_refresh_token(user.id, user.gym_id)
     user.refresh_token_hash = hash_refresh_token(refresh)
     user.refresh_token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     db.add(user)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return TokenPair(access_token=access, refresh_token=refresh)
 
 
-def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
+def refresh_access_token(db: Session, refresh_token: str, *, commit: bool = True) -> TokenPair:
     try:
         payload = decode_token(refresh_token)
         if payload.get("type") != "refresh":
@@ -129,7 +155,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
     except (KeyError, ValueError):
         raise _auth_exception()
 
-    user = db.scalar(_include_all_tenants(select(User).where(User.id == user_id)))
+    user = db.scalar(_include_all_tenants(select(User).where(User.id == user_id), reason="auth.refresh_access_token"))
     if (
         not user
         or not user.is_active
@@ -143,14 +169,17 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenPair:
     if not user.refresh_token_expires_at or user.refresh_token_expires_at < datetime.now(tz=timezone.utc):
         raise _auth_exception()
 
-    return issue_tokens(db, user)
+    return issue_tokens(db, user, commit=commit)
 
 
-def logout(db: Session, user: User) -> None:
+def logout(db: Session, user: User, *, commit: bool = True) -> None:
     user.refresh_token_hash = None
     user.refresh_token_expires_at = None
     db.add(user)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
@@ -162,12 +191,15 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
         return
 
     user = db.scalar(
-        _include_all_tenants(select(User).where(
-            User.email == email,
-            User.gym_id == gym.id,
-            User.deleted_at.is_(None),
-            User.is_active.is_(True),
-        ))
+        _include_all_tenants(
+            select(User).where(
+                User.email == email,
+                User.gym_id == gym.id,
+                User.deleted_at.is_(None),
+                User.is_active.is_(True),
+            ),
+            reason="auth.request_password_reset_lookup",
+        )
     )
     if not user:
         return
@@ -179,7 +211,7 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
     db.add(user)
     db.commit()
 
-    reset_link = f"{settings.frontend_url}/reset-password?token={raw_token}"
+    reset_link = f"{settings.frontend_url}/reset-password#token={raw_token}"
     send_email(
         to_email=email,
         subject="Redefinição de Senha — AI GYM OS",
@@ -198,11 +230,14 @@ def reset_password(db: Session, *, token: str, new_password: str) -> None:
     now = datetime.now(tz=timezone.utc)
 
     user = db.scalar(
-        _include_all_tenants(select(User).where(
-            User.password_reset_token_hash == token_hash,
-            User.password_reset_expires_at > now,
-            User.deleted_at.is_(None),
-        ))
+        _include_all_tenants(
+            select(User).where(
+                User.password_reset_token_hash == token_hash,
+                User.password_reset_expires_at > now,
+                User.deleted_at.is_(None),
+            ),
+            reason="auth.reset_password_lookup",
+        )
     )
     if not user:
         raise HTTPException(

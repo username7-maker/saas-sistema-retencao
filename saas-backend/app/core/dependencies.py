@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token, oauth2_scheme
-from app.database import get_db, set_current_gym_id
+from app.database import get_db, include_all_tenants, set_current_gym_id
 from app.models import RoleEnum, User
 
 
@@ -33,9 +33,10 @@ def get_current_user(
         raise _credentials_exception()
 
     user = db.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .execution_options(include_all_tenants=True)
+        include_all_tenants(
+            select(User).where(User.id == user_id),
+            reason="dependencies.get_current_user",
+        )
     )
     if (
         not user

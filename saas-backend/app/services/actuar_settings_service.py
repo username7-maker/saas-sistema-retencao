@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.database import include_all_tenants
 from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
 from app.models import Gym
 from app.schemas.settings import (
@@ -147,7 +148,7 @@ def resolve_effective_actuar_sync_mode(gym: Gym | None) -> str:
 
 
 def _get_gym_or_404(db: Session, *, gym_id: UUID) -> Gym:
-    gym = db.scalar(select(Gym).where(Gym.id == gym_id).execution_options(include_all_tenants=True))
+    gym = db.scalar(include_all_tenants(select(Gym).where(Gym.id == gym_id), reason="actuar_settings.fetch_gym"))
     if not gym:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academia nao encontrada")
     return gym

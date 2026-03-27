@@ -8,7 +8,7 @@ from app.models import Checkin, Member
 from app.schemas import CheckinCreate
 
 
-def create_checkin(db: Session, payload: CheckinCreate) -> Checkin:
+def create_checkin(db: Session, payload: CheckinCreate, *, commit: bool = True) -> Checkin:
     member = db.scalar(select(Member).where(Member.id == payload.member_id, Member.deleted_at.is_(None)))
     if not member:
         raise ValueError("Membro nao encontrado")
@@ -33,7 +33,10 @@ def create_checkin(db: Session, payload: CheckinCreate) -> Checkin:
     member.last_checkin_at = checkin_at
     db.add(checkin)
     db.add(member)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(checkin)
     invalidate_dashboard_cache("checkins")
     return checkin

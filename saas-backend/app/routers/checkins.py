@@ -23,7 +23,7 @@ async def create_checkin_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
 ) -> CheckinOut:
     try:
-        checkin = create_checkin(db, payload)
+        checkin = create_checkin(db, payload, commit=False)
         context = get_request_context(request)
         log_audit_event(
             db,

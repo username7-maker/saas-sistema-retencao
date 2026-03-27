@@ -11,6 +11,7 @@ import { EmptyState } from "../../components/ui";
 import { StatCard } from "../../components/common/StatCard";
 import { Badge } from "../../components/ui2";
 import { useOperationalDashboard } from "../../hooks/useDashboard";
+import { WS_BASE_URL } from "../../services/runtimeConfig";
 import { tokenStorage } from "../../services/storage";
 import type { RiskLevel } from "../../types";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
@@ -41,19 +42,21 @@ export function OperationalDashboardPage() {
     const token = tokenStorage.getAccessToken();
     if (!token) return;
 
-    const apiBaseEnv = import.meta.env.VITE_API_BASE_URL?.trim();
-    const wsBaseEnv = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
-    const apiBase = apiBaseEnv || "http://127.0.0.1:8000";
-    const wsBase = wsBaseEnv || apiBase.replace(/^http/, "ws");
-    const wsUrl = `${wsBase.replace(/\/$/, "")}/ws/updates?token=${encodeURIComponent(token)}`;
+    const wsUrl = `${WS_BASE_URL.replace(/\/$/, "")}/ws/updates`;
     const socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => setIsRealtimeConnected(true);
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: "auth", token }));
+    };
     socket.onclose = () => setIsRealtimeConnected(false);
     socket.onerror = () => setIsRealtimeConnected(false);
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as { event?: string };
+        if (message.event === "connected") {
+          setIsRealtimeConnected(true);
+          return;
+        }
         if (message.event === "checkin_created" || message.event === "risk_alert_created" || message.event === "risk_alert_updated") {
           setRealtimeEvents((current) => current + 1);
           void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });

@@ -63,6 +63,38 @@ def test_manager_cannot_create_owner_or_manager(app, client):
         app.dependency_overrides.clear()
 
 
+def test_owner_create_user_route_defers_commit_until_after_audit(app, client, monkeypatch):
+    created = _target_user(RoleEnum.RECEPTIONIST, "77777777-7777-7777-7777-777777777777")
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.OWNER)
+
+    calls = []
+
+    def _create_user(_db, payload, *, gym_id, commit=True):
+        calls.append({"gym_id": gym_id, "commit": commit, "email": payload.email})
+        return created
+
+    monkeypatch.setattr("app.routers.users.create_user", _create_user)
+
+    try:
+        response = client.post(
+            "/api/v1/users/",
+            json={
+                "full_name": "Nova Recepcao",
+                "email": "recepcao.nova@teste.com",
+                "password": "Secret123!",
+                "role": "receptionist",
+            },
+        )
+
+        assert response.status_code == 201
+        assert calls == [{"gym_id": GYM_ID, "commit": False, "email": "recepcao.nova@teste.com"}]
+        mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_manager_can_toggle_non_owner_activation(app, client):
     target = _target_user(RoleEnum.RECEPTIONIST, "33333333-3333-3333-3333-333333333333")
     mock_db = MagicMock()

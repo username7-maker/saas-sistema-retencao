@@ -45,7 +45,7 @@ def create_user_endpoint(
 ) -> User:
     if current_user.role == RoleEnum.MANAGER and payload.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gerente nao pode criar owner ou gerente")
-    new_user = create_user(db, payload, gym_id=current_user.gym_id)
+    new_user = create_user(db, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

@@ -65,6 +65,15 @@ def _format_phone(phone: str) -> str:
     return digits
 
 
+def _mask_phone_for_log(phone: str | None) -> str:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return "[phone-unavailable]"
+    if len(normalized) <= 6:
+        return "***"
+    return f"{normalized[:4]}***{normalized[-2:]}"
+
+
 def format_phone(phone: str) -> str:
     return _format_phone(phone)
 
@@ -249,7 +258,7 @@ async def send_whatsapp_message(
         db.flush()
         logger.warning(
             "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
-            formatted_phone,
+            _mask_phone_for_log(formatted_phone),
             instance,
         )
         return log_entry
@@ -298,7 +307,7 @@ async def send_whatsapp_message(
             error=str(exc)[:500],
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
-        logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
+        logger.exception("Falha ao enviar WhatsApp para %s via %s", _mask_phone_for_log(formatted_phone), resolved)
 
     db.flush()
     return log_entry
@@ -423,7 +432,7 @@ def send_whatsapp_sync(
         db.flush()
         logger.warning(
             "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
-            formatted_phone,
+            _mask_phone_for_log(formatted_phone),
             instance,
         )
         return log_entry
@@ -472,7 +481,7 @@ def send_whatsapp_sync(
             error=str(exc)[:500],
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
-        logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
+        logger.exception("Falha ao enviar WhatsApp para %s via %s", _mask_phone_for_log(formatted_phone), resolved)
 
     db.flush()
     return log_entry

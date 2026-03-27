@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.34
-plan: "04.34-STATUS.md"
-status: Piloto segue em execucao e entrou em hardening urgente das superficies administrativas, notificacoes, metas, NPS e relatorios, com personalizacao de usuarios
-last_activity: 2026-03-26 - fase 4.34 aberta para corrigir bugs reais do piloto em relatorios/goals/notificacoes e fechar perfil de usuario com foto, cargo e edicao de papel
+phase: 4.39
+plan: "04.39-STATUS.md"
+status: Piloto segue em execucao, 4.36-4.38 endureceram seguranca e resiliencia, e 4.39 ja adicionou guardrails de tenant com reason explicita e ownership de commit mais consistente em goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
+last_activity: 2026-03-27 - fase 4.39 avancou com helper explicito para bypass de tenant e alinhamento transacional de goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
 ---
 
 # STATE
@@ -17,16 +17,16 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.34
-**Plan:** `04.34-STATUS.md`
-**Status:** Piloto controlado segue ativo, e a frente urgente atual ataca as superficies administrativas e de reporte que ainda quebram a confianca do uso real
-**Last activity:** 2026-03-26 - bugs de producao em notificacoes, goals e relatorios mapeados como problemas de contrato/serializacao; personalizacao de usuarios entrou na mesma fase urgente
+**Phase:** 4.39
+**Plan:** `04.39-STATUS.md`
+**Status:** Piloto controlado segue ativo, 4.34 continua como hardening administrativo em paralelo, 4.36-4.38 reduziram exposicao e custo, e o trabalho ativo agora esta em 4.39
+**Last activity:** 2026-03-27 - fase 4.39 avancou com helper de bypass de tenant com reason explicita e ownership transacional mais claro em goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
 
 ## Progress Snapshot
 
 **Active milestone:** v3.2.0
-**Phases planned:** 10
-**Plans planned:** 6
+**Phases planned:** 15
+**Plans planned:** 11
 **Plans completed:** 3
 
 ## Accumulated Context
@@ -49,5 +49,19 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.32: canais reais do piloto - publicada no piloto, com pendencia apenas de credenciais reais do Actuar automatico
 - Phase 4.33: transparencia de IA e fluxos publicos - aguardando 4.32
 - Phase 4.34: superficies administrativas e relatorios do piloto - em execucao
-- Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes
+- Phase 4.36: higiene de tokens e lockdown de superficies publicas - concluindo validacao inicial
+- Phase 4.37: protecao de PII e seguranca de import/export - primeira fatia concluida, com endurecimento estrutural ainda pendente
+- Phase 4.38: resiliencia de consultas, jobs e DoS logico - em execucao
+- Phase 4.39: guardrails de tenant e consistencia transacional - em execucao
+- Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes 4.36-4.40
 - Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5
+
+### Security Hardening Backlog Now Converted To Phases
+
+- Phase 4.36: higiene de tokens e lockdown de superficies publicas - P0
+- Phase 4.37: protecao de PII e seguranca de import/export - P0
+- Phase 4.38: resiliencia de consultas, jobs e DoS logico - P1
+- Phase 4.39: guardrails de tenant e consistencia transacional - P1
+- Phase 4.40: hardening de sessao e borda de producao - P2
+
+These phases now gate any feature expansion beyond the pilot.

@@ -19,6 +19,7 @@ def test_health_ready_returns_ok_when_db_up(client):
     data = response.json()
     assert data["status"] == "ok"
     assert "database" in data["checks"]
+    assert "error" not in data["checks"]["database"]
 
 
 def test_health_ready_returns_503_when_db_down(client):
@@ -30,6 +31,7 @@ def test_health_ready_returns_503_when_db_down(client):
     data = response.json()
     assert data["status"] == "degraded"
     assert data["checks"]["database"]["status"] == "error"
+    assert "error" not in data["checks"]["database"]
 
 
 def test_health_ready_returns_ok_when_redis_not_required(client):
@@ -44,7 +46,7 @@ def test_health_ready_returns_ok_when_redis_not_required(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["checks"]["cache"]["available"] is False
+    assert data["checks"]["cache"]["status"] == "ok"
 
 
 def test_health_ready_returns_503_when_required_redis_is_down(client):
@@ -59,4 +61,4 @@ def test_health_ready_returns_503_when_required_redis_is_down(client):
     assert response.status_code == 503
     data = response.json()
     assert data["status"] == "degraded"
-    assert data["checks"]["cache"]["available"] is False
+    assert data["checks"]["cache"]["status"] == "error"

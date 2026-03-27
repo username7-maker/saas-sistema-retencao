@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
-from app.database import get_current_gym_id
+from app.database import get_current_gym_id, include_all_tenants
 from app.models import Member, MemberStatus
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
 from app.schemas import PaginatedResponse
@@ -30,7 +30,7 @@ def _resolve_gym_id(gym_id=None):
 def _scoped_statement(statement, gym_id):
     if gym_id is None:
         return statement
-    return statement.execution_options(include_all_tenants=True)
+    return include_all_tenants(statement, reason="assessment_analytics.explicit_gym_scope")
 
 
 def _latest_assessment_subquery():

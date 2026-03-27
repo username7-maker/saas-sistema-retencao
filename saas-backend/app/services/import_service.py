@@ -127,6 +127,11 @@ _PLAN_CYCLE_CLEANUP_PATTERN = re.compile(
 _IMPORT_BATCH_SIZE = 500
 _IMPORT_PREVIEW_SAMPLE_LIMIT = 5
 _IMPORT_ONBOARDING_WINDOW_DAYS = 30
+_MAX_IMPORT_ROWS = 25_000
+_MAX_IMPORT_COLUMNS = 200
+_MAX_CSV_FIELD_BYTES = 1 * 1024 * 1024
+_MAX_XLSX_UNCOMPRESSED_BYTES = 25 * 1024 * 1024
+_MAX_XLSX_ARCHIVE_ENTRIES = 200
 _MEMBER_PREVIEW_COLUMNS = set(
     NAME_KEYS
     + FIRST_NAME_KEYS
@@ -1044,9 +1049,39 @@ def _detect_file_kind(content: bytes, filename: str | None) -> str:
 def _iter_rows_csv(csv_content: bytes):
     text = _decode_csv_text(csv_content)
     delimiter = _detect_delimiter(text)
-    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-    for row_number, row in enumerate(reader, start=2):
-        yield row_number, _normalize_row(row)
+    previous_limit = csv.field_size_limit()
+    csv.field_size_limit(_MAX_CSV_FIELD_BYTES)
+    try:
+        reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+        _validate_import_headers(reader.fieldnames or [])
+        for row_number, row in enumerate(reader, start=2):
+            if row_number - 1 > _MAX_IMPORT_ROWS:
+                raise ValueError(f"Arquivo excede o limite de {_MAX_IMPORT_ROWS} linhas de importacao.")
+            yield row_number, _normalize_row(row)
+    except csv.Error as exc:
+        raise ValueError("Arquivo CSV invalido ou com campos excessivamente grandes.") from exc
+    finally:
+        csv.field_size_limit(previous_limit)
+
+
+def _validate_import_headers(headers: list[str]) -> None:
+    normalized_headers = [header for header in headers if str(header).strip()]
+    if len(normalized_headers) > _MAX_IMPORT_COLUMNS:
+        raise ValueError(f"Arquivo excede o limite de {_MAX_IMPORT_COLUMNS} colunas de importacao.")
+
+
+def _validate_xlsx_archive(content: bytes) -> None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            infos = archive.infolist()
+            if len(infos) > _MAX_XLSX_ARCHIVE_ENTRIES:
+                raise ValueError("Arquivo XLSX possui entradas demais e foi bloqueado por seguranca.")
+
+            total_uncompressed = sum(info.file_size for info in infos)
+            if total_uncompressed > _MAX_XLSX_UNCOMPRESSED_BYTES:
+                raise ValueError("Arquivo XLSX excede o limite seguro de descompressao.")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Arquivo XLSX invalido ou corrompido.") from exc
 
 
 def _iter_rows_xlsx(content: bytes):
@@ -1055,6 +1090,8 @@ def _iter_rows_xlsx(content: bytes):
     except ImportError:
         yield from _iter_rows_xlsx_fallback(content)
         return
+
+    _validate_xlsx_archive(content)
 
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
@@ -1068,7 +1105,10 @@ def _iter_rows_xlsx(content: bytes):
             return
 
         headers = [str(cell).strip() if cell is not None else "" for cell in header_cells]
+        _validate_import_headers(headers)
         for row_number, row_cells in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
+            if row_number - 1 > _MAX_IMPORT_ROWS:
+                raise ValueError(f"Arquivo excede o limite de {_MAX_IMPORT_ROWS} linhas de importacao.")
             raw_row: dict[str | None, str | None] = {}
             has_value = False
             for idx, header in enumerate(headers):
@@ -1088,6 +1128,7 @@ def _iter_rows_xlsx(content: bytes):
 
 def _iter_rows_xlsx_fallback(content: bytes):
     try:
+        _validate_xlsx_archive(content)
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
             worksheet_path = _xlsx_first_sheet_path(archive)
             shared_strings = _xlsx_shared_strings(archive)
@@ -1103,8 +1144,11 @@ def _iter_rows_xlsx_fallback(content: bytes):
 
     header_values = _xlsx_row_values(rows[0], shared_strings, ns)
     headers = [str(value).strip() if value is not None else "" for value in header_values]
+    _validate_import_headers(headers)
     for row in rows[1:]:
         row_number = int(row.attrib.get("r", "0") or "0")
+        if row_number - 1 > _MAX_IMPORT_ROWS:
+            raise ValueError(f"Arquivo excede o limite de {_MAX_IMPORT_ROWS} linhas de importacao.")
         values = _xlsx_row_values(row, shared_strings, ns)
         raw_row: dict[str | None, str | None] = {}
         has_value = False

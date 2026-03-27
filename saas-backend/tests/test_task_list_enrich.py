@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.models import TaskPriority, TaskStatus
+from app.models import RoleEnum, TaskPriority, TaskStatus
 from app.schemas import TaskOut
 
 
@@ -92,11 +92,11 @@ class TestListTasks:
 
     def test_hides_retention_tasks_by_default(self):
         manual_task = _task_ns(id=uuid.uuid4(), title="Ligar para lead", extra_data={"source": "manual"})
-        retention_task = _task_ns(id=uuid.uuid4(), title="Escalar churn - Ana", extra_data={"source": "retention_intelligence"})
         db = MagicMock()
+        db.scalar.return_value = 1
         mock_scalars = MagicMock()
         mock_scalars.unique.return_value = mock_scalars
-        mock_scalars.all.return_value = [manual_task, retention_task]
+        mock_scalars.all.return_value = [manual_task]
         db.scalars.return_value = mock_scalars
 
         from app.services.task_service import list_tasks
@@ -115,9 +115,10 @@ class TestListTasks:
             extra_data={},
         )
         db = MagicMock()
+        db.scalar.return_value = 1
         mock_scalars = MagicMock()
         mock_scalars.unique.return_value = mock_scalars
-        mock_scalars.all.return_value = [manual_task, retention_task]
+        mock_scalars.all.return_value = [manual_task]
         db.scalars.return_value = mock_scalars
 
         from app.services.task_service import list_tasks
@@ -143,3 +144,25 @@ class TestListTasks:
 
         assert result.total == 2
         assert [item.title for item in result.items] == ["Ligar para lead", "Escalar churn - Ana"]
+
+    def test_trainer_receives_only_technical_tasks_from_query_result(self):
+        technical_task = _task_ns(
+            id=uuid.uuid4(),
+            title="Revisar bioimpedancia",
+            lead_id=None,
+            extra_data={"source": "assessment_intelligence", "owner_role": "coach"},
+        )
+        current_user = SimpleNamespace(role=RoleEnum.TRAINER, gym_id=GYM_ID)
+        db = MagicMock()
+        db.scalar.return_value = 1
+        mock_scalars = MagicMock()
+        mock_scalars.unique.return_value = mock_scalars
+        mock_scalars.all.return_value = [technical_task]
+        db.scalars.return_value = mock_scalars
+
+        from app.services.task_service import list_tasks
+
+        result = list_tasks(db, current_user=current_user)
+
+        assert result.total == 1
+        assert [item.title for item in result.items] == ["Revisar bioimpedancia"]

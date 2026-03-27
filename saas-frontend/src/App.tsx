@@ -7,6 +7,7 @@ import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
 import { useAuth } from "./hooks/useAuth";
 import { LoginPage } from "./pages/auth/LoginPage";
+import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { DiagnosticoPage } from "./pages/public/DiagnosticoPage";
 import { ROUTE_ACCESS, USER_ADMIN_ROLES, getDefaultRouteForRole } from "./utils/roleAccess";
 import type { Role } from "./types";
@@ -66,6 +67,7 @@ export default function App() {
     <Routes>
       <Route path="/diagnostico" element={<DiagnosticoPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       <Route
         element={

@@ -57,6 +57,7 @@ def mark_read_endpoint(
         notification_id=notification_id,
         current_user=current_user,
         read=payload.read,
+        commit=False,
     )
     context = get_request_context(request)
     log_audit_event(

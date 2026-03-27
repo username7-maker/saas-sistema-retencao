@@ -60,6 +60,16 @@ class TestCreateGym:
         db.add.assert_called_once()
         db.commit.assert_called_once()
 
+    def test_can_skip_commit(self):
+        db = MagicMock()
+        db.scalar.return_value = None
+        db.refresh = MagicMock()
+
+        create_gym(db, name="Minha Gym", slug="minha-gym", commit=False)
+
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
     def test_duplicate_slug_raises(self):
         db = MagicMock()
         db.scalar.return_value = SimpleNamespace(slug="minha-gym")  # Existing gym
@@ -80,6 +90,17 @@ class TestCreateUser:
         create_user(db, payload, gym_id=GYM_ID)
         db.add.assert_called_once()
         db.commit.assert_called_once()
+
+    def test_can_skip_commit(self):
+        db = MagicMock()
+        db.scalar.return_value = None
+        db.refresh = MagicMock()
+        payload = UserRegister(full_name="Test", email="t@t.com", password="Secret123!", role=RoleEnum.MANAGER)
+
+        create_user(db, payload, gym_id=GYM_ID, commit=False)
+
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
     def test_duplicate_email_raises(self):
         db = MagicMock()
@@ -162,6 +183,22 @@ class TestAuthenticateUser:
         assert result.id == USER_ID
         db.commit.assert_called_once()
 
+    def test_success_can_skip_commit(self):
+        gym = SimpleNamespace(id=GYM_ID, slug="my-gym", is_active=True)
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, email="t@t.com",
+            hashed_password="hash", is_active=True, deleted_at=None,
+            last_login_at=None,
+        )
+        db = MagicMock()
+        db.scalar.side_effect = [gym, user]
+        payload = UserLogin(email="t@t.com", password="correct123", gym_slug="my-gym")
+        with patch("app.services.auth_service.verify_password", return_value=True):
+            result = authenticate_user(db, payload, commit=False)
+        assert result.id == USER_ID
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # issue_tokens
@@ -178,6 +215,18 @@ class TestIssueTokens:
         assert result.access_token
         assert result.refresh_token
         assert user.refresh_token_hash is not None
+
+    def test_can_skip_commit(self):
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, role=RoleEnum.OWNER,
+            refresh_token_hash=None, refresh_token_expires_at=None,
+        )
+        db = MagicMock()
+
+        issue_tokens(db, user, commit=False)
+
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +328,26 @@ class TestRefreshAccessToken:
                 with patch("app.services.auth_service.issue_tokens", return_value=tokens) as mock_issue_tokens:
                     result = refresh_access_token(db, "token")
         assert result is tokens
-        mock_issue_tokens.assert_called_once_with(db, user)
+        mock_issue_tokens.assert_called_once_with(db, user, commit=True)
+
+    def test_can_skip_commit(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            gym_id=GYM_ID,
+            deleted_at=None,
+            is_active=True,
+            refresh_token_hash="hash",
+            refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        tokens = SimpleNamespace(access_token="new-access", refresh_token="new-refresh")
+        db = MagicMock()
+        db.scalar.return_value = user
+        with patch("app.services.auth_service.decode_token", return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)}):
+            with patch("app.services.auth_service.verify_refresh_token", return_value=True):
+                with patch("app.services.auth_service.issue_tokens", return_value=tokens) as mock_issue_tokens:
+                    result = refresh_access_token(db, "token", commit=False)
+        assert result is tokens
+        mock_issue_tokens.assert_called_once_with(db, user, commit=False)
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +362,17 @@ class TestLogout:
         assert user.refresh_token_hash is None
         assert user.refresh_token_expires_at is None
         db.commit.assert_called_once()
+
+    def test_can_skip_commit(self):
+        user = SimpleNamespace(refresh_token_hash="hash", refresh_token_expires_at=datetime.now(tz=timezone.utc))
+        db = MagicMock()
+
+        logout(db, user, commit=False)
+
+        assert user.refresh_token_hash is None
+        assert user.refresh_token_expires_at is None
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

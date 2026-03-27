@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id, set_unscoped_access
+from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id, unscoped_tenant_access
 from app.models import Gym
 from app.models.member import Member
 from app.models.enums import MemberStatus
@@ -74,6 +74,24 @@ def _log_job_failure(job_name: str, *, gym_id: Any = None) -> None:
     if gym_id is not None:
         extra_fields["gym_id"] = str(gym_id)
     logger.exception("Scheduler job iteration failed.", extra={"extra_fields": extra_fields})
+
+
+def _iter_active_members_for_loyalty(db, gym_id, *, batch_size: int):
+    offset = 0
+    while True:
+        members = db.scalars(
+            select(Member).where(
+                Member.gym_id == gym_id,
+                Member.deleted_at.is_(None),
+                Member.status == MemberStatus.ACTIVE,
+            ).order_by(Member.id.asc()).offset(offset).limit(batch_size)
+        ).all()
+        if not members:
+            break
+        yield members
+        offset += len(members)
+        if len(members) < batch_size:
+            break
 
 
 @with_distributed_lock("daily_risk", ttl_seconds=1800, fail_open=_critical_lock_fail_open)
@@ -187,23 +205,21 @@ def daily_loyalty_update_job() -> None:
     """Recalcula loyalty_months para todos os membros ativos de todas as academias."""
     job_name = "daily_loyalty_update"
     today = date.today()
+    batch_size = max(int(settings.loyalty_update_batch_size), 1)
     db = SessionLocal()
     try:
         for gym in _active_gyms(db):
             try:
                 set_current_gym_id(gym.id)
-                members = db.scalars(
-                    select(Member).where(
-                        Member.gym_id == gym.id,
-                        Member.deleted_at.is_(None),
-                        Member.status == MemberStatus.ACTIVE,
-                    )
-                ).all()
-                for member in members:
-                    delta = relativedelta(today, member.join_date)
-                    member.loyalty_months = max(0, delta.years * 12 + delta.months)
+                processed_count = 0
+                for members in _iter_active_members_for_loyalty(db, gym.id, batch_size=batch_size):
+                    for member in members:
+                        delta = relativedelta(today, member.join_date)
+                        member.loyalty_months = max(0, delta.years * 12 + delta.months)
+                    processed_count += len(members)
+                    db.flush()
                 db.commit()
-                _log_job_metrics(job_name, gym_id=gym.id, processed_count=len(members))
+                _log_job_metrics(job_name, gym_id=gym.id, processed_count=processed_count)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -238,11 +254,10 @@ def nurturing_followup_job() -> None:
     job_name = "nurturing_followup"
     db = SessionLocal()
     try:
-        set_unscoped_access(True)  # Cross-gym: processes all pending sequences
-        result = run_nurturing_followup(db)
+        with unscoped_tenant_access("jobs.nurturing_followup_job"):
+            result = run_nurturing_followup(db)
         _log_job_metrics(job_name, result=result)
     finally:
-        set_unscoped_access(False)
         clear_current_gym_id()
         db.close()
 
@@ -253,11 +268,10 @@ def booking_reminder_job() -> None:
     job_name = "booking_reminder"
     db = SessionLocal()
     try:
-        set_unscoped_access(True)  # Cross-gym: processes bookings across all gyms
-        result = process_booking_reminders(db)
+        with unscoped_tenant_access("jobs.booking_reminder_job"):
+            result = process_booking_reminders(db)
         _log_job_metrics(job_name, result=result)
     finally:
-        set_unscoped_access(False)
         clear_current_gym_id()
         db.close()
 

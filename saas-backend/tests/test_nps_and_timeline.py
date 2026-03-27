@@ -36,6 +36,30 @@ class TestCreateResponse:
 
     @patch("app.services.nps_service.invalidate_dashboard_cache")
     @patch("app.services.nps_service.log_audit_event")
+    @patch("app.services.nps_service.analyze_sentiment", return_value=(NPSSentiment.POSITIVE, "Otimo"))
+    def test_creates_response_without_committing_when_router_owns_transaction(self, mock_sentiment, mock_audit, mock_cache):
+        member = SimpleNamespace(id=MEMBER_ID, nps_last_score=7)
+        db = MagicMock()
+        db.get.return_value = member
+
+        from app.schemas.nps import NPSResponseCreate
+
+        payload = NPSResponseCreate(
+            member_id=MEMBER_ID,
+            score=9,
+            comment="Otimo!",
+            trigger=NPSTrigger.MONTHLY,
+        )
+        from app.services.nps_service import create_response
+
+        create_response(db, payload, commit=False)
+
+        assert member.nps_last_score == 9
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
+    @patch("app.services.nps_service.invalidate_dashboard_cache")
+    @patch("app.services.nps_service.log_audit_event")
     @patch("app.services.nps_service.analyze_sentiment", return_value=(NPSSentiment.NEGATIVE, "Ruim"))
     def test_negative_logs_audit(self, mock_sentiment, mock_audit, mock_cache):
         member = SimpleNamespace(id=MEMBER_ID, nps_last_score=5)
@@ -75,6 +99,29 @@ class TestRunNpsDispatch:
         from app.services.nps_service import run_nps_dispatch
         result = run_nps_dispatch(db)
         assert isinstance(result, dict)
+
+    @patch("app.services.nps_service.send_email", return_value=True)
+    @patch("app.services.nps_service.log_audit_event")
+    def test_dispatches_surveys_without_committing_when_router_owns_transaction(self, mock_audit, mock_email):
+        member = SimpleNamespace(
+            id=MEMBER_ID, email="aluno@t.com", full_name="Aluno",
+            status=MemberStatus.ACTIVE, risk_level=RiskLevel.GREEN,
+            join_date=date.today() - timedelta(days=30),
+            deleted_at=None,
+        )
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [member]
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = None
+
+        from app.services.nps_service import run_nps_dispatch
+
+        result = run_nps_dispatch(db, commit=False)
+
+        assert isinstance(result, dict)
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

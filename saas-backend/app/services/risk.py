@@ -7,6 +7,7 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
 from app.models import AuditLog, Checkin, Member, MemberRiskHistory, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
@@ -113,22 +114,49 @@ def calculate_risk_score(
 _AUTOMATION_STAGES = ["automation_3d", "automation_7d", "automation_10d", "automation_14d", "automation_21d"]
 
 
-def run_daily_risk_processing(db: Session) -> dict[str, int]:
-    db.execute(text("SET LOCAL statement_timeout = 0"))
-    now = datetime.now(tz=timezone.utc)
-    members = db.scalars(
-        select(Member).where(
-            Member.deleted_at.is_(None),
-            Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
-        )
-    ).all()
+def _active_member_filters():
+    return (
+        Member.deleted_at.is_(None),
+        Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+    )
 
-    analyzed = len(members)
+
+def _apply_risk_statement_timeout(db: Session) -> None:
+    timeout_ms = max(int(settings.risk_processing_statement_timeout_ms), 0)
+    if timeout_ms <= 0:
+        return
+    db.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
+
+
+def _count_active_members_for_risk_processing(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(Member).where(*_active_member_filters())) or 0
+
+
+def _iter_active_members_for_risk_processing(
+    db: Session,
+    *,
+    batch_size: int,
+):
+    offset = 0
+    stmt = select(Member).where(*_active_member_filters()).order_by(Member.id.asc())
+    while True:
+        batch = db.scalars(stmt.offset(offset).limit(batch_size)).all()
+        if not batch:
+            break
+        yield batch
+        offset += len(batch)
+        if len(batch) < batch_size:
+            break
+
+
+def run_daily_risk_processing(db: Session) -> dict[str, int]:
+    _apply_risk_statement_timeout(db)
+    now = datetime.now(tz=timezone.utc)
+    analyzed = _count_active_members_for_risk_processing(db)
     if not analyzed:
         return {"members_analyzed": 0, "risk_alerts_processed": 0, "automations_triggered": 0}
 
     # Prefetch all automation audit records in ONE query to avoid N+1
-    metrics_by_member = _prefetch_member_checkin_metrics(db, now)
     ninety_days_ago = now - timedelta(days=90)
     triggered_stages: set[tuple] = set(
         db.execute(
@@ -154,11 +182,13 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
     automations_triggered = 0
     ws_events: list[dict] = []
 
-    BATCH_SIZE = 100
-    for batch_start in range(0, analyzed, BATCH_SIZE):
-        batch = members[batch_start : batch_start + BATCH_SIZE]
+    batch_size = max(int(settings.risk_processing_batch_size), 1)
+    processed = 0
+    for batch in _iter_active_members_for_risk_processing(db, batch_size=batch_size):
+        batch_member_ids = {member.id for member in batch}
+        metrics_by_member = _prefetch_member_checkin_metrics(db, now, member_ids=batch_member_ids)
         try:
-            db.execute(text("SET LOCAL statement_timeout = 0"))
+            _apply_risk_statement_timeout(db)
             for member in batch:
                 result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
                 previous_score = member.risk_score
@@ -212,9 +242,12 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
                     ))
 
             db.commit()
+            processed += len(batch)
         except Exception:
             logger.exception(
-                "Risk batch failed (members %d-%d)", batch_start, batch_start + len(batch),
+                "Risk batch failed (processed=%d batch_size=%d)",
+                processed,
+                len(batch),
             )
             db.rollback()
 

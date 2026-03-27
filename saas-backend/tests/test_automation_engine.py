@@ -298,6 +298,20 @@ def test_run_automation_rules_handles_trigger_failure(monkeypatch):
     assert db.committed is True
 
 
+def test_run_automation_rules_can_skip_commit(monkeypatch):
+    db = DummyDB()
+    rule = _make_rule()
+
+    monkeypatch.setattr(automation_engine, "list_automation_rules", lambda *_args, **_kwargs: [rule])
+    monkeypatch.setattr(automation_engine, "_find_matching_members", lambda *_args, **_kwargs: [])
+
+    results = automation_engine.run_automation_rules(db, commit=False)
+
+    assert results == []
+    assert db.committed is False
+    assert db.flushed is True
+
+
 def test_coerce_int_supports_defaults_and_minimum():
     assert automation_engine._coerce_int("9", default=7) == 9
     assert automation_engine._coerce_int(None, default=7) == 7

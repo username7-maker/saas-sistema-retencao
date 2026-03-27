@@ -251,3 +251,71 @@ class TestConfirmPublicBooking:
         assert saved_booking.id == booking.id
         db.commit.assert_called_once()
         db.rollback.assert_called_once()
+
+    def test_can_skip_commit_and_external_side_effect_for_router_owned_flow(self, monkeypatch):
+        lead = SimpleNamespace(
+            id=LEAD_ID,
+            gym_id=GYM_ID,
+            stage=LeadStage.NEW,
+            last_contact_at=None,
+            notes=[],
+            phone="11999998888",
+            email="lead@test.com",
+            deleted_at=None,
+        )
+        booking = SimpleNamespace(
+            id=uuid.uuid4(),
+            provider_name="cal",
+            scheduled_for=datetime.now(tz=timezone.utc) + timedelta(days=1),
+            prospect_whatsapp="11999998888",
+            status="confirmed",
+        )
+        db = MagicMock()
+        db.get.return_value = None
+        db.scalar.return_value = None
+
+        monkeypatch.setattr("app.services.booking_service._resolve_public_gym_id", lambda: GYM_ID)
+        monkeypatch.setattr("app.services.booking_service._resolve_or_create_public_lead", lambda *_args, **_kwargs: lead)
+        monkeypatch.setattr("app.services.booking_service.pause_sequences_for_lead", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.services.booking_service._upsert_booking", lambda *_args, **_kwargs: booking)
+        monkeypatch.setattr("app.services.booking_service._send_booking_confirmation_whatsapp", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("nao deveria enviar")))
+
+        from app.services.booking_service import confirm_public_booking
+
+        saved_lead, saved_booking = confirm_public_booking(
+            db,
+            PublicBookingConfirmRequest(
+                prospect_name="Lead Booking",
+                email="lead@test.com",
+                whatsapp="11999998888",
+                scheduled_for=booking.scheduled_for,
+                provider_name="cal",
+                provider_booking_id="booking-1",
+            ),
+            commit=False,
+            dispatch_confirmation_whatsapp=False,
+        )
+
+        assert saved_lead.id == lead.id
+        assert saved_booking.id == booking.id
+        db.commit.assert_not_called()
+        db.flush.assert_called()
+
+    def test_rejects_whatsapp_dispatch_before_commit(self, monkeypatch):
+        monkeypatch.setattr("app.services.booking_service._resolve_public_gym_id", lambda: GYM_ID)
+
+        from app.services.booking_service import confirm_public_booking
+
+        with pytest.raises(ValueError, match="dispatch_confirmation_whatsapp requer commit=True"):
+            confirm_public_booking(
+                MagicMock(),
+                PublicBookingConfirmRequest(
+                    prospect_name="Lead Booking",
+                    email="lead@test.com",
+                    whatsapp="11999998888",
+                    scheduled_for=datetime.now(tz=timezone.utc) + timedelta(days=1),
+                    provider_name="cal",
+                ),
+                commit=False,
+                dispatch_confirmation_whatsapp=True,
+            )

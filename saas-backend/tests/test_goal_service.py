@@ -45,6 +45,15 @@ class TestCreateGoal:
         db.add.assert_called_once()
         db.commit.assert_called_once()
 
+    def test_can_skip_commit_for_router_owned_transaction(self):
+        db = MagicMock()
+        db.refresh = MagicMock()
+
+        create_goal(db, _goal_create(), commit=False)
+
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
     def test_invalid_period_raises(self):
         with pytest.raises(HTTPException) as exc_info:
             create_goal(MagicMock(), _goal_create(
@@ -99,6 +108,21 @@ class TestUpdateGoal:
         result = update_goal(db, goal.id, GoalUpdate(target_value=20000))
         db.commit.assert_called_once()
 
+    def test_update_can_skip_commit_for_router_owned_transaction(self):
+        goal = SimpleNamespace(
+            id=uuid.uuid4(), metric_type="mrr", target_value=10000,
+            period_start=date(2026, 1, 1), period_end=date(2026, 12, 31),
+        )
+        db = MagicMock()
+        db.get.return_value = goal
+        db.refresh = MagicMock()
+        from app.schemas.goal import GoalUpdate
+
+        update_goal(db, goal.id, GoalUpdate(target_value=20000), commit=False)
+
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
+
     def test_invalid_period_raises(self):
         goal = SimpleNamespace(
             id=uuid.uuid4(), metric_type="mrr", target_value=10000,
@@ -119,6 +143,17 @@ class TestDeleteGoal:
         delete_goal(db, goal.id)
         db.delete.assert_called_once()
         db.commit.assert_called_once()
+
+    def test_delete_can_skip_commit_for_router_owned_transaction(self):
+        goal = SimpleNamespace(id=uuid.uuid4())
+        db = MagicMock()
+        db.get.return_value = goal
+
+        delete_goal(db, goal.id, commit=False)
+
+        db.delete.assert_called_once()
+        db.commit.assert_not_called()
+        db.flush.assert_called_once()
 
 
 class TestProgressPct:
