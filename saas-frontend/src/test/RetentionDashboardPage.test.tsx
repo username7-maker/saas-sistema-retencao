@@ -270,4 +270,25 @@ describe("RetentionDashboardPage", () => {
       expect(riskAlertService.resolve).toHaveBeenCalledWith("alert-member-1", "Resolvido no dashboard de retenção");
     });
   });
+
+  it("shows contextual notes when NPS and financial base are not available", async () => {
+    vi.mocked(useRetentionDashboard).mockReturnValue(
+      queryResult({
+        ...retentionSummary,
+        nps_trend: [],
+        mrr_at_risk: 0,
+      }) as never,
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Leitura do painel")).toBeInTheDocument();
+    expect(
+      screen.getByText("NPS ainda sem respostas suficientes para formar a curva histórica deste painel."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("MRR em risco ainda sem base financeira útil porque as mensalidades dessa base não estão consolidadas."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sem base")).toBeInTheDocument();
+  });
 });

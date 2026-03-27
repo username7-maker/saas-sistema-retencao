@@ -533,16 +533,39 @@ export function RetentionDashboardPage() {
   const kpis = useMemo(() => {
     const data = summaryQuery.data;
     if (!data) return [];
+    const totalAlerts = Number(data.red.total ?? 0) + Number(data.yellow.total ?? 0);
+    const hasFinancialBase = Number(data.mrr_at_risk ?? 0) > 0;
     return [
       { label: "Alertas vermelhos", value: data.red.total, tone: "danger" as const },
       { label: "Alertas amarelos", value: data.yellow.total, tone: "warning" as const },
-      { label: "MRR em risco", value: formatCurrency(Number(data.mrr_at_risk ?? 0)), tone: "warning" as const },
+      {
+        label: "MRR em risco",
+        value: hasFinancialBase ? formatCurrency(Number(data.mrr_at_risk ?? 0)) : totalAlerts > 0 ? "Sem base" : formatCurrency(0),
+        tone: hasFinancialBase ? ("warning" as const) : ("neutral" as const),
+      },
       {
         label: "Score médio crítico",
         value: data.red.total > 0 ? `${Math.round(Number(data.avg_red_score ?? 0))}` : "—",
         tone: "danger" as const,
       },
     ];
+  }, [summaryQuery.data]);
+
+  const retentionDataNotes = useMemo(() => {
+    const data = summaryQuery.data;
+    if (!data) return [] as string[];
+
+    const notes: string[] = [];
+    const totalAlerts = Number(data.red.total ?? 0) + Number(data.yellow.total ?? 0);
+
+    if ((data.nps_trend?.length ?? 0) === 0) {
+      notes.push("NPS ainda sem respostas suficientes para formar a curva histórica deste painel.");
+    }
+    if (totalAlerts > 0 && Number(data.mrr_at_risk ?? 0) <= 0) {
+      notes.push("MRR em risco ainda sem base financeira útil porque as mensalidades dessa base não estão consolidadas.");
+    }
+
+    return notes;
   }, [summaryQuery.data]);
 
   const churnHighlights = useMemo(() => {
@@ -625,6 +648,16 @@ export function RetentionDashboardPage() {
         <div className="space-y-4">
           <AiInsightCard dashboard="retention" />
           <KPIStrip items={kpis} />
+          {retentionDataNotes.length > 0 ? (
+            <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/92 px-4 py-4 text-sm text-lovable-ink-muted shadow-panel backdrop-blur-xl">
+              <p className="font-medium text-lovable-ink">Leitura do painel</p>
+              <ul className="mt-2 space-y-1">
+                {retentionDataNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {churnHighlights.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {churnHighlights.map((item) => (
