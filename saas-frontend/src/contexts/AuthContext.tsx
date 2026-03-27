@@ -20,13 +20,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const bootstrap = useCallback(async () => {
-    const token = tokenStorage.getAccessToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
     try {
+      if (!tokenStorage.getAccessToken()) {
+        await authService.restoreSession();
+      }
       const currentUser = await authService.me();
       setUser(currentUser);
     } catch {
@@ -49,13 +46,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const token = tokenStorage.getAccessToken();
-    if (!token) {
-      setUser(null);
-      return null;
-    }
-
     try {
+      if (!tokenStorage.getAccessToken()) {
+        await authService.restoreSession();
+      }
       const currentUser = await authService.me();
       setUser(currentUser);
       return currentUser;

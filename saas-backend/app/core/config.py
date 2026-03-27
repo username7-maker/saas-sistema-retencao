@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    refresh_cookie_name: str = "ai_gym_refresh_token"
+    refresh_cookie_domain: str = ""
+    refresh_cookie_path: str = "/api/v1/auth"
+    refresh_cookie_samesite: str = "lax"
+    refresh_cookie_secure: bool = False
     bcrypt_rounds: int = 12
 
     cpf_encryption_key: str = "change-me-with-64-hex"
@@ -146,6 +151,14 @@ class Settings(BaseSettings):
                 return False
         return False
 
+    @field_validator("refresh_cookie_samesite", mode="before")
+    @classmethod
+    def normalize_refresh_cookie_samesite(cls, value: str | None) -> str:
+        normalized = (value or "lax").strip().lower()
+        if normalized not in {"lax", "strict", "none"}:
+            return "lax"
+        return normalized
+
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
         if self.environment.lower() != "production":
@@ -156,6 +169,18 @@ class Settings(BaseSettings):
         if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):
             raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
         return self
+
+    @property
+    def resolved_refresh_cookie_secure(self) -> bool:
+        if self.environment.lower() == "production":
+            return True
+        return self.refresh_cookie_secure
+
+    @property
+    def resolved_refresh_cookie_samesite(self) -> str:
+        if self.environment.lower() == "production":
+            return "none"
+        return self.refresh_cookie_samesite
 
 
 def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:

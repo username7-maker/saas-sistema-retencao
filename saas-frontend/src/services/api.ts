@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
 import { tokenStorage } from "./storage";
 import { API_BASE_URL } from "./runtimeConfig";
+import type { TokenPair } from "../types";
 
 interface RetriableRequestConfig extends AxiosRequestConfig {
   _retry?: boolean;
@@ -10,7 +11,33 @@ interface RetriableRequestConfig extends AxiosRequestConfig {
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 20000,
+  withCredentials: true,
 });
+
+let refreshInFlight: Promise<string> | null = null;
+
+export async function requestAccessTokenRefresh(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post<TokenPair>(`${API_BASE_URL}/api/v1/auth/refresh`, undefined, {
+        timeout: 20000,
+        withCredentials: true,
+      })
+      .then(({ data }) => {
+        tokenStorage.setAccessToken(data.access_token);
+        return data.access_token;
+      })
+      .catch((error) => {
+        tokenStorage.clear();
+        throw error;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+
+  return refreshInFlight;
+}
 
 api.interceptors.request.use((config) => {
   const token = tokenStorage.getAccessToken();
@@ -24,25 +51,20 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as RetriableRequestConfig;
-    if (error.response?.status !== 401 || originalRequest?._retry) {
-      return Promise.reject(error);
-    }
-
-    const refreshToken = tokenStorage.getRefreshToken();
-    if (!refreshToken) {
-      tokenStorage.clear();
+    const requestUrl = originalRequest?.url ?? "";
+    if (
+      error.response?.status !== 401 ||
+      originalRequest?._retry ||
+      requestUrl.includes("/api/v1/auth/refresh")
+    ) {
       return Promise.reject(error);
     }
 
     originalRequest._retry = true;
     try {
-      const refreshResponse = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
-        refresh_token: refreshToken,
-      });
-      const { access_token, refresh_token } = refreshResponse.data;
-      tokenStorage.setTokens(access_token, refresh_token);
+      const accessToken = await requestAccessTokenRefresh();
       originalRequest.headers = originalRequest.headers ?? {};
-      originalRequest.headers.Authorization = `Bearer ${access_token}`;
+      originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
     } catch {
       tokenStorage.clear();

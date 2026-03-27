@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, requestAccessTokenRefresh } from "./api";
 import { tokenStorage } from "./storage";
 import type { TokenPair, User } from "../types";
 
@@ -11,8 +11,12 @@ export interface LoginPayload {
 export const authService = {
   async login(payload: LoginPayload): Promise<TokenPair> {
     const { data } = await api.post<TokenPair>("/api/v1/auth/login", payload);
-    tokenStorage.setTokens(data.access_token, data.refresh_token);
+    tokenStorage.setAccessToken(data.access_token);
     return data;
+  },
+
+  async restoreSession(): Promise<string> {
+    return requestAccessTokenRefresh();
   },
 
   async me(): Promise<User> {

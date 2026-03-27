@@ -8,6 +8,11 @@ def test_health_returns_ok(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
+    assert response.headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 
 def test_health_ready_returns_ok_when_db_up(client):

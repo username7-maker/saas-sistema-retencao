@@ -45,13 +45,13 @@ class UserOut(BaseModel):
 
 class TokenPair(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int = 900
 
 
 class RefreshTokenInput(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):

@@ -2,9 +2,10 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user, get_request_context
 from app.core.limiter import limiter
 from app.core.security import decode_token
@@ -28,6 +29,55 @@ from app.services.audit_service import log_audit_event
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.resolved_refresh_cookie_secure,
+        samesite=settings.resolved_refresh_cookie_samesite,
+        path=settings.refresh_cookie_path,
+        domain=settings.refresh_cookie_domain or None,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.refresh_cookie_name,
+        path=settings.refresh_cookie_path,
+        domain=settings.refresh_cookie_domain or None,
+        secure=settings.resolved_refresh_cookie_secure,
+        httponly=True,
+        samesite=settings.resolved_refresh_cookie_samesite,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _client_visible_tokens(tokens: TokenPair) -> TokenPair:
+    return TokenPair(
+        access_token=tokens.access_token,
+        refresh_token=None,
+        token_type=tokens.token_type,
+        expires_in=tokens.expires_in,
+    )
+
+
+def _resolve_refresh_token(request: Request, payload: RefreshTokenInput | None) -> str:
+    body_token = (payload.refresh_token if payload else None) or ""
+    if isinstance(body_token, str) and body_token.strip():
+        return body_token.strip()
+
+    cookie_token = request.cookies.get(settings.refresh_cookie_name, "").strip()
+    if cookie_token:
+        return cookie_token
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -55,7 +105,7 @@ def register_user(request: Request, payload: GymOwnerRegister, db: Annotated[Ses
 
 @router.post("/login", response_model=TokenPair)
 @limiter.limit("5/minute")
-def login(request: Request, payload: UserLogin, db: Annotated[Session, Depends(get_db)]) -> TokenPair:
+def login(request: Request, response: Response, payload: UserLogin, db: Annotated[Session, Depends(get_db)]) -> TokenPair:
     context = get_request_context(request)
     try:
         user = authenticate_user(db, payload, commit=False)
@@ -82,15 +132,22 @@ def login(request: Request, payload: UserLogin, db: Annotated[Session, Depends(g
     )
     tokens = issue_tokens(db, user, commit=False)
     db.commit()
-    return tokens
+    _set_refresh_cookie(response, tokens.refresh_token or "")
+    return _client_visible_tokens(tokens)
 
 
 @router.post("/refresh", response_model=TokenPair)
-def refresh(request: Request, payload: RefreshTokenInput, db: Annotated[Session, Depends(get_db)]) -> TokenPair:
-    tokens = refresh_access_token(db, payload.refresh_token, commit=False)
+def refresh(
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    payload: RefreshTokenInput | None = None,
+) -> TokenPair:
+    refresh_token = _resolve_refresh_token(request, payload)
+    tokens = refresh_access_token(db, refresh_token, commit=False)
     context = get_request_context(request)
     try:
-        decoded = decode_token(payload.refresh_token)
+        decoded = decode_token(refresh_token)
         user = db.get(User, UUID(decoded["sub"]))
         if user:
             log_audit_event(
@@ -106,12 +163,14 @@ def refresh(request: Request, payload: RefreshTokenInput, db: Annotated[Session,
     except Exception:
         logger.warning("Falha ao registrar audit de refresh", exc_info=True)
         db.commit()
-    return tokens
+    _set_refresh_cookie(response, tokens.refresh_token or "")
+    return _client_visible_tokens(tokens)
 
 
 @router.post("/logout", response_model=APIMessage)
 def logout_session(
     request: Request,
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> APIMessage:
@@ -127,6 +186,7 @@ def logout_session(
     )
     logout(db, current_user, commit=False)
     db.commit()
+    _clear_refresh_cookie(response)
     return APIMessage(message="Sessao encerrada")
 
 

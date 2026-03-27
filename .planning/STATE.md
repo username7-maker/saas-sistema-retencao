@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.39
-plan: "04.39-STATUS.md"
-status: Piloto segue em execucao, 4.36-4.38 endureceram seguranca e resiliencia, e 4.39 ja adicionou guardrails de tenant com reason explicita e ownership de commit mais consistente em goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
-last_activity: 2026-03-27 - fase 4.39 avancou com helper explicito para bypass de tenant e alinhamento transacional de goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
+phase: 4.40
+plan: "04.40-STATUS.md"
+status: Piloto segue em execucao, 4.36-4.39 endureceram seguranca, resiliencia e guardrails de tenant, e 4.40 ja moveu o refresh token para cookie HttpOnly, removeu o refresh do localStorage e adicionou headers de borda no backend e na Vercel
+last_activity: 2026-03-27 - fase 4.40 implementou cookie HttpOnly para refresh, bootstrap de sessao por cookie, single-flight de refresh no frontend e headers basicos de seguranca na borda
 ---
 
 # STATE
@@ -17,10 +17,10 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.39
-**Plan:** `04.39-STATUS.md`
-**Status:** Piloto controlado segue ativo, 4.34 continua como hardening administrativo em paralelo, 4.36-4.38 reduziram exposicao e custo, e o trabalho ativo agora esta em 4.39
-**Last activity:** 2026-03-27 - fase 4.39 avancou com helper de bypass de tenant com reason explicita e ownership transacional mais claro em goals, notifications, auth, check-ins, NPS, automations.execute, users.create e booking/public
+**Phase:** 4.40
+**Plan:** `04.40-STATUS.md`
+**Status:** Piloto controlado segue ativo, 4.34 continua como hardening administrativo em paralelo, 4.36-4.39 reduziram exposicao, custo e risco de isolamento, e o trabalho ativo agora esta em 4.40
+**Last activity:** 2026-03-27 - fase 4.40 implementou refresh em cookie HttpOnly, removeu refresh do localStorage, adicionou bootstrap de sessao por cookie e endureceu headers do backend/Vercel
 
 ## Progress Snapshot
 
@@ -53,6 +53,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.37: protecao de PII e seguranca de import/export - primeira fatia concluida, com endurecimento estrutural ainda pendente
 - Phase 4.38: resiliencia de consultas, jobs e DoS logico - em execucao
 - Phase 4.39: guardrails de tenant e consistencia transacional - em execucao
+- Phase 4.40: hardening de sessao e borda de producao - em execucao
 - Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes 4.36-4.40
 - Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5
 
