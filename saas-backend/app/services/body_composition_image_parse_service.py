@@ -8,6 +8,8 @@ from typing import Any
 
 import anthropic
 from fastapi import HTTPException, status
+from openai import OpenAI
+from pydantic import BaseModel, Field
 
 from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
@@ -81,6 +83,14 @@ PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
 }
 
 
+class _BodyCompositionVisionResponse(BaseModel):
+    device_model: str | None = None
+    values: BodyCompositionOcrValues = Field(default_factory=BodyCompositionOcrValues)
+    ranges: dict[str, BodyCompositionRangeValue] = Field(default_factory=dict)
+    warnings: list[BodyCompositionOcrWarning] = Field(default_factory=list)
+    needs_review: bool = False
+
+
 def parse_body_composition_image(
     *,
     image_bytes: bytes,
@@ -90,10 +100,11 @@ def parse_body_composition_image(
 ) -> BodyCompositionImageParseResultRead:
     normalized_device_profile = _normalize_device_profile(device_profile)
     normalized_media_type = _validate_image_payload(image_bytes, media_type)
+    provider = _resolve_image_ai_provider()
 
     local_payload = BodyCompositionImageOcrPayload.model_validate(local_ocr_result.model_dump()) if local_ocr_result else None
 
-    if not _image_ai_available():
+    if not _image_ai_available(provider):
         return _build_local_only_result(
             local_payload,
             "Leitura assistida por IA indisponivel; mantivemos a leitura local com revisao manual obrigatoria.",
@@ -101,16 +112,29 @@ def parse_body_composition_image(
         )
 
     try:
-        ai_payload = _parse_with_claude_vision(
-            image_bytes=image_bytes,
-            media_type=normalized_media_type,
-            device_profile=normalized_device_profile,
-            local_ocr_result=local_payload,
-        )
-        claude_circuit_breaker.record_success()
+        if provider == "openai":
+            ai_payload = _parse_with_openai_vision(
+                image_bytes=image_bytes,
+                media_type=normalized_media_type,
+                device_profile=normalized_device_profile,
+                local_ocr_result=local_payload,
+            )
+        else:
+            ai_payload = _parse_with_claude_vision(
+                image_bytes=image_bytes,
+                media_type=normalized_media_type,
+                device_profile=normalized_device_profile,
+                local_ocr_result=local_payload,
+            )
+        if provider == "claude":
+            claude_circuit_breaker.record_success()
     except Exception:
-        claude_circuit_breaker.record_failure()
-        logger.exception("Falha na leitura assistida de bioimpedancia. Mantendo OCR local quando possivel.")
+        if provider == "claude":
+            claude_circuit_breaker.record_failure()
+        logger.exception(
+            "Falha na leitura assistida de bioimpedancia com provedor %s. Mantendo OCR local quando possivel.",
+            provider or "indisponivel",
+        )
         return _build_local_only_result(
             local_payload,
             "Leitura assistida por IA falhou no momento; mantivemos o OCR local para revisao manual.",
@@ -118,6 +142,80 @@ def parse_body_composition_image(
         )
 
     return _merge_parse_results(local_payload, ai_payload)
+
+
+def _resolve_image_ai_provider() -> str | None:
+    if settings.openai_api_key:
+        return "openai"
+    if settings.claude_api_key:
+        return "claude"
+    return None
+
+
+def _create_openai_client(*, timeout_seconds: int | None = None) -> OpenAI:
+    return OpenAI(
+        api_key=settings.openai_api_key,
+        timeout=timeout_seconds or settings.openai_timeout_seconds,
+    )
+
+
+def _parse_with_openai_vision(
+    *,
+    image_bytes: bytes,
+    media_type: str,
+    device_profile: BodyCompositionDeviceProfile,
+    local_ocr_result: BodyCompositionImageOcrPayload | None,
+) -> BodyCompositionImageParseResultRead:
+    local_hint = _build_local_hint(local_ocr_result)
+    prompt = (
+        "Voce extrai dados estruturados de um recibo de bioimpedancia para um sistema de academia.\n"
+        "O layout esperado e do perfil tezewa_receipt_v1.\n"
+        "Retorne APENAS os campos estruturados solicitados.\n"
+        "Regras obrigatorias:\n"
+        "- use a imagem como fonte de verdade; o OCR local e apenas pista auxiliar\n"
+        "- nao invente valores; se estiver em duvida, use null e adicione warning\n"
+        "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
+        "- body_fat_kg corresponde a 'Body fat (kg)'\n"
+        "- body_fat_percent corresponde a 'Body fat ratio (%)'\n"
+        "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
+        "- quando houver faixa impressa, preencha ranges com min/max\n"
+        "- warnings deve ser lista de objetos com field, message, severity (warning|critical)\n"
+        "- values deve usar apenas as chaves esperadas do sistema\n"
+        "- evaluation_date so deve ser preenchida se estiver realmente visivel na imagem\n"
+        f"- device_profile atual: {device_profile}\n"
+        f"- dica opcional do OCR local: {json.dumps(local_hint, ensure_ascii=False)}\n"
+        "Responda em portugues do Brasil."
+    )
+
+    client = _create_openai_client(timeout_seconds=settings.body_composition_image_ai_timeout_seconds)
+    response = client.chat.completions.create(
+        model=settings.openai_vision_model,
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": "Extraia os dados estruturados de bioimpedancia com alta precisao e sem inventar valores. Responda somente JSON valido.",
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        raise RuntimeError("OpenAI nao retornou payload estruturado para a leitura assistida.")
+    parsed = _parse_claude_json(content)
+    return _normalize_ai_payload(parsed, device_profile=device_profile, local_ocr_result=local_ocr_result)
 
 
 def _parse_with_claude_vision(
@@ -211,8 +309,8 @@ def _normalize_ai_payload(
         confidence=0.94,
         raw_text=local_ocr_result.raw_text if local_ocr_result else "",
         needs_review=bool(payload.get("needs_review", False)),
-        engine="ai_fallback",
-        fallback_used=True,
+        engine="ai_assisted",
+        fallback_used=False,
     )
 
 
@@ -266,7 +364,7 @@ def _merge_parse_results(
     warnings.extend(_warnings_for_field(ai_result.warnings, None))
     warnings.extend(_warnings_for_field(local_result.warnings, None))
 
-    engine = "hybrid" if ai_used_fields and local_used_fields else "ai_fallback" if ai_used_fields else "local"
+    engine = "hybrid" if ai_used_fields and local_used_fields else "ai_assisted" if ai_used_fields else "local"
     confidence = _compute_confidence(
         engine=engine,
         warnings=warnings,
@@ -286,7 +384,7 @@ def _merge_parse_results(
             raw_text=local_result.raw_text,
             needs_review=ai_result.needs_review or local_result.needs_review,
             engine=engine,
-            fallback_used=engine != "local",
+            fallback_used=engine == "hybrid",
         )
     )
 
@@ -358,6 +456,8 @@ def _compute_confidence(
     warning_count = len(warnings) - critical_count
     if preserve_baseline:
         base = local_confidence
+    elif engine == "ai_assisted":
+        base = 0.94 if ai_used_count >= 4 else 0.88
     elif engine == "ai_fallback":
         base = 0.94 if ai_used_count >= 4 else 0.88
     elif engine == "hybrid":
@@ -441,8 +541,13 @@ def _validate_image_payload(image_bytes: bytes, media_type: str | None) -> str:
     return normalized
 
 
-def _image_ai_available() -> bool:
-    return bool(settings.body_composition_image_ai_enabled and settings.claude_api_key and not claude_circuit_breaker.is_open())
+def _image_ai_available(provider: str | None = None) -> bool:
+    resolved_provider = provider or _resolve_image_ai_provider()
+    if not settings.body_composition_image_ai_enabled or not resolved_provider:
+        return False
+    if resolved_provider == "claude":
+        return not claude_circuit_breaker.is_open()
+    return True
 
 
 def _normalize_values(source: Any) -> dict[str, Any]:

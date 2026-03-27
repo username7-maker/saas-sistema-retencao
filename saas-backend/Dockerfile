@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY requirements.runtime.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.runtime.txt
 
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -44,7 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
-RUN python -m playwright install --with-deps chromium
+
+RUN python -m playwright install chromium
 
 # Copy source code
 COPY app/ ./app/
@@ -62,6 +63,6 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')" || exit 1
+    CMD sh -c "if [ \"${APP_RUNTIME:-}\" = \"worker\" ] || [ \"${RAILWAY_SERVICE_NAME:-}\" = \"ai-gym-os-worker\" ] || [ \"${ENABLE_SCHEDULER:-false}\" = \"true\" ]; then exit 0; else python -c \"import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/health/ready')\"; fi" || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["sh", "-c", "if [ \"${APP_RUNTIME:-}\" = \"worker\" ] || [ \"${RAILWAY_SERVICE_NAME:-}\" = \"ai-gym-os-worker\" ] || [ \"${ENABLE_SCHEDULER:-false}\" = \"true\" ]; then python -m app.worker; else uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2; fi"]

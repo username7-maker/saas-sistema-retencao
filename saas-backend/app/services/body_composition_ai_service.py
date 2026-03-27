@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import anthropic
+from openai import OpenAI
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -30,6 +32,20 @@ _FIELD_LABELS = {
     "bmi": "IMC",
     "health_score": "health score",
 }
+
+
+class _OpenAITrainingFocus(BaseModel):
+    primary_goal: str = "acompanhamento_geral"
+    secondary_goal: str = "preservacao_de_massa_magra"
+    suggested_focuses: list[str] = Field(default_factory=list)
+    cautions: list[str] = Field(default_factory=list)
+
+
+class _OpenAIBodyCompositionNarrative(BaseModel):
+    coach_summary: str = ""
+    member_friendly_summary: str = ""
+    risk_flags: list[str] = Field(default_factory=list)
+    training_focus: _OpenAITrainingFocus = Field(default_factory=_OpenAITrainingFocus)
 
 
 def generate_body_composition_ai(
@@ -61,20 +77,38 @@ def generate_body_composition_ai(
         ).all()
     )
 
-    if settings.claude_api_key and not claude_circuit_breaker.is_open():
+    provider = _resolve_body_composition_ai_provider()
+
+    provider_available = bool(provider and (provider != "claude" or not claude_circuit_breaker.is_open()))
+
+    if provider_available:
         try:
-            result = _generate_with_claude(
-                member=member,
-                evaluation=evaluation,
-                previous_evaluation=previous_evaluation,
-                constraints=constraints,
-                goals=goals,
-            )
-            claude_circuit_breaker.record_success()
+            if provider == "openai":
+                result = _generate_with_openai(
+                    member=member,
+                    evaluation=evaluation,
+                    previous_evaluation=previous_evaluation,
+                    constraints=constraints,
+                    goals=goals,
+                )
+            else:
+                result = _generate_with_claude(
+                    member=member,
+                    evaluation=evaluation,
+                    previous_evaluation=previous_evaluation,
+                    constraints=constraints,
+                    goals=goals,
+                )
+            if provider == "claude":
+                claude_circuit_breaker.record_success()
             return result
         except Exception:
-            claude_circuit_breaker.record_failure()
-            logger.exception("Falha ao gerar interpretacao de bioimpedancia com Claude. Usando fallback.")
+            if provider == "claude":
+                claude_circuit_breaker.record_failure()
+            logger.exception(
+                "Falha ao gerar interpretacao de bioimpedancia com provedor %s. Usando fallback.",
+                provider,
+            )
 
     return _generate_deterministic_fallback(
         member=member,
@@ -83,6 +117,82 @@ def generate_body_composition_ai(
         constraints=constraints,
         goals=goals,
     )
+
+
+def _resolve_body_composition_ai_provider() -> str | None:
+    if settings.openai_api_key:
+        return "openai"
+    if settings.claude_api_key:
+        return "claude"
+    return None
+
+
+def _create_openai_client() -> OpenAI:
+    return OpenAI(
+        api_key=settings.openai_api_key,
+        timeout=settings.openai_timeout_seconds,
+    )
+
+
+def _generate_with_openai(
+    *,
+    member: Member,
+    evaluation: BodyCompositionEvaluation,
+    previous_evaluation: BodyCompositionEvaluation | None,
+    constraints: MemberConstraints | None,
+    goals: list[MemberGoal],
+) -> dict[str, Any]:
+    range_summary = _summarize_ranges(evaluation)
+    goals_summary = ", ".join(goal.title for goal in goals[:3]) if goals else "Sem metas ativas registradas"
+    constraints_summary = _summarize_constraints(constraints)
+    previous_summary = _summarize_previous(previous_evaluation)
+    prompt = (
+        "Voce e um assistente de apoio operacional para professores de academia.\n"
+        "Analise uma bioimpedancia e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
+        "Regras obrigatorias:\n"
+        "- nao diagnosticar doenca\n"
+        "- nao sugerir condicao medica\n"
+        "- nao sugerir medicamento, suplemento clinico ou tratamento\n"
+        "- nao prescrever treino fechado\n"
+        "- nao sugerir exercicios especificos como prescricao pronta\n"
+        "- nao substituir avaliacao profissional presencial\n"
+        "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
+        "- responder em portugues do Brasil\n"
+        f"Aluno: {member.full_name}\n"
+        f"Plano: {member.plan_name}\n"
+        f"Metas: {goals_summary}\n"
+        f"Restricoes: {constraints_summary}\n"
+        f"Contexto previo: {previous_summary}\n"
+        f"Valores atuais: {_serialize_measurements(evaluation)}\n"
+        f"Faixas: {range_summary}\n"
+    )
+    client = _create_openai_client()
+    response = client.responses.parse(
+        model=settings.openai_model,
+        input=[
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Gere uma leitura segura e operacional de bioimpedancia para academias. "
+                            "Seja conservador, claro e sem linguagem clinica indevida."
+                        ),
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        ],
+        text_format=_OpenAIBodyCompositionNarrative,
+    )
+    parsed = response.output_parsed
+    if parsed is None:
+        raise RuntimeError("OpenAI nao retornou payload estruturado para a leitura de bioimpedancia.")
+    return _normalize_ai_payload(parsed.model_dump())
 
 
 def _generate_with_claude(

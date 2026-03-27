@@ -40,6 +40,7 @@ def _sync_status_payload() -> BodyCompositionActuarSyncStatusRead:
             "last_error": None,
             "can_retry": False,
             "critical_fields": [],
+            "unsupported_fields": [],
             "fallback_manual_summary": {
                 "evaluation_id": EVALUATION_ID,
                 "member_id": MEMBER_ID,

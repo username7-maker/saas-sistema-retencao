@@ -54,6 +54,7 @@ from app.routers import (
     risk_alerts,
     roi,
     sales,
+    settings as settings_router,
     tasks,
     users,
     whatsapp,
@@ -179,6 +180,7 @@ app.include_router(roi.router, prefix=settings.api_prefix)
 app.include_router(sales.router, prefix=settings.api_prefix)
 app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(admin_objections.router, prefix=settings.api_prefix)
+app.include_router(settings_router.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
 
 

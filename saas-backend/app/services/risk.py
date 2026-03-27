@@ -13,7 +13,7 @@ from app.models import AuditLog, Checkin, Member, MemberRiskHistory, MemberStatu
 from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
 from app.services.websocket_manager import websocket_manager
-from app.utils.email import send_email
+from app.utils.email import send_email_result
 
 logger = logging.getLogger(__name__)
 
@@ -617,11 +617,26 @@ def _run_inactivity_automations(
         _record_stage(db, member.id, stage)
 
     if days_without_checkin >= 3 and _can_trigger_stage(db, member.id, "automation_3d", triggered_stages):
-        sent = False
+        email_result = None
         if member.email:
-            sent = send_email(member.email, "Volte para o treino hoje", "Seu progresso importa. Vamos retomar o ritmo?")
-        if sent:
+            email_result = send_email_result(
+                member.email,
+                "Volte para o treino hoje",
+                "Seu progresso importa. Vamos retomar o ritmo?",
+            )
+        if email_result and email_result.sent:
             actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat(), "status": "sent"})
+            mark_triggered("automation_3d")
+        elif email_result and email_result.blocked:
+            actions.append(
+                {
+                    "type": "email",
+                    "stage": "3d",
+                    "timestamp": now.isoformat(),
+                    "status": "blocked",
+                    "reason": email_result.reason,
+                }
+            )
             mark_triggered("automation_3d")
         else:
             actions.append({"type": "email", "stage": "3d", "timestamp": now.isoformat(), "status": "failed"})
@@ -635,15 +650,26 @@ def _run_inactivity_automations(
         mark_triggered("automation_7d")
 
     if days_without_checkin >= 10 and _can_trigger_stage(db, member.id, "automation_10d", triggered_stages):
-        sent = False
+        email_result = None
         if member.email:
-            sent = send_email(
+            email_result = send_email_result(
                 member.email,
                 "Dica personalizada de treino",
                 "Separamos uma dica curta para facilitar sua volta. Procure a recepcao para ajustar seu plano.",
             )
-        if sent:
+        if email_result and email_result.sent:
             actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat(), "status": "sent"})
+            mark_triggered("automation_10d")
+        elif email_result and email_result.blocked:
+            actions.append(
+                {
+                    "type": "email",
+                    "stage": "10d",
+                    "timestamp": now.isoformat(),
+                    "status": "blocked",
+                    "reason": email_result.reason,
+                }
+            )
             mark_triggered("automation_10d")
         else:
             actions.append({"type": "email", "stage": "10d", "timestamp": now.isoformat(), "status": "failed"})

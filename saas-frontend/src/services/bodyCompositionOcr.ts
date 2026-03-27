@@ -2,7 +2,7 @@ import { parseTezewaReceiptV1 } from "./bodyCompositionOcrProfiles/tezewaReceipt
 
 export type BodyCompositionDeviceProfile = "tezewa_receipt_v1";
 export type BodyCompositionOcrWarningSeverity = "warning" | "critical";
-export type BodyCompositionOcrEngine = "local" | "ai_fallback" | "hybrid";
+export type BodyCompositionOcrEngine = "local" | "ai_assisted" | "ai_fallback" | "hybrid";
 
 export interface BodyCompositionRangeValue {
   min: number | null;

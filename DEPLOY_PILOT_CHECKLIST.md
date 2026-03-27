@@ -38,6 +38,7 @@ Ficam desligados no go-live inicial:
 - `SCHEDULER_CRITICAL_LOCK_FAIL_OPEN=false`
 - `WHATSAPP_WEBHOOK_TOKEN`
 - `SENDGRID_API_KEY` e `SENDGRID_SENDER` se o piloto usar e-mail
+  - `SENDGRID_SENDER` precisa ser um `Sender Identity` verificado no SendGrid, senao o worker vai responder `403 Forbidden`
 - `WHATSAPP_API_URL`, `WHATSAPP_API_TOKEN` e `WHATSAPP_INSTANCE` se o piloto usar WhatsApp
 
 ## Flags do Piloto

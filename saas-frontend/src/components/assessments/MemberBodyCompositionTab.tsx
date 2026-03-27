@@ -38,6 +38,14 @@ import { FormField } from "../ui2/FormField";
 import { Input } from "../ui2/Input";
 import { Skeleton } from "../ui2/Skeleton";
 import { Textarea } from "../ui2/Textarea";
+import {
+  buildUnsupportedFieldsMessage,
+  resolveActuarCapability,
+  resolveReadCapability,
+  statusPillToneForEngine,
+  statusPillToneForSync,
+  syncModeLabel,
+} from "./bodyCompositionCapability";
 import { invalidateAssessmentQueries } from "./queryUtils";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
@@ -303,11 +311,11 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
 
 function syncLabel(status: string | null | undefined): string {
   if (status === "synced_to_actuar" || status === "succeeded") return "Sincronizado no Actuar";
-  if (status === "saved") return "Salvo no AI GYM OS";
+  if (status === "saved") return "Salvo localmente";
   if (status === "sync_pending" || status === "pending") return "Pendente";
   if (status === "syncing" || status === "processing" || status === "started") return "Sincronizando";
   if (status === "sync_failed" || status === "failed") return "Falhou";
-  if (status === "needs_review") return "Precisa de revisao";
+  if (status === "needs_review") return "Requer revisao";
   if (status === "manual_sync_required") return "Sync manual necessario";
   return "Rascunho";
 }
@@ -319,6 +327,7 @@ function warningTone(warning?: BodyCompositionOcrWarning): string {
 
 function ocrEngineLabel(engine?: BodyCompositionOcrEngine | null): string | null {
   if (engine === "local") return "Leitura local";
+  if (engine === "ai_assisted") return "Leitura assistida por IA";
   if (engine === "ai_fallback") return "Leitura assistida por IA";
   if (engine === "hybrid") return "Leitura hibrida";
   return null;
@@ -331,6 +340,9 @@ function buildAssistedReadSummary(
   if (!result && !session.assistedAttempted) return null;
   if (result?.engine === "hybrid") {
     return "OCR local veio ambiguo; combinamos o OCR local com a leitura assistida por IA para revisar os campos mais sensiveis.";
+  }
+  if (result?.engine === "ai_assisted") {
+    return "A imagem foi lida diretamente pela IA assistida e os campos principais ja vieram estruturados para revisao final.";
   }
   if (result?.engine === "ai_fallback") {
     return "A leitura assistida por IA prevaleceu nos campos principais porque a foto estava dificil para o OCR local.";
@@ -428,8 +440,12 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
 
   const enqueueSyncMutation = useMutation({
     mutationFn: (evaluationId: string) => bodyCompositionService.enqueueActuarSync(memberId, evaluationId),
-    onSuccess: async () => {
-      toast.success("Job de sync enviado para processamento do Actuar.");
+    onSuccess: async (payload) => {
+      if (payload.sync_mode === "csv_export") {
+        toast.success("Exportacao CSV preparada para lancamento manual no Actuar.");
+      } else {
+        toast.success("Job de sync enviado para processamento do Actuar.");
+      }
       await invalidateAssessmentQueries(queryClient, memberId);
       if (focusEvaluation?.id) {
         await queryClient.invalidateQueries({ queryKey: ["body-composition-sync", memberId, focusEvaluation.id] });
@@ -487,6 +503,15 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   const canManageSync = canManageActuarSync(user?.role) && !syncDisabled;
   const canConfirmManualSync = canManualConfirm && !syncDisabled;
   const syncSummary: BodyCompositionManualSyncSummary | null = syncStatus?.fallback_manual_summary ?? null;
+  const readCapability = resolveReadCapability({
+    currentSource,
+    ocrResult,
+    storedWarnings: ocrMetadata.ocr_warnings_json,
+    assistedAttempted: ocrReadSession.assistedAttempted,
+    assistedError: ocrReadSession.assistedError,
+  });
+  const actuarCapability = resolveActuarCapability(syncStatus);
+  const unsupportedFieldsMessage = buildUnsupportedFieldsMessage(syncStatus);
 
   async function handleCopyCriticalFields() {
     if (!focusEvaluation?.id) return;
@@ -671,7 +696,9 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
             <StatusPill tone={(focusEvaluation?.reviewed_manually ?? reviewedManually) ? "success" : "neutral"}>
               Revisado manualmente: {(focusEvaluation?.reviewed_manually ?? reviewedManually) ? "sim" : "nao"}
             </StatusPill>
-            <StatusPill tone="neutral">Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}</StatusPill>
+            <StatusPill tone={statusPillToneForSync(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status ?? null)}>
+              Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}
+            </StatusPill>
           </div>
         </CardContent>
       </Card>
@@ -693,7 +720,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
                     {ocrEngineLabel(ocrEngine) ? (
-                      <StatusPill tone={ocrEngine === "local" ? "neutral" : "success"}>
+                      <StatusPill tone={statusPillToneForEngine(ocrEngine)}>
                         {ocrEngineLabel(ocrEngine)}
                       </StatusPill>
                     ) : null}
@@ -712,7 +739,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => void handleReadPhoto(true)} disabled={!ocrFile || ocrLoading}>
                     <Sparkles size={14} />
-                    {ocrLoading ? "Processando..." : "Tentar leitura assistida"}
+                    {ocrLoading ? "Processando..." : "Tentar leitura assistida (IA)"}
                   </Button>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
@@ -727,6 +754,18 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                   </label>
                   <span>Origem atual: {sourceLabel(currentSource)}</span>
                   {ocrMetadata.device_model ? <span>Modelo: {ocrMetadata.device_model}</span> : null}
+                </div>
+                <div
+                  className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
+                    readCapability.tone === "success"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : readCapability.tone === "warning"
+                        ? "border-amber-200 bg-amber-50 text-amber-900"
+                        : "border-lovable-border bg-lovable-surface text-lovable-ink"
+                  }`}
+                >
+                  <p className="font-semibold">{readCapability.title}</p>
+                  <p className="mt-1 text-xs">{readCapability.description}</p>
                 </div>
                 {ocrMetadata.ocr_warnings_json.length > 0 ? (
                   <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
@@ -749,13 +788,6 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     {ocrReadSession.assistedError ? (
                       <p className="mt-2 text-lovable-danger">Falha da leitura assistida: {ocrReadSession.assistedError}</p>
                     ) : null}
-                  </div>
-                ) : null}
-                {ocrReadSession.assistedAttempted &&
-                ocrResult?.engine === "local" &&
-                ocrResult.warnings.some((warning) => warning.message.includes("Leitura assistida por IA indisponivel")) ? (
-                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-                    A leitura assistida por IA esta desabilitada neste ambiente. Mantivemos o OCR local para revisao manual.
                   </div>
                 ) : null}
                 {localOcrText ? (
@@ -939,15 +971,23 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                 </div>
               ) : (
                 <>
-                  {syncDisabled ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                      <p className="font-semibold">Sync Actuar desabilitado neste ambiente</p>
-                      <p className="mt-1 text-xs">
-                        Esta academia ou o backend local nao estao configurados para processar o envio automatico ao Actuar.
-                      </p>
-                    </div>
-                  ) : null}
-                  <div className={`rounded-2xl border px-4 py-3 text-sm ${syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      actuarCapability.tone === "success"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : actuarCapability.tone === "warning"
+                          ? "border-amber-200 bg-amber-50 text-amber-900"
+                          : "border-lovable-border bg-lovable-surface text-lovable-ink"
+                    }`}
+                  >
+                    <p className="font-semibold">{actuarCapability.title}</p>
+                    <p className="mt-1 text-xs">{actuarCapability.description}</p>
+                  </div>
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"
+                    }`}
+                  >
                     <p className="font-semibold">
                       {syncStatus?.training_ready
                         ? "Pronta para treino no Actuar"
@@ -960,7 +1000,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     ) : null}
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
-                    <Metric label="Modo" value={syncStatus?.sync_mode ?? focusEvaluation.actuar_sync_mode} />
+                    <Metric label="Modo" value={syncModeLabel(syncStatus?.sync_mode ?? focusEvaluation.actuar_sync_mode)} />
                     <Metric label="Status" value={syncLabel(syncStatus?.sync_status ?? focusEvaluation.actuar_sync_status)} />
                     <Metric label="Pronta para treino?" value={syncStatus?.training_ready ? "Sim" : "Nao"} />
                     <Metric label="Ultimo sync" value={syncStatus?.last_synced_at ? new Date(syncStatus.last_synced_at).toLocaleString("pt-BR") : "-"} />
@@ -996,10 +1036,25 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                       </div>
                     </div>
                   ) : null}
+                  {unsupportedFieldsMessage ? (
+                    <div className="space-y-2 rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3 text-sm text-lovable-ink">
+                      <div>
+                        <p className="font-semibold">Campos mantidos apenas no AI GYM OS</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">{unsupportedFieldsMessage}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {syncStatus.unsupported_fields.map((field) => (
+                          <StatusPill key={field.field} tone="neutral">
+                            {field.actuar_field ?? field.field}
+                          </StatusPill>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" variant="ghost" onClick={() => void handleCopyCriticalFields()} disabled={!focusEvaluation?.id}>
                       <Copy size={14} />
-                      Copiar campos criticos
+                      {syncDisabled ? "Copiar resumo para lancamento manual" : "Copiar campos criticos"}
                     </Button>
                     {canManageSync ? (
                       <Button
@@ -1079,7 +1134,9 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                       <StatusPill tone={evaluation.reviewed_manually ? "success" : "neutral"}>
                         Revisado manualmente: {evaluation.reviewed_manually ? "sim" : "nao"}
                       </StatusPill>
-                      <StatusPill tone="neutral">Sync: {syncLabel(evaluation.actuar_sync_status)}</StatusPill>
+                      <StatusPill tone={statusPillToneForSync(evaluation.actuar_sync_status)}>
+                        Sync: {syncLabel(evaluation.actuar_sync_status)}
+                      </StatusPill>
                     </div>
                     <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
                       {HISTORY_METRICS.map((metric) => (

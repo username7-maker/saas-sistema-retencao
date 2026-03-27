@@ -4,13 +4,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models.actuar_sync import ActuarSyncJob
+from app.integrations.actuar.base import ActuarSyncOutcome
 from app.services.actuar_member_link_service import ActuarMemberResolution
 from app.services.body_composition_actuar_mapping_service import build_manual_sync_summary
 from app.services.body_composition_actuar_sync_service import (
     ActuarSyncServiceError,
+    _build_provider,
+    _finalize_non_browser_outcome,
     _finalize_sync_failure,
     _finalize_sync_success,
     confirm_manual_actuar_sync,
+    get_body_composition_sync_status,
     prepare_body_composition_sync_attempt,
 )
 
@@ -217,6 +221,34 @@ def test_finalize_sync_success_marks_synced_and_training_ready():
     assert evaluation.actuar_last_error is None
 
 
+def test_finalize_csv_export_marks_manual_sync_required_and_logs_snapshot():
+    db = MagicMock()
+    evaluation = _evaluation(sync_status="syncing")
+    job = _job(status="processing")
+    attempt = _attempt()
+
+    _finalize_non_browser_outcome(
+        db,
+        job=job,
+        evaluation=evaluation,
+        attempt=attempt,
+        outcome=ActuarSyncOutcome(
+            status="exported",
+            provider="actuar_csv_export",
+            external_id="csv-export:4444",
+            payload_snapshot_json={"evaluation_id": str(EVALUATION_ID), "weight_kg": 84.5},
+        ),
+    )
+
+    assert attempt.status == "succeeded"
+    assert job.status == "needs_review"
+    assert job.error_code == "csv_export_ready"
+    assert evaluation.actuar_sync_status == "manual_sync_required"
+    assert evaluation.sync_last_error_code == "csv_export_ready"
+    assert evaluation.actuar_external_id == "csv-export:4444"
+    assert attempt.action_log_json[0]["event"] == "csv_export_ready"
+
+
 def test_finalize_transient_failure_schedules_retry_and_keeps_not_ready():
     db = MagicMock()
     job = _job(status="processing")
@@ -237,6 +269,23 @@ def test_finalize_transient_failure_schedules_retry_and_keeps_not_ready():
     assert job.next_retry_at is not None
     assert evaluation.actuar_sync_status == "sync_failed"
     assert evaluation.sync_last_error_code == "external_unavailable"
+
+
+def test_build_provider_uses_csv_export_without_actuar_credentials():
+    gym = SimpleNamespace(
+        actuar_base_url=None,
+        actuar_username=None,
+        actuar_password_encrypted=None,
+    )
+
+    provider = _build_provider(
+        gym=gym,
+        sync_mode="csv_export",
+        worker_id="worker-test",
+        evidence_dir="data/test-evidence",
+    )
+
+    assert provider.__class__.__name__ == "ActuarCsvExportProvider"
 
 
 def test_finalize_structural_failure_marks_manual_sync_required():
@@ -300,3 +349,53 @@ def test_confirm_manual_actuar_sync_marks_evaluation_as_ready():
     assert current_job.status == "synced"
     assert current_job.synced_at is not None
     assert db.add.call_count >= 1
+
+
+def test_get_sync_status_exposes_unsupported_fields_for_ui_transparency():
+    db = MagicMock()
+    evaluation = _evaluation(sync_status="manual_sync_required")
+    member = _member()
+    mapping = {
+        "critical_fields": [{"field": "weight_kg", "actuar_field": "weight", "classification": "critical", "supported": True, "value": 84.5}],
+        "non_critical_fields": [
+            {"field": "bmr_kcal", "actuar_field": "bmr_kcal", "classification": "unsupported", "supported": False, "value": 1880},
+            {"field": "visceral_fat", "actuar_field": "visceral_fat", "classification": "unsupported", "supported": False, "value": 9},
+            {"field": "body_water_percent", "actuar_field": "body_water_percent", "classification": "optional", "supported": True, "value": 51.0},
+        ],
+    }
+
+    with patch(
+        "app.services.body_composition_actuar_sync_service.get_body_composition_evaluation_or_404",
+        return_value=evaluation,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.get_member_or_404",
+        return_value=member,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service._get_current_sync_job",
+        return_value=None,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.build_actuar_field_mapping",
+        return_value=mapping,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.build_manual_sync_summary",
+        return_value={
+            "evaluation_id": EVALUATION_ID,
+            "member_id": MEMBER_ID,
+            "sync_status": "manual_sync_required",
+            "training_ready": False,
+            "critical_fields": [],
+            "summary_text": "manual",
+        },
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.get_actuar_member_link",
+        return_value=None,
+    ):
+        status = get_body_composition_sync_status(
+            db,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            evaluation_id=EVALUATION_ID,
+        )
+
+    assert len(status.unsupported_fields) == 2
+    assert {field.field for field in status.unsupported_fields} == {"bmr_kcal", "visceral_fat"}

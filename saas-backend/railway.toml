@@ -2,6 +2,6 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "sh -c 'if [ \"${APP_RUNTIME:-}\" = \"worker\" ] || [ \"${RAILWAY_SERVICE_NAME:-}\" = \"ai-gym-os-worker\" ] || [ \"${ENABLE_SCHEDULER:-false}\" = \"true\" ]; then python -m app.worker; else uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}; fi'"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

@@ -78,12 +78,16 @@ from app.schemas.sales import (
     SalesBriefProfileOut,
     SalesHistoryItemOut,
 )
+from app.schemas.settings import ActuarConnectionTestResult, ActuarSettingsRead, ActuarSettingsUpdate
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
 __all__ = [
     "APIMessage",
     "AIAssistantPayload",
     "AssessmentCreate",
+    "ActuarConnectionTestResult",
+    "ActuarSettingsRead",
+    "ActuarSettingsUpdate",
     "BodyCompositionEvaluationCreate",
     "BodyCompositionEvaluationRead",
     "AssessmentDashboardOut",

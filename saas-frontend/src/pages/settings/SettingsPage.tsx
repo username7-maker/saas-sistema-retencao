@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 
 import { useAuth } from "../../hooks/useAuth";
 import { api } from "../../services/api";
+import { ActuarConnectionTab } from "../../components/settings/ActuarConnectionTab";
 import { WhatsAppConnectionTab } from "../../components/settings/WhatsAppConnectionTab";
 import {
   Button,
@@ -148,6 +149,7 @@ function ResetPasswordForm() {
 export function SettingsPage() {
   const { user } = useAuth();
   const canManageWhatsapp = user?.role === "owner" || user?.role === "manager";
+  const canManageActuar = user?.role === "owner" || user?.role === "manager";
 
   return (
     <section className="space-y-8">
@@ -162,6 +164,7 @@ export function SettingsPage() {
         <TabsList className="overflow-x-auto whitespace-nowrap">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="security">Seguranca</TabsTrigger>
+          {canManageActuar && <TabsTrigger value="actuar">Actuar</TabsTrigger>}
           {canManageWhatsapp && <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>}
         </TabsList>
 
@@ -217,6 +220,12 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {canManageActuar && (
+          <TabsContent value="actuar">
+            <ActuarConnectionTab />
+          </TabsContent>
+        )}
 
         {canManageWhatsapp && (
           <TabsContent value="whatsapp">

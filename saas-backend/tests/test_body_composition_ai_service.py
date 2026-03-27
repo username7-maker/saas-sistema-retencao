@@ -60,3 +60,75 @@ def test_generate_body_composition_ai_fallback_is_safe_and_structured():
     assert "exercicio especifico" not in result["coach_summary"].lower()
     assert "avaliacao presencial" in result["member_friendly_summary"].lower()
     assert result["training_focus"]["cautions"]
+
+
+def test_generate_body_composition_ai_prefers_openai_when_available():
+    db = MagicMock()
+    db.scalar.side_effect = [None, None]
+    goals_result = MagicMock()
+    goals_result.all.return_value = []
+    db.scalars.return_value = goals_result
+
+    member = SimpleNamespace(id="member-1", full_name="Aluno Teste", plan_name="Plano anual")
+    evaluation = _evaluation()
+    openai_result = {
+        "coach_summary": "Resumo do coach via OpenAI",
+        "member_friendly_summary": "Resumo amigavel via OpenAI",
+        "risk_flags": ["percentual de gordura acima da faixa"],
+        "training_focus": {
+            "primary_goal": "reducao_de_gordura",
+            "secondary_goal": "preservacao_de_massa_magra",
+            "suggested_focuses": ["acompanhar composicao corporal"],
+            "cautions": ["nao substituir avaliacao presencial"],
+        },
+    }
+
+    with patch("app.services.body_composition_ai_service.settings.openai_api_key", "test-openai-key"), patch(
+        "app.services.body_composition_ai_service.claude_circuit_breaker.is_open",
+        return_value=False,
+    ), patch(
+        "app.services.body_composition_ai_service._generate_with_openai",
+        return_value=openai_result,
+    ) as mock_openai:
+        from app.services.body_composition_ai_service import generate_body_composition_ai
+
+        result = generate_body_composition_ai(db, member=member, evaluation=evaluation)
+
+    assert result["coach_summary"] == "Resumo do coach via OpenAI"
+    mock_openai.assert_called_once()
+
+
+def test_generate_body_composition_ai_openai_ignores_claude_circuit_breaker():
+    db = MagicMock()
+    db.scalar.side_effect = [None, None]
+    goals_result = MagicMock()
+    goals_result.all.return_value = []
+    db.scalars.return_value = goals_result
+
+    member = SimpleNamespace(id="member-1", full_name="Aluno Teste", plan_name="Plano anual")
+    evaluation = _evaluation()
+    openai_result = {
+        "coach_summary": "Resumo do coach via OpenAI",
+        "member_friendly_summary": "Resumo amigavel via OpenAI",
+        "risk_flags": ["percentual de gordura acima da faixa"],
+        "training_focus": {
+            "primary_goal": "reducao_de_gordura",
+            "secondary_goal": "preservacao_de_massa_magra",
+            "suggested_focuses": ["acompanhar composicao corporal"],
+            "cautions": ["nao substituir avaliacao presencial"],
+        },
+    }
+
+    with patch("app.services.body_composition_ai_service.settings.openai_api_key", "test-openai-key"), patch(
+        "app.services.body_composition_ai_service.claude_circuit_breaker.is_open",
+        return_value=True,
+    ), patch(
+        "app.services.body_composition_ai_service._generate_with_openai",
+        return_value=openai_result,
+    ) as mock_openai:
+        from app.services.body_composition_ai_service import generate_body_composition_ai
+
+        result = generate_body_composition_ai(db, member=member, evaluation=evaluation)
+
+    assert result["coach_summary"] == "Resumo do coach via OpenAI"
+    mock_openai.assert_called_once()

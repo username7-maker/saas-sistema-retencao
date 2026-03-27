@@ -26,7 +26,7 @@ ActuarSyncAttemptV2Status = Literal["started", "succeeded", "failed"]
 ActuarFieldClassification = Literal["critical_direct", "critical_derived", "non_critical_direct", "unsupported", "text_note_only"]
 OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
-BodyCompositionOcrEngine = Literal["local", "ai_fallback", "hybrid"]
+BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 
 
 class BodyCompositionRangeValue(BaseModel):
@@ -158,6 +158,7 @@ class BodyCompositionActuarSyncStatusRead(BaseModel):
     last_error: str | None
     can_retry: bool
     critical_fields: list[dict]
+    unsupported_fields: list["ActuarFieldMappingRead"] = Field(default_factory=list)
     fallback_manual_summary: dict
     current_job: "ActuarSyncJobRead | None"
     attempts: list["ActuarSyncAttemptRead"]

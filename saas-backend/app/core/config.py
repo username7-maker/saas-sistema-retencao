@@ -1,8 +1,9 @@
 import json
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
@@ -34,6 +35,10 @@ class Settings(BaseSettings):
     claude_api_key: str = ""
     claude_model: str = "claude-3-5-haiku-latest"
     claude_max_tokens: int = 250
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    openai_vision_model: str = "gpt-4.1-mini"
+    openai_timeout_seconds: int = 20
     body_composition_image_ai_enabled: bool = False
     claude_vision_model: str = "claude-3-5-sonnet-latest"
     body_composition_image_ai_timeout_seconds: int = 20
@@ -67,7 +72,7 @@ class Settings(BaseSettings):
     actuar_sync_required_for_training: bool = True
     actuar_sync_evidence_dir: str = "data/actuar-sync-evidence"
 
-    cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
     public_diag_gym_id: str = ""
     admin_gym_id: str = ""
@@ -97,7 +102,13 @@ class Settings(BaseSettings):
                     if isinstance(parsed, list):
                         return [str(origin).strip() for origin in parsed if str(origin).strip()]
                 except json.JSONDecodeError:
-                    pass
+                    trimmed = raw.removeprefix("[").removesuffix("]").strip()
+                    if trimmed:
+                        return [
+                            origin.strip().strip("'\"")
+                            for origin in trimmed.split(",")
+                            if origin.strip().strip("'\"")
+                        ]
             return [origin.strip() for origin in raw.split(",") if origin.strip()]
         return DEFAULT_CORS_ORIGINS.copy()
 

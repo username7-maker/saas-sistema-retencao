@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from app.models import RiskLevel
 from app.services import risk as risk_service
+from app.utils.email import EmailSendResult
 
 
 class DummyDB:
@@ -88,3 +89,35 @@ def test_automation_14d_generates_in_app_notification(monkeypatch):
     assert in_app_actions[0]["notification_id"] == "notif-1"
     assert member.risk_level == RiskLevel.RED
     assert member.risk_score >= 70
+
+
+def test_automation_3d_marks_stage_when_email_channel_is_blocked(monkeypatch):
+    member = SimpleNamespace(
+        id="member-3d",
+        full_name="Aluno Email Bloqueado",
+        assigned_user_id=None,
+        email="aluno@example.com",
+        risk_level=RiskLevel.YELLOW,
+        risk_score=45,
+        join_date=date.today() - timedelta(days=60),
+    )
+    triggered: list[str] = []
+
+    monkeypatch.setattr(risk_service, "_can_trigger_stage", lambda *_: True)
+    monkeypatch.setattr(risk_service, "_record_stage", lambda _db, _member_id, stage: triggered.append(stage))
+    monkeypatch.setattr(
+        risk_service,
+        "send_email_result",
+        lambda *_args, **_kwargs: EmailSendResult(sent=False, blocked=True, reason="sender_identity_unverified"),
+    )
+
+    actions = risk_service._run_inactivity_automations(
+        db=DummyDB(),
+        member=member,
+        days_without_checkin=3,
+        level=RiskLevel.YELLOW,
+    )
+
+    assert actions[0]["status"] == "blocked"
+    assert actions[0]["reason"] == "sender_identity_unverified"
+    assert triggered == ["automation_3d"]

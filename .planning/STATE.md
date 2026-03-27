@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.3
-plan: "04.3-PLAN.md"
-status: Phase 4.3 kickoff package prepared for controlled pilot
-last_activity: 2026-03-25 - pilot runbook, daily checklist and incident template prepared
+phase: 4.32
+plan: "04.32-STATUS.md"
+status: Phase 4.3 segue em execucao no piloto, com 4.31 publicada e 4.32 aberta para fechar canais reais do piloto
+last_activity: 2026-03-26 - 4.31 publicada no piloto; 4.32 entrou em execucao com foco em avaliacao assistida, exportacao Actuar e WhatsApp
 ---
 
 # STATE
@@ -17,16 +17,16 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.3
-**Plan:** `04.3-PLAN.md`
-**Status:** Hardening P0 e coerencia operacional P1 concluidos; kickoff operacional do piloto preparado
-**Last activity:** 2026-03-25 - runbook e checklist do piloto adicionados para iniciar execucao controlada
+**Phase:** 4.32
+**Plan:** `04.32-STATUS.md`
+**Status:** Piloto controlado segue ativo em 4.3, com 4.31 publicada e 4.32 em execucao para fechar canais reais e consolidar o comportamento de avaliacao assistida/Actuar no ambiente publicado
+**Last activity:** 2026-03-26 - avaliacao assistida validada com fallback deterministico, exportacao Actuar colocada em modo bridge e WhatsApp mapeado como bloqueio externo de credencial
 
 ## Progress Snapshot
 
 **Active milestone:** v3.2.0
-**Phases planned:** 6
-**Plans planned:** 4
+**Phases planned:** 9
+**Plans planned:** 6
 **Plans completed:** 3
 
 ## Accumulated Context
@@ -43,6 +43,9 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4: import mapper e reconciliacao manual - concluida
 - Phase 4.1: hardening P0 - concluida
 - Phase 4.2: coerencia operacional P1 - concluida
-- Phase 4.3: piloto controlado - pronta para execucao
-- Phase 5: bulk update dedicado de membros - pausada ate saida do piloto
-- Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto
+- Phase 4.3: piloto controlado - em execucao
+- Phase 4.31: bioimpedancia assistida e Actuar readiness - publicada no piloto
+- Phase 4.32: canais reais do piloto - em execucao
+- Phase 4.33: transparencia de IA e fluxos publicos - aguardando 4.32
+- Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes
+- Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5

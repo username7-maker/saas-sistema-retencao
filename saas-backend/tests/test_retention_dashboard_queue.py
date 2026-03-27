@@ -15,7 +15,7 @@ class TestRetentionQueueService:
     @patch("app.services.dashboard_service.classify_churn_type")
     @patch("app.services.dashboard_service.build_retention_playbook")
     @patch("app.services.dashboard_service.get_current_gym_id")
-    def test_materializes_missing_churn_type_and_forecast_for_queue(
+    def test_computes_missing_churn_type_and_forecast_for_queue_without_committing(
         self,
         mock_get_current_gym_id,
         mock_build_playbook,
@@ -82,10 +82,9 @@ class TestRetentionQueueService:
 
         result = get_retention_queue(db, page=1, page_size=50)
 
-        assert db.commit.called
-        assert member.churn_type == "voluntary_dissatisfaction"
-        assert member.extra_data["retention_forecast_60d"] == 41
-        assert member.extra_data["retention_forecast_source"] == "assessment_fallback"
+        assert not db.commit.called
+        assert member.churn_type is None
+        assert member.extra_data == {}
         assert result.items[0].churn_type == "voluntary_dissatisfaction"
         assert result.items[0].forecast_60d == 41
 

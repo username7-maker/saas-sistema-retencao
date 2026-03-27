@@ -392,10 +392,41 @@ export interface BodyCompositionActuarSyncStatus {
   last_error: string | null;
   can_retry: boolean;
   critical_fields: ActuarFieldMapping[];
+  unsupported_fields: ActuarFieldMapping[];
   fallback_manual_summary: BodyCompositionManualSyncSummary;
   current_job: ActuarSyncJob | null;
   attempts: BodyCompositionSyncAttempt[];
   member_link: ActuarMemberLink | null;
+}
+
+export interface ActuarSettings {
+  actuar_enabled: boolean;
+  actuar_auto_sync_body_composition: boolean;
+  actuar_base_url: string | null;
+  actuar_username: string | null;
+  actuar_has_password: boolean;
+  environment_enabled: boolean;
+  environment_sync_mode: ActuarSyncMode | "disabled";
+  effective_sync_mode: ActuarSyncMode | "disabled";
+  automatic_sync_ready: boolean;
+}
+
+export interface ActuarConnectionTestResult {
+  success: boolean;
+  provider: string;
+  effective_sync_mode: ActuarSyncMode | "disabled";
+  automatic_sync_ready: boolean;
+  message: string;
+  detail: string | null;
+}
+
+export interface ActuarSettingsUpdateInput {
+  actuar_enabled: boolean;
+  actuar_auto_sync_body_composition: boolean;
+  actuar_base_url?: string | null;
+  actuar_username?: string | null;
+  actuar_password?: string | null;
+  clear_password?: boolean;
 }
 
 export interface BodyCompositionEvaluation {

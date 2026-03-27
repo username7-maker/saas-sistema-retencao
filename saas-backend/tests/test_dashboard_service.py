@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models import MemberStatus, RiskLevel
+from app.schemas.member import MemberOut
 
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -129,11 +130,30 @@ class TestGetOperationalDashboard:
         db.execute.return_value.all.return_value = []  # heatmap
         mock_scalars = MagicMock()
         birthday_member = SimpleNamespace(
-            id="birthday-1",
+            id=uuid.uuid4(),
             full_name="Ana",
+            email="ana@teste.com",
+            phone="5511999990001",
             birthdate=None,
+            plan_name="Plano Base",
+            monthly_fee=Decimal("99.90"),
+            join_date=date(2026, 1, 1),
+            preferred_shift="manha",
+            nps_last_score=8,
+            loyalty_months=1,
+            risk_score=10,
+            risk_level=RiskLevel.GREEN,
+            last_checkin_at=None,
             extra_data={"birthday_label": _today_birthday_label()},
-            status="active",
+            status=MemberStatus.ACTIVE,
+            suggested_action=None,
+            onboarding_score=0,
+            onboarding_status="active",
+            churn_type=None,
+            is_vip=False,
+            retention_stage=None,
+            created_at=datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
             deleted_at=None,
         )
         mock_scalars.all.side_effect = [
@@ -148,6 +168,10 @@ class TestGetOperationalDashboard:
         assert result["heatmap"] == []
         assert result["birthday_today_total"] == 1
         assert result["birthday_today_items"][0].full_name == "Ana"
+        assert isinstance(result["birthday_today_items"][0], MemberOut)
+        cached_payload = mock_cache.set.call_args.args[1]
+        assert isinstance(cached_payload["birthday_today_items"][0], dict)
+        assert cached_payload["birthday_today_items"][0]["full_name"] == "Ana"
 
 
 class TestGetCommercialDashboard:
@@ -161,11 +185,112 @@ class TestGetCommercialDashboard:
             [],  # pipeline_rows
             [],  # source_rows
         ]
+        db.scalars.return_value.all.return_value = []
         db.scalar.side_effect = [0, 0, 0]  # conversions
         from app.services.dashboard_service import get_commercial_dashboard
         result = get_commercial_dashboard(db)
         assert "pipeline" in result
         assert "cac" in result
+
+
+class TestGetRetentionDashboard:
+    @patch("app.services.dashboard_service.dashboard_cache")
+    @patch("app.services.dashboard_service.nps_evolution", return_value=[])
+    @patch("app.services.dashboard_service.classify_churn_type", return_value="involuntary_inactivity")
+    def test_serializes_member_snapshots_without_committing(
+        self,
+        mock_classify,
+        mock_nps,
+        mock_cache,
+    ):
+        mock_cache.get.return_value = None
+        db = MagicMock()
+        db.scalar.side_effect = [2, 1, Decimal("499.90"), 81.2, 47.5]
+
+        red_member = SimpleNamespace(
+            id=uuid.uuid4(),
+            full_name="Aluno Vermelho",
+            email="red@teste.com",
+            phone="5511999990001",
+            birthdate=None,
+            status=MemberStatus.ACTIVE,
+            plan_name="Plano Premium",
+            monthly_fee=Decimal("249.95"),
+            join_date=date(2025, 12, 1),
+            preferred_shift="manha",
+            nps_last_score=4,
+            loyalty_months=3,
+            risk_score=82,
+            risk_level=RiskLevel.RED,
+            last_checkin_at=datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
+            extra_data={},
+            suggested_action=None,
+            onboarding_score=0,
+            onboarding_status="active",
+            churn_type=None,
+            is_vip=False,
+            retention_stage=None,
+            created_at=datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
+        )
+        yellow_member = SimpleNamespace(
+            id=uuid.uuid4(),
+            full_name="Aluno Amarelo",
+            email="yellow@teste.com",
+            phone="5511999990002",
+            birthdate=None,
+            status=MemberStatus.ACTIVE,
+            plan_name="Plano Base",
+            monthly_fee=Decimal("249.95"),
+            join_date=date(2026, 1, 10),
+            preferred_shift="noite",
+            nps_last_score=7,
+            loyalty_months=1,
+            risk_score=48,
+            risk_level=RiskLevel.YELLOW,
+            last_checkin_at=datetime(2026, 3, 12, 8, 0, tzinfo=timezone.utc),
+            extra_data={},
+            suggested_action=None,
+            onboarding_score=0,
+            onboarding_status="active",
+            churn_type="voluntary_financial",
+            is_vip=False,
+            retention_stage=None,
+            created_at=datetime(2026, 1, 10, 8, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 3, 12, 8, 0, tzinfo=timezone.utc),
+        )
+
+        contact_rows = MagicMock()
+        contact_rows.all.return_value = []
+        churn_rows = MagicMock()
+        churn_rows.all.return_value = [
+            SimpleNamespace(churn_type="unknown", total=1),
+            SimpleNamespace(churn_type="voluntary_financial", total=1),
+        ]
+
+        red_scalars = MagicMock()
+        red_scalars.all.return_value = [red_member]
+        yellow_scalars = MagicMock()
+        yellow_scalars.all.return_value = [yellow_member]
+
+        db.scalars.side_effect = [red_scalars, yellow_scalars]
+        db.execute.side_effect = [
+            churn_rows,
+            contact_rows,
+        ]
+
+        from app.services.dashboard_service import get_retention_dashboard
+
+        result = get_retention_dashboard(db, red_page=1, yellow_page=1, page_size=20)
+
+        assert isinstance(result["red"]["items"][0], MemberOut)
+        assert result["red"]["items"][0].churn_type == "involuntary_inactivity"
+        assert result["yellow"]["items"][0].churn_type == "voluntary_financial"
+        assert not db.commit.called
+        cached_payload = mock_cache.set.call_args.args[1]
+        assert isinstance(cached_payload["red"]["items"][0], dict)
+        assert cached_payload["red"]["items"][0]["full_name"] == "Aluno Vermelho"
+        assert cached_payload["yellow"]["items"][0]["churn_type"] == "voluntary_financial"
 
 
 class TestGetFinancialDashboard:

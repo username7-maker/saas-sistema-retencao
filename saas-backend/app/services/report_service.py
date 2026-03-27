@@ -21,6 +21,12 @@ DashboardReportType = str
 ALLOWED_DASHBOARD_REPORTS = {"executive", "operational", "commercial", "financial", "retention", "consolidated"}
 
 
+def _read_value(item, key: str, default=None):  # type: ignore[no-untyped-def]
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
 def generate_dashboard_pdf(db: Session, dashboard: DashboardReportType) -> tuple[BytesIO, str]:
     dashboard_key = dashboard.strip().lower()
     if dashboard_key not in ALLOWED_DASHBOARD_REPORTS:
@@ -119,8 +125,17 @@ def _write_operational(write_line, db: Session) -> None:  # type: ignore[no-unty
     if top_items:
         write_line("- Top inativos:")
         for item in top_items:
-            last_checkin = item.last_checkin_at.date().isoformat() if item.last_checkin_at else "sem registro"
-            write_line(f"  - {item.full_name} | risco={item.risk_level.value} | ultimo={last_checkin}")
+            last_checkin_at = _read_value(item, "last_checkin_at")
+            if isinstance(last_checkin_at, str):
+                last_checkin = last_checkin_at[:10]
+            else:
+                last_checkin = last_checkin_at.date().isoformat() if last_checkin_at else "sem registro"
+            risk_level = _read_value(item, "risk_level")
+            if hasattr(risk_level, "value"):
+                risk_level = risk_level.value
+            write_line(
+                f"  - {_read_value(item, 'full_name', '?')} | risco={risk_level} | ultimo={last_checkin}"
+            )
     write_line(" ", spacer=True)
 
 
@@ -133,7 +148,12 @@ def _write_commercial(write_line, db: Session) -> None:  # type: ignore[no-untyp
         write_line(f"  - {stage}: {total}")
     write_line("- Conversao por origem:")
     for row in data["conversion_by_source"][:5]:
-        write_line(f"  - {row.source}: {row.conversion_rate:.2f}% ({row.won}/{row.total})")
+        write_line(
+            "  - "
+            f"{_read_value(row, 'source', '?')}: "
+            f"{float(_read_value(row, 'conversion_rate', 0.0)):.2f}% "
+            f"({_read_value(row, 'won', 0)}/{_read_value(row, 'total', 0)})"
+        )
     write_line(" ", spacer=True)
 
 
@@ -141,11 +161,17 @@ def _write_financial(write_line, db: Session) -> None:  # type: ignore[no-untype
     data = get_financial_dashboard(db)
     write_line("[Financeiro]")
     write_line(f"- Inadimplencia: {data['delinquency_rate']:.2f}%")
-    latest_revenue = data["monthly_revenue"][-1].value if data["monthly_revenue"] else 0
+    if data["monthly_revenue"]:
+        latest_revenue = float(_read_value(data["monthly_revenue"][-1], "value", 0.0))
+    else:
+        latest_revenue = 0.0
     write_line(f"- Receita mensal atual: R$ {latest_revenue:.2f}")
     write_line("- Projecoes:")
     for projection in data["projections"]:
-        write_line(f"  - {projection.horizon_months} meses: R$ {projection.projected_revenue:.2f}")
+        write_line(
+            f"  - {_read_value(projection, 'horizon_months', 0)} meses: "
+            f"R$ {float(_read_value(projection, 'projected_revenue', 0.0)):.2f}"
+        )
     write_line(" ", spacer=True)
 
 
@@ -158,5 +184,9 @@ def _write_retention(write_line, db: Session) -> None:  # type: ignore[no-untype
     if top_red:
         write_line("- Top risco vermelho:")
         for member in top_red:
-            write_line(f"  - {member.full_name} | score={member.risk_score} | plano={member.plan_name}")
+            write_line(
+                f"  - {_read_value(member, 'full_name', '?')} | "
+                f"score={_read_value(member, 'risk_score', 0)} | "
+                f"plano={_read_value(member, 'plan_name', '-')}"
+            )
     write_line(" ", spacer=True)

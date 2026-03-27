@@ -70,12 +70,32 @@ def _ai_parse_result(weight_kg: float = 84.5) -> BodyCompositionImageParseResult
         confidence=0.94,
         raw_text="Body composition Weight 84.5",
         needs_review=False,
-        engine="ai_fallback",
-        fallback_used=True,
+        engine="ai_assisted",
+        fallback_used=False,
     )
 
 
 class TestImageParseService:
+    def test_prefers_openai_provider_when_available(self):
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            return_value=_ai_parse_result(),
+        ) as mock_parse, patch(
+            "app.services.body_composition_image_parse_service._image_ai_available",
+            return_value=True,
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=_local_ocr_payload(),
+            )
+
+        assert result.values.weight_kg == 84.5
+        mock_parse.assert_called_once()
+
     @patch("app.services.body_composition_image_parse_service._parse_with_claude_vision")
     @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
     def test_prefers_ai_value_over_bad_local_conflict(self, _mock_available, mock_parse):
@@ -95,8 +115,17 @@ class TestImageParseService:
         assert result.values.body_fat_percent == 23.0
         assert result.values.waist_hip_ratio == 0.88
         assert result.values.target_weight_kg == 68.3
-        assert result.engine in {"hybrid", "ai_fallback"}
-        assert result.fallback_used is True
+        assert result.engine in {"hybrid", "ai_assisted"}
+        assert result.fallback_used is (result.engine == "hybrid")
+
+    def test_resolve_image_ai_provider_returns_none_without_keys(self):
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", ""), patch(
+            "app.services.body_composition_image_parse_service.settings.claude_api_key",
+            "",
+        ):
+            from app.services.body_composition_image_parse_service import _resolve_image_ai_provider
+
+            assert _resolve_image_ai_provider() is None
 
     @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=False)
     def test_returns_local_with_warning_when_assisted_read_is_disabled(self, _mock_available):
@@ -200,3 +229,49 @@ class TestImageParseRoute:
             assert any("Leitura assistida por IA indisponivel" in item["message"] for item in body["warnings"])
         finally:
             app.dependency_overrides.clear()
+
+    def test_openai_image_ai_available_does_not_depend_on_claude_breaker(self):
+        with patch("app.services.body_composition_image_parse_service.settings.body_composition_image_ai_enabled", True), patch(
+            "app.services.body_composition_image_parse_service.settings.openai_api_key",
+            "test-openai-key",
+        ), patch(
+            "app.services.body_composition_image_parse_service.claude_circuit_breaker.is_open",
+            return_value=True,
+        ):
+            from app.services.body_composition_image_parse_service import _image_ai_available
+
+            assert _image_ai_available("openai") is True
+
+    def test_parse_with_openai_vision_uses_json_mode_response(self):
+        mock_response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content='{"device_model":"Tezewa","values":{"weight_kg":84.5,"body_fat_kg":19.46,"body_fat_percent":23.0,"waist_hip_ratio":0.88},"ranges":{"weight_kg":{"min":61.7,"max":75.5}},"warnings":[],"needs_review":false}'
+                    )
+                )
+            ]
+        )
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: mock_response,
+                )
+            )
+        )
+
+        with patch("app.services.body_composition_image_parse_service._create_openai_client", return_value=mock_client):
+            from app.services.body_composition_image_parse_service import _parse_with_openai_vision
+
+            result = _parse_with_openai_vision(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=_local_ocr_payload(),
+            )
+
+        assert result.values.weight_kg == 84.5
+        assert result.values.body_fat_kg == 19.46
+        assert result.values.body_fat_percent == 23.0
+        assert result.engine == "ai_assisted"
+        assert result.fallback_used is False

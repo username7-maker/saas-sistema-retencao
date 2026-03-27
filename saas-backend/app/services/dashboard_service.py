@@ -1,6 +1,8 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 
+from pydantic import TypeAdapter
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -11,13 +13,17 @@ from app.models.enums import ChurnType
 from app.schemas import (
     ChurnPoint,
     ConversionBySource,
+    CommercialDashboard,
     ExecutiveDashboard,
+    FinancialDashboard,
     GrowthPoint,
     HeatmapPoint,
     LTVPoint,
     NPSEvolutionPoint,
+    OperationalDashboard,
     PaginatedResponse,
     ProjectionPoint,
+    RetentionDashboard,
     RetentionPlaybookStep,
     RetentionQueueItem,
     RevenuePoint,
@@ -30,6 +36,13 @@ from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
 from app.utils.birthday import birthday_label_matches_today
+from app.schemas.member import MemberOut
+
+
+def _cache_dashboard_payload(cache_key: str, schema: Any, payload: object) -> None:
+    adapter = TypeAdapter(schema)
+    normalized_payload = adapter.dump_python(adapter.validate_python(payload, from_attributes=True), mode="json")
+    dashboard_cache.set(cache_key, normalized_payload)
 
 
 def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
@@ -72,7 +85,7 @@ def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
         nps_avg=float(nps_avg),
         risk_distribution=risk_distribution,
     )
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, ExecutiveDashboard, payload)
     return payload
 
 
@@ -82,7 +95,7 @@ def get_mrr_dashboard(db: Session, months: int = 12) -> list[RevenuePoint]:
     if cached is not None:
         return cached
     payload = _revenue_series(db, months)
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, list[RevenuePoint], payload)
     return payload
 
 
@@ -92,7 +105,7 @@ def get_churn_dashboard(db: Session, months: int = 12) -> list[ChurnPoint]:
     if cached is not None:
         return cached
     payload = _churn_series(db, months)
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, list[ChurnPoint], payload)
     return payload
 
 
@@ -110,7 +123,7 @@ def get_ltv_dashboard(db: Session, months: int = 12) -> list[LTVPoint]:
             churn_ratio = max(churn_rate / 100, 0.0001)
             ltv = (row["mrr"] / max(1, row["active"])) / churn_ratio
             points.append(LTVPoint(month=row["month"], ltv=round(ltv, 2)))
-        dashboard_cache.set(cache_key, points)
+        _cache_dashboard_payload(cache_key, list[LTVPoint], points)
         return points
 
     churn_series = _churn_series(db, months)
@@ -121,7 +134,7 @@ def get_ltv_dashboard(db: Session, months: int = 12) -> list[LTVPoint]:
         ltv = (revenue.value / max(1, _active_members_by_month(db, churn.month))) / churn_rate
         points.append(LTVPoint(month=churn.month, ltv=round(ltv, 2)))
 
-    dashboard_cache.set(cache_key, points)
+    _cache_dashboard_payload(cache_key, list[LTVPoint], points)
     return points
 
 
@@ -144,7 +157,7 @@ def get_growth_mom_dashboard(db: Session, months: int = 12) -> list[GrowthPoint]
         values.append(GrowthPoint(month=label, growth_mom=round(growth, 2)))
         previous = current_total
 
-    dashboard_cache.set(cache_key, values)
+    _cache_dashboard_payload(cache_key, list[GrowthPoint], values)
     return values
 
 
@@ -190,11 +203,11 @@ def get_operational_dashboard(db: Session, page: int = 1, page_size: int = 20) -
         "realtime_checkins": realtime_checkins,
         "heatmap": heatmap,
         "inactive_7d_total": total_inactive,
-        "inactive_7d_items": items,
+        "inactive_7d_items": [_member_out_snapshot(member) for member in items],
         "birthday_today_total": len(birthday_today),
-        "birthday_today_items": birthday_today,
+        "birthday_today_items": [_member_out_snapshot(member) for member in birthday_today],
     }
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, OperationalDashboard, payload)
     return payload
 
 
@@ -295,7 +308,7 @@ def get_commercial_dashboard(db: Session) -> dict:
         "stale_leads_total": stale_leads_total,
         "stale_leads": stale_leads,
     }
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, CommercialDashboard, payload)
     return payload
 
 
@@ -332,7 +345,7 @@ def get_financial_dashboard(db: Session) -> dict:
         "delinquency_rate": round(delinquency_rate, 2),
         "projections": projections,
     }
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, FinancialDashboard, payload)
     return payload
 
 
@@ -414,6 +427,54 @@ def _materialize_retention_context(
     return changes
 
 
+def _resolve_retention_context_snapshot(
+    db: Session,
+    member: Member,
+    *,
+    include_forecast: bool,
+) -> tuple[str | None, int | None]:
+    churn_type = member.churn_type
+    if not churn_type:
+        try:
+            churn_type = classify_churn_type(db, member)
+        except Exception:
+            churn_type = ChurnType.UNKNOWN.value
+
+    forecast_60d = _extract_forecast_60d(member.extra_data)
+    if include_forecast and forecast_60d is None:
+        try:
+            forecast = get_assessment_forecast(db, member.id)
+        except Exception:
+            forecast = None
+        probability_60d = forecast.get("probability_60d") if isinstance(forecast, dict) else None
+        if isinstance(probability_60d, (int, float)):
+            forecast_60d = int(round(probability_60d))
+
+    return churn_type, forecast_60d
+
+
+def _member_out_snapshot(
+    member: Member,
+    *,
+    churn_type: str | None = None,
+    forecast_60d: int | None = None,
+) -> MemberOut:
+    payload = MemberOut.model_validate(member)
+    if churn_type is None:
+        churn_type = payload.churn_type
+
+    extra_data = dict(payload.extra_data or {})
+    if isinstance(forecast_60d, int):
+        extra_data.setdefault("retention_forecast_60d", forecast_60d)
+
+    return payload.model_copy(
+        update={
+            "churn_type": churn_type,
+            "extra_data": extra_data,
+        }
+    )
+
+
 def _days_without_checkin(member: Member) -> int:
     reference = member.last_checkin_at
     if reference is None:
@@ -470,21 +531,6 @@ def get_retention_queue(
     gym_id=None,
 ) -> PaginatedResponse[RetentionQueueItem]:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
-    members_missing_context = list(
-        db.scalars(
-            select(Member).where(
-                Member.deleted_at.is_(None),
-                Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
-                or_(
-                    Member.churn_type.is_(None),
-                    Member.extra_data["retention_forecast_60d"].astext.is_(None),
-                ),
-            )
-        ).all()
-    )
-    if members_missing_context:
-        _materialize_retention_context(db, members_missing_context, include_forecast=True)
-
     latest_alert_subquery = _latest_open_retention_alert_subquery()
     level_priority = case(
         (RiskAlert.level == RiskLevel.RED, 0),
@@ -539,11 +585,11 @@ def get_retention_queue(
 
     items: list[RetentionQueueItem] = []
     for alert, member in rows:
-        forecast_60d = _extract_forecast_60d(member.extra_data)
+        churn_type, forecast_60d = _resolve_retention_context_snapshot(db, member, include_forecast=True)
         days_without_checkin = _days_without_checkin(member)
         playbook = [
             RetentionPlaybookStep.model_validate(step)
-            for step in build_retention_playbook(db, member, member.churn_type or ChurnType.UNKNOWN.value)
+            for step in build_retention_playbook(db, member, churn_type or ChurnType.UNKNOWN.value)
         ]
         queue_item = RetentionQueueItem(
             alert_id=str(alert.id),
@@ -558,7 +604,7 @@ def get_retention_queue(
             days_without_checkin=days_without_checkin,
             last_checkin_at=member.last_checkin_at,
             last_contact_at=last_contact_map.get(str(member.id)),
-            churn_type=member.churn_type,
+            churn_type=churn_type,
             automation_stage=alert.automation_stage,
             created_at=alert.created_at,
             forecast_60d=forecast_60d,
@@ -584,18 +630,6 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
     cached = dashboard_cache.get(cache_key)
     if cached is not None:
         return cached
-
-    members_missing_churn = list(
-        db.scalars(
-            select(Member).where(
-                Member.deleted_at.is_(None),
-                Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
-                Member.churn_type.is_(None),
-            )
-        ).all()
-    )
-    if members_missing_churn:
-        _materialize_retention_context(db, members_missing_churn, include_forecast=False)
 
     base_red = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
     base_yellow = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
@@ -659,10 +693,20 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         ).all()
         last_contact_map = {str(row.member_id): row.last_at.isoformat() for row in rows}
 
+    red_payload = []
+    for member in red_items:
+        churn_type, _ = _resolve_retention_context_snapshot(db, member, include_forecast=False)
+        red_payload.append(_member_out_snapshot(member, churn_type=churn_type))
+
+    yellow_payload = []
+    for member in yellow_items:
+        churn_type, _ = _resolve_retention_context_snapshot(db, member, include_forecast=False)
+        yellow_payload.append(_member_out_snapshot(member, churn_type=churn_type))
+
     nps_trend: list[NPSEvolutionPoint] = nps_evolution(db, months=12)
     payload = {
-        "red": {"total": red_total, "items": red_items},
-        "yellow": {"total": yellow_total, "items": yellow_items},
+        "red": {"total": red_total, "items": red_payload},
+        "yellow": {"total": yellow_total, "items": yellow_payload},
         "nps_trend": nps_trend,
         "mrr_at_risk": mrr_at_risk,
         "avg_red_score": round(avg_red_score, 1),
@@ -670,7 +714,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         "churn_distribution": churn_distribution,
         "last_contact_map": last_contact_map,
     }
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, RetentionDashboard, payload)
     return payload
 
 
@@ -741,7 +785,7 @@ def get_weekly_summary(db: Session) -> WeeklySummary:
         mrr_at_risk=float(mrr_at_risk),
         total_active=total_active,
     )
-    dashboard_cache.set(cache_key, payload)
+    _cache_dashboard_payload(cache_key, WeeklySummary, payload)
     return payload
 
 

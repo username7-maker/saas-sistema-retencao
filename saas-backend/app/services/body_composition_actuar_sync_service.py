@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+from app.integrations.actuar.base import ActuarSyncOutcome
 from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
+from app.integrations.actuar.csv_export_provider import ActuarCsvExportProvider
+from app.integrations.actuar.http_api_provider import ActuarHttpApiProvider
 from app.models import (
     ActuarMemberLink,
     ActuarSyncAttempt,
@@ -36,6 +39,7 @@ from app.services.actuar_member_link_service import (
     resolve_actuar_member,
     upsert_actuar_member_link,
 )
+from app.services.actuar_settings_service import has_actuar_credentials, resolve_effective_actuar_sync_mode
 from app.services.body_composition_actuar_mapping_service import (
     build_actuar_field_mapping,
     build_manual_sync_summary,
@@ -60,14 +64,7 @@ class ActuarSyncServiceError(RuntimeError):
 
 
 def resolve_actuar_sync_mode(gym: Gym | None = None) -> str:
-    if not settings.actuar_sync_enabled:
-        return "disabled"
-    if gym is not None and not gym.actuar_enabled:
-        return "disabled"
-    configured_mode = (settings.actuar_sync_mode or "assisted_rpa").strip().lower()
-    if configured_mode in {"http_api", "csv_export", "assisted_rpa"}:
-        return configured_mode
-    return "assisted_rpa"
+    return resolve_effective_actuar_sync_mode(gym)
 
 
 def prepare_body_composition_sync_attempt(
@@ -197,6 +194,9 @@ def get_body_composition_sync_status(
     mapping = build_actuar_field_mapping(member, evaluation)
     manual_summary = build_manual_sync_summary(member, evaluation)
     member_link = get_actuar_member_link(db, gym_id=gym_id, member_id=member_id)
+    unsupported_fields = [
+        item for item in mapping["non_critical_fields"] if item.get("classification") == "unsupported" or not item.get("supported", True)
+    ]
 
     return BodyCompositionActuarSyncStatusRead(
         evaluation_id=evaluation.id,
@@ -212,6 +212,7 @@ def get_body_composition_sync_status(
         last_error=evaluation.sync_last_error_message or evaluation.actuar_last_error,
         can_retry=evaluation.actuar_sync_status != "synced_to_actuar",
         critical_fields=mapping["critical_fields"],
+        unsupported_fields=unsupported_fields,
         fallback_manual_summary=manual_summary,
         current_job=ActuarSyncJobRead.model_validate(current_job) if current_job else None,
         attempts=[ActuarSyncAttemptRead.model_validate(item) for item in attempts],
@@ -433,7 +434,7 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
     )
     def _run() -> None:
         db = SessionLocal()
-        provider: ActuarPlaywrightProvider | None = None
+        provider: object | None = None
         try:
             job = db.scalar(
                 select(ActuarSyncJob).where(ActuarSyncJob.id == job_id).execution_options(include_all_tenants=True)
@@ -478,14 +479,24 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
                     manual_fallback=True,
                 )
 
-            credentials = _get_actuar_credentials(gym)
-            provider = ActuarPlaywrightProvider(
-                base_url=credentials["base_url"],
-                username=credentials["username"],
-                password=credentials["password"],
+            provider = _build_provider(
+                gym=gym,
+                sync_mode=evaluation.actuar_sync_mode,
                 worker_id=worker_id,
                 evidence_dir=_build_evidence_dir(job.gym_id, job.id),
             )
+            if isinstance(provider, (ActuarCsvExportProvider, ActuarHttpApiProvider)):
+                outcome = provider.push_body_composition(mapping["payload"])
+                _finalize_non_browser_outcome(
+                    db,
+                    job=job,
+                    evaluation=evaluation,
+                    attempt=attempt,
+                    outcome=outcome,
+                )
+                return
+
+            assert isinstance(provider, ActuarPlaywrightProvider)
             provider.login()
             resolution = resolve_actuar_member(db, gym_id=job.gym_id, member=member, provider=provider, user_id=job.created_by_user_id)
             _log_resolution(resolution, member_id=member.id, job_id=job.id, gym_id=job.gym_id)
@@ -528,7 +539,9 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
             _finalize_sync_failure(db, job_id=job_id, worker_id=worker_id, error=mapped_error, provider=provider)
         finally:
             if provider:
-                provider.close()
+                close = getattr(provider, "close", None)
+                if callable(close):
+                    close()
             clear_current_gym_id()
             db.close()
 
@@ -762,6 +775,82 @@ def _finalize_sync_failure(
     )
 
 
+def _finalize_non_browser_outcome(
+    db: Session,
+    *,
+    job: ActuarSyncJob,
+    evaluation: BodyCompositionEvaluation,
+    attempt: ActuarSyncAttempt,
+    outcome: ActuarSyncOutcome,
+) -> None:
+    if outcome.status == "exported":
+        _finalize_csv_export(
+            db,
+            job=job,
+            evaluation=evaluation,
+            attempt=attempt,
+            outcome=outcome,
+        )
+        return
+
+    message = outcome.error or "Provider do Actuar nao concluiu a exportacao nesta tentativa."
+    raise ActuarSyncServiceError(
+        "actuar_provider_unavailable",
+        message,
+        retryable=False,
+        manual_fallback=True,
+    )
+
+
+def _finalize_csv_export(
+    db: Session,
+    *,
+    job: ActuarSyncJob,
+    evaluation: BodyCompositionEvaluation,
+    attempt: ActuarSyncAttempt,
+    outcome: ActuarSyncOutcome,
+) -> None:
+    now = _now()
+    snapshot = outcome.payload_snapshot_json or job.payload_json or {}
+    attempt.status = "succeeded"
+    attempt.finished_at = now
+    attempt.action_log_json = [
+        {
+            "event": "csv_export_ready",
+            "provider": outcome.provider,
+            "status": outcome.status,
+            "external_id": outcome.external_id,
+            "payload_snapshot_json": snapshot,
+        }
+    ]
+    job.status = "needs_review"
+    job.error_code = "csv_export_ready"
+    job.error_message = "Exportacao CSV pronta para lancamento manual no Actuar."
+    job.next_retry_at = None
+    job.locked_at = None
+    job.locked_by = None
+    evaluation.actuar_sync_status = "manual_sync_required"
+    evaluation.actuar_external_id = outcome.external_id or evaluation.actuar_external_id
+    evaluation.sync_last_error_code = "csv_export_ready"
+    evaluation.sync_last_error_message = "Exportacao CSV pronta para lancamento manual no Actuar."
+    evaluation.actuar_last_error = "Exportacao CSV pronta para lancamento manual no Actuar."
+    db.add_all([attempt, job, evaluation])
+    db.commit()
+    logger.info(
+        "Actuar CSV export generated for manual sync.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_sync_csv_export_ready",
+                "status": "manual_sync_required",
+                "job_id": str(job.id),
+                "evaluation_id": str(evaluation.id),
+                "member_id": str(evaluation.member_id),
+                "gym_id": str(evaluation.gym_id),
+            }
+        },
+    )
+
+
 def _mark_evaluation_synced(evaluation: BodyCompositionEvaluation, *, external_id: str | None, synced_at: datetime) -> None:
     evaluation.actuar_sync_status = "synced_to_actuar"
     evaluation.actuar_external_id = external_id or evaluation.actuar_external_id
@@ -784,6 +873,32 @@ def _get_actuar_credentials(gym: Gym) -> dict[str, str]:
             manual_fallback=True,
         )
     return {"base_url": base_url, "username": username, "password": password}
+
+
+def _build_provider(
+    *,
+    gym: Gym,
+    sync_mode: str | None,
+    worker_id: str,
+    evidence_dir: Path,
+) -> ActuarPlaywrightProvider | ActuarCsvExportProvider | ActuarHttpApiProvider:
+    normalized_mode = (sync_mode or "assisted_rpa").strip().lower()
+    if normalized_mode == "csv_export":
+        return ActuarCsvExportProvider()
+    if normalized_mode == "http_api":
+        return ActuarHttpApiProvider()
+
+    if normalized_mode == "assisted_rpa" and not has_actuar_credentials(gym):
+        return ActuarCsvExportProvider()
+
+    credentials = _get_actuar_credentials(gym)
+    return ActuarPlaywrightProvider(
+        base_url=credentials["base_url"],
+        username=credentials["username"],
+        password=credentials["password"],
+        worker_id=worker_id,
+        evidence_dir=evidence_dir,
+    )
 
 
 def _build_evidence_dir(gym_id: UUID, job_id: UUID) -> Path:
