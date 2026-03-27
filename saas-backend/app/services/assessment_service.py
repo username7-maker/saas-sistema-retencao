@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
@@ -16,6 +17,12 @@ from app.services.assessment_intelligence_service import sync_assessment_intelli
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ASSESSMENT_DUE_DAYS = 90
+_ASSESSMENT_QUEUE_RESOLUTION_KEYS = (
+    "assessment_queue_resolution",
+    "assessment_queue_resolution_note",
+    "assessment_queue_resolution_at",
+    "assessment_queue_resolution_by",
+)
 _ASSESSMENT_DUE_BY_PLAN_KEYWORD = {
     "mensal": 30,
     "trimestral": 90,
@@ -33,8 +40,11 @@ def _safe(fn, default=None):
         return default
 
 
-def get_member_or_404(db: Session, member_id: UUID) -> Member:
-    member = db.scalar(select(Member).where(Member.id == member_id, Member.deleted_at.is_(None)))
+def get_member_or_404(db: Session, member_id: UUID, gym_id: UUID | None = None) -> Member:
+    stmt = select(Member).where(Member.id == member_id, Member.deleted_at.is_(None))
+    if gym_id is not None:
+        stmt = stmt.where(Member.gym_id == gym_id)
+    member = db.scalar(stmt)
     if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
     return member
@@ -62,7 +72,7 @@ def create_assessment(
     *,
     commit: bool = True,
 ) -> Assessment:
-    get_member_or_404(db, member_id)
+    member = get_member_or_404(db, member_id)
     previous_count = db.scalar(
         select(func.count(Assessment.id)).where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
     ) or 0
@@ -100,6 +110,8 @@ def create_assessment(
         observations=data.get("observations"),
         extra_data=data.get("extra_data") or {},
     )
+    if _clear_assessment_queue_resolution(member):
+        db.add(member)
     db.add(assessment)
     if commit:
         db.commit()
@@ -116,6 +128,39 @@ def create_assessment(
         db.flush()
 
     return assessment
+
+
+def update_assessment_queue_resolution(
+    db: Session,
+    member_id: UUID,
+    *,
+    resolution_status: str,
+    note: str | None = None,
+    resolved_by_user_id: UUID | None = None,
+    gym_id: UUID | None = None,
+    commit: bool = True,
+) -> Member:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    extra_data = dict(member.extra_data or {})
+
+    if resolution_status == "active":
+        changed = _clear_assessment_queue_resolution(member, extra_data=extra_data)
+    else:
+        changed = _apply_assessment_queue_resolution(
+            member,
+            resolution_status=resolution_status,
+            note=note,
+            resolved_by_user_id=resolved_by_user_id,
+            extra_data=extra_data,
+        )
+
+    if changed:
+        db.add(member)
+    invalidate_dashboard_cache("members", gym_id=member.gym_id)
+    if commit:
+        db.commit()
+        db.refresh(member)
+    return member
 
 
 def list_assessments(db: Session, member_id: UUID) -> list[Assessment]:
@@ -265,6 +310,49 @@ def _normalize_datetime(value: datetime | str | None) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _apply_assessment_queue_resolution(
+    member: Member,
+    *,
+    resolution_status: str,
+    note: str | None,
+    resolved_by_user_id: UUID | None,
+    extra_data: dict | None = None,
+) -> bool:
+    working_extra = extra_data if extra_data is not None else dict(member.extra_data or {})
+    normalized_status = str(resolution_status or "").strip().lower()
+    if normalized_status not in {"scheduled", "dismissed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Status de fila de avaliacao invalido")
+
+    cleaned_note = (note or "").strip() or None
+    before_snapshot = dict(working_extra)
+    working_extra["assessment_queue_resolution"] = normalized_status
+    if cleaned_note:
+        working_extra["assessment_queue_resolution_note"] = cleaned_note[:280]
+    else:
+        working_extra.pop("assessment_queue_resolution_note", None)
+    working_extra["assessment_queue_resolution_at"] = datetime.now(tz=timezone.utc).isoformat()
+    if resolved_by_user_id:
+        working_extra["assessment_queue_resolution_by"] = str(resolved_by_user_id)
+    else:
+        working_extra.pop("assessment_queue_resolution_by", None)
+
+    if working_extra == before_snapshot:
+        return False
+    member.extra_data = working_extra
+    return True
+
+
+def _clear_assessment_queue_resolution(member: Member, *, extra_data: dict | None = None) -> bool:
+    working_extra = extra_data if extra_data is not None else dict(member.extra_data or {})
+    before_snapshot = dict(working_extra)
+    for key in _ASSESSMENT_QUEUE_RESOLUTION_KEYS:
+        working_extra.pop(key, None)
+    if working_extra == before_snapshot:
+        return False
+    member.extra_data = working_extra
+    return True
 
 
 def _to_decimal(value: float | int | str | Decimal | None) -> Decimal | None:

@@ -21,6 +21,7 @@ AssessmentQueueBucket = Literal["all", "overdue", "never", "week", "upcoming", "
 AssessmentMemberBucket = Literal["overdue", "never", "week", "upcoming", "covered"]
 OPERATIONAL_FIRST_ASSESSMENT_WINDOW_DAYS = 60
 OPERATIONAL_REASSESSMENT_CHECKIN_WINDOW_DAYS = 30
+_ASSESSMENT_QUEUE_RESOLVED_STATUSES = ("scheduled", "dismissed")
 
 
 def _resolve_gym_id(gym_id=None):
@@ -133,6 +134,22 @@ def _coverage_label(bucket: AssessmentMemberBucket) -> str:
     return "Base coberta recentemente"
 
 
+def _queue_resolution_status_from_row(row) -> str:
+    raw_value = getattr(row, "queue_resolution_status", None)
+    normalized = str(raw_value or "").strip().lower()
+    if normalized in _ASSESSMENT_QUEUE_RESOLVED_STATUSES:
+        return normalized
+    return "active"
+
+
+def _queue_resolution_label(status: str) -> str | None:
+    if status == "scheduled":
+        return "Ja foi marcada"
+    if status == "dismissed":
+        return "Oculta da fila"
+    return None
+
+
 def _due_label(bucket: AssessmentMemberBucket, next_assessment_due, today):
     if bucket == "never":
         return "Primeira avaliacao pendente"
@@ -152,6 +169,8 @@ def _due_label(bucket: AssessmentMemberBucket, next_assessment_due, today):
 def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
     bucket = getattr(row, "queue_bucket")
     next_assessment_due = getattr(row, "next_assessment_due")
+    queue_resolution_status = _queue_resolution_status_from_row(row)
+    queue_resolution_note = getattr(row, "queue_resolution_note", None) or None
     return AssessmentQueueItemOut(
         id=getattr(row, "id"),
         full_name=getattr(row, "full_name"),
@@ -165,6 +184,9 @@ def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
         coverage_label=_coverage_label(bucket),
         due_label=_due_label(bucket, next_assessment_due, today),
         urgency_score=int(getattr(row, "urgency_score") or 0),
+        queue_resolution_status=queue_resolution_status,
+        queue_resolution_label=_queue_resolution_label(queue_resolution_status),
+        queue_resolution_note=queue_resolution_note,
     )
 
 
@@ -199,6 +221,8 @@ def get_assessments_queue(
         today=today,
         now=now,
     )
+    queue_resolution_status_expr = func.lower(func.coalesce(Member.extra_data["assessment_queue_resolution"].astext, ""))
+    unresolved_queue_expr = ~queue_resolution_status_expr.in_(_ASSESSMENT_QUEUE_RESOLVED_STATUSES)
 
     queue_bucket_expr = case(
         (queue_conditions["never"], literal("never")),
@@ -234,10 +258,16 @@ def get_assessments_queue(
                 Member.plan_name.ilike(search_value),
             )
         )
-    if bucket == "all":
-        filters.append(or_(*operational_filters.values()))
+        if bucket != "all":
+            filters.append(queue_conditions[bucket])
     else:
-        filters.append(operational_filters[bucket])
+        filters.append(unresolved_queue_expr)
+        if bucket == "all":
+            filters.append(or_(*operational_filters.values()))
+        else:
+            filters.append(operational_filters[bucket])
+
+    resolution_priority_expr = case((unresolved_queue_expr, 0), else_=1)
 
     base_stmt = (
         select(
@@ -252,6 +282,8 @@ def get_assessments_queue(
             next_assessment_due_col.label("next_assessment_due"),
             queue_bucket_expr.label("queue_bucket"),
             urgency_score_expr.label("urgency_score"),
+            queue_resolution_status_expr.label("queue_resolution_status"),
+            func.coalesce(Member.extra_data["assessment_queue_resolution_note"].astext, "").label("queue_resolution_note"),
         )
         .select_from(Member)
         .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
@@ -270,7 +302,13 @@ def get_assessments_queue(
     offset = (page - 1) * page_size
     stmt = _scoped_statement(
         base_stmt
-        .order_by(bucket_priority_expr, Member.risk_score.desc(), Member.updated_at.desc(), Member.full_name.asc())
+        .order_by(
+            resolution_priority_expr,
+            bucket_priority_expr,
+            Member.risk_score.desc(),
+            Member.updated_at.desc(),
+            Member.full_name.asc(),
+        )
         .offset(offset)
         .limit(page_size),
         resolved_gym_id,
@@ -329,6 +367,8 @@ def get_assessments_dashboard(db: Session) -> dict:
         today=today,
         next_7=next_7,
     )
+    queue_resolution_status_expr = func.lower(func.coalesce(Member.extra_data["assessment_queue_resolution"].astext, ""))
+    unresolved_queue_expr = ~queue_resolution_status_expr.in_(_ASSESSMENT_QUEUE_RESOLVED_STATUSES)
     operational_filters = _operational_queue_filters(
         latest_assessment_subquery.c.last_assessment_date,
         queue_conditions,
@@ -341,7 +381,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(and_(*base_member_filters, operational_filters["overdue"])),
+            .where(and_(*base_member_filters, operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
     ) or 0
@@ -350,7 +390,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(and_(*base_member_filters, operational_filters["never"])),
+            .where(and_(*base_member_filters, operational_filters["never"], unresolved_queue_expr)),
             resolved_gym_id,
         )
     ) or 0
@@ -360,18 +400,26 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(and_(*base_member_filters, operational_filters["week"])),
+            .where(and_(*base_member_filters, operational_filters["week"], unresolved_queue_expr)),
             resolved_gym_id,
         )
     ) or 0
 
-    historical_never_assessed = max(int(never_assessed) - int(operational_never_assessed), 0)
+    historical_never_assessed = db.scalar(
+        _scoped_statement(
+            select(func.count(Member.id))
+            .select_from(Member)
+            .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .where(and_(*base_member_filters, queue_conditions["never"], ~operational_filters["never"], unresolved_queue_expr)),
+            resolved_gym_id,
+        )
+    ) or 0
     historical_overdue_assessments = db.scalar(
         _scoped_statement(
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
-            .where(and_(*base_member_filters, queue_conditions["overdue"], ~operational_filters["overdue"])),
+            .where(and_(*base_member_filters, queue_conditions["overdue"], ~operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
     ) or 0

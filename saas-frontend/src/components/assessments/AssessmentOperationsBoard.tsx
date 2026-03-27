@@ -3,7 +3,11 @@ import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { type AssessmentDashboard, type AssessmentQueueResponse } from "../../services/assessmentService";
+import {
+  type AssessmentDashboard,
+  type AssessmentQueueResolutionStatus,
+  type AssessmentQueueResponse,
+} from "../../services/assessmentService";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList, StatusBadge } from "../ui";
 import { Badge, Button, Card, CardContent } from "../ui2";
 import {
@@ -30,6 +34,8 @@ interface AssessmentOperationsBoardProps {
   onClearFilters: () => void;
   onRetryQueue: () => void;
   emptyStateIcon?: LucideIcon;
+  queueResolutionPendingMemberId?: string | null;
+  onQueueResolutionChange: (memberId: string, status: AssessmentQueueResolutionStatus) => void;
 }
 
 const BUCKET_STATUS_MAP: Record<
@@ -43,26 +49,65 @@ const BUCKET_STATUS_MAP: Record<
   covered: { label: "Cobertura recente", variant: "success" },
 };
 
-function QueueActions({ memberId }: { memberId: string }) {
+function getQueueResolutionBadgeVariant(status: AssessmentQueueResolutionStatus): "neutral" | "success" | "warning" {
+  if (status === "scheduled") return "success";
+  if (status === "dismissed") return "warning";
+  return "neutral";
+}
+
+function QueueActions({
+  member,
+  isPending,
+  onQueueResolutionChange,
+}: {
+  member: AssessmentQueueItem;
+  isPending: boolean;
+  onQueueResolutionChange: (memberId: string, status: AssessmentQueueResolutionStatus) => void;
+}) {
+  const resolutionStatus = member.queue_resolution_status ?? "active";
+  const canTriage = member.queue_bucket !== "covered";
   return (
     <div className="flex flex-wrap items-center gap-2 lg:justify-end">
       <Link
-        to={`/assessments/members/${memberId}`}
+        to={`/assessments/members/${member.id}`}
         className="inline-flex h-8 items-center justify-center rounded-lg border border-lovable-border px-3 text-xs font-semibold text-lovable-ink hover:bg-lovable-surface-soft"
       >
         Abrir workspace
       </Link>
       <Link
-        to={`/assessments/members/${memberId}?tab=registro`}
+        to={`/assessments/members/${member.id}?tab=registro`}
         className="inline-flex h-8 items-center justify-center rounded-lg bg-lovable-primary px-3 text-xs font-semibold text-white hover:brightness-105"
       >
         Registrar avaliacao
       </Link>
+      {!canTriage ? null : resolutionStatus === "active" ? (
+        <>
+          <Button size="sm" variant="secondary" disabled={isPending} onClick={() => onQueueResolutionChange(member.id, "scheduled")}>
+            Ja foi marcada
+          </Button>
+          <Button size="sm" variant="ghost" disabled={isPending} onClick={() => onQueueResolutionChange(member.id, "dismissed")}>
+            Ocultar
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="secondary" disabled={isPending} onClick={() => onQueueResolutionChange(member.id, "active")}>
+          Reabrir fila
+        </Button>
+      )}
     </div>
   );
 }
 
-function AssessmentQueueRow({ member }: { member: AssessmentQueueItem }) {
+function AssessmentQueueRow({
+  member,
+  isPending,
+  onQueueResolutionChange,
+}: {
+  member: AssessmentQueueItem;
+  isPending: boolean;
+  onQueueResolutionChange: (memberId: string, status: AssessmentQueueResolutionStatus) => void;
+}) {
+  const resolutionStatus = member.queue_resolution_status ?? "active";
   return (
     <li className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(180px,0.9fr)_minmax(240px,1fr)_auto] lg:items-center">
       <div className="min-w-0">
@@ -81,14 +126,32 @@ function AssessmentQueueRow({ member }: { member: AssessmentQueueItem }) {
       <div className="min-w-0 space-y-1">
         <p className="truncate text-sm font-medium text-lovable-ink">{member.coverage_label}</p>
         <p className="truncate text-xs text-lovable-ink-muted">{member.due_label}</p>
+        {resolutionStatus !== "active" ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Badge variant={getQueueResolutionBadgeVariant(resolutionStatus)} size="sm" className="normal-case tracking-normal">
+              {member.queue_resolution_label || "Fora da fila"}
+            </Badge>
+            {member.queue_resolution_note ? (
+              <span className="truncate text-[11px] text-lovable-ink-muted">{member.queue_resolution_note}</span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <QueueActions memberId={member.id} />
+      <QueueActions member={member} isPending={isPending} onQueueResolutionChange={onQueueResolutionChange} />
     </li>
   );
 }
 
-function AttentionNowList({ items }: { items: AssessmentQueueItem[] }) {
+function AttentionNowList({
+  items,
+  pendingMemberId,
+  onQueueResolutionChange,
+}: {
+  items: AssessmentQueueItem[];
+  pendingMemberId?: string | null;
+  onQueueResolutionChange: (memberId: string, status: AssessmentQueueResolutionStatus) => void;
+}) {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-lovable-border px-4 py-5 text-sm text-lovable-ink-muted">
@@ -105,12 +168,55 @@ function AttentionNowList({ items }: { items: AssessmentQueueItem[] }) {
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
               <p className="truncate text-xs text-lovable-ink-muted">{member.due_label}</p>
+              {(member.queue_resolution_status ?? "active") !== "active" ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={getQueueResolutionBadgeVariant(member.queue_resolution_status ?? "active")}
+                    size="sm"
+                    className="normal-case tracking-normal"
+                  >
+                    {member.queue_resolution_label || "Fora da fila"}
+                  </Badge>
+                  {member.queue_resolution_note ? (
+                    <span className="truncate text-[11px] text-lovable-ink-muted">{member.queue_resolution_note}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <RiskBadge risk={member.risk_level} />
               <Link to={`/assessments/members/${member.id}`} className="text-xs font-semibold text-lovable-primary hover:underline">
                 Abrir workspace
               </Link>
+              {member.queue_bucket === "covered" ? null : (member.queue_resolution_status ?? "active") === "active" ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={pendingMemberId === member.id}
+                    onClick={() => onQueueResolutionChange(member.id, "scheduled")}
+                  >
+                    Ja foi marcada
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pendingMemberId === member.id}
+                    onClick={() => onQueueResolutionChange(member.id, "dismissed")}
+                  >
+                    Ocultar
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={pendingMemberId === member.id}
+                  onClick={() => onQueueResolutionChange(member.id, "active")}
+                >
+                  Reabrir fila
+                </Button>
+              )}
             </div>
           </div>
         </li>
@@ -134,6 +240,8 @@ export function AssessmentOperationsBoard({
   onClearFilters,
   onRetryQueue,
   emptyStateIcon,
+  queueResolutionPendingMemberId,
+  onQueueResolutionChange,
 }: AssessmentOperationsBoardProps) {
   const hasActiveFilters = searchQuery.trim().length > 0 || activeFilter !== "all";
   const totalPages = queue ? Math.max(1, Math.ceil(queue.total / queue.page_size)) : 1;
@@ -178,7 +286,7 @@ export function AssessmentOperationsBoard({
           search={{
             value: searchQuery,
             onChange: onSearchQueryChange,
-            placeholder: "Buscar por nome, e-mail ou plano do aluno...",
+            placeholder: "Buscar qualquer aluno ativo por nome, e-mail ou plano...",
           }}
           activeCount={(searchQuery.trim() ? 1 : 0) + (activeFilter !== "all" ? 1 : 0)}
           onClear={onClearFilters}
@@ -242,7 +350,11 @@ export function AssessmentOperationsBoard({
               subtitle="Subconjunto curto para a equipe agir sem varrer a fila inteira."
               count={attentionNow.length}
             />
-            <AttentionNowList items={attentionNow} />
+            <AttentionNowList
+              items={attentionNow}
+              pendingMemberId={queueResolutionPendingMemberId}
+              onQueueResolutionChange={onQueueResolutionChange}
+            />
           </CardContent>
         </Card>
       </section>
@@ -287,7 +399,12 @@ export function AssessmentOperationsBoard({
                 </div>
                 <ul className="divide-y divide-lovable-border">
                   {queue.items.map((member) => (
-                    <AssessmentQueueRow key={member.id} member={member} />
+                    <AssessmentQueueRow
+                      key={member.id}
+                      member={member}
+                      isPending={queueResolutionPendingMemberId === member.id}
+                      onQueueResolutionChange={onQueueResolutionChange}
+                    />
                   ))}
                 </ul>
               </div>

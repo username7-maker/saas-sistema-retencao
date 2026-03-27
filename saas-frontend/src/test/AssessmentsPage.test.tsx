@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,6 +43,13 @@ vi.mock("../services/assessmentService", async () => {
       dashboard: vi.fn(),
       queue: vi.fn(),
       actuarSyncQueue: vi.fn().mockResolvedValue([]),
+      updateQueueResolution: vi.fn().mockResolvedValue({
+        member_id: "member-1",
+        status: "scheduled",
+        label: "Ja foi marcada",
+        note: null,
+        updated_at: "2026-03-27T12:00:00Z",
+      }),
     },
   };
 });
@@ -165,7 +172,7 @@ describe("AssessmentsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Proxima$/i }));
     expect(await screen.findByText("Diego Alves")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Buscar por nome, e-mail ou plano do aluno..."), {
+    fireEvent.change(screen.getByPlaceholderText("Buscar qualquer aluno ativo por nome, e-mail ou plano..."), {
       target: { value: "Erick" },
     });
 
@@ -174,6 +181,19 @@ describe("AssessmentsPage", () => {
       expect(assessmentService.queue).toHaveBeenLastCalledWith(
         expect.objectContaining({ search: "Erick", page: 1 }),
       );
+    });
+  });
+
+  it("allows resolving a pending assessment directly from the queue", async () => {
+    renderPage();
+
+    await screen.findByText("Ana Silva");
+    const anaRow = screen.getByText("Ana Silva").closest("li");
+    expect(anaRow).not.toBeNull();
+    fireEvent.click(within(anaRow as HTMLElement).getByRole("button", { name: "Ja foi marcada" }));
+
+    await waitFor(() => {
+      expect(assessmentService.updateQueueResolution).toHaveBeenCalledWith("member-1", { status: "scheduled" });
     });
   });
 });

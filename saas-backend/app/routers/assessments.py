@@ -17,6 +17,8 @@ from app.schemas.assessment import (
     AssessmentForecastOut,
     AssessmentMiniOut,
     AssessmentOut,
+    AssessmentQueueResolutionOut,
+    AssessmentQueueResolutionUpdate,
     AssessmentQueueItemOut,
     AssessmentSummary360Out,
     EvolutionOut,
@@ -53,6 +55,7 @@ from app.services.assessment_service import (
     get_evolution_data,
     get_member_profile_360,
     list_assessments,
+    update_assessment_queue_resolution,
 )
 from app.services.audit_service import log_audit_event
 
@@ -117,6 +120,54 @@ def assessments_queue_endpoint(
         page_size=page_size,
         search=search,
         bucket=bucket,
+    )
+
+
+@router.put("/members/{member_id}/queue-resolution", response_model=AssessmentQueueResolutionOut)
+def update_assessment_queue_resolution_endpoint(
+    request: Request,
+    member_id: UUID,
+    payload: AssessmentQueueResolutionUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> AssessmentQueueResolutionOut:
+    member = update_assessment_queue_resolution(
+        db,
+        member_id,
+        resolution_status=payload.status,
+        note=payload.note,
+        resolved_by_user_id=current_user.id,
+        gym_id=current_user.gym_id,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="assessment_queue_resolution_updated",
+        entity="assessment_queue",
+        user=current_user,
+        member_id=member.id,
+        entity_id=member.id,
+        details={"status": payload.status, "note": payload.note or ""},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    extra_data = dict(member.extra_data or {})
+    status_value = str(extra_data.get("assessment_queue_resolution") or "active").strip().lower()
+    if status_value not in {"scheduled", "dismissed"}:
+        status_value = "active"
+    label = {
+        "active": "Ativa na fila",
+        "scheduled": "Ja foi marcada",
+        "dismissed": "Oculta da fila",
+    }[status_value]
+    return AssessmentQueueResolutionOut(
+        member_id=member.id,
+        status=status_value,
+        label=label,
+        note=(extra_data.get("assessment_queue_resolution_note") or None),
+        updated_at=extra_data.get("assessment_queue_resolution_at"),
     )
 
 

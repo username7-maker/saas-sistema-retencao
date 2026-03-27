@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Users } from "lucide-react";
+import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 
 import { AssessmentOperationsBoard } from "../../components/assessments/AssessmentOperationsBoard";
 import type { AssessmentQueueFilter } from "../../components/assessments/assessmentOperationsUtils";
 import { EmptyState, SkeletonList } from "../../components/ui";
 import { Card, CardContent } from "../../components/ui2";
-import { assessmentService } from "../../services/assessmentService";
+import { assessmentService, type AssessmentQueueResolutionStatus } from "../../services/assessmentService";
 
 export function AssessmentsPage() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<AssessmentQueueFilter>("all");
   const [page, setPage] = useState(1);
@@ -42,6 +44,19 @@ export function AssessmentsPage() {
     queryFn: () => assessmentService.actuarSyncQueue({ search: searchQuery }),
     staleTime: 30 * 1000,
     placeholderData: (previousData) => previousData,
+  });
+
+  const queueResolutionMutation = useMutation({
+    mutationFn: ({ memberId, status }: { memberId: string; status: AssessmentQueueResolutionStatus }) =>
+      assessmentService.updateQueueResolution(memberId, { status }),
+    onSuccess: (result) => {
+      const successMessage = result.status === "active" ? "Pendencia reaberta na fila." : `${result.label} com sucesso.`;
+      toast.success(successMessage);
+      void queryClient.invalidateQueries({ queryKey: ["assessments"] });
+    },
+    onError: () => {
+      toast.error("Nao foi possivel atualizar a pendencia de avaliacao.");
+    },
   });
 
   if (dashboardQuery.isLoading) {
@@ -95,6 +110,10 @@ export function AssessmentsPage() {
           void queueQuery.refetch();
         }}
         emptyStateIcon={Users}
+        queueResolutionPendingMemberId={queueResolutionMutation.variables?.memberId ?? null}
+        onQueueResolutionChange={(memberId, status) => {
+          queueResolutionMutation.mutate({ memberId, status });
+        }}
       />
 
       <Card>

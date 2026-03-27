@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -210,6 +211,22 @@ class AssessmentQueueItemOut(BaseModel):
     coverage_label: str
     due_label: str
     urgency_score: int
+    queue_resolution_status: str = Field(default="active")
+    queue_resolution_label: str | None = None
+    queue_resolution_note: str | None = None
+
+
+class AssessmentQueueResolutionUpdate(BaseModel):
+    status: Literal["active", "scheduled", "dismissed"]
+    note: str | None = Field(default=None, max_length=280)
+
+
+class AssessmentQueueResolutionOut(BaseModel):
+    member_id: UUID
+    status: Literal["active", "scheduled", "dismissed"]
+    label: str
+    note: str | None = None
+    updated_at: datetime | None = None
 
 
 class Profile360Out(BaseModel):

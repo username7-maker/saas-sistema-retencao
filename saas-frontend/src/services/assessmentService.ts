@@ -161,6 +161,7 @@ export interface AssessmentDashboard {
 
 export type AssessmentQueueBucket = "overdue" | "never" | "week" | "upcoming" | "covered";
 export type AssessmentQueueFilter = "all" | AssessmentQueueBucket;
+export type AssessmentQueueResolutionStatus = "active" | "scheduled" | "dismissed";
 
 export interface AssessmentQueueItem {
   id: string;
@@ -175,6 +176,9 @@ export interface AssessmentQueueItem {
   coverage_label: string;
   due_label: string;
   urgency_score: number;
+  queue_resolution_status?: AssessmentQueueResolutionStatus;
+  queue_resolution_label?: string | null;
+  queue_resolution_note?: string | null;
 }
 
 export interface AssessmentQueueResponse {
@@ -182,6 +186,19 @@ export interface AssessmentQueueResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface AssessmentQueueResolutionInput {
+  status: AssessmentQueueResolutionStatus;
+  note?: string;
+}
+
+export interface AssessmentQueueResolutionResult {
+  member_id: string;
+  status: AssessmentQueueResolutionStatus;
+  label: string;
+  note: string | null;
+  updated_at: string | null;
 }
 
 export interface AssessmentFactor {
@@ -334,6 +351,9 @@ function normalizeAssessmentQueueItem(payload: unknown): AssessmentQueueItem {
     coverage_label: asString(data.coverage_label, "Sem cobertura operacional"),
     due_label: asString(data.due_label, "Sem janela definida"),
     urgency_score: asNumber(data.urgency_score),
+    queue_resolution_status: asString(data.queue_resolution_status, "active") as AssessmentQueueResolutionStatus,
+    queue_resolution_label: asNullableString(data.queue_resolution_label),
+    queue_resolution_note: asNullableString(data.queue_resolution_note),
   };
 }
 
@@ -677,6 +697,11 @@ export const assessmentService = {
         search: params.search?.trim() ? params.search.trim() : undefined,
       },
     });
+    return data;
+  },
+
+  async updateQueueResolution(memberId: string, payload: AssessmentQueueResolutionInput): Promise<AssessmentQueueResolutionResult> {
+    const { data } = await api.put<AssessmentQueueResolutionResult>(`/api/v1/assessments/members/${memberId}/queue-resolution`, payload);
     return data;
   },
 
