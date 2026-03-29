@@ -32,6 +32,7 @@ from app.models.message_log import MessageLog
 from app.models.nps_response import NPSResponse
 from app.models.nurturing_sequence import NurturingSequence
 from app.models.objection_response import ObjectionResponse
+from app.models.operational_outcome import OperationalOutcome
 from app.models.risk_alert import RiskAlert
 from app.models.task import Task
 from app.models.user import User
@@ -68,6 +69,7 @@ __all__ = [
     "NPSSentiment",
     "NPSTrigger",
     "ObjectionResponse",
+    "OperationalOutcome",
     "OnboardingStatus",
     "RiskAlert",
     "RiskLevel",

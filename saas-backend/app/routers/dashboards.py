@@ -8,6 +8,7 @@ from app.core.dependencies import require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import (
+    ActionCenterResponse,
     ChurnPoint,
     CommercialDashboard,
     ExecutiveDashboard,
@@ -30,6 +31,7 @@ from app.services.ai_insight_service import (
     generate_retention_insight,
 )
 from app.services.dashboard_service import (
+    get_action_center,
     get_churn_dashboard,
     get_commercial_dashboard,
     get_executive_dashboard,
@@ -107,6 +109,26 @@ def commercial_dashboard(
     _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
 ) -> CommercialDashboard:
     return get_commercial_dashboard(db)
+
+
+@router.get("/action-center", response_model=ActionCenterResponse)
+def action_center_dashboard(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    search: str | None = Query(None),
+    source: Literal["all", "task", "retention", "assessment", "crm"] = Query("all"),
+    severity: Literal["all", "critical", "high", "medium", "low"] = Query("all"),
+) -> ActionCenterResponse:
+    return get_action_center(
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        source=source,
+        severity=severity,
+    )
 
 
 @router.get("/financial", response_model=FinancialDashboard)

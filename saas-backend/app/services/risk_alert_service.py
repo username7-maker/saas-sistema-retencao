@@ -9,6 +9,7 @@ from app.database import get_current_gym_id
 from app.models import RiskAlert, RiskLevel, User
 from app.schemas import PaginatedResponse
 from app.services.audit_service import log_audit_event
+from app.services.operational_outcome_service import record_operational_outcome
 
 
 def list_risk_alerts(
@@ -80,6 +81,22 @@ def resolve_risk_alert(
         member_id=alert.member_id,
         user=current_user,
         details={"resolution_note": resolution_note or ""},
+    )
+    record_operational_outcome(
+        db,
+        gym_id=alert.gym_id,
+        source="retention",
+        action_type="risk_alert_resolved",
+        actor="user",
+        status="resolved",
+        member_id=alert.member_id,
+        actor_user_id=current_user.id,
+        risk_alert_id=alert.id,
+        channel="manual",
+        related_entity_type="risk_alert",
+        related_entity_id=alert.id,
+        playbook_key=alert.automation_stage,
+        metadata_json={"resolution_note": resolution_note or "", "risk_level": alert.level.value},
     )
     db.commit()
     db.refresh(alert)

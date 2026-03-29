@@ -73,6 +73,8 @@ class TestCreateLead:
         create_lead(db, payload)
         db.add.assert_called_once()
         db.commit.assert_called_once()
+        created_lead = db.add.call_args.args[0]
+        assert created_lead.pitch_step == "briefing"
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
     def test_create_commit_false_skips_commit(self, mock_cache):
@@ -114,6 +116,21 @@ class TestUpdateLead:
         update_lead(db, LEAD_ID, payload)
         assert lead.stage == LeadStage.CONTACT
         assert lead.last_contact_at is not None
+        assert lead.pitch_step == "briefing"
+
+    @patch("app.services.crm_service.invalidate_dashboard_cache")
+    def test_update_syncs_pitch_step_from_notes(self, mock_cache):
+        lead = _mock_lead(notes=[{"type": "proposal_sent_auto"}], stage=LeadStage.PROPOSAL_SENT)
+        db = MagicMock()
+        db.get.return_value = lead
+        db.refresh = MagicMock()
+
+        from app.schemas import LeadUpdate
+        from app.services.crm_service import update_lead
+
+        update_lead(db, LEAD_ID, LeadUpdate(full_name="Lead Ajustado"), commit=False)
+
+        assert lead.pitch_step == "proposal"
 
     @patch("app.services.crm_service.invalidate_dashboard_cache")
     def test_commit_false_skips_commit(self, mock_cache):

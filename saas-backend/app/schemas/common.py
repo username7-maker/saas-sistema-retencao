@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class APIMessage(BaseModel):
@@ -38,3 +38,11 @@ class AuditLogOut(BaseModel):
     details: dict
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UIEventCreate(BaseModel):
+    event_name: str = Field(min_length=2, max_length=80)
+    surface: str = Field(min_length=2, max_length=80)
+    entity_id: UUID | None = None
+    member_id: UUID | None = None
+    details: dict = Field(default_factory=dict)

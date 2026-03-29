@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -20,6 +20,7 @@ import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
 import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Button, Skeleton, cn } from "../../components/ui2";
 import {
+  useActionCenter,
   useChurnDashboard,
   useCommercialDashboard,
   useExecutiveDashboard,
@@ -28,9 +29,10 @@ import {
   useWeeklySummary,
 } from "../../hooks/useDashboard";
 import { buildLovableDashboardViewModel } from "./dashboardAdapters";
+import { telemetryService } from "../../services/telemetryService";
 
-type ActionSource = "retention" | "commercial" | "operational";
-type ActionPriority = "high" | "medium";
+type ActionSource = "retention" | "crm" | "assessment" | "task";
+type ActionPriority = "high" | "medium" | "low";
 type ChartRange = "all" | "6m" | "3m";
 
 interface ActionRow {
@@ -46,19 +48,22 @@ interface ActionRow {
 
 const SOURCE_META: Record<ActionSource, { label: string; icon: LucideIcon }> = {
   retention: { label: "Retencao", icon: ShieldAlert },
-  commercial: { label: "Comercial", icon: Briefcase },
-  operational: { label: "Operacional", icon: Activity },
+  crm: { label: "CRM", icon: Briefcase },
+  assessment: { label: "Avaliacoes", icon: Activity },
+  task: { label: "Tarefas", icon: BarChart3 },
 };
 
 const SOURCE_BADGE_MAP = {
   retention: { label: SOURCE_META.retention.label, variant: "danger" as const },
-  commercial: { label: SOURCE_META.commercial.label, variant: "warning" as const },
-  operational: { label: SOURCE_META.operational.label, variant: "success" as const },
+  crm: { label: SOURCE_META.crm.label, variant: "warning" as const },
+  assessment: { label: SOURCE_META.assessment.label, variant: "success" as const },
+  task: { label: SOURCE_META.task.label, variant: "neutral" as const },
 };
 
 const PRIORITY_BADGE_MAP = {
   high: { label: "Alta", variant: "danger" as const },
   medium: { label: "Media", variant: "warning" as const },
+  low: { label: "Baixa", variant: "success" as const },
 };
 
 function currency(value: number): string {
@@ -236,12 +241,14 @@ function WeeklySummaryMini() {
 export function DashboardLovable() {
   const navigate = useNavigate();
   const [chartRange, setChartRange] = useState<ChartRange>("6m");
+  const actionTelemetryRef = useRef("");
 
   const executive = useExecutiveDashboard();
   const commercial = useCommercialDashboard();
   const operational = useOperationalDashboard();
   const retention = useRetentionDashboard();
   const churn = useChurnDashboard();
+  const actionCenter = useActionCenter({ page: 1, page_size: 8 });
 
   const viewModel = buildLovableDashboardViewModel({
     executive: executive.data,
@@ -252,49 +259,19 @@ export function DashboardLovable() {
   });
 
   const actionRows = useMemo<ActionRow[]>(() => {
-    const retentionRows =
-      retention.data?.red.items.map((member) => ({
-        id: `retention-${member.id}`,
-        source: "retention" as const,
-        name: member.full_name,
-        subtitle: `${member.plan_name} | score ${member.risk_score}`,
-        status: "Risco vermelho",
-        priority: "high" as const,
-        lastEventAt: member.last_checkin_at,
-        href: "/dashboard/retention",
-      })) ?? [];
-
-    const commercialRows =
-      commercial.data?.stale_leads.map((lead) => ({
-        id: `commercial-${lead.id}`,
-        source: "commercial" as const,
-        name: lead.full_name,
-        subtitle: lead.source ? `Origem: ${lead.source}` : "Lead sem origem",
-        status: `Pipeline ${lead.stage}`,
-        priority: "medium" as const,
-        lastEventAt: lead.last_contact_at,
-        href: "/crm",
-      })) ?? [];
-
-    const operationalRows =
-      operational.data?.inactive_7d_items.map((member) => ({
-        id: `operational-${member.id}`,
-        source: "operational" as const,
-        name: member.full_name,
-        subtitle: `${member.plan_name} | ${member.loyalty_months} meses`,
-        status: "Inativo 7+ dias",
-        priority: "high" as const,
-        lastEventAt: member.last_checkin_at,
-        href: "/dashboard/operational",
-      })) ?? [];
-
-    return [...retentionRows, ...operationalRows, ...commercialRows].sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority === "high" ? -1 : 1;
-      const aTime = a.lastEventAt ? new Date(a.lastEventAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const bTime = b.lastEventAt ? new Date(b.lastEventAt).getTime() : Number.MAX_SAFE_INTEGER;
-      return aTime - bTime;
-    });
-  }, [commercial.data?.stale_leads, operational.data?.inactive_7d_items, retention.data?.red.items]);
+    return (
+      actionCenter.data?.items.map((item) => ({
+        id: item.id,
+        source: item.source,
+        name: item.title,
+        subtitle: item.subtitle,
+        status: item.source_label,
+        priority: item.severity === "critical" || item.severity === "high" ? "high" : item.severity === "medium" ? "medium" : "low",
+        lastEventAt: item.last_contact_at ?? item.last_checkin_at ?? item.due_at,
+        href: item.cta_target,
+      })) ?? []
+    );
+  }, [actionCenter.data?.items]);
 
   const visibleRows = useMemo(() => actionRows.slice(0, 8), [actionRows]);
 
@@ -330,7 +307,38 @@ export function DashboardLovable() {
 
   const kpiLoading = executive.isLoading;
   const chartLoading = churn.isLoading || retention.isLoading;
-  const actionLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
+  const actionLoading = actionCenter.isLoading;
+
+  useEffect(() => {
+    if (!actionCenter.data) return;
+
+    const snapshot = `${actionCenter.data.total}|${visibleRows.length}`;
+    if (actionTelemetryRef.current === snapshot) return;
+    actionTelemetryRef.current = snapshot;
+
+    void telemetryService.track({
+      event_name: "executive_priority_actions_viewed",
+      surface: "executive_dashboard",
+      details: {
+        total_items: actionCenter.data.total,
+        visible_items: visibleRows.length,
+      },
+    });
+  }, [actionCenter.data, visibleRows.length]);
+
+  const handleOpenPriorityAction = (row: ActionRow) => {
+    void telemetryService.track({
+      event_name: "executive_priority_action_clicked",
+      surface: "executive_dashboard",
+      details: {
+        item_id: row.id,
+        source: row.source,
+        priority: row.priority,
+        href: row.href,
+      },
+    });
+    navigate(row.href);
+  };
 
   return (
     <section className="relative overflow-hidden rounded-[34px] border border-lovable-border bg-[linear-gradient(180deg,hsl(var(--lovable-surface)/0.98),hsl(var(--lovable-bg-muted)/0.92))] p-4 text-lovable-ink shadow-panel backdrop-blur-2xl sm:p-6">
@@ -542,7 +550,7 @@ export function DashboardLovable() {
                       </div>
 
                       <div className="flex shrink-0 items-center">
-                        <Button size="sm" variant="ghost" onClick={() => navigate(row.href)}>
+                        <Button size="sm" variant="ghost" onClick={() => handleOpenPriorityAction(row)}>
                           Abrir
                         </Button>
                       </div>

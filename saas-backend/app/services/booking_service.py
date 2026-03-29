@@ -13,6 +13,7 @@ from app.models import Lead, LeadBooking, LeadStage, NurturingSequence
 from app.schemas.sales import PublicBookingConfirmRequest
 from app.services.crm_service import append_lead_note, create_public_booking_lead
 from app.services.nurturing_service import pause_sequences_for_lead
+from app.services.operational_outcome_service import record_operational_outcome
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) ->
     booking = _upsert_booking(db, lead, payload)
 
     lead.stage = LeadStage.MEETING_SCHEDULED
+    lead.pitch_step = "booking"
     lead.last_contact_at = datetime.now(tz=timezone.utc)
     append_lead_note(
         db,
@@ -39,6 +41,25 @@ def confirm_public_booking(db: Session, payload: PublicBookingConfirmRequest) ->
     pause_sequences_for_lead(db, lead.id, "meeting_scheduled")
     db.add(lead)
     db.add(booking)
+    record_operational_outcome(
+        db,
+        gym_id=lead.gym_id,
+        source="crm",
+        action_type="booking_confirmed",
+        actor="system",
+        status="converted",
+        lead_id=lead.id,
+        lead_booking_id=booking.id,
+        channel="manual",
+        related_entity_type="lead_booking",
+        related_entity_id=booking.id,
+        playbook_key=booking.provider_name,
+        metadata_json={
+            "provider_name": booking.provider_name,
+            "scheduled_for": booking.scheduled_for.isoformat(),
+        },
+        flush=False,
+    )
     db.commit()
     db.refresh(lead)
     db.refresh(booking)

@@ -19,8 +19,11 @@ from app.schemas.assessment import (
 )
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
 from app.schemas.checkin import CheckinCreate, CheckinOut
-from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
+from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse, UIEventCreate
 from app.schemas.dashboard import (
+    ActionCenterItem,
+    ActionCenterResponse,
+    ActionCenterSummary,
     ChurnPoint,
     CommercialDashboard,
     ConversionBySource,
@@ -71,10 +74,14 @@ from app.schemas.sales import (
     SalesHistoryItemOut,
 )
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
+from app.schemas.roi import RoiSummaryOut, RoiTopChannel, RoiTopOperator, RoiTopPlaybook
 
 __all__ = [
     "APIMessage",
     "AIAssistantPayload",
+    "ActionCenterItem",
+    "ActionCenterResponse",
+    "ActionCenterSummary",
     "AssessmentCreate",
     "BodyCompositionEvaluationCreate",
     "BodyCompositionEvaluationRead",
@@ -147,6 +154,10 @@ __all__ = [
     "RetentionPlaybookStep",
     "RetentionQueueItem",
     "RevenuePoint",
+    "RoiSummaryOut",
+    "RoiTopChannel",
+    "RoiTopOperator",
+    "RoiTopPlaybook",
     "RiskAlertOut",
     "RiskAlertResolveInput",
     "BookingStatusOut",
@@ -172,4 +183,5 @@ __all__ = [
     "UserLogin",
     "UserOut",
     "UserRegister",
+    "UIEventCreate",
 ]

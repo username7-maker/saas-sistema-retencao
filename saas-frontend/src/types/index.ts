@@ -62,6 +62,7 @@ export interface Lead {
   phone: string | null;
   source: string;
   stage: "new" | "contact" | "visit" | "trial" | "proposal" | "meeting_scheduled" | "proposal_sent" | "won" | "lost";
+  pitch_step: string;
   estimated_value: number;
   acquisition_cost: number;
   owner_id: string | null;
@@ -141,6 +142,89 @@ export interface WeeklySummary {
   new_at_risk: number;
   mrr_at_risk: number;
   total_active: number;
+}
+
+export interface ActionCenterItem {
+  id: string;
+  source: "task" | "retention" | "assessment" | "crm";
+  source_label: string;
+  severity: "critical" | "high" | "medium" | "low";
+  severity_rank: number;
+  title: string;
+  subtitle: string;
+  member_id: string | null;
+  lead_id: string | null;
+  task_id?: string | null;
+  risk_alert_id?: string | null;
+  status: string | null;
+  channel: string | null;
+  owner_label: string | null;
+  value_amount: number;
+  stale_days: number;
+  due_at: string | null;
+  last_contact_at: string | null;
+  last_checkin_at: string | null;
+  cta_label: string;
+  cta_target: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ActionCenterSummary {
+  total: number;
+  by_source: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export interface ActionCenterResponse {
+  items: ActionCenterItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  summary: ActionCenterSummary;
+}
+
+export interface RoiTopPlaybook {
+  playbook_key: string;
+  actions_executed: number;
+  recovered_members: number;
+  estimated_preserved_revenue: number;
+}
+
+export interface RoiTopChannel {
+  channel: string;
+  actions_executed: number;
+  recovered_members: number;
+  estimated_preserved_revenue: number;
+}
+
+export interface RoiTopOperator {
+  user_id: string | null;
+  label: string;
+  actions_executed: number;
+  recovered_members: number;
+  estimated_preserved_revenue: number;
+}
+
+export interface RoiSummary {
+  period_days: number;
+  labeling: string;
+  actions_executed: number;
+  total_automated: number;
+  reengaged_count: number;
+  reengagement_rate: number;
+  preserved_revenue: number;
+  recovery_rate: number;
+  top_playbooks: RoiTopPlaybook[];
+  top_channels: RoiTopChannel[];
+  top_operators: RoiTopOperator[];
+  top_reengaged: Array<{
+    member_id: string;
+    full_name: string;
+    monthly_fee: number;
+    source: string;
+    channel: string;
+    playbook_key: string;
+  }>;
 }
 
 export interface HeatmapPoint {

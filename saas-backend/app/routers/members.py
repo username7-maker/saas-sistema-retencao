@@ -48,6 +48,7 @@ from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
+from app.services.operational_outcome_service import record_operational_outcome
 from app.services.risk import run_daily_risk_processing
 
 logger = logging.getLogger(__name__)
@@ -495,7 +496,7 @@ def create_contact_log_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
 ) -> dict:
-    get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -506,6 +507,20 @@ def create_contact_log_endpoint(
         details={"outcome": payload.outcome, "note": payload.note or ""},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
+    )
+    record_operational_outcome(
+        db,
+        gym_id=current_user.gym_id,
+        source="retention",
+        action_type="manual_contact_log",
+        actor="user",
+        status="answered" if payload.outcome == "answered" else "ignored",
+        member_id=member.id,
+        actor_user_id=current_user.id,
+        channel="call",
+        related_entity_type="member",
+        related_entity_id=member.id,
+        metadata_json={"outcome": payload.outcome, "note": payload.note or ""},
     )
     db.commit()
     return {"status": "logged"}

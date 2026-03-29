@@ -1,5 +1,6 @@
 import { api } from "./api";
 import type {
+  ActionCenterResponse,
   AIAssistantPayload,
   ChurnPoint,
   ConversionBySource,
@@ -13,6 +14,7 @@ import type {
   PaginatedResponse,
   ProjectionPoint,
   RiskLevel,
+  RoiSummary,
   RevenuePoint,
   WeeklySummary,
 } from "../types";
@@ -91,12 +93,26 @@ export const dashboardService = {
 
   async commercial(): Promise<{
     pipeline: Record<string, number>;
+    pitch_pipeline: Record<string, number>;
     conversion_by_source: ConversionBySource[];
     cac: number;
     stale_leads_total: number;
     stale_leads: Lead[];
   }> {
     const { data } = await api.get("/api/v1/dashboards/commercial");
+    return data;
+  },
+
+  async actionCenter(params?: {
+    page?: number;
+    page_size?: number;
+    search?: string;
+    source?: "all" | "task" | "retention" | "assessment" | "crm";
+    severity?: "all" | "critical" | "high" | "medium" | "low";
+  }): Promise<ActionCenterResponse> {
+    const { data } = await api.get<ActionCenterResponse>("/api/v1/dashboards/action-center", {
+      params,
+    });
     return data;
   },
 
@@ -138,6 +154,13 @@ export const dashboardService = {
 
   async weeklySummary(): Promise<WeeklySummary> {
     const { data } = await api.get<WeeklySummary>("/api/v1/dashboards/weekly-summary");
+    return data;
+  },
+
+  async roiSummary(period_days = 30): Promise<RoiSummary> {
+    const { data } = await api.get<RoiSummary>("/api/v1/roi/summary", {
+      params: { period_days },
+    });
     return data;
   },
 

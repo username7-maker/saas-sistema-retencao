@@ -13,6 +13,7 @@ class LeadCreate(BaseModel):
     phone: str | None = None
     source: str = Field(min_length=2, max_length=80)
     stage: LeadStage = LeadStage.NEW
+    pitch_step: str = Field(default="briefing", min_length=2, max_length=40)
     estimated_value: Decimal = Decimal("0")
     acquisition_cost: Decimal = Decimal("0")
     owner_id: UUID | None = None
@@ -41,6 +42,7 @@ class LeadUpdate(BaseModel):
     phone: str | None = None
     source: str | None = None
     stage: LeadStage | None = None
+    pitch_step: str | None = Field(default=None, min_length=2, max_length=40)
     estimated_value: Decimal | None = None
     acquisition_cost: Decimal | None = None
     owner_id: UUID | None = None
@@ -58,6 +60,7 @@ class LeadOut(BaseModel):
     phone: str | None
     source: str
     stage: LeadStage
+    pitch_step: str
     estimated_value: Decimal
     acquisition_cost: Decimal
     owner_id: UUID | None

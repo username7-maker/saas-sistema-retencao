@@ -22,6 +22,15 @@ const STAGE_LABELS: Record<string, string> = {
   lost: "Perdido",
 };
 
+const PITCH_LABELS: Record<string, string> = {
+  diagnosis: "Diagnóstico",
+  briefing: "Briefing",
+  proposal: "Proposta",
+  objection: "Objeção",
+  booking: "Booking",
+  conversion: "Conversão",
+};
+
 function stageColor(stage: string): string {
   if (stage === "won") return "hsl(var(--lovable-success))";
   if (stage === "lost") return "hsl(var(--lovable-danger))";
@@ -43,6 +52,15 @@ export function CommercialDashboardPage() {
     return Object.entries(query.data.pipeline).map(([stage, total]) => ({
       stage,
       label: STAGE_LABELS[stage] ?? stage,
+      total,
+    }));
+  }, [query.data]);
+
+  const pitchPipelineData = useMemo(() => {
+    if (!query.data) return [];
+    return Object.entries(query.data.pitch_pipeline ?? {}).map(([step, total]) => ({
+      step,
+      label: PITCH_LABELS[step] ?? step,
       total,
     }));
   }, [query.data]);
@@ -86,35 +104,63 @@ export function CommercialDashboardPage() {
 
       <AiInsightCard dashboard="commercial" />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <StatCard label="CAC" value={`R$ ${query.data.cac.toFixed(2)}`} tone="warning" />
         <StatCard label="Leads em proposta" value={String(query.data.pipeline.proposal ?? 0)} tone="neutral" />
         <StatCard label="Fechados" value={String(query.data.pipeline.won ?? 0)} tone="success" />
+        <StatCard label="Pitch em booking" value={String(query.data.pitch_pipeline.booking ?? 0)} tone="warning" />
       </div>
 
-      <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estagio</p>
-        <ResponsiveContainer width="100%" height="90%">
-          <BarChart data={pipelineData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
-            <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
-            <YAxis stroke="hsl(var(--lovable-ink-muted))" />
-            <Tooltip
-              contentStyle={{
-                background: "hsl(var(--lovable-surface))",
-                border: "1px solid hsl(var(--lovable-border))",
-                borderRadius: "0.75rem",
-              }}
-              labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
-              itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
-            />
-            <Bar dataKey="total" radius={[8, 8, 0, 0]}>
-              {pipelineData.map((entry) => (
-                <Cell key={entry.stage} fill={stageColor(entry.stage)} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estágio</p>
+          <ResponsiveContainer width="100%" height="90%">
+            <BarChart data={pipelineData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+              <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
+              <YAxis stroke="hsl(var(--lovable-ink-muted))" />
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--lovable-surface))",
+                  border: "1px solid hsl(var(--lovable-border))",
+                  borderRadius: "0.75rem",
+                }}
+                labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
+              />
+              <Bar dataKey="total" radius={[8, 8, 0, 0]}>
+                {pipelineData.map((entry) => (
+                  <Cell key={entry.stage} fill={stageColor(entry.stage)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pitch por etapa</p>
+          <ResponsiveContainer width="100%" height="90%">
+            <BarChart data={pitchPipelineData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+              <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
+              <YAxis stroke="hsl(var(--lovable-ink-muted))" />
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--lovable-surface))",
+                  border: "1px solid hsl(var(--lovable-border))",
+                  borderRadius: "0.75rem",
+                }}
+                labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
+              />
+              <Bar dataKey="total" radius={[8, 8, 0, 0]}>
+                {pitchPipelineData.map((entry) => (
+                  <Cell key={entry.step} fill="hsl(var(--lovable-primary))" />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -160,6 +206,7 @@ export function CommercialDashboardPage() {
                       <p className="font-medium text-lovable-ink">{lead.full_name}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-lovable-ink-muted">
                         <span>Estagio: {STAGE_LABELS[lead.stage] ?? lead.stage}</span>
+                        <span>Pitch: {PITCH_LABELS[lead.pitch_step] ?? lead.pitch_step}</span>
                         <span>Origem: {lead.source}</span>
                         {dias !== null && (
                           <Badge variant={dias > 7 ? "danger" : "warning"}>

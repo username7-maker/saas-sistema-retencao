@@ -6,9 +6,27 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.database import get_current_gym_id
-from app.models import AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskAlert, RiskLevel
+from app.models import (
+    Assessment,
+    AuditLog,
+    Checkin,
+    Lead,
+    LeadStage,
+    Member,
+    MemberStatus,
+    NPSResponse,
+    RiskAlert,
+    RiskLevel,
+    Task,
+    TaskPriority,
+    TaskStatus,
+    User,
+)
 from app.models.enums import ChurnType
 from app.schemas import (
+    ActionCenterItem,
+    ActionCenterResponse,
+    ActionCenterSummary,
     ChurnPoint,
     ConversionBySource,
     ExecutiveDashboard,
@@ -23,11 +41,23 @@ from app.schemas import (
     RevenuePoint,
     WeeklySummary,
 )
+from app.services.assessment_analytics_service import _due_label as _assessment_due_label
+from app.services.assessment_analytics_service import _latest_assessment_subquery as _assessment_latest_subquery
+from app.services.assessment_analytics_service import _queue_conditions as _assessment_queue_conditions
 from app.services.ai_assistant_service import build_retention_assistant
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
 from app.services.retention_intelligence_service import build_retention_playbook
+
+
+_ACTION_CENTER_SOURCE_LABELS = {
+    "task": "Tarefas",
+    "retention": "Retenção",
+    "assessment": "Avaliações",
+    "crm": "CRM",
+}
+_ACTION_CENTER_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def get_executive_dashboard(db: Session) -> ExecutiveDashboard:
@@ -205,6 +235,16 @@ def get_commercial_dashboard(db: Session) -> dict:
         .group_by(Lead.stage)
     ).all()
     pipeline = {row.stage.value: int(row.total) for row in pipeline_rows}
+    pitch_pipeline_rows = db.execute(
+        select(Lead.pitch_step, func.count(Lead.id).label("total"))
+        .where(Lead.deleted_at.is_(None))
+        .group_by(Lead.pitch_step)
+    ).all()
+    pitch_pipeline = {
+        str(row.pitch_step): int(row.total)
+        for row in pitch_pipeline_rows
+        if row.pitch_step
+    }
 
     source_rows = db.execute(
         select(
@@ -241,11 +281,411 @@ def get_commercial_dashboard(db: Session) -> dict:
 
     payload = {
         "pipeline": pipeline,
+        "pitch_pipeline": pitch_pipeline,
         "conversion_by_source": conversion,
         "cac": calculate_cac(db),
         "stale_leads_total": stale_leads_total,
         "stale_leads": stale_leads,
     }
+    dashboard_cache.set(cache_key, payload)
+    return payload
+
+
+def _severity_rank(value: str) -> int:
+    return _ACTION_CENTER_SEVERITY_RANK.get(value, 99)
+
+
+def _apply_action_center_filters(items: list[ActionCenterItem], *, source: str, severity: str) -> list[ActionCenterItem]:
+    filtered = items
+    if source != "all":
+        filtered = [item for item in filtered if item.source == source]
+    if severity != "all":
+        filtered = [item for item in filtered if item.severity == severity]
+    return filtered
+
+
+def _summarize_action_center(items: list[ActionCenterItem]) -> ActionCenterSummary:
+    by_source: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    for item in items:
+        by_source[item.source] = by_source.get(item.source, 0) + 1
+        by_severity[item.severity] = by_severity.get(item.severity, 0) + 1
+    return ActionCenterSummary(total=len(items), by_source=by_source, by_severity=by_severity)
+
+
+def _build_task_action_items(db: Session, *, gym_id, search: str | None) -> list[ActionCenterItem]:
+    filters = [
+        Task.deleted_at.is_(None),
+        Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+    ]
+    if gym_id is not None:
+        filters.append(Task.gym_id == gym_id)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Task.title.ilike(search_value),
+                Task.description.ilike(search_value),
+                Member.full_name.ilike(search_value),
+                Lead.full_name.ilike(search_value),
+            )
+        )
+
+    rows = db.execute(
+        select(Task, Member, Lead, User)
+        .outerjoin(Member, Member.id == Task.member_id)
+        .outerjoin(Lead, Lead.id == Task.lead_id)
+        .outerjoin(User, User.id == Task.assigned_to_user_id)
+        .where(and_(*filters))
+    ).all()
+
+    now = _utcnow()
+    items: list[ActionCenterItem] = []
+    for task, member, lead, owner in rows:
+        due_at = task.due_date
+        if due_at is not None and due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+
+        overdue_days = max(0, (now - due_at).days) if due_at and due_at < now else 0
+        if due_at and due_at < now:
+            severity = "critical"
+        elif task.priority in {TaskPriority.URGENT, TaskPriority.HIGH} or task.status == TaskStatus.DOING:
+            severity = "high"
+        elif task.priority == TaskPriority.MEDIUM:
+            severity = "medium"
+        else:
+            severity = "low"
+
+        target_name = member.full_name if member else lead.full_name if lead else "Sem vínculo"
+        subtitle_parts = [target_name]
+        if due_at:
+            subtitle_parts.append(f"vence {due_at.strftime('%d/%m %H:%M')}")
+        else:
+            subtitle_parts.append("sem prazo definido")
+
+        items.append(
+            ActionCenterItem(
+                id=f"task-{task.id}",
+                source="task",
+                source_label=_ACTION_CENTER_SOURCE_LABELS["task"],
+                severity=severity,
+                severity_rank=_severity_rank(severity),
+                title=task.title,
+                subtitle=" · ".join(subtitle_parts),
+                member_id=str(member.id) if member else None,
+                lead_id=str(lead.id) if lead else None,
+                task_id=str(task.id),
+                status=task.status.value,
+                owner_label=owner.full_name if owner else None,
+                value_amount=float(member.monthly_fee if member else lead.estimated_value if lead else 0),
+                stale_days=overdue_days,
+                due_at=due_at,
+                last_contact_at=lead.last_contact_at if lead else None,
+                last_checkin_at=member.last_checkin_at if member else None,
+                cta_label="Abrir tarefa",
+                cta_target=f"/tasks?taskId={task.id}",
+                metadata={
+                    "priority": task.priority.value,
+                    "member_name": member.full_name if member else None,
+                    "lead_name": lead.full_name if lead else None,
+                },
+            )
+        )
+    return items
+
+
+def _build_retention_action_items(db: Session, *, gym_id, search: str | None) -> list[ActionCenterItem]:
+    latest_alert_subquery = _latest_open_retention_alert_subquery()
+    filters = [RiskAlert.resolved.is_(False), Member.deleted_at.is_(None)]
+    if gym_id is not None:
+        filters.append(RiskAlert.gym_id == gym_id)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Member.full_name.ilike(search_value),
+                Member.email.ilike(search_value),
+                Member.plan_name.ilike(search_value),
+            )
+        )
+
+    rows = db.execute(
+        select(RiskAlert, Member, User)
+        .join(latest_alert_subquery, latest_alert_subquery.c.alert_id == RiskAlert.id)
+        .join(Member, Member.id == RiskAlert.member_id)
+        .outerjoin(User, User.id == Member.assigned_user_id)
+        .where(and_(*filters))
+    ).all()
+
+    last_contact_map = _retention_last_contact_map(db, [member.id for _, member, _ in rows])
+    items: list[ActionCenterItem] = []
+    for alert, member, owner in rows:
+        forecast_60d = _extract_forecast_60d(member.extra_data)
+        days_without_checkin = _days_without_checkin(member)
+        severity = "critical" if alert.level == RiskLevel.RED else "high"
+
+        items.append(
+            ActionCenterItem(
+                id=f"retention-{alert.id}",
+                source="retention",
+                source_label=_ACTION_CENTER_SOURCE_LABELS["retention"],
+                severity=severity,
+                severity_rank=_severity_rank(severity),
+                title=member.full_name,
+                subtitle=_retention_signals_summary(
+                    member,
+                    alert,
+                    days_without_checkin=days_without_checkin,
+                    forecast_60d=forecast_60d,
+                ),
+                member_id=str(member.id),
+                risk_alert_id=str(alert.id),
+                status=alert.automation_stage or alert.level.value,
+                owner_label=owner.full_name if owner else None,
+                value_amount=float(member.monthly_fee or 0),
+                stale_days=days_without_checkin,
+                due_at=alert.created_at,
+                last_contact_at=last_contact_map.get(str(member.id)),
+                last_checkin_at=member.last_checkin_at,
+                cta_label="Abrir retenção",
+                cta_target=f"/dashboard/retention?alertId={alert.id}",
+                metadata={
+                    "risk_level": alert.level.value,
+                    "risk_score": int(alert.score or member.risk_score or 0),
+                    "churn_type": member.churn_type,
+                    "forecast_60d": forecast_60d,
+                },
+            )
+        )
+    return items
+
+
+def _build_assessment_action_items(db: Session, *, gym_id, search: str | None) -> list[ActionCenterItem]:
+    now = _utcnow()
+    cutoff_90 = now - timedelta(days=90)
+    today = now.date()
+    next_7 = today + timedelta(days=7)
+
+    latest_assessment_subquery = _assessment_latest_subquery()
+    last_assessment_date_col = latest_assessment_subquery.c.last_assessment_date
+    next_assessment_due_col = latest_assessment_subquery.c.next_assessment_due
+    queue_conditions = _assessment_queue_conditions(
+        last_assessment_date_col,
+        next_assessment_due_col,
+        cutoff_90=cutoff_90,
+        today=today,
+        next_7=next_7,
+    )
+    bucket_expr = case(
+        (queue_conditions["never"], "never"),
+        (queue_conditions["overdue"], "overdue"),
+        (queue_conditions["week"], "week"),
+        else_="covered",
+    )
+
+    filters = [
+        Member.deleted_at.is_(None),
+        or_(queue_conditions["never"], queue_conditions["overdue"], queue_conditions["week"]),
+    ]
+    if gym_id is not None:
+        filters.append(Member.gym_id == gym_id)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Member.full_name.ilike(search_value),
+                Member.email.ilike(search_value),
+                Member.plan_name.ilike(search_value),
+            )
+        )
+
+    rows = db.execute(
+        select(
+            Member,
+            User,
+            last_assessment_date_col.label("last_assessment_date"),
+            next_assessment_due_col.label("next_assessment_due"),
+            bucket_expr.label("bucket"),
+        )
+        .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+        .outerjoin(User, User.id == Member.assigned_user_id)
+        .where(and_(*filters))
+    ).all()
+
+    items: list[ActionCenterItem] = []
+    for member, owner, last_assessment_date, next_assessment_due, bucket in rows:
+        if bucket == "never":
+            severity = "critical"
+            stale_days = max(0, (today - member.join_date).days)
+        elif bucket == "overdue":
+            severity = "critical"
+            if next_assessment_due and next_assessment_due < today:
+                stale_days = max(0, (today - next_assessment_due).days)
+            elif last_assessment_date is not None:
+                stale_days = max(0, (today - last_assessment_date.date()).days - 90)
+            else:
+                stale_days = 0
+        else:
+            severity = "high"
+            stale_days = max(0, (next_assessment_due - today).days) if next_assessment_due else 0
+
+        due_at = (
+            datetime.combine(next_assessment_due, time.min, tzinfo=timezone.utc)
+            if next_assessment_due is not None
+            else None
+        )
+        subtitle = _assessment_due_label(bucket, next_assessment_due, today)
+
+        items.append(
+            ActionCenterItem(
+                id=f"assessment-{member.id}-{bucket}",
+                source="assessment",
+                source_label=_ACTION_CENTER_SOURCE_LABELS["assessment"],
+                severity=severity,
+                severity_rank=_severity_rank(severity),
+                title=member.full_name,
+                subtitle=subtitle,
+                member_id=str(member.id),
+                status=bucket,
+                owner_label=owner.full_name if owner else None,
+                value_amount=float(member.monthly_fee or 0),
+                stale_days=stale_days,
+                due_at=due_at,
+                last_checkin_at=member.last_checkin_at,
+                cta_label="Abrir avaliações",
+                cta_target=f"/assessments?memberId={member.id}&bucket={bucket}",
+                metadata={
+                    "plan_name": member.plan_name,
+                    "risk_level": member.risk_level.value,
+                    "risk_score": int(member.risk_score or 0),
+                    "last_assessment_date": last_assessment_date.isoformat() if last_assessment_date else None,
+                },
+            )
+        )
+    return items
+
+
+def _build_crm_action_items(db: Session, *, gym_id, search: str | None) -> list[ActionCenterItem]:
+    stale_cutoff = _utcnow() - timedelta(days=3)
+    filters = [
+        Lead.deleted_at.is_(None),
+        Lead.stage.notin_([LeadStage.WON, LeadStage.LOST]),
+        or_(Lead.last_contact_at.is_(None), Lead.last_contact_at < stale_cutoff),
+    ]
+    if gym_id is not None:
+        filters.append(Lead.gym_id == gym_id)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Lead.full_name.ilike(search_value),
+                Lead.email.ilike(search_value),
+                Lead.source.ilike(search_value),
+                Lead.pitch_step.ilike(search_value),
+            )
+        )
+
+    rows = db.execute(
+        select(Lead, User)
+        .outerjoin(User, User.id == Lead.owner_id)
+        .where(and_(*filters))
+    ).all()
+
+    now = _utcnow()
+    items: list[ActionCenterItem] = []
+    for lead, owner in rows:
+        reference = lead.last_contact_at or lead.updated_at or lead.created_at
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        stale_days = max(0, (now - reference).days)
+
+        if lead.pitch_step in {"booking", "proposal"} and stale_days >= 3:
+            severity = "critical"
+        elif lead.pitch_step in {"booking", "proposal", "objection"}:
+            severity = "high"
+        else:
+            severity = "medium"
+
+        items.append(
+            ActionCenterItem(
+                id=f"crm-{lead.id}",
+                source="crm",
+                source_label=_ACTION_CENTER_SOURCE_LABELS["crm"],
+                severity=severity,
+                severity_rank=_severity_rank(severity),
+                title=lead.full_name,
+                subtitle=f"{lead.pitch_step} · {stale_days} dias sem contato",
+                lead_id=str(lead.id),
+                status=lead.stage.value,
+                owner_label=owner.full_name if owner else None,
+                value_amount=float(lead.estimated_value or 0),
+                stale_days=stale_days,
+                due_at=lead.last_contact_at,
+                last_contact_at=lead.last_contact_at,
+                cta_label="Abrir CRM",
+                cta_target=f"/crm?leadId={lead.id}",
+                metadata={
+                    "source": lead.source,
+                    "pitch_step": lead.pitch_step,
+                    "estimated_value": float(lead.estimated_value or 0),
+                },
+            )
+        )
+    return items
+
+
+def get_action_center(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 25,
+    search: str | None = None,
+    source: str = "all",
+    severity: str = "all",
+    gym_id=None,
+) -> ActionCenterResponse:
+    resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
+    normalized_search = (search or "").strip()
+    cache_key = make_cache_key(
+        "dashboard_action_center",
+        page,
+        page_size,
+        normalized_search,
+        source,
+        severity,
+    )
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    items: list[ActionCenterItem] = []
+    if source in {"all", "task"}:
+        items.extend(_build_task_action_items(db, gym_id=resolved_gym_id, search=normalized_search))
+    if source in {"all", "retention"}:
+        items.extend(_build_retention_action_items(db, gym_id=resolved_gym_id, search=normalized_search))
+    if source in {"all", "assessment"}:
+        items.extend(_build_assessment_action_items(db, gym_id=resolved_gym_id, search=normalized_search))
+    if source in {"all", "crm"}:
+        items.extend(_build_crm_action_items(db, gym_id=resolved_gym_id, search=normalized_search))
+
+    filtered = _apply_action_center_filters(items, source=source, severity=severity)
+    filtered.sort(
+        key=lambda item: (
+            item.severity_rank,
+            -item.stale_days,
+            -item.value_amount,
+            item.title.lower(),
+        )
+    )
+    summary = _summarize_action_center(filtered)
+    offset = (page - 1) * page_size
+    payload = ActionCenterResponse(
+        items=filtered[offset : offset + page_size],
+        total=summary.total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+    )
     dashboard_cache.set(cache_key, payload)
     return payload
 

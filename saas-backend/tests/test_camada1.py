@@ -298,19 +298,24 @@ class TestRoiSummary:
 
     def test_roi_with_reengaged_members(self, monkeypatch):
         from app.services import roi_service
-        from app.core import cache as cache_mod
-
-        monkeypatch.setattr(cache_mod, "get_current_gym_id", lambda: None)
-
+        outcome = SimpleNamespace(
+            id="out-1",
+            actor="automation",
+            actor_user_id=None,
+            member_id="m1",
+            occurred_at=datetime(2026, 2, 20, tzinfo=timezone.utc),
+            playbook_key="retention_recovery",
+            channel="whatsapp",
+            source="automation",
+            status="sent",
+        )
         member = SimpleNamespace(id="m1", full_name="Joao", monthly_fee=Decimal("150.00"))
-
         db = MagicMock()
-        # First call: automated_members query
-        db.execute.return_value.all.return_value = [
-            SimpleNamespace(member_id="m1", first_action=datetime(2026, 2, 20, tzinfo=timezone.utc)),
+        db.scalars.side_effect = [
+            SimpleNamespace(all=lambda: [outcome]),
+            SimpleNamespace(all=lambda: [member]),
         ]
-        # Subsequent scalars: checkin_after, then member lookup
-        db.scalar.side_effect = ["checkin-id", member]
+        db.scalar.side_effect = ["checkin-id"]
 
         monkeypatch.setattr(roi_service.dashboard_cache, "get", lambda *_: None)
         monkeypatch.setattr(roi_service.dashboard_cache, "set", lambda *_a, **_kw: None)
@@ -318,18 +323,17 @@ class TestRoiSummary:
         result = roi_service.get_roi_summary(db, period_days=30)
 
         assert result["total_automated"] == 1
+        assert result["actions_executed"] == 1
         assert result["reengaged_count"] == 1
         assert result["preserved_revenue"] == 150.0
         assert result["reengagement_rate"] == 100.0
+        assert result["top_channels"][0]["channel"] == "whatsapp"
 
     def test_roi_empty_no_automations(self, monkeypatch):
         from app.services import roi_service
-        from app.core import cache as cache_mod
-
-        monkeypatch.setattr(cache_mod, "get_current_gym_id", lambda: None)
 
         db = MagicMock()
-        db.execute.return_value.all.return_value = []
+        db.scalars.return_value = SimpleNamespace(all=lambda: [])
 
         monkeypatch.setattr(roi_service.dashboard_cache, "get", lambda *_: None)
         monkeypatch.setattr(roi_service.dashboard_cache, "set", lambda *_a, **_kw: None)

@@ -50,6 +50,7 @@ class Lead(Base, TimestampMixin, SoftDeleteMixin):
         nullable=False,
         index=True,
     )
+    pitch_step: Mapped[str] = mapped_column(String(40), nullable=False, default="briefing", index=True)
     estimated_value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, nullable=False)
     acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, nullable=False)
     last_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

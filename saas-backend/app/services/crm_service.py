@@ -11,11 +11,13 @@ from app.core.cache import invalidate_dashboard_cache
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadNoteCreate, LeadUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.operational_outcome_service import record_operational_outcome
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
 _PENDING_WELCOME_EMAIL_ATTR = "_pending_welcome_email"
 _RECENT_CONVERSION_ONBOARDING_DAYS = 30
+_PITCH_STEP_ORDER = ("diagnosis", "briefing", "proposal", "objection", "booking", "conversion")
 
 
 def _compute_loyalty_months(join_date: date) -> int:
@@ -28,6 +30,35 @@ def _compute_loyalty_months(join_date: date) -> int:
 def _should_create_onboarding(join_date: date) -> bool:
     today = datetime.now(tz=timezone.utc).date()
     return (today - join_date).days <= _RECENT_CONVERSION_ONBOARDING_DAYS
+
+
+def _note_types(lead: Lead) -> set[str]:
+    types: set[str] = set()
+    for note in lead.notes or []:
+        if isinstance(note, dict):
+            note_type = str(note.get("type") or "").strip()
+            if note_type:
+                types.add(note_type)
+    return types
+
+
+def _infer_pitch_step(lead: Lead) -> str:
+    note_types = _note_types(lead)
+    if lead.stage in {LeadStage.WON, LeadStage.LOST} or lead.converted_member_id:
+        return "conversion"
+    if "booking_confirmed" in note_types or lead.stage == LeadStage.MEETING_SCHEDULED:
+        return "booking"
+    if "objection_detected" in note_types:
+        return "objection"
+    if lead.stage in {LeadStage.PROPOSAL, LeadStage.PROPOSAL_SENT} or {"proposal_requested", "proposal_sent_auto"} & note_types:
+        return "proposal"
+    if "public_diagnosis_requested" in note_types or lead.source == "public_diagnostico":
+        return "diagnosis"
+    return "briefing"
+
+
+def _sync_pitch_step(lead: Lead) -> None:
+    lead.pitch_step = _infer_pitch_step(lead)
 
 
 def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
@@ -45,6 +76,7 @@ def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
 
 def create_lead(db: Session, payload: LeadCreate, *, commit: bool = True) -> Lead:
     lead = Lead(**payload.model_dump())
+    _sync_pitch_step(lead)
     db.add(lead)
     if commit:
         db.commit()
@@ -125,6 +157,22 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
             create_onboarding_tasks_for_member(db, member, commit=False)
             create_plan_followup_tasks_for_member(db, member, commit=False)
 
+    _sync_pitch_step(lead)
+    if member_converted:
+        record_operational_outcome(
+            db,
+            gym_id=lead.gym_id,
+            source="crm",
+            action_type="lead_converted",
+            actor="user",
+            status="converted",
+            member_id=lead.converted_member_id,
+            lead_id=lead.id,
+            related_entity_type="lead",
+            related_entity_id=lead.id,
+            metadata_json={"stage": lead.stage.value, "estimated_value": float(lead.estimated_value or 0)},
+            flush=False,
+        )
     db.add(lead)
     if commit:
         db.commit()
@@ -265,6 +313,7 @@ def create_public_diagnosis_lead(
             }
         ],
     )
+    _sync_pitch_step(lead)
     db.add(lead)
     db.commit()
     db.refresh(lead)
@@ -302,6 +351,7 @@ def create_public_booking_lead(
             }
         ],
     )
+    _sync_pitch_step(lead)
     db.add(lead)
     if commit:
         db.commit()
@@ -316,6 +366,7 @@ def append_lead_note(db: Session, lead: Lead, note: dict) -> Lead:
     notes = list(lead.notes or [])
     notes.append(note)
     lead.notes = notes
+    _sync_pitch_step(lead)
     db.add(lead)
     db.flush()
     return lead

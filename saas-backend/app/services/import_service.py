@@ -15,8 +15,9 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, CheckinSource, Member, MemberStatus
+from app.models import Assessment, Checkin, CheckinSource, Member, MemberStatus
 from app.schemas import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.services.assessment_service import _calculate_next_assessment_due
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
@@ -74,6 +75,15 @@ CHECKIN_AT_KEYS = (
 CHECKIN_DATE_KEYS = ("checkin_date", "data_checkin", "data", "date", "data_entrada", "data_saida")
 CHECKIN_TIME_KEYS = ("checkin_time", "hora_checkin", "hora", "time", "hora_entrada", "hora_saida")
 CHECKIN_SOURCE_KEYS = ("source", "origem", "tipo")
+ASSESSMENT_DATE_KEYS = ("assessment_date", "data_avaliacao", "avaliacao_em", "assessment_at", "data")
+NEXT_ASSESSMENT_DUE_KEYS = ("next_assessment_due", "proxima_avaliacao", "data_proxima_avaliacao")
+ASSESSMENT_HEIGHT_KEYS = ("height_cm", "altura_cm", "altura")
+ASSESSMENT_WEIGHT_KEYS = ("weight_kg", "peso_kg", "peso")
+ASSESSMENT_BODY_FAT_KEYS = ("body_fat_pct", "gordura_pct", "percentual_gordura", "body_fat")
+ASSESSMENT_LEAN_MASS_KEYS = ("lean_mass_kg", "massa_magra_kg", "lean_mass")
+ASSESSMENT_WAIST_KEYS = ("waist_cm", "cintura_cm", "cintura")
+ASSESSMENT_HIP_KEYS = ("hip_cm", "quadril_cm", "quadril")
+ASSESSMENT_OBSERVATION_KEYS = ("observations", "observacoes", "observação", "notes")
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y")
 DATETIME_FORMATS = (
@@ -147,6 +157,26 @@ _CHECKIN_PREVIEW_COLUMNS = set(
     + CHECKIN_DATE_KEYS
     + CHECKIN_TIME_KEYS
     + CHECKIN_SOURCE_KEYS
+)
+_ASSESSMENT_PREVIEW_COLUMNS = set(
+    NAME_KEYS
+    + FIRST_NAME_KEYS
+    + LAST_NAME_KEYS
+    + EMAIL_KEYS
+    + PHONE_KEYS
+    + CPF_KEYS
+    + PLAN_KEYS
+    + EXTERNAL_ID_KEYS
+    + MEMBER_ID_KEYS
+    + ASSESSMENT_DATE_KEYS
+    + NEXT_ASSESSMENT_DUE_KEYS
+    + ASSESSMENT_HEIGHT_KEYS
+    + ASSESSMENT_WEIGHT_KEYS
+    + ASSESSMENT_BODY_FAT_KEYS
+    + ASSESSMENT_LEAN_MASS_KEYS
+    + ASSESSMENT_WAIST_KEYS
+    + ASSESSMENT_HIP_KEYS
+    + ASSESSMENT_OBSERVATION_KEYS
 )
 
 
@@ -647,6 +677,188 @@ def import_checkins_csv(
     )
 
 
+def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportPreview:
+    errors: list[ImportErrorEntry] = []
+    warnings: list[str] = []
+    sample_rows: list[ImportPreviewRow] = []
+    total_rows = 0
+    valid_rows = 0
+    would_create = 0
+    would_skip = 0
+    seen_columns: set[str] = set()
+    seen_entries: set[tuple[str, str]] = set()
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    pending_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        total_rows += 1
+        seen_columns.update(row.keys())
+        parsed_at = _parse_assessment_datetime(_pick_first(row, ASSESSMENT_DATE_KEYS))
+        if not parsed_at:
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Data de avaliacao invalida", payload=row))
+            continue
+
+        member = _resolve_member_from_row(row, lookup)
+        if not member:
+            missing_name = _extract_member_name(row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
+            would_skip += 1
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Aluno nao encontrado para historico de avaliacao",
+                    payload=row,
+                )
+            )
+            continue
+
+        unique_key = (str(member.id), parsed_at.isoformat())
+        if unique_key in seen_entries:
+            would_skip += 1
+            continue
+        seen_entries.add(unique_key)
+        pending_rows.append((member, parsed_at, row_number, row))
+        valid_rows += 1
+
+    existing_keys = _fetch_existing_assessment_keys(db, [(member.id, parsed_at) for member, parsed_at, _, _ in pending_rows])
+    for member, parsed_at, row_number, row in pending_rows:
+        unique_key = (str(member.id), parsed_at.isoformat())
+        if unique_key in existing_keys:
+            would_skip += 1
+            continue
+
+        would_create += 1
+        if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+            sample_rows.append(
+                ImportPreviewRow(
+                    row_number=row_number,
+                    action="create_assessment",
+                    preview={
+                        "member_name": member.full_name,
+                        "assessment_date": parsed_at.isoformat(),
+                        "next_assessment_due": (
+                            _parse_date(_pick_first(row, NEXT_ASSESSMENT_DUE_KEYS)) or _calculate_next_assessment_due(db, member.id, parsed_at)
+                        ).isoformat(),
+                        "weight_kg": _pick_first(row, ASSESSMENT_WEIGHT_KEYS),
+                        "body_fat_pct": _pick_first(row, ASSESSMENT_BODY_FAT_KEYS),
+                    },
+                )
+            )
+
+    if would_create > 0:
+        warnings.append("Historico importado entra como avaliacao retroativa e remove o aluno da fila de 'nunca avaliado'.")
+
+    recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _ASSESSMENT_PREVIEW_COLUMNS)
+    return ImportPreview(
+        preview_kind="assessments",
+        total_rows=total_rows,
+        valid_rows=valid_rows,
+        would_create=would_create,
+        would_skip=would_skip,
+        recognized_columns=recognized_columns,
+        unrecognized_columns=unrecognized_columns,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        warnings=warnings,
+        sample_rows=sample_rows,
+        errors=errors,
+    )
+
+
+def import_assessments_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
+    errors: list[ImportErrorEntry] = []
+    duplicates = 0
+    imported = 0
+    seen_entries: set[tuple[str, str]] = set()
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    pending_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+    assessment_counts = _fetch_assessment_counts(db)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        parsed_at = _parse_assessment_datetime(_pick_first(row, ASSESSMENT_DATE_KEYS))
+        if not parsed_at:
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Data de avaliacao invalida", payload=row))
+            continue
+
+        member = _resolve_member_from_row(row, lookup)
+        if not member:
+            missing_name = _extract_member_name(row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(row))
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Aluno nao encontrado para historico de avaliacao",
+                    payload=row,
+                )
+            )
+            continue
+
+        unique_key = (str(member.id), parsed_at.isoformat())
+        if unique_key in seen_entries:
+            duplicates += 1
+            continue
+        seen_entries.add(unique_key)
+        pending_rows.append((member, parsed_at, row_number, row))
+
+    existing_keys = _fetch_existing_assessment_keys(db, [(member.id, parsed_at) for member, parsed_at, _, _ in pending_rows])
+    for member, parsed_at, row_number, row in pending_rows:
+        unique_key = (str(member.id), parsed_at.isoformat())
+        if unique_key in existing_keys:
+            duplicates += 1
+            continue
+
+        assessment_number = assessment_counts.get(str(member.id), 0) + 1
+        assessment_counts[str(member.id)] = assessment_number
+        next_due = _parse_date(_pick_first(row, NEXT_ASSESSMENT_DUE_KEYS)) or _calculate_next_assessment_due(db, member.id, parsed_at)
+
+        assessment = Assessment(
+            member_id=member.id,
+            evaluator_id=None,
+            assessment_number=assessment_number,
+            assessment_date=parsed_at,
+            next_assessment_due=next_due,
+            height_cm=_parse_optional_decimal(_pick_first(row, ASSESSMENT_HEIGHT_KEYS)),
+            weight_kg=_parse_optional_decimal(_pick_first(row, ASSESSMENT_WEIGHT_KEYS)),
+            body_fat_pct=_parse_optional_decimal(_pick_first(row, ASSESSMENT_BODY_FAT_KEYS)),
+            lean_mass_kg=_parse_optional_decimal(_pick_first(row, ASSESSMENT_LEAN_MASS_KEYS)),
+            waist_cm=_parse_optional_decimal(_pick_first(row, ASSESSMENT_WAIST_KEYS)),
+            hip_cm=_parse_optional_decimal(_pick_first(row, ASSESSMENT_HIP_KEYS)),
+            observations=_pick_first(row, ASSESSMENT_OBSERVATION_KEYS),
+            extra_data={
+                "imported": True,
+                "import_source": "assessment_history_csv",
+                "import_row_number": row_number,
+                "raw": row,
+            },
+        )
+        if assessment.height_cm and assessment.weight_kg:
+            assessment.bmi = _calculate_bmi_value(assessment.height_cm, assessment.weight_kg)
+        db.add(assessment)
+        imported += 1
+
+    db.commit()
+    if imported:
+        invalidate_dashboard_cache("assessments", "members")
+
+    return ImportSummary(
+        imported=imported,
+        skipped_duplicates=duplicates,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        errors=errors,
+    )
+
+
 def _fetch_existing_checkin_keys(db: Session, keys: list[tuple[UUID, datetime]]) -> set[tuple[str, str]]:
     if not keys:
         return set()
@@ -665,6 +877,35 @@ def _fetch_existing_checkin_keys(db: Session, keys: list[tuple[UUID, datetime]])
                 normalized = checkin_at.astimezone(timezone.utc)
             existing_keys.add((str(member_id), normalized.isoformat()))
     return existing_keys
+
+
+def _fetch_existing_assessment_keys(db: Session, keys: list[tuple[UUID, datetime]]) -> set[tuple[str, str]]:
+    if not keys:
+        return set()
+
+    existing_keys: set[tuple[str, str]] = set()
+    chunk_size = 1000
+    for idx in range(0, len(keys), chunk_size):
+        chunk = keys[idx : idx + chunk_size]
+        rows = db.execute(
+            select(Assessment.member_id, Assessment.assessment_date).where(
+                tuple_(Assessment.member_id, Assessment.assessment_date).in_(chunk),
+                Assessment.deleted_at.is_(None),
+            )
+        ).all()
+        for member_id, assessment_date in rows:
+            normalized = assessment_date if assessment_date.tzinfo else assessment_date.replace(tzinfo=timezone.utc)
+            existing_keys.add((str(member_id), normalized.astimezone(timezone.utc).isoformat()))
+    return existing_keys
+
+
+def _fetch_assessment_counts(db: Session) -> dict[str, int]:
+    rows = db.execute(
+        select(Assessment.member_id, func.count(Assessment.id))
+        .where(Assessment.deleted_at.is_(None))
+        .group_by(Assessment.member_id)
+    ).all()
+    return {str(member_id): int(total) for member_id, total in rows}
 
 
 def _decode_csv_text(csv_content: bytes) -> str:
@@ -1033,6 +1274,25 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _parse_assessment_datetime(value: str | None) -> datetime | None:
+    return _parse_datetime(value)
+
+
+def _parse_optional_decimal(value: str | None) -> Decimal | None:
+    if value is None or not value.strip():
+        return None
+    return _parse_decimal(value)
+
+
+def _calculate_bmi_value(height_cm: Decimal | None, weight_kg: Decimal | None) -> Decimal | None:
+    if not height_cm or not weight_kg:
+        return None
+    height_m = float(height_cm) / 100
+    if height_m <= 0:
+        return None
+    return Decimal(str(round(float(weight_kg) / (height_m**2), 2)))
 
 
 def _parse_time(value: str | None) -> time | None:

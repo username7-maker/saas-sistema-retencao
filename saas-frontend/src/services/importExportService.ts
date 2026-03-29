@@ -50,6 +50,20 @@ export const importExportService = {
     return response.data;
   },
 
+  async previewAssessments(file: File): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await api.post("/api/v1/imports/assessments/preview", form, { timeout: 2 * 60 * 1000 });
+    return response.data;
+  },
+
+  async importAssessments(file: File): Promise<ImportSummary> {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await api.post("/api/v1/imports/assessments", form, { timeout: 10 * 60 * 1000 });
+    return response.data;
+  },
+
   async exportMembersCsv(): Promise<void> {
     const response = await api.get("/api/v1/exports/members.csv", { responseType: "blob" });
     const filename = parseFilename(response.headers["content-disposition"]);

@@ -311,10 +311,13 @@ export function ImportsPage() {
   const queryClient = useQueryClient();
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
+  const [assessmentsFile, setAssessmentsFile] = useState<File | null>(null);
   const [membersPreview, setMembersPreview] = useState<ImportPreview | null>(null);
   const [checkinsPreview, setCheckinsPreview] = useState<ImportPreview | null>(null);
+  const [assessmentsPreview, setAssessmentsPreview] = useState<ImportPreview | null>(null);
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
+  const [assessmentsSummary, setAssessmentsSummary] = useState<ImportSummary | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [autoCreateMissingMembers, setAutoCreateMissingMembers] = useState(false);
@@ -325,6 +328,7 @@ export function ImportsPage() {
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["members"] }),
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "action-center"] }),
       queryClient.invalidateQueries({ queryKey: ["assessments"] }),
       queryClient.invalidateQueries({ queryKey: ["member-timeline"] }),
       queryClient.invalidateQueries({ queryKey: ["risk-alerts"] }),
@@ -382,6 +386,27 @@ export function ImportsPage() {
       setCheckinsPreview(preview);
       setCheckinsSummary(null);
       toast.success("Preview de check-ins gerado. Revise o impacto antes de confirmar.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const importAssessmentsMutation = useMutation({
+    mutationFn: (file: File) => importExportService.importAssessments(file),
+    onSuccess: (summary) => {
+      setAssessmentsSummary(summary);
+      setAssessmentsPreview(null);
+      refreshImportedDataViews();
+      toast.success("Histórico de avaliações importado.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const previewAssessmentsMutation = useMutation({
+    mutationFn: (file: File) => importExportService.previewAssessments(file),
+    onSuccess: (preview) => {
+      setAssessmentsPreview(preview);
+      setAssessmentsSummary(null);
+      toast.success("Preview do histórico de avaliações gerado.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -545,6 +570,45 @@ export function ImportsPage() {
           <PreviewResult preview={checkinsPreview} allowMissingExport />
           <ImportResult summary={checkinsSummary} allowMissingExport />
         </article>
+      </section>
+
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar histórico de avaliações</h3>
+        <p className="mt-1 text-xs text-lovable-ink-muted">
+          Use CSV/XLSX estruturado com identificador do aluno e `assessment_date`. Campos opcionais: peso, gordura, medidas e próxima avaliação.
+        </p>
+        <input
+          type="file"
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          onChange={(event) => {
+            setAssessmentsFile(event.target.files?.[0] ?? null);
+            setAssessmentsPreview(null);
+            setAssessmentsSummary(null);
+          }}
+          className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
+        />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!assessmentsFile || previewAssessmentsMutation.isPending}
+            onClick={() => assessmentsFile && previewAssessmentsMutation.mutate(assessmentsFile)}
+            className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            <FileUp size={14} />
+            {previewAssessmentsMutation.isPending ? "Validando..." : "Validar arquivo"}
+          </button>
+          <button
+            type="button"
+            disabled={!assessmentsFile || !assessmentsPreview || assessmentsPreview.valid_rows === 0 || importAssessmentsMutation.isPending}
+            onClick={() => assessmentsFile && importAssessmentsMutation.mutate(assessmentsFile)}
+            className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+          >
+            <FileUp size={14} />
+            {importAssessmentsMutation.isPending ? "Confirmando..." : "Confirmar importação"}
+          </button>
+        </div>
+        <PreviewResult preview={assessmentsPreview} />
+        <ImportResult summary={assessmentsSummary} />
       </section>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">

@@ -126,13 +126,96 @@ class TestGetCommercialDashboard:
         db = MagicMock()
         db.execute.return_value.all.side_effect = [
             [],  # pipeline_rows
+            [],  # pitch_pipeline_rows
             [],  # source_rows
         ]
-        db.scalar.side_effect = [0, 0, 0]  # conversions
         from app.services.dashboard_service import get_commercial_dashboard
         result = get_commercial_dashboard(db)
         assert "pipeline" in result
+        assert "pitch_pipeline" in result
         assert "cac" in result
+
+
+class TestGetActionCenter:
+    @patch("app.services.dashboard_service.dashboard_cache")
+    @patch("app.services.dashboard_service._build_crm_action_items")
+    @patch("app.services.dashboard_service._build_assessment_action_items")
+    @patch("app.services.dashboard_service._build_retention_action_items")
+    @patch("app.services.dashboard_service._build_task_action_items")
+    def test_aggregates_and_orders_items(
+        self,
+        mock_tasks,
+        mock_retention,
+        mock_assessments,
+        mock_crm,
+        mock_cache,
+    ):
+        from app.schemas.dashboard import ActionCenterItem
+
+        mock_cache.get.return_value = None
+        mock_tasks.return_value = [
+            ActionCenterItem(
+                id="task-1",
+                source="task",
+                source_label="Tarefas",
+                severity="high",
+                severity_rank=1,
+                title="Task B",
+                subtitle="Abrir tarefa",
+                member_id=None,
+                lead_id=None,
+                task_id="task-1",
+                risk_alert_id=None,
+                status="todo",
+                channel=None,
+                owner_label=None,
+                value_amount=0.0,
+                stale_days=1,
+                due_at=None,
+                last_contact_at=None,
+                last_checkin_at=None,
+                cta_label="Abrir tarefa",
+                cta_target="/tasks?taskId=task-1",
+                metadata={},
+            )
+        ]
+        mock_retention.return_value = [
+            ActionCenterItem(
+                id="retention-1",
+                source="retention",
+                source_label="Retenção",
+                severity="critical",
+                severity_rank=0,
+                title="Aluno A",
+                subtitle="10 dias sem check-in",
+                member_id="member-1",
+                lead_id=None,
+                task_id=None,
+                risk_alert_id="alert-1",
+                status="red",
+                channel=None,
+                owner_label=None,
+                value_amount=350.0,
+                stale_days=10,
+                due_at=None,
+                last_contact_at=None,
+                last_checkin_at=None,
+                cta_label="Abrir retenção",
+                cta_target="/dashboard/retention",
+                metadata={},
+            )
+        ]
+        mock_assessments.return_value = []
+        mock_crm.return_value = []
+
+        from app.services.dashboard_service import get_action_center
+
+        result = get_action_center(MagicMock(), page=1, page_size=25)
+
+        assert result.total == 2
+        assert result.items[0].source == "retention"
+        assert result.summary.by_source["retention"] == 1
+        assert result.summary.by_severity["critical"] == 1
 
 
 class TestGetFinancialDashboard:

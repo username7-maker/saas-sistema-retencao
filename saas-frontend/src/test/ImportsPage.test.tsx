@@ -12,6 +12,8 @@ vi.mock("../services/importExportService", () => ({
     importMembers: vi.fn(),
     previewCheckins: vi.fn(),
     importCheckins: vi.fn(),
+    previewAssessments: vi.fn(),
+    importAssessments: vi.fn(),
     exportMembersCsv: vi.fn(),
     exportCheckinsCsv: vi.fn(),
     downloadMembersTemplateCsv: vi.fn(),
@@ -94,6 +96,31 @@ describe("ImportsPage", () => {
       errors: [],
     });
     vi.mocked(importExportService.importCheckins).mockResolvedValue({
+      imported: 0,
+      skipped_duplicates: 0,
+      ignored_rows: 0,
+      provisional_members_created: 0,
+      provisional_members: [],
+      missing_members: [],
+      errors: [],
+    });
+    vi.mocked(importExportService.previewAssessments).mockResolvedValue({
+      preview_kind: "assessments",
+      total_rows: 0,
+      valid_rows: 0,
+      would_create: 0,
+      would_update: 0,
+      would_skip: 0,
+      ignored_rows: 0,
+      provisional_members_possible: 0,
+      recognized_columns: [],
+      unrecognized_columns: [],
+      missing_members: [],
+      warnings: [],
+      sample_rows: [],
+      errors: [],
+    });
+    vi.mocked(importExportService.importAssessments).mockResolvedValue({
       imported: 0,
       skipped_duplicates: 0,
       ignored_rows: 0,

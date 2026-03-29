@@ -46,6 +46,7 @@ function makeLead(overrides: Partial<Lead> & Pick<Lead, "id" | "full_name" | "st
     phone: "(11) 99999-9999",
     source: "Instagram",
     stage,
+    pitch_step: "briefing",
     estimated_value: 500,
     acquisition_cost: 0,
     owner_id: null,

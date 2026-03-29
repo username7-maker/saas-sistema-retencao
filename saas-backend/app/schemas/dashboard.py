@@ -66,6 +66,7 @@ class OperationalDashboard(BaseModel):
 
 class CommercialDashboard(BaseModel):
     pipeline: dict[str, int]
+    pitch_pipeline: dict[str, int] = {}
     conversion_by_source: list[ConversionBySource]
     cac: float
     stale_leads_total: int
@@ -136,3 +137,42 @@ class RetentionQueueItem(BaseModel):
     action_history: list[dict] = []
     playbook_steps: list[RetentionPlaybookStep] = []
     assistant: AIAssistantPayload | None = None
+
+
+class ActionCenterItem(BaseModel):
+    id: str
+    source: str
+    source_label: str
+    severity: str
+    severity_rank: int
+    title: str
+    subtitle: str
+    member_id: str | None = None
+    lead_id: str | None = None
+    task_id: str | None = None
+    risk_alert_id: str | None = None
+    status: str | None = None
+    channel: str | None = None
+    owner_label: str | None = None
+    value_amount: float = 0.0
+    stale_days: int = 0
+    due_at: datetime | None = None
+    last_contact_at: datetime | None = None
+    last_checkin_at: datetime | None = None
+    cta_label: str
+    cta_target: str
+    metadata: dict = {}
+
+
+class ActionCenterSummary(BaseModel):
+    total: int
+    by_source: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+
+
+class ActionCenterResponse(BaseModel):
+    items: list[ActionCenterItem]
+    total: int
+    page: int
+    page_size: int
+    summary: ActionCenterSummary

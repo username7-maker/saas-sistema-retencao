@@ -10,10 +10,26 @@ from app.models import RoleEnum, TaskStatus, User
 from app.schemas import AIAssistantPayload, PaginatedResponse, TaskCreate, TaskOut, TaskUpdate
 from app.services.audit_service import log_audit_event
 from app.services.ai_assistant_service import build_task_assistant
+from app.services.operational_outcome_service import record_operational_outcome
 from app.services.task_service import create_task, delete_task, get_task_with_relations_or_404, list_tasks, update_task
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+def _task_source(task) -> str:
+    extra = task.extra_data if isinstance(task.extra_data, dict) else {}
+    return str(extra.get("source") or ("crm" if task.lead_id else "task"))
+
+
+def _task_status_to_outcome(status: TaskStatus) -> str | None:
+    if status == TaskStatus.DOING:
+        return "attempted"
+    if status == TaskStatus.DONE:
+        return "resolved"
+    if status == TaskStatus.CANCELLED:
+        return "ignored"
+    return None
 
 
 @router.post("/", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
@@ -24,6 +40,27 @@ def create_task_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
 ) -> TaskOut:
     task = create_task(db, payload)
+    persisted_task = get_task_with_relations_or_404(db, task.id)
+    record_operational_outcome(
+        db,
+        gym_id=persisted_task.gym_id,
+        source=_task_source(persisted_task),
+        action_type="task_created",
+        actor="user",
+        status="attempted",
+        member_id=persisted_task.member_id,
+        lead_id=persisted_task.lead_id,
+        actor_user_id=current_user.id,
+        task_id=persisted_task.id,
+        channel="manual",
+        related_entity_type="task",
+        related_entity_id=persisted_task.id,
+        metadata_json={
+            "task_status": persisted_task.status.value,
+            "priority": persisted_task.priority.value,
+            "title": persisted_task.title,
+        },
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -60,7 +97,33 @@ def update_task_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
 ) -> TaskOut:
+    previous_task = get_task_with_relations_or_404(db, task_id)
+    previous_status = previous_task.status
     task = update_task(db, task_id, payload)
+    updated_task = get_task_with_relations_or_404(db, task.id)
+    if payload.status and payload.status != previous_status:
+        outcome_status = _task_status_to_outcome(payload.status)
+        if outcome_status:
+            record_operational_outcome(
+                db,
+                gym_id=updated_task.gym_id,
+                source=_task_source(updated_task),
+                action_type=f"task_{payload.status.value}",
+                actor="user",
+                status=outcome_status,
+                member_id=updated_task.member_id,
+                lead_id=updated_task.lead_id,
+                actor_user_id=current_user.id,
+                task_id=updated_task.id,
+                channel="manual",
+                related_entity_type="task",
+                related_entity_id=updated_task.id,
+                metadata_json={
+                    "previous_status": previous_status.value,
+                    "current_status": payload.status.value,
+                    "priority": updated_task.priority.value,
+                },
+            )
     context = get_request_context(request)
     log_audit_event(
         db,

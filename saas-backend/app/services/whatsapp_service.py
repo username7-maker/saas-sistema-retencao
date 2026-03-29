@@ -7,8 +7,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Member, MemberStatus, RiskLevel
+from app.database import get_current_gym_id
+from app.models import Lead, Member, MemberStatus, RiskLevel
 from app.models.message_log import MessageLog
+from app.services.operational_outcome_service import record_operational_outcome
 
 
 logger = logging.getLogger(__name__)
@@ -208,6 +210,68 @@ def _mark_log(log_entry: MessageLog, *, status: str, error: str | None = None, e
     log_entry.extra_data = extra_data or {}
 
 
+def _resolve_outcome_gym_id(db: Session, *, member_id: UUID | None, lead_id: UUID | None):
+    if member_id:
+        gym_id = db.scalar(select(Member.gym_id).where(Member.id == member_id))
+        if gym_id:
+            return gym_id
+    if lead_id:
+        gym_id = db.scalar(select(Lead.gym_id).where(Lead.id == lead_id))
+        if gym_id:
+            return gym_id
+    return get_current_gym_id()
+
+
+def _message_status_to_outcome_status(status: str) -> str:
+    if status == "sent":
+        return "sent"
+    if status == "failed":
+        return "failed"
+    if status in {"blocked", "skipped"}:
+        return "ignored"
+    return "attempted"
+
+
+def _record_whatsapp_outcome(
+    db: Session,
+    *,
+    log_entry: MessageLog,
+    member_id: UUID | None,
+    lead_id: UUID | None,
+    automation_rule_id: UUID | None,
+    template_name: str | None,
+    event_type: str | None,
+) -> None:
+    gym_id = _resolve_outcome_gym_id(db, member_id=member_id, lead_id=lead_id)
+    if not gym_id:
+        return
+
+    source = "automation" if automation_rule_id else ("crm" if lead_id else "retention")
+    record_operational_outcome(
+        db,
+        gym_id=gym_id,
+        source=source,
+        action_type=event_type or "whatsapp_send",
+        actor="automation" if automation_rule_id else "user",
+        status=_message_status_to_outcome_status(log_entry.status),
+        member_id=member_id,
+        lead_id=lead_id,
+        message_log_id=log_entry.id,
+        channel="whatsapp",
+        related_entity_type="message_log",
+        related_entity_id=log_entry.id,
+        playbook_key=template_name,
+        metadata_json={
+            "template_name": template_name,
+            "message_status": log_entry.status,
+            "event_type": event_type,
+            "instance_used": (log_entry.extra_data or {}).get("instance_used"),
+            "instance_source": (log_entry.extra_data or {}).get("instance_source"),
+        },
+        flush=False,
+    )
+
+
 async def send_whatsapp_message(
     db: Session,
     *,
@@ -247,6 +311,15 @@ async def send_whatsapp_message(
             extra_data={"instance_used": None, "instance_source": "none"},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         logger.warning(
             "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
             formatted_phone,
@@ -262,6 +335,15 @@ async def send_whatsapp_message(
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         return log_entry
 
     if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
@@ -272,6 +354,15 @@ async def send_whatsapp_message(
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         return log_entry
 
     try:
@@ -301,6 +392,15 @@ async def send_whatsapp_message(
         logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
 
     db.flush()
+    _record_whatsapp_outcome(
+        db,
+        log_entry=log_entry,
+        member_id=member_id,
+        lead_id=lead_id,
+        automation_rule_id=automation_rule_id,
+        template_name=template_name,
+        event_type=event_type,
+    )
     return log_entry
 
 
@@ -421,6 +521,15 @@ def send_whatsapp_sync(
             extra_data={"instance_used": None, "instance_source": "none"},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         logger.warning(
             "WhatsApp skipped: sem instancia conectada phone=%s instance_arg=%s",
             formatted_phone,
@@ -436,6 +545,15 @@ def send_whatsapp_sync(
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         return log_entry
 
     if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
@@ -446,6 +564,15 @@ def send_whatsapp_sync(
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
         db.flush()
+        _record_whatsapp_outcome(
+            db,
+            log_entry=log_entry,
+            member_id=member_id,
+            lead_id=lead_id,
+            automation_rule_id=automation_rule_id,
+            template_name=template_name,
+            event_type=event_type,
+        )
         return log_entry
 
     try:
@@ -475,4 +602,13 @@ def send_whatsapp_sync(
         logger.exception("Falha ao enviar WhatsApp para %s via %s", formatted_phone, resolved)
 
     db.flush()
+    _record_whatsapp_outcome(
+        db,
+        log_entry=log_entry,
+        member_id=member_id,
+        lead_id=lead_id,
+        automation_rule_id=automation_rule_id,
+        template_name=template_name,
+        event_type=event_type,
+    )
     return log_entry

@@ -60,6 +60,20 @@ export function useCommercialDashboard() {
   });
 }
 
+export function useActionCenter(params?: {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  source?: "all" | "task" | "retention" | "assessment" | "crm";
+  severity?: "all" | "critical" | "high" | "medium" | "low";
+}) {
+  return useQuery({
+    queryKey: ["dashboard", "action-center", params],
+    queryFn: () => dashboardService.actionCenter(params),
+    staleTime: FIVE_MINUTES,
+  });
+}
+
 export function useFinancialDashboard() {
   return useQuery({
     queryKey: ["dashboard", "financial"],
@@ -80,6 +94,14 @@ export function useWeeklySummary() {
   return useQuery({
     queryKey: ["dashboard", "weekly-summary"],
     queryFn: dashboardService.weeklySummary,
+    staleTime: FIVE_MINUTES,
+  });
+}
+
+export function useRoiSummary(periodDays = 30) {
+  return useQuery({
+    queryKey: ["roi-summary", periodDays],
+    queryFn: () => dashboardService.roiSummary(periodDays),
     staleTime: FIVE_MINUTES,
   });
 }

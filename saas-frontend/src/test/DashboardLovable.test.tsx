@@ -26,6 +26,7 @@ vi.mock("recharts", () => ({
 const dashboardHooks = vi.hoisted(() => ({
   useExecutiveDashboard: vi.fn(),
   useCommercialDashboard: vi.fn(),
+  useActionCenter: vi.fn(),
   useOperationalDashboard: vi.fn(),
   useRetentionDashboard: vi.fn(),
   useChurnDashboard: vi.fn(),
@@ -63,6 +64,11 @@ const commercialData = {
     qualified: 9,
     won: 5,
   },
+  pitch_pipeline: {
+    diagnosis: 3,
+    proposal: 4,
+    booking: 2,
+  },
   conversion_by_source: [],
   cac: 210,
   stale_leads_total: 2,
@@ -73,8 +79,46 @@ const commercialData = {
       stage: "qualified",
       source: "instagram",
       last_contact_at: "2026-03-15T10:00:00Z",
+      pitch_step: "proposal",
     },
   ],
+};
+
+const actionCenterData = {
+  items: [
+    {
+      id: "retention-1",
+      source: "retention",
+      title: "Ana Silva",
+      subtitle: "10 dias sem check-in",
+      source_label: "Retenção",
+      severity: "critical",
+      last_contact_at: null,
+      last_checkin_at: "2026-03-10T10:00:00Z",
+      due_at: null,
+      cta_target: "/dashboard/retention",
+    },
+    {
+      id: "crm-1",
+      source: "crm",
+      title: "Lead Maria",
+      subtitle: "proposal · 4 dias sem contato",
+      source_label: "CRM",
+      severity: "medium",
+      last_contact_at: "2026-03-15T10:00:00Z",
+      last_checkin_at: null,
+      due_at: null,
+      cta_target: "/crm",
+    },
+  ],
+  total: 2,
+  page: 1,
+  page_size: 8,
+  summary: {
+    total: 2,
+    by_source: { retention: 1, crm: 1 },
+    by_severity: { critical: 1, medium: 1 },
+  },
 };
 
 const operationalData = {
@@ -155,6 +199,7 @@ describe("DashboardLovable", () => {
 
     dashboardHooks.useExecutiveDashboard.mockReturnValue(queryResult(executiveData));
     dashboardHooks.useCommercialDashboard.mockReturnValue(queryResult(commercialData));
+    dashboardHooks.useActionCenter.mockReturnValue(queryResult(actionCenterData));
     dashboardHooks.useOperationalDashboard.mockReturnValue(queryResult(operationalData));
     dashboardHooks.useRetentionDashboard.mockReturnValue(queryResult(retentionData));
     dashboardHooks.useChurnDashboard.mockReturnValue(queryResult(churnData));
@@ -198,6 +243,9 @@ describe("DashboardLovable", () => {
   it("shows the empty state when there are no priority actions", async () => {
     dashboardHooks.useCommercialDashboard.mockReturnValue(
       queryResult({ ...commercialData, stale_leads_total: 0, stale_leads: [] }),
+    );
+    dashboardHooks.useActionCenter.mockReturnValue(
+      queryResult({ ...actionCenterData, items: [], total: 0, summary: { total: 0, by_source: {}, by_severity: {} } }),
     );
     dashboardHooks.useOperationalDashboard.mockReturnValue(
       queryResult({ ...operationalData, inactive_7d_total: 0, inactive_7d_items: [] }),

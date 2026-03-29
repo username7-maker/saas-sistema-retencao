@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -62,6 +63,13 @@ from app.core.limiter import RateLimitExceeded, SlowAPIMiddleware, limiter, rate
 from app.services.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
+
+_CRITICAL_API_PREFIXES = (
+    f"{settings.api_prefix}/dashboards/action-center",
+    f"{settings.api_prefix}/dashboards/retention/queue",
+    f"{settings.api_prefix}/roi/summary",
+    f"{settings.api_prefix}/imports/assessments",
+)
 
 
 @asynccontextmanager
@@ -155,6 +163,29 @@ async def correlation_id_middleware(request: Request, call_next):
         return response
     finally:
         request_id_ctx.reset(token)
+
+
+@app.middleware("http")
+async def critical_endpoint_metrics_middleware(request: Request, call_next):
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+    response.headers["X-Process-Time-Ms"] = str(elapsed_ms)
+
+    if request.url.path.startswith(_CRITICAL_API_PREFIXES):
+        logger.info(
+            "Critical endpoint served",
+            extra={
+                "extra_fields": {
+                    "event": "critical_endpoint_latency",
+                    "path": request.url.path,
+                    "method": request.method,
+                    "status_code": response.status_code,
+                    "elapsed_ms": elapsed_ms,
+                }
+            },
+        )
+    return response
 
 
 app.include_router(auth.router, prefix=settings.api_prefix)
