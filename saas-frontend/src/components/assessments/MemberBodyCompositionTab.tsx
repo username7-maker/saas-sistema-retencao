@@ -46,6 +46,7 @@ import {
   statusPillToneForSync,
   syncModeLabel,
 } from "./bodyCompositionCapability";
+import { resolveBodyCompositionFieldSignal } from "./bodyCompositionFieldSignals";
 import { invalidateAssessmentQueries } from "./queryUtils";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
@@ -325,6 +326,12 @@ function warningTone(warning?: BodyCompositionOcrWarning): string {
   return warning.severity === "critical" ? "border-lovable-danger focus:ring-lovable-danger/20" : "border-amber-400 focus:ring-amber-300/20";
 }
 
+function fieldSignalTextClass(tone: "success" | "warning" | "neutral"): string {
+  if (tone === "success") return "text-emerald-700";
+  if (tone === "warning") return "text-amber-800";
+  return "text-lovable-ink-muted";
+}
+
 function ocrEngineLabel(engine?: BodyCompositionOcrEngine | null): string | null {
   if (engine === "local") return "Leitura local";
   if (engine === "ai_assisted") return "Leitura assistida por IA";
@@ -388,6 +395,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     handleSubmit,
     reset,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -790,6 +798,13 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     ) : null}
                   </div>
                 ) : null}
+                {currentSource === "ocr_receipt" ? (
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <StatusPill tone="success">IA revisou</StatusPill>
+                    <StatusPill tone="neutral">OCR local</StatusPill>
+                    <StatusPill tone="warning">Incerto</StatusPill>
+                  </div>
+                ) : null}
                 {localOcrText ? (
                   <details className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
                     <summary className="cursor-pointer font-semibold">
@@ -818,16 +833,38 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                   <div className="grid gap-3 md:grid-cols-2">
                     {section.fields.map((field) => {
                       const warning = highlightedWarnings.get(field.key);
+                      const fieldSignal = resolveBodyCompositionFieldSignal({
+                        fieldKey: field.key,
+                        currentSource,
+                        currentValue: watch(field.key),
+                        ocrResult,
+                        localResult: ocrReadSession.localResult,
+                        storedWarnings: ocrMetadata.ocr_warnings_json,
+                      });
                       return (
-                        <FormField key={field.key} label={field.label} error={errors[field.key]?.message}>
-                          <Input
-                            type="text"
-                            inputMode={field.step === "1" ? "numeric" : "decimal"}
-                            placeholder={field.placeholder}
-                            className={warningTone(warning)}
-                            autoComplete="off"
-                            {...register(field.key)}
-                          />
+                        <FormField
+                          key={field.key}
+                          label={
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span>{field.label}</span>
+                              {fieldSignal ? <StatusPill tone={fieldSignal.tone}>{fieldSignal.label}</StatusPill> : null}
+                            </span>
+                          }
+                          error={errors[field.key]?.message}
+                        >
+                          <div className="space-y-1">
+                            <Input
+                              type="text"
+                              inputMode={field.step === "1" ? "numeric" : "decimal"}
+                              placeholder={field.placeholder}
+                              className={warningTone(warning)}
+                              autoComplete="off"
+                              {...register(field.key)}
+                            />
+                            {fieldSignal ? (
+                              <p className={`text-xs ${fieldSignalTextClass(fieldSignal.tone)}`}>{fieldSignal.description}</p>
+                            ) : null}
+                          </div>
                         </FormField>
                       );
                     })}
