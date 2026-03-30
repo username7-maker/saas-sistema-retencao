@@ -132,3 +132,24 @@ def test_generate_body_composition_ai_openai_ignores_claude_circuit_breaker():
 
     assert result["coach_summary"] == "Resumo do coach via OpenAI"
     mock_openai.assert_called_once()
+
+
+def test_normalize_ai_payload_maps_free_text_goals_to_allowed_slugs():
+    from app.services.body_composition_ai_service import _normalize_ai_payload
+
+    result = _normalize_ai_payload(
+        {
+            "coach_summary": "ok",
+            "member_friendly_summary": "ok",
+            "risk_flags": ["gordura visceral acima"],
+            "training_focus": {
+                "primary_goal": "Redução gradual da gordura visceral e manutenção da massa muscular.",
+                "secondary_goal": "Melhora do equilíbrio corporal e condicionamento geral.",
+                "suggested_focuses": ["acompanhar"],
+                "cautions": ["nao substituir avaliacao presencial"],
+            },
+        }
+    )
+
+    assert result["training_focus"]["primary_goal"] == "reducao_de_gordura"
+    assert result["training_focus"]["secondary_goal"] == "acompanhamento_geral"

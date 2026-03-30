@@ -75,6 +75,21 @@ def _ai_parse_result(weight_kg: float = 84.5) -> BodyCompositionImageParseResult
     )
 
 
+def _ai_parse_result_with_extra_values() -> BodyCompositionImageParseResultRead:
+    payload = _ai_parse_result()
+    payload.values.inorganic_salt_kg = 3.2
+    payload.values.muscle_mass_kg = 37.2
+    payload.values.protein_kg = 17.7
+    payload.values.body_water_kg = 43.3
+    payload.values.visceral_fat_level = 9.1
+    payload.values.bmi = 26.7
+    payload.values.basal_metabolic_rate_kcal = 1880.0
+    payload.values.skeletal_muscle_kg = 35.6
+    payload.values.total_energy_kcal = 3008.0
+    payload.values.physical_age = 26
+    return payload
+
+
 class TestImageParseService:
     def test_prefers_openai_provider_when_available(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
@@ -117,6 +132,60 @@ class TestImageParseService:
         assert result.values.target_weight_kg == 68.3
         assert result.engine in {"hybrid", "ai_assisted"}
         assert result.fallback_used is (result.engine == "hybrid")
+
+    @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
+    def test_removes_stale_local_ai_unavailable_warning_when_ai_succeeds(self, _mock_available):
+        stale_local = _local_ocr_payload()
+        stale_local.warnings.append(
+            BodyCompositionOcrWarning(
+                field=None,
+                message="Leitura assistida por IA indisponivel; mantivemos a leitura local com revisao manual obrigatoria.",
+                severity="warning",
+            )
+        )
+
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            return_value=_ai_parse_result_with_extra_values(),
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=stale_local,
+            )
+
+        assert all("indisponivel" not in warning.message.lower() for warning in result.warnings)
+        assert result.confidence > stale_local.confidence
+
+    @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
+    def test_drops_non_key_local_value_when_only_noisy_local_support_exists(self, _mock_available):
+        stale_local = _local_ocr_payload()
+        stale_local.values.body_water_kg = 17.7
+        stale_local.warnings.append(
+            BodyCompositionOcrWarning(
+                field="body_water_kg",
+                message="body water kg foi inferido pela ordem esperada do recibo. Revisar manualmente.",
+                severity="warning",
+            )
+        )
+
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            return_value=_ai_parse_result(),
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=stale_local,
+            )
+
+        assert result.values.body_water_kg is None
 
     def test_resolve_image_ai_provider_returns_none_without_keys(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", ""), patch(

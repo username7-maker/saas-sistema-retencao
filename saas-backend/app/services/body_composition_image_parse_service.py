@@ -330,7 +330,8 @@ def _merge_parse_results(
     for field_name in BodyCompositionOcrValues.model_fields:
         ai_value = getattr(ai_result.values, field_name, None)
         local_value = getattr(local_result.values, field_name, None)
-        source = _choose_value_source(field_name, ai_value, local_value)
+        local_field_warnings = _warnings_for_field(local_result.warnings, field_name)
+        source = _choose_value_source(field_name, ai_value, local_value, local_field_warnings)
         chosen_value = ai_value if source == "ai" else local_value if source == "local" else None
         setattr(merged_values, field_name, chosen_value)
 
@@ -362,7 +363,7 @@ def _merge_parse_results(
             merged_ranges[field_name] = chosen_range
 
     warnings.extend(_warnings_for_field(ai_result.warnings, None))
-    warnings.extend(_warnings_for_field(local_result.warnings, None))
+    warnings.extend(_warnings_for_field_without_local_ai_fallback(local_result.warnings, None))
 
     engine = "hybrid" if ai_used_fields and local_used_fields else "ai_assisted" if ai_used_fields else "local"
     confidence = _compute_confidence(
@@ -427,7 +428,7 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
         ai_used_count=sum(1 for field in KEY_FIELDS if getattr(result.values, field, None) is not None),
         local_used_count=0,
         local_confidence=result.confidence,
-        preserve_baseline=True,
+        preserve_baseline=result.engine == "local",
     )
     return BodyCompositionImageParseResultRead(
         device_profile=result.device_profile,
@@ -471,18 +472,29 @@ def _compute_confidence(
     return max(0.2, round(min(0.99, confidence), 2))
 
 
-def _choose_value_source(field_name: str, ai_value: Any, local_value: Any) -> str | None:
+def _choose_value_source(
+    field_name: str,
+    ai_value: Any,
+    local_value: Any,
+    local_warnings: list[BodyCompositionOcrWarning] | None = None,
+) -> str | None:
     ai_plausible = _is_plausible(field_name, ai_value)
     local_plausible = _is_plausible(field_name, local_value)
+    local_warnings = local_warnings or []
+    local_noisy = _is_noisy_local_field(local_warnings)
 
     if ai_plausible and local_plausible:
         return "ai"
     if ai_plausible:
         return "ai"
+    if local_plausible and local_noisy and field_name not in KEY_FIELDS:
+        return None
     if local_plausible:
         return "local"
     if ai_value is not None:
         return "ai"
+    if local_value is not None and local_noisy and field_name not in KEY_FIELDS:
+        return None
     if local_value is not None:
         return "local"
     return None
@@ -501,6 +513,30 @@ def _choose_range(
 
 def _warnings_for_field(warnings: list[BodyCompositionOcrWarning], field_name: str | None) -> list[BodyCompositionOcrWarning]:
     return [warning for warning in warnings if warning.field == field_name]
+
+
+def _warnings_for_field_without_local_ai_fallback(
+    warnings: list[BodyCompositionOcrWarning],
+    field_name: str | None,
+) -> list[BodyCompositionOcrWarning]:
+    return [
+        warning
+        for warning in warnings
+        if warning.field == field_name and not _is_local_ai_unavailable_warning(warning)
+    ]
+
+
+def _is_local_ai_unavailable_warning(warning: BodyCompositionOcrWarning) -> bool:
+    message = (warning.message or "").lower()
+    return "leitura assistida por ia indisponivel" in message or "leitura assistida por ia falhou" in message
+
+
+def _is_noisy_local_field(warnings: list[BodyCompositionOcrWarning]) -> bool:
+    for warning in warnings:
+        message = (warning.message or "").lower()
+        if "ordem esperada do recibo" in message or "linha vizinha" in message or "ocr ruidoso" in message:
+            return True
+    return False
 
 
 def _range_has_values(value: BodyCompositionRangeValue | None) -> bool:

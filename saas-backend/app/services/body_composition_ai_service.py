@@ -32,6 +32,18 @@ _FIELD_LABELS = {
     "bmi": "IMC",
     "health_score": "health score",
 }
+_PRIMARY_GOAL_ALLOWED = {
+    "reducao_de_gordura",
+    "ganho_de_massa",
+    "melhora_metabolica",
+    "acompanhamento_geral",
+}
+_SECONDARY_GOAL_ALLOWED = {
+    "preservacao_de_massa_magra",
+    "controle_de_gordura",
+    "melhora_metabolica",
+    "acompanhamento_geral",
+}
 
 
 class _OpenAITrainingFocus(BaseModel):
@@ -146,6 +158,7 @@ def _generate_with_openai(
     goals_summary = ", ".join(goal.title for goal in goals[:3]) if goals else "Sem metas ativas registradas"
     constraints_summary = _summarize_constraints(constraints)
     previous_summary = _summarize_previous(previous_evaluation)
+    classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Voce e um assistente de apoio operacional para professores de academia.\n"
         "Analise uma bioimpedancia e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
@@ -157,6 +170,9 @@ def _generate_with_openai(
         "- nao sugerir exercicios especificos como prescricao pronta\n"
         "- nao substituir avaliacao profissional presencial\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
+        "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
+        "- training_focus.primary_goal deve ser um de: reducao_de_gordura, ganho_de_massa, melhora_metabolica, acompanhamento_geral\n"
+        "- training_focus.secondary_goal deve ser um de: preservacao_de_massa_magra, controle_de_gordura, melhora_metabolica, acompanhamento_geral\n"
         "- responder em portugues do Brasil\n"
         f"Aluno: {member.full_name}\n"
         f"Plano: {member.plan_name}\n"
@@ -165,6 +181,7 @@ def _generate_with_openai(
         f"Contexto previo: {previous_summary}\n"
         f"Valores atuais: {_serialize_measurements(evaluation)}\n"
         f"Faixas: {range_summary}\n"
+        f"Classificacao objetiva: {classification_summary}\n"
     )
     client = _create_openai_client()
     response = client.responses.parse(
@@ -207,6 +224,7 @@ def _generate_with_claude(
     goals_summary = ", ".join(goal.title for goal in goals[:3]) if goals else "Sem metas ativas registradas"
     constraints_summary = _summarize_constraints(constraints)
     previous_summary = _summarize_previous(previous_evaluation)
+    classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Voce e um assistente de apoio operacional para professores de academia.\n"
         "Analise uma bioimpedancia e retorne JSON com campos: coach_summary, member_friendly_summary, "
@@ -221,6 +239,9 @@ def _generate_with_claude(
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- responder em portugues do Brasil\n"
         "- training_focus deve ter primary_goal, secondary_goal, suggested_focuses, cautions\n"
+        "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
+        "- training_focus.primary_goal deve ser um de: reducao_de_gordura, ganho_de_massa, melhora_metabolica, acompanhamento_geral\n"
+        "- training_focus.secondary_goal deve ser um de: preservacao_de_massa_magra, controle_de_gordura, melhora_metabolica, acompanhamento_geral\n"
         f"Aluno: {member.full_name}\n"
         f"Plano: {member.plan_name}\n"
         f"Metas: {goals_summary}\n"
@@ -228,6 +249,7 @@ def _generate_with_claude(
         f"Contexto previo: {previous_summary}\n"
         f"Valores atuais: {_serialize_measurements(evaluation)}\n"
         f"Faixas: {range_summary}\n"
+        f"Classificacao objetiva: {classification_summary}\n"
     )
     client = anthropic.Anthropic(api_key=settings.claude_api_key)
     response = client.messages.create(
@@ -308,8 +330,16 @@ def _normalize_ai_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "member_friendly_summary": str(payload.get("member_friendly_summary") or "")[:500],
         "risk_flags": [str(item) for item in payload.get("risk_flags") or []][:5],
         "training_focus": {
-            "primary_goal": str(normalized_focus.get("primary_goal") or "acompanhamento_geral"),
-            "secondary_goal": str(normalized_focus.get("secondary_goal") or "preservacao_de_massa_magra"),
+            "primary_goal": _normalize_goal_slug(
+                normalized_focus.get("primary_goal"),
+                allowed=_PRIMARY_GOAL_ALLOWED,
+                fallback="acompanhamento_geral",
+            ),
+            "secondary_goal": _normalize_goal_slug(
+                normalized_focus.get("secondary_goal"),
+                allowed=_SECONDARY_GOAL_ALLOWED,
+                fallback="preservacao_de_massa_magra",
+            ),
             "suggested_focuses": [str(item) for item in normalized_focus.get("suggested_focuses") or []][:5],
             "cautions": [str(item) for item in normalized_focus.get("cautions") or []][:4]
             or [
@@ -474,6 +504,42 @@ def _summarize_previous(previous_evaluation: BodyCompositionEvaluation | None) -
         f"{_to_float(previous_evaluation.weight_kg) or '-'} kg e gordura "
         f"{_to_float(previous_evaluation.body_fat_percent) or '-'}%."
     )
+
+
+def _summarize_classifications(evaluation: BodyCompositionEvaluation) -> str:
+    classifications = _classify_fields(evaluation)
+    if not classifications:
+        return "Sem classificacao automatica por faixa impressa"
+
+    parts = [f"{label}: {status}" for label, status in classifications[:8]]
+    return "; ".join(parts)
+
+
+def _normalize_goal_slug(value: object, *, allowed: set[str], fallback: str) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return fallback
+
+    candidate = raw.replace("-", "_").replace(" ", "_")
+    if candidate in allowed:
+        return candidate
+
+    if "geral" in raw and "acompanhamento_geral" in allowed:
+        return "acompanhamento_geral"
+    if "gordura" in raw:
+        if "controle" in raw and "controle_de_gordura" in allowed:
+            return "controle_de_gordura"
+        if "reducao_de_gordura" in allowed:
+            return "reducao_de_gordura"
+    if "massa" in raw and "ganho" in raw and "ganho_de_massa" in allowed:
+        return "ganho_de_massa"
+    if ("metabol" in raw or "visceral" in raw or "imc" in raw) and "melhora_metabolica" in allowed:
+        return "melhora_metabolica"
+    if "massa_magra" in raw or ("massa" in raw and "preserva" in raw):
+        if "preservacao_de_massa_magra" in allowed:
+            return "preservacao_de_massa_magra"
+
+    return fallback
 
 
 def _to_float(value: object) -> float | None:
