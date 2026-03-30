@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     bcrypt_rounds: int = 12
 
     cpf_encryption_key: str = "change-me-with-64-hex"
+    pii_search_key: str = ""
 
     sendgrid_api_key: str = ""
     sendgrid_sender: str = "noreply@aigymos.local"

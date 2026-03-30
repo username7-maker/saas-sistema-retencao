@@ -1,16 +1,20 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, FileUp } from "lucide-react";
+import { Download, FileUp, Link2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { importExportService } from "../../services/importExportService";
-import type { ImportPreview, ImportSummary, MissingMemberEntry } from "../../types";
+import type { ImportMappingOption, ImportPreview, ImportSummary, MissingMemberEntry } from "../../types";
 import {
   getIgnoredRowsHint,
   getImportSummaryNotice,
   getVisibleImportErrors,
   isDuplicateOnlyImport,
 } from "./importSummary";
+
+const IGNORE_MAPPING_VALUE = "__ignore__";
+
+type ColumnMappingState = Record<string, string | null>;
 
 function downloadCsv(filename: string, rows: string[][]): void {
   const content = rows
@@ -47,6 +51,22 @@ function exportMissingMembersEntries(missingMembers: MissingMemberEntry[]): void
   downloadCsv("pendencias-catraca.csv", rows);
 }
 
+function normalizeMapping(mapping: ColumnMappingState | null | undefined): ColumnMappingState {
+  const normalized: ColumnMappingState = {};
+  for (const [key, value] of Object.entries(mapping ?? {})) {
+    if (!key) continue;
+    normalized[key] = value ?? null;
+  }
+  return normalized;
+}
+
+function areMappingsEqual(current: ColumnMappingState | null | undefined, baseline: ColumnMappingState | null | undefined): boolean {
+  const currentNormalized = normalizeMapping(current);
+  const baselineNormalized = normalizeMapping(baseline);
+  const allKeys = Array.from(new Set([...Object.keys(currentNormalized), ...Object.keys(baselineNormalized)])).sort();
+  return allKeys.every((key) => (currentNormalized[key] ?? null) === (baselineNormalized[key] ?? null));
+}
+
 function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMemberEntry[] }) {
   if (missingMembers.length === 0) return null;
 
@@ -81,7 +101,7 @@ function CreatedMembersPanel({ names }: { names: string[] }) {
 
   return (
     <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950">
-      <p className="font-semibold">Cadastros provisórios criados nesta importação</p>
+      <p className="font-semibold">Cadastros provisorios criados nesta importacao</p>
       <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
         {names.slice(0, 16).map((name) => (
           <li key={name} className="rounded-md bg-white/70 px-2 py-1">
@@ -107,12 +127,116 @@ function formatPreviewValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function ColumnMappingEditor({
+  preview,
+  mapping,
+  onChange,
+  isDirty,
+}: {
+  preview: ImportPreview | null;
+  mapping: ColumnMappingState;
+  onChange: (mapping: ColumnMappingState) => void;
+  isDirty: boolean;
+}) {
+  if (!preview || preview.detected_columns.length === 0) return null;
+
+  const optionsByValue = new Map<string, ImportMappingOption>(
+    preview.mapping_options.map((option) => [option.value, option]),
+  );
+
+  return (
+    <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface-soft p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Mapeamento de colunas</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
+            Confirme para onde cada coluna da planilha deve apontar antes da importacao final.
+          </p>
+        </div>
+        {isDirty ? (
+          <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-900">
+            Revalidacao pendente
+          </span>
+        ) : preview.mapping_ready ? (
+          <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-900">
+            Mapeamento valido
+          </span>
+        ) : (
+          <span className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-rose-900">
+            Mapeamento incompleto
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {preview.detected_columns.map((column) => {
+          const selectedValue = mapping[column] ?? "";
+          const selectedOption = selectedValue ? optionsByValue.get(selectedValue) : null;
+          return (
+            <label key={column} className="space-y-1 rounded-lg border border-lovable-border bg-lovable-surface px-3 py-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{column}</span>
+              <select
+                value={selectedValue}
+                onChange={(event) =>
+                  onChange({
+                    ...mapping,
+                    [column]: event.target.value === "" ? null : event.target.value,
+                  })
+                }
+                className="w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
+              >
+                <option value="">Selecione um destino</option>
+                <option value={IGNORE_MAPPING_VALUE}>Ignorar coluna</option>
+                {preview.mapping_options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                    {option.required ? " (obrigatorio)" : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedOption ? (
+                <span className="text-[11px] text-lovable-ink-muted">Destino: {selectedOption.label}</span>
+              ) : selectedValue === IGNORE_MAPPING_VALUE ? (
+                <span className="text-[11px] text-lovable-ink-muted">Essa coluna sera ignorada no processamento.</span>
+              ) : (
+                <span className="text-[11px] text-lovable-ink-muted">Sem destino definido ainda.</span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+
+      {preview.missing_required_fields.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950">
+          <p className="font-semibold">Campos obrigatorios ainda sem mapeamento</p>
+          <p className="mt-1">{preview.missing_required_fields.join(", ")}</p>
+        </div>
+      ) : null}
+
+      {preview.duplicate_target_fields.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <p className="font-semibold">Destinos duplicados</p>
+          <p className="mt-1">{preview.duplicate_target_fields.join(", ")}</p>
+        </div>
+      ) : null}
+
+      {isDirty ? (
+        <p className="mt-3 text-xs text-amber-900">
+          O mapeamento foi alterado depois do preview. Clique em <strong>Revalidar mapeamento</strong> antes de confirmar a importacao.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function PreviewResult({
   preview,
   allowMissingExport = false,
+  mappingDirty = false,
 }: {
   preview: ImportPreview | null;
   allowMissingExport?: boolean;
+  mappingDirty?: boolean;
 }) {
   if (!preview) return null;
 
@@ -124,6 +248,15 @@ function PreviewResult({
           Revise o impacto previsto antes de confirmar a importacao final.
         </p>
       </div>
+
+      {mappingDirty ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">
+          <p className="font-semibold">Mapeamento alterado apos a ultima validacao</p>
+          <p className="mt-1 text-[11px] leading-relaxed">
+            Revalide o arquivo para que a pre-analise reflita o mapeamento atual.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <p>Total de linhas: {preview.total_rows}</p>
@@ -146,7 +279,7 @@ function PreviewResult({
 
       {preview.unrecognized_columns.length > 0 ? (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">
-          <p className="font-semibold">Colunas nao reconhecidas</p>
+          <p className="font-semibold">Colunas ainda fora do dicionario padrao</p>
           <p className="mt-1 text-[11px] leading-relaxed">{preview.unrecognized_columns.join(", ")}</p>
         </div>
       ) : null}
@@ -307,6 +440,11 @@ function hasInvalidDateRange(dateFrom: string, dateTo: string): boolean {
   return new Date(dateFrom).getTime() > new Date(dateTo).getTime();
 }
 
+function getValidateButtonLabel(preview: ImportPreview | null, pending: boolean): string {
+  if (pending) return "Validando...";
+  return preview ? "Revalidar mapeamento" : "Validar arquivo";
+}
+
 export function ImportsPage() {
   const queryClient = useQueryClient();
   const [membersFile, setMembersFile] = useState<File | null>(null);
@@ -318,11 +456,26 @@ export function ImportsPage() {
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
   const [assessmentsSummary, setAssessmentsSummary] = useState<ImportSummary | null>(null);
+  const [membersMapping, setMembersMapping] = useState<ColumnMappingState>({});
+  const [checkinsMapping, setCheckinsMapping] = useState<ColumnMappingState>({});
+  const [assessmentsMapping, setAssessmentsMapping] = useState<ColumnMappingState>({});
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [autoCreateMissingMembers, setAutoCreateMissingMembers] = useState(false);
 
   const hasMissingMembers = useMemo(() => (checkinsSummary?.missing_members.length ?? 0) > 0, [checkinsSummary]);
+  const membersMappingDirty = useMemo(
+    () => !areMappingsEqual(membersMapping, membersPreview?.suggested_mapping),
+    [membersMapping, membersPreview],
+  );
+  const checkinsMappingDirty = useMemo(
+    () => !areMappingsEqual(checkinsMapping, checkinsPreview?.suggested_mapping),
+    [checkinsMapping, checkinsPreview],
+  );
+  const assessmentsMappingDirty = useMemo(
+    () => !areMappingsEqual(assessmentsMapping, assessmentsPreview?.suggested_mapping),
+    [assessmentsMapping, assessmentsPreview],
+  );
 
   const refreshImportedDataViews = () => {
     void Promise.all([
@@ -339,7 +492,8 @@ export function ImportsPage() {
   };
 
   const importMembersMutation = useMutation({
-    mutationFn: (file: File) => importExportService.importMembers(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping: ColumnMappingState }) =>
+      importExportService.importMembers(file, mapping),
     onSuccess: (summary) => {
       setMembersSummary(summary);
       setMembersPreview(null);
@@ -350,9 +504,11 @@ export function ImportsPage() {
   });
 
   const previewMembersMutation = useMutation({
-    mutationFn: (file: File) => importExportService.previewMembers(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping: ColumnMappingState }) =>
+      importExportService.previewMembers(file, mapping),
     onSuccess: (preview) => {
       setMembersPreview(preview);
+      setMembersMapping(preview.suggested_mapping);
       setMembersSummary(null);
       toast.success("Preview de alunos gerado. Revise o impacto antes de confirmar.");
     },
@@ -360,8 +516,8 @@ export function ImportsPage() {
   });
 
   const importCheckinsMutation = useMutation({
-    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
-      importExportService.importCheckins(file, autoCreate),
+    mutationFn: ({ file, autoCreate, mapping }: { file: File; autoCreate: boolean; mapping: ColumnMappingState }) =>
+      importExportService.importCheckins(file, autoCreate, mapping),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
       setCheckinsPreview(null);
@@ -380,10 +536,11 @@ export function ImportsPage() {
   });
 
   const previewCheckinsMutation = useMutation({
-    mutationFn: ({ file, autoCreate }: { file: File; autoCreate: boolean }) =>
-      importExportService.previewCheckins(file, autoCreate),
+    mutationFn: ({ file, autoCreate, mapping }: { file: File; autoCreate: boolean; mapping: ColumnMappingState }) =>
+      importExportService.previewCheckins(file, autoCreate, mapping),
     onSuccess: (preview) => {
       setCheckinsPreview(preview);
+      setCheckinsMapping(preview.suggested_mapping);
       setCheckinsSummary(null);
       toast.success("Preview de check-ins gerado. Revise o impacto antes de confirmar.");
     },
@@ -391,22 +548,25 @@ export function ImportsPage() {
   });
 
   const importAssessmentsMutation = useMutation({
-    mutationFn: (file: File) => importExportService.importAssessments(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping: ColumnMappingState }) =>
+      importExportService.importAssessments(file, mapping),
     onSuccess: (summary) => {
       setAssessmentsSummary(summary);
       setAssessmentsPreview(null);
       refreshImportedDataViews();
-      toast.success("Histórico de avaliações importado.");
+      toast.success("Historico de avaliacoes importado.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const previewAssessmentsMutation = useMutation({
-    mutationFn: (file: File) => importExportService.previewAssessments(file),
+    mutationFn: ({ file, mapping }: { file: File; mapping: ColumnMappingState }) =>
+      importExportService.previewAssessments(file, mapping),
     onSuccess: (preview) => {
       setAssessmentsPreview(preview);
+      setAssessmentsMapping(preview.suggested_mapping);
       setAssessmentsSummary(null);
-      toast.success("Preview do histórico de avaliações gerado.");
+      toast.success("Preview do historico de avaliacoes gerado.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -433,12 +593,34 @@ export function ImportsPage() {
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
+  const canImportMembers =
+    !!membersFile &&
+    !!membersPreview &&
+    membersPreview.valid_rows > 0 &&
+    membersPreview.mapping_ready &&
+    !membersMappingDirty &&
+    !importMembersMutation.isPending;
+  const canImportCheckins =
+    !!checkinsFile &&
+    !!checkinsPreview &&
+    checkinsPreview.valid_rows > 0 &&
+    checkinsPreview.mapping_ready &&
+    !checkinsMappingDirty &&
+    !importCheckinsMutation.isPending;
+  const canImportAssessments =
+    !!assessmentsFile &&
+    !!assessmentsPreview &&
+    assessmentsPreview.valid_rows > 0 &&
+    assessmentsPreview.mapping_ready &&
+    !assessmentsMappingDirty &&
+    !importAssessmentsMutation.isPending;
+
   return (
     <section className="space-y-6">
       <header>
         <h2 className="font-heading text-3xl font-bold text-lovable-ink">Importacoes e Exportacoes (CSV/XLSX)</h2>
         <p className="text-sm text-lovable-ink-muted">
-          Envie planilhas de alunos/catraca em CSV ou XLSX e exporte dados do sistema em CSV.
+          Envie planilhas de alunos/catraca em CSV ou XLSX, revise o mapeamento das colunas e exporte dados do sistema em CSV.
         </p>
       </header>
 
@@ -455,6 +637,7 @@ export function ImportsPage() {
               setMembersFile(event.target.files?.[0] ?? null);
               setMembersPreview(null);
               setMembersSummary(null);
+              setMembersMapping({});
             }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
@@ -462,16 +645,16 @@ export function ImportsPage() {
             <button
               type="button"
               disabled={!membersFile || previewMembersMutation.isPending}
-              onClick={() => membersFile && previewMembersMutation.mutate(membersFile)}
+              onClick={() => membersFile && previewMembersMutation.mutate({ file: membersFile, mapping: membersMapping })}
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {previewMembersMutation.isPending ? "Validando..." : "Validar arquivo"}
+              {getValidateButtonLabel(membersPreview, previewMembersMutation.isPending)}
             </button>
             <button
               type="button"
-              disabled={!membersFile || !membersPreview || membersPreview.valid_rows === 0 || importMembersMutation.isPending}
-              onClick={() => membersFile && importMembersMutation.mutate(membersFile)}
+              disabled={!canImportMembers}
+              onClick={() => membersFile && importMembersMutation.mutate({ file: membersFile, mapping: membersMapping })}
               className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
             >
               <FileUp size={14} />
@@ -487,10 +670,10 @@ export function ImportsPage() {
               Template alunos
             </button>
           </div>
-          <PreviewResult preview={membersPreview} />
+          <ColumnMappingEditor preview={membersPreview} mapping={membersMapping} onChange={setMembersMapping} isDirty={membersMappingDirty} />
+          <PreviewResult preview={membersPreview} mappingDirty={membersMappingDirty} />
           <ImportResult summary={membersSummary} />
         </article>
-
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar catraca/check-ins</h3>
           <p className="mt-1 text-xs text-lovable-ink-muted">
@@ -503,6 +686,7 @@ export function ImportsPage() {
               setCheckinsFile(event.target.files?.[0] ?? null);
               setCheckinsPreview(null);
               setCheckinsSummary(null);
+              setCheckinsMapping({});
             }}
             className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
           />
@@ -529,19 +713,27 @@ export function ImportsPage() {
               disabled={!checkinsFile || previewCheckinsMutation.isPending}
               onClick={() =>
                 checkinsFile &&
-                previewCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+                previewCheckinsMutation.mutate({
+                  file: checkinsFile,
+                  autoCreate: autoCreateMissingMembers,
+                  mapping: checkinsMapping,
+                })
               }
               className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {previewCheckinsMutation.isPending ? "Validando..." : "Validar arquivo"}
+              {getValidateButtonLabel(checkinsPreview, previewCheckinsMutation.isPending)}
             </button>
             <button
               type="button"
-              disabled={!checkinsFile || !checkinsPreview || checkinsPreview.valid_rows === 0 || importCheckinsMutation.isPending}
+              disabled={!canImportCheckins}
               onClick={() =>
                 checkinsFile &&
-                importCheckinsMutation.mutate({ file: checkinsFile, autoCreate: autoCreateMissingMembers })
+                importCheckinsMutation.mutate({
+                  file: checkinsFile,
+                  autoCreate: autoCreateMissingMembers,
+                  mapping: checkinsMapping,
+                })
               }
               className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
             >
@@ -567,15 +759,16 @@ export function ImportsPage() {
               Exportar pendentes
             </button>
           </div>
-          <PreviewResult preview={checkinsPreview} allowMissingExport />
+          <ColumnMappingEditor preview={checkinsPreview} mapping={checkinsMapping} onChange={setCheckinsMapping} isDirty={checkinsMappingDirty} />
+          <PreviewResult preview={checkinsPreview} allowMissingExport mappingDirty={checkinsMappingDirty} />
           <ImportResult summary={checkinsSummary} allowMissingExport />
         </article>
       </section>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar histórico de avaliações</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar historico de avaliacoes</h3>
         <p className="mt-1 text-xs text-lovable-ink-muted">
-          Use CSV/XLSX estruturado com identificador do aluno e `assessment_date`. Campos opcionais: peso, gordura, medidas e próxima avaliação.
+          Use CSV/XLSX estruturado com identificador do aluno e assessment_date. Campos opcionais: peso, gordura, medidas e proxima avaliacao.
         </p>
         <input
           type="file"
@@ -584,6 +777,7 @@ export function ImportsPage() {
             setAssessmentsFile(event.target.files?.[0] ?? null);
             setAssessmentsPreview(null);
             setAssessmentsSummary(null);
+            setAssessmentsMapping({});
           }}
           className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
         />
@@ -591,23 +785,28 @@ export function ImportsPage() {
           <button
             type="button"
             disabled={!assessmentsFile || previewAssessmentsMutation.isPending}
-            onClick={() => assessmentsFile && previewAssessmentsMutation.mutate(assessmentsFile)}
+            onClick={() =>
+              assessmentsFile && previewAssessmentsMutation.mutate({ file: assessmentsFile, mapping: assessmentsMapping })
+            }
             className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
           >
             <FileUp size={14} />
-            {previewAssessmentsMutation.isPending ? "Validando..." : "Validar arquivo"}
+            {getValidateButtonLabel(assessmentsPreview, previewAssessmentsMutation.isPending)}
           </button>
           <button
             type="button"
-            disabled={!assessmentsFile || !assessmentsPreview || assessmentsPreview.valid_rows === 0 || importAssessmentsMutation.isPending}
-            onClick={() => assessmentsFile && importAssessmentsMutation.mutate(assessmentsFile)}
+            disabled={!canImportAssessments}
+            onClick={() =>
+              assessmentsFile && importAssessmentsMutation.mutate({ file: assessmentsFile, mapping: assessmentsMapping })
+            }
             className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
           >
             <FileUp size={14} />
-            {importAssessmentsMutation.isPending ? "Confirmando..." : "Confirmar importação"}
+            {importAssessmentsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
           </button>
         </div>
-        <PreviewResult preview={assessmentsPreview} />
+        <ColumnMappingEditor preview={assessmentsPreview} mapping={assessmentsMapping} onChange={setAssessmentsMapping} isDirty={assessmentsMappingDirty} />
+        <PreviewResult preview={assessmentsPreview} mappingDirty={assessmentsMappingDirty} />
         <ImportResult summary={assessmentsSummary} />
       </section>
 
@@ -651,6 +850,18 @@ export function ImportsPage() {
             <Download size={14} />
             {exportCheckinsMutation.isPending ? "Exportando..." : "Exportar catraca CSV"}
           </button>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <div className="flex items-start gap-3">
+          <Link2 className="mt-0.5 text-brand-500" size={18} />
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Fluxo recomendado</h3>
+            <p className="mt-1 text-xs text-lovable-ink-muted">
+              Valide o arquivo, ajuste o mapeamento quando necessario, revalide e so depois confirme a importacao final.
+            </p>
+          </div>
         </div>
       </section>
     </section>

@@ -14,6 +14,7 @@ from app.services.audit_service import log_audit_event
 from app.services.crm_service import append_lead_note
 from app.services.objection_service import generate_objection_response
 from app.services.whatsapp_service import format_phone, get_gym_instance, normalize_phone, phones_match, send_whatsapp_sync
+from app.utils.pii_search import build_phone_search_hash
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,20 @@ def _find_member_by_phone(db: Session, gym_id: UUID | None, phone: str) -> Membe
     target_phone = normalize_phone(phone)
     if not target_phone:
         return None
+
+    phone_hash = build_phone_search_hash(target_phone)
+    if phone_hash:
+        match = db.scalar(
+            select(Member)
+            .execution_options(include_all_tenants=True)
+            .where(
+                Member.gym_id == gym_id,
+                Member.deleted_at.is_(None),
+                Member.phone_search_hash == phone_hash,
+            )
+        )
+        if match:
+            return match
 
     candidates = list(
         db.scalars(

@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Edit2, Eye, Trash2, Users } from "lucide-react";
 import toast from "react-hot-toast";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import {
@@ -24,6 +24,7 @@ import type { MemberPlanCycle } from "../../services/memberService";
 import type { Member, RiskLevel } from "../../types";
 import { canDeleteMember, canManageMemberDirectory } from "../../utils/roleAccess";
 import { AddMemberDrawer } from "./AddMemberDrawer";
+import { BulkUpdateMembersDialog } from "./BulkUpdateMembersDialog";
 import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
 import {
@@ -56,6 +57,7 @@ function isCurrentMonth(value: string): boolean {
 export function MembersPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<MemberQueryFilters>({});
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -64,7 +66,9 @@ export function MembersPage() {
   const [editMember, setEditMember] = useState<Member | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [bulkUpdateOpen, setBulkUpdateOpen] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["members", filters, page],
@@ -86,6 +90,19 @@ export function MembersPage() {
     onError: () => toast.error("Erro ao remover membro"),
   });
 
+  useEffect(() => {
+    const nextSearch = searchParams.get("search") ?? "";
+    setSearch((previous) => (previous === nextSearch ? previous : nextSearch));
+    setFilters((previous) => {
+      const normalizedSearch = nextSearch.trim() || undefined;
+      if (previous.search === normalizedSearch) {
+        return previous;
+      }
+      return { ...previous, search: normalizedSearch };
+    });
+    setPage(1);
+  }, [searchParams]);
+
   const handleFilterChange = <K extends keyof MemberQueryFilters>(key: K, value: MemberQueryFilters[K] | undefined) => {
     setPage(1);
     setFilters((prev) => ({ ...prev, [key]: value === "" ? undefined : value }));
@@ -95,12 +112,23 @@ export function MembersPage() {
     setSearch(value);
     setPage(1);
     setFilters((prev) => ({ ...prev, search: value.trim() || undefined }));
+    const nextParams = new URLSearchParams(searchParams);
+    const trimmedValue = value.trim();
+    if (trimmedValue) {
+      nextParams.set("search", trimmedValue);
+    } else {
+      nextParams.delete("search");
+    }
+    setSearchParams(nextParams, { replace: true });
   };
 
   const clearAllFilters = () => {
     setSearch("");
     setPage(1);
     setFilters({});
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("search");
+    setSearchParams(nextParams, { replace: true });
   };
 
   const handleProvisionalFilterChange = (value: string) => {
@@ -120,6 +148,28 @@ export function MembersPage() {
     event.stopPropagation();
     setEditMember(member);
     setEditOpen(true);
+  };
+
+  const toggleMemberSelection = (memberId: string, checked: boolean) => {
+    setSelectedMemberIds((current) => {
+      if (checked) {
+        return current.includes(memberId) ? current : [...current, memberId];
+      }
+      return current.filter((id) => id !== memberId);
+    });
+  };
+
+  const visibleMemberIds = data?.items.map((member) => member.id) ?? [];
+  const allVisibleSelected = visibleMemberIds.length > 0 && visibleMemberIds.every((memberId) => selectedMemberIds.includes(memberId));
+  const selectedCount = selectedMemberIds.length;
+
+  const toggleVisibleSelection = (checked: boolean) => {
+    setSelectedMemberIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...visibleMemberIds]));
+      }
+      return current.filter((memberId) => !visibleMemberIds.includes(memberId));
+    });
   };
 
   const pageStart = data && data.total > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
@@ -166,7 +216,7 @@ export function MembersPage() {
           search={{
             value: search,
             onChange: handleSearchChange,
-            placeholder: "Buscar por nome, email ou matricula...",
+            placeholder: "Buscar por nome, email, matricula, telefone ou CPF...",
           }}
           filters={[
             {
@@ -238,9 +288,21 @@ export function MembersPage() {
           activeCount={activeFilterCount}
           onClear={clearAllFilters}
         />
-        <p className="px-1 text-sm text-lovable-ink-muted">
-          {data ? `${data.total} membros cadastrados` : "Carregando membros..."}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+          <p className="text-sm text-lovable-ink-muted">
+            {data ? `${data.total} membros cadastrados` : "Carregando membros..."}
+            {selectedCount ? ` · ${selectedCount} selecionado(s)` : ""}
+          </p>
+          {canManageDirectory ? (
+            <Button
+              variant="secondary"
+              onClick={() => setBulkUpdateOpen(true)}
+              disabled={!data?.total}
+            >
+              Atualizacao em massa
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <Table>
@@ -264,6 +326,14 @@ export function MembersPage() {
             <TableInner>
               <TableHead>
                 <tr>
+                  <TableHeaderCell className="w-[56px]">
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar membros visiveis"
+                      checked={allVisibleSelected}
+                      onChange={(event) => toggleVisibleSelection(event.target.checked)}
+                    />
+                  </TableHeaderCell>
                   <TableHeaderCell>Membro</TableHeaderCell>
                   <TableHeaderCell>Plano</TableHeaderCell>
                   <TableHeaderCell>Operação</TableHeaderCell>
@@ -279,6 +349,14 @@ export function MembersPage() {
                     className="cursor-pointer"
                     onClick={() => openDetail(member)}
                   >
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${member.full_name}`}
+                        checked={selectedMemberIds.includes(member.id)}
+                        onChange={(event) => toggleMemberSelection(member.id, event.target.checked)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="min-w-0">
                         <Link
@@ -395,6 +473,14 @@ export function MembersPage() {
       </Table>
 
       <AddMemberDrawer open={addOpen && canManageDirectory} onClose={() => setAddOpen(false)} />
+      <BulkUpdateMembersDialog
+        open={bulkUpdateOpen && canManageDirectory}
+        onClose={() => setBulkUpdateOpen(false)}
+        selectedMemberIds={selectedMemberIds}
+        filteredTotal={data?.total ?? 0}
+        filters={filters}
+        onApplied={() => setSelectedMemberIds([])}
+      />
       <MemberDetailDrawer member={selectedMember} open={detailOpen} onClose={() => setDetailOpen(false)} />
       <EditMemberDrawer member={editMember} open={editOpen} onClose={() => setEditOpen(false)} />
 

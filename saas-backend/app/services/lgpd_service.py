@@ -96,7 +96,9 @@ def anonymize_member(db: Session, member_id: UUID) -> Member:
     member.full_name = f"anon-{str(member.id)[:8]}"
     member.email = None
     member.phone = None
+    member.phone_search_hash = None
     member.cpf_encrypted = None
+    member.cpf_search_hash = None
     member.extra_data = {"anonymized_at": datetime.now(tz=timezone.utc).isoformat()}
     member.status = MemberStatus.CANCELLED
     member.deleted_at = datetime.now(tz=timezone.utc)

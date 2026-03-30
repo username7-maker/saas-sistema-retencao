@@ -167,7 +167,7 @@ export function AssessmentOperationsBoard({
           search={{
             value: searchQuery,
             onChange: onSearchQueryChange,
-            placeholder: "Buscar por nome, e-mail ou plano do aluno...",
+            placeholder: "Buscar por nome, e-mail, plano, telefone ou CPF...",
           }}
           activeCount={(searchQuery.trim() ? 1 : 0) + (activeFilter !== "all" ? 1 : 0)}
           onClear={onClearFilters}

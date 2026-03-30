@@ -97,6 +97,22 @@ class TestListMembers:
         compiled = stmt.compile()
         assert "external_id" in compiled.params.values()
 
+    def test_search_query_supports_phone_and_cpf_hash_lookup(self):
+        from app.services.member_service import list_members
+
+        db = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        db.scalars.return_value = mock_scalars
+        db.scalar.return_value = 0
+
+        list_members(db, page=1, page_size=20, search="(11) 99999-0001")
+
+        stmt = db.scalars.call_args.args[0]
+        compiled = str(stmt)
+        assert "members.phone_search_hash" in compiled
+        assert "members.cpf_search_hash" in compiled
+
 
 class TestGetMemberOr404:
     def test_raises_404_when_not_found(self):

@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4
+phase: 6
 plan: ""
-status: Ready for discuss/plan
-last_activity: 2026-03-24 - v3.2.0 opened from backlog items 999.x
+status: Phase 6 completed
+last_activity: 2026-03-29 - phase 6 concluida com busca operacional segura por telefone e CPF
 ---
 
 # STATE
@@ -17,17 +17,17 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4
-**Plan:** Aguardando discuss/plan da fase 4
-**Status:** Novo milestone aberto
-**Last activity:** 2026-03-24 - backlog `999.x` promovido para fases 4-6
+**Phase:** 6
+**Plan:** 06-PLAN.md concluido
+**Status:** Fase 6 concluida; milestone pronta para fechamento
+**Last activity:** 2026-03-29 - fase 6 entregue e validada
 
 ## Progress Snapshot
 
 **Active milestone:** v3.2.0
 **Phases planned:** 3
-**Plans planned:** 0
-**Plans completed:** 0
+**Plans planned:** 2
+**Plans completed:** 3
 
 ## Accumulated Context
 
@@ -37,6 +37,6 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ### Current Milestone Scope
 
-- Phase 4: import mapper e reconciliacao manual
-- Phase 5: bulk update dedicado de membros
-- Phase 6: busca operacional por telefone/CPF
+- Phase 4: import mapper e reconciliacao manual (concluida)
+- Phase 5: bulk update dedicado de membros (concluida)
+- Phase 6: busca operacional por telefone/CPF (concluida)

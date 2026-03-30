@@ -609,3 +609,50 @@ def test_import_checkins_csv_accepts_turnstile_xlsx_with_data_entrada_serial() -
     assert summary.errors == []
     assert summary.skipped_duplicates == 0
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
+
+
+def test_preview_members_csv_returns_mapping_suggestions_for_custom_headers() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Nome do aluno,E-mail principal,Matricula interna\n"
+        "Ana Silva,ana@example.com,123\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert preview.detected_columns == ["e_mail_principal", "matricula_interna", "nome_do_aluno"]
+    assert preview.suggested_mapping["nome_do_aluno"] == "full_name"
+    assert preview.suggested_mapping["e_mail_principal"] == "email"
+    assert preview.suggested_mapping["matricula_interna"] == "external_id"
+    assert preview.mapping_ready is True
+
+
+def test_import_members_csv_accepts_manual_column_mapping() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Aluno Nome,Contato Mail\n"
+        "Ana Silva,ana@example.com\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(
+        db,
+        csv_content,
+        filename="clientes.csv",
+        column_mapping={
+            "aluno_nome": "full_name",
+            "contato_mail": "email",
+        },
+    )
+
+    assert summary.imported == 1
+    assert summary.errors == []
+    assert db.add.called
+    db.commit.assert_called_once()

@@ -21,6 +21,8 @@ vi.mock("../services/memberService", async () => {
       ...actual.memberService,
       listMembers: vi.fn(),
       deleteMember: vi.fn(),
+      previewBulkUpdate: vi.fn(),
+      bulkUpdate: vi.fn(),
     },
   };
 });
@@ -77,7 +79,7 @@ const membersResponse: PaginatedResponse<Member> = {
   page_size: 20,
 };
 
-function renderPage() {
+function renderPage(initialEntry = "/members") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -86,7 +88,7 @@ function renderPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/members"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/members" element={<MembersPage />} />
           <Route path="/assessments/members/:memberId" element={<LocationEcho />} />
@@ -101,6 +103,30 @@ describe("MembersPage", () => {
     vi.clearAllMocks();
     vi.mocked(memberService.listMembers).mockResolvedValue(membersResponse);
     vi.mocked(memberService.deleteMember).mockResolvedValue();
+    vi.mocked(memberService.previewBulkUpdate).mockResolvedValue({
+      target_mode: "selected",
+      target_description: "1 membro(s) selecionado(s)",
+      total_candidates: 1,
+      would_update: 1,
+      unchanged: 0,
+      changed_fields: ["status"],
+      sample_members: [
+        {
+          id: "member-1",
+          full_name: "Ana Silva",
+          email: "member-1@teste.com",
+          current_values: { status: "active" },
+          next_values: { status: "paused" },
+        },
+      ],
+    });
+    vi.mocked(memberService.bulkUpdate).mockResolvedValue({
+      target_mode: "selected",
+      target_description: "1 membro(s) selecionado(s)",
+      updated: 1,
+      unchanged: 0,
+      changed_fields: ["status"],
+    });
   });
 
   it("navigates to the student workspace when clicking the member name", async () => {
@@ -126,7 +152,7 @@ describe("MembersPage", () => {
     renderPage();
 
     expect(await screen.findByText("Ana Silva")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Buscar por nome, email ou matricula...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Buscar por nome, email, matricula, telefone ou CPF...")).toBeInTheDocument();
     expect(screen.getByText("Matricula MAT-001")).toBeInTheDocument();
     expect(screen.getByText("Provisorio")).toBeInTheDocument();
 
@@ -147,5 +173,62 @@ describe("MembersPage", () => {
         }),
       );
     });
+  });
+
+  it("supports safe bulk update with preview before confirm", async () => {
+    renderPage();
+
+    const rowCheckbox = await screen.findByRole("checkbox", { name: "Selecionar Ana Silva" });
+    fireEvent.click(rowCheckbox);
+
+    fireEvent.click(screen.getByRole("button", { name: "Atualizacao em massa" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Alterar status" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Novo status" }), {
+      target: { value: "paused" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gerar preview" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(memberService.previewBulkUpdate).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          target_mode: "selected",
+          selected_member_ids: ["member-1"],
+          changes: { status: "paused" },
+        }),
+      );
+    });
+
+    expect(await screen.findAllByText("Ana Silva")).toHaveLength(2);
+    expect(screen.getByText(/Ativo -> Pausado/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar atualizacao" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(memberService.bulkUpdate).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          target_mode: "selected",
+          selected_member_ids: ["member-1"],
+          changes: { status: "paused" },
+        }),
+      );
+    });
+  });
+
+  it("hydrates search from the URL and sends phone/cpf capable search to the query", async () => {
+    renderPage("/members?search=11999990001");
+
+    await waitFor(() => {
+      expect(memberService.listMembers).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          search: "11999990001",
+          page: 1,
+          page_size: 20,
+        }),
+      );
+    });
+
+    expect(screen.getByDisplayValue("11999990001")).toBeInTheDocument();
   });
 });

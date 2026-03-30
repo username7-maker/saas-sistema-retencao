@@ -1,6 +1,7 @@
 import { api } from "./api";
 import type { ImportPreview, ImportSummary } from "../types";
 
+type ColumnMapping = Record<string, string | null>;
 
 function parseFilename(contentDisposition?: string): string {
   if (!contentDisposition) return "export.csv";
@@ -19,47 +20,66 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.URL.revokeObjectURL(url);
 }
 
+function appendColumnMapping(form: FormData, columnMapping?: ColumnMapping): void {
+  if (!columnMapping || Object.keys(columnMapping).length === 0) return;
+  form.append("column_mapping", JSON.stringify(columnMapping));
+}
+
 export const importExportService = {
-  async previewMembers(file: File): Promise<ImportPreview> {
+  async previewMembers(file: File, columnMapping?: ColumnMapping): Promise<ImportPreview> {
     const form = new FormData();
     form.append("file", file);
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/members/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 
-  async importMembers(file: File): Promise<ImportSummary> {
+  async importMembers(file: File, columnMapping?: ColumnMapping): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/members", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
 
-  async previewCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportPreview> {
+  async previewCheckins(
+    file: File,
+    autoCreateMissingMembers = false,
+    columnMapping?: ColumnMapping,
+  ): Promise<ImportPreview> {
     const form = new FormData();
     form.append("file", file);
     form.append("auto_create_missing_members", String(autoCreateMissingMembers));
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/checkins/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 
-  async importCheckins(file: File, autoCreateMissingMembers = false): Promise<ImportSummary> {
+  async importCheckins(
+    file: File,
+    autoCreateMissingMembers = false,
+    columnMapping?: ColumnMapping,
+  ): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
     form.append("auto_create_missing_members", String(autoCreateMissingMembers));
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/checkins", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },
 
-  async previewAssessments(file: File): Promise<ImportPreview> {
+  async previewAssessments(file: File, columnMapping?: ColumnMapping): Promise<ImportPreview> {
     const form = new FormData();
     form.append("file", file);
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/assessments/preview", form, { timeout: 2 * 60 * 1000 });
     return response.data;
   },
 
-  async importAssessments(file: File): Promise<ImportSummary> {
+  async importAssessments(file: File, columnMapping?: ColumnMapping): Promise<ImportSummary> {
     const form = new FormData();
     form.append("file", file);
+    appendColumnMapping(form, columnMapping);
     const response = await api.post("/api/v1/imports/assessments", form, { timeout: 10 * 60 * 1000 });
     return response.data;
   },

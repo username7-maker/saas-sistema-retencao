@@ -14,27 +14,27 @@
 **Goal:** Permitir reconciliacao manual/visual de colunas antes do commit final de importacao.
 **Requirements**: Mapper assistido no preview, com confirmacao explicita antes da escrita.
 **Depends on:** Phase 3
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 4 -> $gsd-plan-phase 4)
+- [x] 04-PLAN.md
 
 ### Phase 5: Bulk update dedicado de membros
 
 **Goal:** Criar fluxo dedicado de atualizacao em massa fora da importacao.
 **Requirements**: Atualizacao coletiva segura, com preview e confirmacao.
 **Depends on:** Phase 4
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 5 -> $gsd-plan-phase 5)
+- [x] 05-PLAN.md
 
 ### Phase 6: Busca operacional por telefone e CPF
 
 **Goal:** Permitir busca operacional por telefone/CPF com estrategia segura de indexacao.
 **Requirements**: Token/hash/index sem expor dados sensiveis em claro.
 **Depends on:** Phase 5
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 6 -> $gsd-plan-phase 6)
+- [x] 06-PLAN.md

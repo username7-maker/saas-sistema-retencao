@@ -4,6 +4,7 @@ import re
 import unicodedata
 import zipfile
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 from dateutil.relativedelta import relativedelta
@@ -16,10 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Assessment, Checkin, CheckinSource, Member, MemberStatus
-from app.schemas import ImportErrorEntry, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
+from app.schemas import ImportErrorEntry, ImportMappingOption, ImportPreview, ImportPreviewRow, ImportSummary, MissingMemberEntry
 from app.services.assessment_service import _calculate_next_assessment_due
+from app.services.member_service import set_member_cpf, set_member_phone
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
-from app.utils.encryption import decrypt_cpf, encrypt_cpf
+from app.utils.encryption import decrypt_cpf
 
 
 NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name", "cliente")
@@ -179,6 +181,75 @@ _ASSESSMENT_PREVIEW_COLUMNS = set(
     + ASSESSMENT_OBSERVATION_KEYS
 )
 
+_IGNORE_MAPPING_VALUE = "__ignore__"
+
+
+@dataclass(frozen=True)
+class _ImportFieldSpec:
+    key: str
+    label: str
+    aliases: tuple[str, ...]
+
+
+_MEMBER_FIELD_SPECS = (
+    _ImportFieldSpec("full_name", "Nome completo", NAME_KEYS),
+    _ImportFieldSpec("first_name", "Primeiro nome", FIRST_NAME_KEYS),
+    _ImportFieldSpec("last_name", "Sobrenome", LAST_NAME_KEYS),
+    _ImportFieldSpec("email", "E-mail", EMAIL_KEYS),
+    _ImportFieldSpec("phone", "Telefone / WhatsApp", PHONE_KEYS),
+    _ImportFieldSpec("cpf", "CPF", CPF_KEYS),
+    _ImportFieldSpec("external_id", "Matricula / ID externo", EXTERNAL_ID_KEYS),
+    _ImportFieldSpec("plan_name", "Plano", PLAN_KEYS),
+    _ImportFieldSpec("monthly_fee", "Mensalidade", MONTHLY_FEE_KEYS),
+    _ImportFieldSpec("join_date", "Data de inicio", JOIN_DATE_KEYS),
+    _ImportFieldSpec("last_checkin_at", "Ultimo acesso", LAST_ACCESS_KEYS),
+    _ImportFieldSpec("preferred_shift", "Turno preferido", PREFERRED_SHIFT_KEYS),
+    _ImportFieldSpec("status", "Status", STATUS_KEYS),
+)
+
+_CHECKIN_FIELD_SPECS = (
+    _ImportFieldSpec("member_id", "ID do membro", MEMBER_ID_KEYS),
+    _ImportFieldSpec("full_name", "Nome completo", NAME_KEYS),
+    _ImportFieldSpec("first_name", "Primeiro nome", FIRST_NAME_KEYS),
+    _ImportFieldSpec("last_name", "Sobrenome", LAST_NAME_KEYS),
+    _ImportFieldSpec("email", "E-mail", EMAIL_KEYS),
+    _ImportFieldSpec("phone", "Telefone / WhatsApp", PHONE_KEYS),
+    _ImportFieldSpec("cpf", "CPF", CPF_KEYS),
+    _ImportFieldSpec("external_id", "Matricula / ID externo", EXTERNAL_ID_KEYS),
+    _ImportFieldSpec("plan_name", "Plano", PLAN_KEYS),
+    _ImportFieldSpec("checkin_at", "Data e hora do check-in", CHECKIN_AT_KEYS),
+    _ImportFieldSpec("checkin_date", "Data do check-in", CHECKIN_DATE_KEYS),
+    _ImportFieldSpec("checkin_time", "Hora do check-in", CHECKIN_TIME_KEYS),
+    _ImportFieldSpec("source", "Origem", CHECKIN_SOURCE_KEYS),
+)
+
+_ASSESSMENT_FIELD_SPECS = (
+    _ImportFieldSpec("member_id", "ID do membro", MEMBER_ID_KEYS),
+    _ImportFieldSpec("full_name", "Nome completo", NAME_KEYS),
+    _ImportFieldSpec("first_name", "Primeiro nome", FIRST_NAME_KEYS),
+    _ImportFieldSpec("last_name", "Sobrenome", LAST_NAME_KEYS),
+    _ImportFieldSpec("email", "E-mail", EMAIL_KEYS),
+    _ImportFieldSpec("phone", "Telefone / WhatsApp", PHONE_KEYS),
+    _ImportFieldSpec("cpf", "CPF", CPF_KEYS),
+    _ImportFieldSpec("external_id", "Matricula / ID externo", EXTERNAL_ID_KEYS),
+    _ImportFieldSpec("plan_name", "Plano", PLAN_KEYS),
+    _ImportFieldSpec("assessment_date", "Data da avaliacao", ASSESSMENT_DATE_KEYS),
+    _ImportFieldSpec("next_assessment_due", "Proxima avaliacao", NEXT_ASSESSMENT_DUE_KEYS),
+    _ImportFieldSpec("height_cm", "Altura (cm)", ASSESSMENT_HEIGHT_KEYS),
+    _ImportFieldSpec("weight_kg", "Peso (kg)", ASSESSMENT_WEIGHT_KEYS),
+    _ImportFieldSpec("body_fat_pct", "Gordura corporal (%)", ASSESSMENT_BODY_FAT_KEYS),
+    _ImportFieldSpec("lean_mass_kg", "Massa magra (kg)", ASSESSMENT_LEAN_MASS_KEYS),
+    _ImportFieldSpec("waist_cm", "Cintura (cm)", ASSESSMENT_WAIST_KEYS),
+    _ImportFieldSpec("hip_cm", "Quadril (cm)", ASSESSMENT_HIP_KEYS),
+    _ImportFieldSpec("observations", "Observacoes", ASSESSMENT_OBSERVATION_KEYS),
+)
+
+_FIELD_SPECS_BY_KIND: dict[str, tuple[_ImportFieldSpec, ...]] = {
+    "members": _MEMBER_FIELD_SPECS,
+    "checkins": _CHECKIN_FIELD_SPECS,
+    "assessments": _ASSESSMENT_FIELD_SPECS,
+}
+
 
 def _should_create_import_onboarding(join_date: date | None) -> bool:
     if join_date is None:
@@ -193,6 +264,139 @@ def _build_preview_columns(seen_columns: set[str], allowed_columns: set[str]) ->
     recognized = sorted(column for column in seen_columns if column in allowed_columns)
     unrecognized = sorted(column for column in seen_columns if column not in allowed_columns)
     return recognized, unrecognized
+
+
+def _mapping_options_for(kind: str) -> list[ImportMappingOption]:
+    return [
+        ImportMappingOption(value=spec.key, label=spec.label, required=False)
+        for spec in _FIELD_SPECS_BY_KIND[kind]
+    ]
+
+
+def _normalize_column_mapping(
+    kind: str,
+    column_mapping: dict[str, str | None] | None,
+) -> dict[str, str]:
+    if not column_mapping:
+        return {}
+
+    allowed_targets = {spec.key for spec in _FIELD_SPECS_BY_KIND[kind]}
+    normalized: dict[str, str] = {}
+    for source, target in column_mapping.items():
+        source_key = _normalize_header(str(source))
+        if not source_key:
+            continue
+        if target is None or str(target).strip() == "":
+            continue
+        target_value = str(target).strip()
+        if target_value in {_IGNORE_MAPPING_VALUE, "ignore"}:
+            normalized[source_key] = _IGNORE_MAPPING_VALUE
+            continue
+        target_key = _normalize_header(target_value)
+        if target_key in allowed_targets:
+            normalized[source_key] = target_key
+    return normalized
+
+
+def _mapping_score(column: str, spec: _ImportFieldSpec) -> int:
+    if column == spec.key:
+        return 100
+
+    score = 0
+    column_tokens = {token for token in column.split("_") if token}
+    for alias in set(spec.aliases + (spec.key,)):
+        alias_key = _normalize_header(alias)
+        if not alias_key:
+            continue
+        if column == alias_key:
+            return 96
+        if alias_key in column or column in alias_key:
+            score = max(score, 70 + min(len(alias_key), 20))
+        alias_tokens = {token for token in alias_key.split("_") if token}
+        if alias_tokens and alias_tokens.issubset(column_tokens):
+            score = max(score, 78 + min(len(alias_tokens) * 4, 12))
+    return score
+
+
+def _guess_column_mapping(column: str, specs: tuple[_ImportFieldSpec, ...]) -> str | None:
+    ranked = sorted(
+        ((spec.key, _mapping_score(column, spec)) for spec in specs),
+        key=lambda item: (-item[1], item[0]),
+    )
+    if not ranked or ranked[0][1] < 70:
+        return None
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        return None
+    return ranked[0][0]
+
+
+def _missing_mapping_requirements(kind: str, mapped_targets: set[str]) -> list[str]:
+    if kind == "members":
+        missing: list[str] = []
+        if not ({"full_name", "first_name"} & mapped_targets):
+            missing.append("Nome do aluno")
+        return missing
+
+    if kind == "checkins":
+        missing = []
+        if not ({"member_id", "full_name", "first_name", "email", "phone", "cpf", "external_id"} & mapped_targets):
+            missing.append("Identificador do aluno")
+        if not ({"checkin_at", "checkin_date"} & mapped_targets):
+            missing.append("Data/hora do check-in")
+        return missing
+
+    missing = []
+    if not ({"member_id", "full_name", "first_name", "email", "phone", "cpf", "external_id"} & mapped_targets):
+        missing.append("Identificador do aluno")
+    if "assessment_date" not in mapped_targets:
+        missing.append("Data da avaliacao")
+    return missing
+
+
+def _build_mapping_metadata(
+    kind: str,
+    seen_columns: set[str],
+    column_mapping: dict[str, str | None] | None,
+) -> tuple[dict[str, str | None], list[str], list[str], bool]:
+    specs = _FIELD_SPECS_BY_KIND[kind]
+    requested_mapping = _normalize_column_mapping(kind, column_mapping)
+    effective_mapping: dict[str, str | None] = {}
+    for column in sorted(seen_columns):
+        if column in requested_mapping:
+            effective_mapping[column] = requested_mapping[column]
+            continue
+        effective_mapping[column] = _guess_column_mapping(column, specs)
+
+    mapped_targets = [target for target in effective_mapping.values() if target and target != _IGNORE_MAPPING_VALUE]
+    duplicate_targets = sorted(
+        target for target, total in Counter(mapped_targets).items() if total > 1
+    )
+    missing_required = _missing_mapping_requirements(kind, set(mapped_targets))
+    return effective_mapping, missing_required, duplicate_targets, not missing_required and not duplicate_targets
+
+
+def _apply_column_mapping(row: dict[str, str], column_mapping: dict[str, str | None] | None) -> dict[str, str]:
+    normalized_mapping = {
+        _normalize_header(source): target
+        for source, target in (column_mapping or {}).items()
+        if source
+    }
+    if not normalized_mapping:
+        return row
+
+    remapped: dict[str, str] = {}
+    for source_key, value in row.items():
+        target = normalized_mapping.get(source_key)
+        if target == _IGNORE_MAPPING_VALUE:
+            continue
+        destination = target or source_key
+        if not destination:
+            continue
+        existing_value = remapped.get(destination)
+        if existing_value and value:
+            continue
+        remapped[destination] = value
+    return remapped
 
 
 def _preview_member_snapshot(
@@ -214,7 +418,13 @@ def _preview_member_snapshot(
     }
 
 
-def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportPreview:
+def preview_members_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mapping: dict[str, str | None] | None = None,
+) -> ImportPreview:
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
     sample_rows: list[ImportPreviewRow] = []
@@ -233,9 +443,10 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
     warned_missing_join_date = False
     warned_updates = False
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
         total_rows += 1
-        seen_columns.update(row.keys())
+        seen_columns.update(raw_row.keys())
+        row = _apply_column_mapping(raw_row, column_mapping)
         full_name = _extract_member_name(row)
         if not full_name:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
@@ -310,6 +521,11 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
             seen_cpfs.add(cpf_digits)
 
     recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _MEMBER_PREVIEW_COLUMNS)
+    suggested_mapping, missing_required_fields, duplicate_target_fields, mapping_ready = _build_mapping_metadata(
+        "members",
+        seen_columns,
+        column_mapping,
+    )
     return ImportPreview(
         preview_kind="members",
         total_rows=total_rows,
@@ -319,6 +535,12 @@ def preview_members_csv(db: Session, csv_content: bytes, filename: str | None = 
         would_skip=would_skip,
         recognized_columns=recognized_columns,
         unrecognized_columns=unrecognized_columns,
+        detected_columns=sorted(seen_columns),
+        suggested_mapping=suggested_mapping,
+        mapping_options=_mapping_options_for("members"),
+        missing_required_fields=missing_required_fields,
+        duplicate_target_fields=duplicate_target_fields,
+        mapping_ready=mapping_ready,
         warnings=warnings,
         sample_rows=sample_rows,
         errors=errors,
@@ -331,6 +553,7 @@ def preview_checkins_csv(
     filename: str | None = None,
     *,
     auto_create_missing_members: bool = False,
+    column_mapping: dict[str, str | None] | None = None,
 ) -> ImportPreview:
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
@@ -350,9 +573,10 @@ def preview_checkins_csv(
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
         total_rows += 1
-        seen_columns.update(row.keys())
+        seen_columns.update(raw_row.keys())
+        row = _apply_column_mapping(raw_row, column_mapping)
         if _is_ignorable_checkin_row(row):
             ignored += 1
             continue
@@ -436,6 +660,11 @@ def preview_checkins_csv(
         warnings.append("Cadastros provisiorios criados por catraca nao geram onboarding automatico.")
 
     recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _CHECKIN_PREVIEW_COLUMNS)
+    suggested_mapping, missing_required_fields, duplicate_target_fields, mapping_ready = _build_mapping_metadata(
+        "checkins",
+        seen_columns,
+        column_mapping,
+    )
     return ImportPreview(
         preview_kind="checkins",
         total_rows=total_rows,
@@ -446,6 +675,12 @@ def preview_checkins_csv(
         provisional_members_possible=provisional_members_possible,
         recognized_columns=recognized_columns,
         unrecognized_columns=unrecognized_columns,
+        detected_columns=sorted(seen_columns),
+        suggested_mapping=suggested_mapping,
+        mapping_options=_mapping_options_for("checkins"),
+        missing_required_fields=missing_required_fields,
+        duplicate_target_fields=duplicate_target_fields,
+        mapping_ready=mapping_ready,
         missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
         warnings=warnings,
         sample_rows=sample_rows,
@@ -453,7 +688,13 @@ def preview_checkins_csv(
     )
 
 
-def import_members_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
+def import_members_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mapping: dict[str, str | None] | None = None,
+) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
@@ -465,7 +706,10 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
     seen_external_ids: set[str] = set()
     seen_cpfs: set[str] = set()
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    normalized_mapping = _normalize_column_mapping("members", column_mapping)
+
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
+        row = _apply_column_mapping(raw_row, normalized_mapping)
         full_name = _extract_member_name(row)
         if not full_name:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Nome ausente", payload=row))
@@ -539,8 +783,6 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
         member = Member(
             full_name=full_name,
             email=email,
-            phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
-            cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
             status=_parse_member_status(_pick_first(row, STATUS_KEYS)),
             plan_name=plan_name,
             monthly_fee=monthly_fee,
@@ -550,6 +792,8 @@ def import_members_csv(db: Session, csv_content: bytes, filename: str | None = N
             last_checkin_at=last_checkin_at,
             extra_data=extra_data,
         )
+        set_member_phone(member, _normalize_phone(_pick_first(row, PHONE_KEYS)))
+        set_member_cpf(member, cpf_digits)
         db.add(member)
         if _should_create_import_onboarding(canonical_join_date):
             db.flush()
@@ -582,6 +826,7 @@ def import_checkins_csv(
     filename: str | None = None,
     *,
     auto_create_missing_members: bool = False,
+    column_mapping: dict[str, str | None] | None = None,
 ) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
@@ -597,7 +842,10 @@ def import_checkins_csv(
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    normalized_mapping = _normalize_column_mapping("checkins", column_mapping)
+
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
+        row = _apply_column_mapping(raw_row, normalized_mapping)
         if _is_ignorable_checkin_row(row):
             ignored += 1
             continue
@@ -677,7 +925,13 @@ def import_checkins_csv(
     )
 
 
-def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportPreview:
+def preview_assessments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mapping: dict[str, str | None] | None = None,
+) -> ImportPreview:
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
     sample_rows: list[ImportPreviewRow] = []
@@ -694,9 +948,10 @@ def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | Non
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
         total_rows += 1
-        seen_columns.update(row.keys())
+        seen_columns.update(raw_row.keys())
+        row = _apply_column_mapping(raw_row, column_mapping)
         parsed_at = _parse_assessment_datetime(_pick_first(row, ASSESSMENT_DATE_KEYS))
         if not parsed_at:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Data de avaliacao invalida", payload=row))
@@ -755,6 +1010,11 @@ def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | Non
         warnings.append("Historico importado entra como avaliacao retroativa e remove o aluno da fila de 'nunca avaliado'.")
 
     recognized_columns, unrecognized_columns = _build_preview_columns(seen_columns, _ASSESSMENT_PREVIEW_COLUMNS)
+    suggested_mapping, missing_required_fields, duplicate_target_fields, mapping_ready = _build_mapping_metadata(
+        "assessments",
+        seen_columns,
+        column_mapping,
+    )
     return ImportPreview(
         preview_kind="assessments",
         total_rows=total_rows,
@@ -763,6 +1023,12 @@ def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | Non
         would_skip=would_skip,
         recognized_columns=recognized_columns,
         unrecognized_columns=unrecognized_columns,
+        detected_columns=sorted(seen_columns),
+        suggested_mapping=suggested_mapping,
+        mapping_options=_mapping_options_for("assessments"),
+        missing_required_fields=missing_required_fields,
+        duplicate_target_fields=duplicate_target_fields,
+        mapping_ready=mapping_ready,
         missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
         warnings=warnings,
         sample_rows=sample_rows,
@@ -770,7 +1036,13 @@ def preview_assessments_csv(db: Session, csv_content: bytes, filename: str | Non
     )
 
 
-def import_assessments_csv(db: Session, csv_content: bytes, filename: str | None = None) -> ImportSummary:
+def import_assessments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mapping: dict[str, str | None] | None = None,
+) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     imported = 0
@@ -778,12 +1050,14 @@ def import_assessments_csv(db: Session, csv_content: bytes, filename: str | None
     missing_member_counts: Counter[str] = Counter()
     missing_member_plans: dict[str, str | None] = {}
     pending_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
+    normalized_mapping = _normalize_column_mapping("assessments", column_mapping)
 
     existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
     lookup = _build_member_lookups(existing_members)
     assessment_counts = _fetch_assessment_counts(db)
 
-    for row_number, row in _iter_rows(csv_content, filename=filename):
+    for row_number, raw_row in _iter_rows(csv_content, filename=filename):
+        row = _apply_column_mapping(raw_row, normalized_mapping)
         parsed_at = _parse_assessment_datetime(_pick_first(row, ASSESSMENT_DATE_KEYS))
         if not parsed_at:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Data de avaliacao invalida", payload=row))
@@ -1514,10 +1788,10 @@ def _refresh_existing_member_from_import_row(
         changed = True
     phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
     if phone and member.phone != phone:
-        member.phone = phone
+        set_member_phone(member, phone)
         changed = True
     if cpf_digits and not member.cpf_encrypted:
-        member.cpf_encrypted = encrypt_cpf(cpf_digits)
+        set_member_cpf(member, cpf_digits)
         changed = True
 
     status = _parse_member_status(_pick_first(row, STATUS_KEYS))
@@ -1659,8 +1933,6 @@ def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], pa
     member = Member(
         full_name=full_name,
         email=_truncate(((_pick_first(row, EMAIL_KEYS) or "").lower() or None), _MAX_MEMBER_EMAIL),
-        phone=_normalize_phone(_pick_first(row, PHONE_KEYS)),
-        cpf_encrypted=encrypt_cpf(cpf_digits) if cpf_digits else None,
         status=MemberStatus.ACTIVE,
         plan_name=plan_name,
         monthly_fee=Decimal("0"),
@@ -1670,6 +1942,8 @@ def _create_provisional_member_from_checkin(db: Session, row: dict[str, str], pa
         last_checkin_at=parsed,
         extra_data=extra_data,
     )
+    set_member_phone(member, _normalize_phone(_pick_first(row, PHONE_KEYS)))
+    set_member_cpf(member, cpf_digits)
     db.add(member)
     db.flush()
     return member

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Users } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { AssessmentOperationsBoard } from "../../components/assessments/AssessmentOperationsBoard";
 import type { AssessmentQueueFilter } from "../../components/assessments/assessmentOperationsUtils";
@@ -10,6 +10,7 @@ import { Card, CardContent } from "../../components/ui2";
 import { assessmentService } from "../../services/assessmentService";
 
 export function AssessmentsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<AssessmentQueueFilter>("all");
   const [page, setPage] = useState(1);
@@ -17,6 +18,11 @@ export function AssessmentsPage() {
   useEffect(() => {
     setPage(1);
   }, [activeFilter, searchQuery]);
+
+  useEffect(() => {
+    const nextSearch = searchParams.get("search") ?? "";
+    setSearchQuery((previous) => (previous === nextSearch ? previous : nextSearch));
+  }, [searchParams]);
 
   const dashboardQuery = useQuery({
     queryKey: ["assessments", "dashboard"],
@@ -82,7 +88,17 @@ export function AssessmentsPage() {
         queueFetching={queueQuery.isFetching}
         queueError={queueQuery.isError}
         searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
+        onSearchQueryChange={(value) => {
+          setSearchQuery(value);
+          const nextParams = new URLSearchParams(searchParams);
+          const trimmedValue = value.trim();
+          if (trimmedValue) {
+            nextParams.set("search", trimmedValue);
+          } else {
+            nextParams.delete("search");
+          }
+          setSearchParams(nextParams, { replace: true });
+        }}
         activeFilter={activeFilter}
         onActiveFilterChange={setActiveFilter}
         page={page}
@@ -90,6 +106,9 @@ export function AssessmentsPage() {
         onClearFilters={() => {
           setSearchQuery("");
           setActiveFilter("all");
+          const nextParams = new URLSearchParams(searchParams);
+          nextParams.delete("search");
+          setSearchParams(nextParams, { replace: true });
         }}
         onRetryQueue={() => {
           void queueQuery.refetch();

@@ -111,6 +111,12 @@ function resolveHeaderSearchConfig(pathname: string): HeaderSearchConfig | null 
   if (pathname.startsWith("/tasks")) {
     return { param: "search", placeholder: "Buscar tarefas, aluno ou lead..." };
   }
+  if (pathname === "/members") {
+    return { param: "search", placeholder: "Buscar nome, email, matricula, telefone ou CPF..." };
+  }
+  if (pathname === "/assessments") {
+    return { param: "search", placeholder: "Buscar aluno, plano, telefone ou CPF..." };
+  }
   return null;
 }
 

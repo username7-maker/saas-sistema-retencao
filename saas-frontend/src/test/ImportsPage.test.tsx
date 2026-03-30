@@ -59,6 +59,15 @@ describe("ImportsPage", () => {
       provisional_members_possible: 0,
       recognized_columns: ["nome", "email"],
       unrecognized_columns: [],
+      detected_columns: ["nome", "email"],
+      suggested_mapping: { nome: "full_name", email: "email" },
+      mapping_options: [
+        { value: "full_name", label: "Nome completo", required: false },
+        { value: "email", label: "E-mail", required: false },
+      ],
+      missing_required_fields: [],
+      duplicate_target_fields: [],
+      mapping_ready: true,
       missing_members: [],
       warnings: [],
       sample_rows: [
@@ -90,6 +99,12 @@ describe("ImportsPage", () => {
       provisional_members_possible: 0,
       recognized_columns: [],
       unrecognized_columns: [],
+      detected_columns: [],
+      suggested_mapping: {},
+      mapping_options: [],
+      missing_required_fields: [],
+      duplicate_target_fields: [],
+      mapping_ready: true,
       missing_members: [],
       warnings: [],
       sample_rows: [],
@@ -115,6 +130,12 @@ describe("ImportsPage", () => {
       provisional_members_possible: 0,
       recognized_columns: [],
       unrecognized_columns: [],
+      detected_columns: [],
+      suggested_mapping: {},
+      mapping_options: [],
+      missing_required_fields: [],
+      duplicate_target_fields: [],
+      mapping_ready: true,
       missing_members: [],
       warnings: [],
       sample_rows: [],
@@ -149,7 +170,10 @@ describe("ImportsPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Confirmar importacao" })[0]);
 
     await waitFor(() => {
-      expect(importExportService.importMembers).toHaveBeenCalledWith(file);
+      expect(importExportService.importMembers).toHaveBeenCalledWith(file, {
+        email: "email",
+        nome: "full_name",
+      });
     });
   });
 });

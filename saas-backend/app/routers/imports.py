@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 from typing import Annotated
@@ -29,6 +30,18 @@ logger = logging.getLogger(__name__)
 
 _MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
 _ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+
+
+def _parse_column_mapping(raw_mapping: str | None) -> dict[str, str | None] | None:
+    if not raw_mapping:
+        return None
+    try:
+        parsed = json.loads(raw_mapping)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="column_mapping invalido") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="column_mapping deve ser um objeto JSON")
+    return {str(key): (None if value is None else str(value)) for key, value in parsed.items()}
 
 
 def _queue_risk_recalculation(gym_id) -> None:
@@ -71,6 +84,7 @@ async def import_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mapping: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -80,7 +94,12 @@ async def import_members_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        summary = import_members_csv(db, content, filename=file.filename)
+        summary = import_members_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mapping=_parse_column_mapping(column_mapping),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -106,6 +125,7 @@ async def preview_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mapping: str | None = Form(None),
 ) -> ImportPreview:
     _ = request
     lower_filename = (file.filename or "").lower()
@@ -116,7 +136,12 @@ async def preview_members_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        return preview_members_csv(db, content, filename=file.filename)
+        return preview_members_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mapping=_parse_column_mapping(column_mapping),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -129,6 +154,7 @@ async def import_checkins_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
     auto_create_missing_members: bool = Form(False),
+    column_mapping: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -143,6 +169,7 @@ async def import_checkins_endpoint(
             content,
             filename=file.filename,
             auto_create_missing_members=auto_create_missing_members,
+            column_mapping=_parse_column_mapping(column_mapping),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -176,6 +203,7 @@ async def preview_checkins_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
     auto_create_missing_members: bool = Form(False),
+    column_mapping: str | None = Form(None),
 ) -> ImportPreview:
     _ = request
     lower_filename = (file.filename or "").lower()
@@ -191,6 +219,7 @@ async def preview_checkins_endpoint(
             content,
             filename=file.filename,
             auto_create_missing_members=auto_create_missing_members,
+            column_mapping=_parse_column_mapping(column_mapping),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -203,6 +232,7 @@ async def import_assessments_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mapping: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
@@ -212,7 +242,12 @@ async def import_assessments_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        summary = import_assessments_csv(db, content, filename=file.filename)
+        summary = import_assessments_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mapping=_parse_column_mapping(column_mapping),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -236,6 +271,7 @@ async def preview_assessments_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     file: UploadFile = File(...),
+    column_mapping: str | None = Form(None),
 ) -> ImportPreview:
     _ = request
     lower_filename = (file.filename or "").lower()
@@ -246,6 +282,11 @@ async def preview_assessments_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        return preview_assessments_csv(db, content, filename=file.filename)
+        return preview_assessments_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mapping=_parse_column_mapping(column_mapping),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

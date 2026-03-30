@@ -13,6 +13,7 @@ from app.models import Member
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
 from app.schemas import PaginatedResponse
 from app.schemas.assessment import AssessmentQueueItemOut
+from app.utils.pii_search import build_cpf_search_hash, build_phone_search_hash
 
 logger = logging.getLogger(__name__)
 
@@ -195,12 +196,19 @@ def get_assessments_queue(
         filters.append(Member.gym_id == resolved_gym_id)
     if search:
         search_value = f"%{search.strip()}%"
+        phone_hash = build_phone_search_hash(search)
+        cpf_hash = build_cpf_search_hash(search)
+        search_clauses = [
+            Member.full_name.ilike(search_value),
+            Member.email.ilike(search_value),
+            Member.plan_name.ilike(search_value),
+        ]
+        if phone_hash:
+            search_clauses.append(Member.phone_search_hash == phone_hash)
+        if cpf_hash:
+            search_clauses.append(Member.cpf_search_hash == cpf_hash)
         filters.append(
-            or_(
-                Member.full_name.ilike(search_value),
-                Member.email.ilike(search_value),
-                Member.plan_name.ilike(search_value),
-            )
+            or_(*search_clauses)
         )
     if bucket != "all":
         filters.append(queue_conditions[bucket])

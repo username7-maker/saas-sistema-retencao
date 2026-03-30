@@ -303,6 +303,12 @@ export interface ImportPreviewRow {
   preview: Record<string, unknown>;
 }
 
+export interface ImportMappingOption {
+  value: string;
+  label: string;
+  required: boolean;
+}
+
 export interface ImportPreview {
   preview_kind: string;
   total_rows: number;
@@ -314,6 +320,12 @@ export interface ImportPreview {
   provisional_members_possible: number;
   recognized_columns: string[];
   unrecognized_columns: string[];
+  detected_columns: string[];
+  suggested_mapping: Record<string, string | null>;
+  mapping_options: ImportMappingOption[];
+  missing_required_fields: string[];
+  duplicate_target_fields: string[];
+  mapping_ready: boolean;
   missing_members: MissingMemberEntry[];
   warnings: string[];
   sample_rows: ImportPreviewRow[];

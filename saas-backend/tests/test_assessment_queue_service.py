@@ -78,6 +78,24 @@ class TestAssessmentQueueService:
         assert "members.plan_name" in compiled
 
     @patch("app.services.assessment_analytics_service.get_current_gym_id")
+    def test_search_query_supports_phone_and_cpf_hash_lookup(self, mock_get_current_gym_id, gym_id):
+        from app.services.assessment_analytics_service import get_assessments_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        db = MagicMock()
+        db.scalar.return_value = 0
+        execute_result = MagicMock()
+        execute_result.all.return_value = []
+        db.execute.return_value = execute_result
+
+        get_assessments_queue(db, page=1, page_size=50, search="123.456.789-09")
+
+        stmt = db.execute.call_args.args[0]
+        compiled = str(stmt)
+        assert "members.phone_search_hash" in compiled
+        assert "members.cpf_search_hash" in compiled
+
+    @patch("app.services.assessment_analytics_service.get_current_gym_id")
     def test_bucket_filter_and_offset_are_applied(self, mock_get_current_gym_id, gym_id):
         from app.services.assessment_analytics_service import get_assessments_queue
 

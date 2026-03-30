@@ -12,6 +12,7 @@ from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.utils.encryption import encrypt_cpf
+from app.utils.pii_search import build_cpf_search_hash, build_phone_search_hash
 
 MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
 
@@ -24,6 +25,16 @@ def _scoped_statement(statement, gym_id: UUID | None):
     if gym_id is None:
         return statement
     return statement.execution_options(include_all_tenants=True)
+
+
+def set_member_phone(member: Member, phone: str | None) -> None:
+    member.phone = phone
+    member.phone_search_hash = build_phone_search_hash(phone)
+
+
+def set_member_cpf(member: Member, cpf: str | None) -> None:
+    member.cpf_encrypted = encrypt_cpf(cpf) if cpf else None
+    member.cpf_search_hash = build_cpf_search_hash(cpf)
 
 
 def create_member(
@@ -54,8 +65,6 @@ def create_member(
         gym_id=gym_id,
         full_name=payload.full_name,
         email=payload.email,
-        phone=payload.phone,
-        cpf_encrypted=encrypt_cpf(payload.cpf) if payload.cpf else None,
         birthdate=payload.birthdate,
         plan_name=payload.plan_name,
         monthly_fee=payload.monthly_fee,
@@ -65,6 +74,8 @@ def create_member(
         loyalty_months=payload.loyalty_months,
         extra_data=payload.extra_data,
     )
+    set_member_phone(member, payload.phone)
+    set_member_cpf(member, payload.cpf)
     db.add(member)
     if commit:
         db.commit()
@@ -77,31 +88,35 @@ def create_member(
     return member
 
 
-def list_members(
-    db: Session,
+def _build_member_filters(
     *,
     gym_id: UUID | None = None,
-    page: int = 1,
-    page_size: int = 20,
     search: str | None = None,
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: MemberPlanCycle | None = None,
     min_days_without_checkin: int | None = None,
     provisional_only: bool | None = None,
-) -> PaginatedResponse:
+) -> tuple[list[object], UUID | None]:
     base_filters = [Member.deleted_at.is_(None)]
     resolved_gym_id = _resolve_gym_id(gym_id)
     if resolved_gym_id is not None:
         base_filters.append(Member.gym_id == resolved_gym_id)
     if search:
         stored_external_id = func.coalesce(Member.extra_data["external_id"].astext, "")
+        phone_hash = build_phone_search_hash(search)
+        cpf_hash = build_cpf_search_hash(search)
+        search_clauses = [
+            Member.full_name.ilike(f"%{search}%"),
+            Member.email.ilike(f"%{search}%"),
+            stored_external_id.ilike(f"%{search}%"),
+        ]
+        if phone_hash:
+            search_clauses.append(Member.phone_search_hash == phone_hash)
+        if cpf_hash:
+            search_clauses.append(Member.cpf_search_hash == cpf_hash)
         base_filters.append(
-            or_(
-                Member.full_name.ilike(f"%{search}%"),
-                Member.email.ilike(f"%{search}%"),
-                stored_external_id.ilike(f"%{search}%"),
-            )
+            or_(*search_clauses)
         )
     if risk_level:
         base_filters.append(Member.risk_level == risk_level)
@@ -130,6 +145,31 @@ def list_members(
             base_filters.append(provisional_flag == "true")
         else:
             base_filters.append(provisional_flag != "true")
+    return base_filters, resolved_gym_id
+
+
+def list_members(
+    db: Session,
+    *,
+    gym_id: UUID | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+    risk_level: RiskLevel | None = None,
+    status: MemberStatus | None = None,
+    plan_cycle: MemberPlanCycle | None = None,
+    min_days_without_checkin: int | None = None,
+    provisional_only: bool | None = None,
+) -> PaginatedResponse:
+    base_filters, resolved_gym_id = _build_member_filters(
+        gym_id=gym_id,
+        search=search,
+        risk_level=risk_level,
+        status=status,
+        plan_cycle=plan_cycle,
+        min_days_without_checkin=min_days_without_checkin,
+        provisional_only=provisional_only,
+    )
 
     stmt = _scoped_statement(
         select(Member).where(and_(*base_filters)).order_by(Member.risk_score.desc(), Member.updated_at.desc()),
@@ -160,9 +200,14 @@ def get_member_or_404(db: Session, member_id: UUID, gym_id: UUID | None = None) 
 def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: UUID | None = None) -> Member:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     data = payload.model_dump(exclude_unset=True)
+    phone_present = "phone" in data
+    cpf_present = "cpf" in data
+    phone = data.pop("phone", None)
     cpf = data.pop("cpf", None)
-    if cpf:
-        member.cpf_encrypted = encrypt_cpf(cpf)
+    if phone_present:
+        set_member_phone(member, phone)
+    if cpf_present:
+        set_member_cpf(member, cpf)
     for key, value in data.items():
         setattr(member, key, value)
     db.add(member)

@@ -15,6 +15,50 @@ export interface MemberFilters {
   provisional_only?: boolean;
 }
 
+export type MemberBulkUpdateTargetMode = "selected" | "filtered";
+
+export interface MemberBulkUpdateFilters extends Omit<MemberFilters, "page" | "page_size"> {}
+
+export interface MemberBulkUpdateChanges {
+  status?: Member["status"];
+  plan_name?: string;
+  monthly_fee?: number;
+  preferred_shift?: string;
+}
+
+export interface MemberBulkUpdatePayload {
+  target_mode: MemberBulkUpdateTargetMode;
+  selected_member_ids: string[];
+  filters: MemberBulkUpdateFilters;
+  changes: MemberBulkUpdateChanges;
+}
+
+export interface MemberBulkUpdatePreviewMember {
+  id: string;
+  full_name: string;
+  email: string | null;
+  current_values: Record<string, unknown>;
+  next_values: Record<string, unknown>;
+}
+
+export interface MemberBulkUpdatePreviewResult {
+  target_mode: MemberBulkUpdateTargetMode;
+  target_description: string;
+  total_candidates: number;
+  would_update: number;
+  unchanged: number;
+  changed_fields: string[];
+  sample_members: MemberBulkUpdatePreviewMember[];
+}
+
+export interface MemberBulkUpdateResult {
+  target_mode: MemberBulkUpdateTargetMode;
+  target_description: string;
+  updated: number;
+  unchanged: number;
+  changed_fields: string[];
+}
+
 export interface MemberCreatePayload {
   full_name: string;
   email?: string;
@@ -80,6 +124,16 @@ export const memberService = {
 
   async deleteMember(memberId: string): Promise<void> {
     await api.delete(`/api/v1/members/${memberId}`);
+  },
+
+  async previewBulkUpdate(payload: MemberBulkUpdatePayload): Promise<MemberBulkUpdatePreviewResult> {
+    const { data } = await api.post<MemberBulkUpdatePreviewResult>("/api/v1/members/bulk-update/preview", payload);
+    return data;
+  },
+
+  async bulkUpdate(payload: MemberBulkUpdatePayload): Promise<MemberBulkUpdateResult> {
+    const { data } = await api.post<MemberBulkUpdateResult>("/api/v1/members/bulk-update", payload);
+    return data;
   },
 
   async getOnboardingScore(memberId: string): Promise<OnboardingScoreResult> {

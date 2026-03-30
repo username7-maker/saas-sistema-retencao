@@ -91,7 +91,7 @@ const queueSearch: AssessmentQueueResponse = {
   page_size: 50,
 };
 
-function renderPage() {
+function renderPage(initialEntry = "/assessments") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -100,7 +100,7 @@ function renderPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <AssessmentsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -159,7 +159,7 @@ describe("AssessmentsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Próxima$/i }));
     expect(await screen.findByText("Diego Alves")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Buscar por nome, e-mail ou plano do aluno..."), {
+    fireEvent.change(screen.getByPlaceholderText("Buscar por nome, e-mail, plano, telefone ou CPF..."), {
       target: { value: "Erick" },
     });
 
@@ -169,5 +169,17 @@ describe("AssessmentsPage", () => {
         expect.objectContaining({ search: "Erick", page: 1 }),
       );
     });
+  });
+
+  it("hydrates contextual search from the URL for operational lookup", async () => {
+    renderPage("/assessments?search=12345678909");
+
+    await waitFor(() => {
+      expect(assessmentService.queue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: "12345678909", page: 1 }),
+      );
+    });
+
+    expect(await screen.findByDisplayValue("12345678909")).toBeInTheDocument();
   });
 });

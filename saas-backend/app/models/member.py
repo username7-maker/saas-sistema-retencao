@@ -17,6 +17,8 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("risk_score >= 0 AND risk_score <= 100", name="risk_score_range"),
         CheckConstraint("nps_last_score >= 0 AND nps_last_score <= 10", name="nps_last_score_range"),
         Index("ix_members_gym_status", "gym_id", "status"),
+        Index("ix_members_gym_phone_search_hash", "gym_id", "phone_search_hash"),
+        Index("ix_members_gym_cpf_search_hash", "gym_id", "cpf_search_hash"),
         Index("ix_members_risk_level_score", "risk_level", "risk_score"),
         Index("ix_members_status_last_checkin", "status", "last_checkin_at"),
     )
@@ -37,7 +39,9 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    phone_search_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cpf_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cpf_search_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     birthdate: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[MemberStatus] = mapped_column(
         Enum(MemberStatus, name="member_status_enum", native_enum=False),

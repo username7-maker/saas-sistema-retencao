@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadNoteCreate, LeadUpdate, PaginatedResponse
+from app.services.member_service import set_member_phone
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.services.operational_outcome_service import record_operational_outcome
 from app.utils.email import send_email
@@ -140,13 +141,13 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
         member = Member(
             full_name=lead.full_name,
             email=lead.email,
-            phone=lead.phone,
             plan_name=handoff_payload.plan_name,
             monthly_fee=lead.estimated_value,
             join_date=handoff_payload.join_date,
             loyalty_months=_compute_loyalty_months(handoff_payload.join_date),
             extra_data=extra_data,
         )
+        set_member_phone(member, lead.phone)
         db.add(member)
         db.flush()
         lead.converted_member_id = member.id

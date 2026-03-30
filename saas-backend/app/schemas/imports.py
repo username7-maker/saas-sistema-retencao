@@ -13,6 +13,12 @@ class MissingMemberEntry(BaseModel):
     sample_plan: str | None = None
 
 
+class ImportMappingOption(BaseModel):
+    value: str
+    label: str
+    required: bool = False
+
+
 class ImportSummary(BaseModel):
     imported: int
     skipped_duplicates: int
@@ -40,6 +46,12 @@ class ImportPreview(BaseModel):
     provisional_members_possible: int = 0
     recognized_columns: list[str] = Field(default_factory=list)
     unrecognized_columns: list[str] = Field(default_factory=list)
+    detected_columns: list[str] = Field(default_factory=list)
+    suggested_mapping: dict[str, str | None] = Field(default_factory=dict)
+    mapping_options: list[ImportMappingOption] = Field(default_factory=list)
+    missing_required_fields: list[str] = Field(default_factory=list)
+    duplicate_target_fields: list[str] = Field(default_factory=list)
+    mapping_ready: bool = True
     missing_members: list[MissingMemberEntry] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     sample_rows: list[ImportPreviewRow] = Field(default_factory=list)

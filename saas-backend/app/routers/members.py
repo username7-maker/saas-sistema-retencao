@@ -14,7 +14,18 @@ from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, get_db, set_current_gym_id, clear_current_gym_id
 from app.models import MemberStatus, RiskLevel, RoleEnum, User
-from app.schemas import APIMessage, MemberCreate, MemberOut, MemberUpdate, OnboardingScoreOut, PaginatedResponse
+from app.schemas import (
+    APIMessage,
+    MemberBulkUpdateCommitInput,
+    MemberBulkUpdatePreviewInput,
+    MemberBulkUpdatePreviewOut,
+    MemberBulkUpdateResultOut,
+    MemberCreate,
+    MemberOut,
+    MemberUpdate,
+    OnboardingScoreOut,
+    PaginatedResponse,
+)
 from app.schemas.body_composition import (
     ActuarManualSyncConfirmInput,
     ActuarMemberLinkRead,
@@ -45,6 +56,7 @@ from app.services.body_composition_service import (
     update_body_composition_evaluation,
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
+from app.services.member_bulk_update_service import apply_member_bulk_update, preview_member_bulk_update
 from app.services.member_service import create_member, get_member_or_404, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
@@ -94,7 +106,7 @@ def list_members_endpoint(
     plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
     min_days_without_checkin: int | None = Query(default=None, ge=0),
     provisional_only: bool | None = None,
-) -> PaginatedResponse[MemberOut]:
+    ) -> PaginatedResponse[MemberOut]:
     return list_members(
         db,
         gym_id=current_user.gym_id,
@@ -107,6 +119,64 @@ def list_members_endpoint(
         min_days_without_checkin=min_days_without_checkin,
         provisional_only=provisional_only,
     )
+
+
+@router.post("/bulk-update/preview", response_model=MemberBulkUpdatePreviewOut)
+def preview_member_bulk_update_endpoint(
+    request: Request,
+    payload: MemberBulkUpdatePreviewInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> MemberBulkUpdatePreviewOut:
+    preview = preview_member_bulk_update(db, gym_id=current_user.gym_id, payload=payload)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="member_bulk_update_previewed",
+        entity="member_bulk_update",
+        user=current_user,
+        details={
+            "target_mode": payload.target_mode,
+            "selected_member_ids": [str(member_id) for member_id in payload.selected_member_ids],
+            "filters": payload.filters.model_dump(exclude_none=True),
+            "changed_fields": preview.changed_fields,
+            "total_candidates": preview.total_candidates,
+            "would_update": preview.would_update,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return preview
+
+
+@router.post("/bulk-update", response_model=MemberBulkUpdateResultOut)
+def apply_member_bulk_update_endpoint(
+    request: Request,
+    payload: MemberBulkUpdateCommitInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+) -> MemberBulkUpdateResultOut:
+    result = apply_member_bulk_update(db, gym_id=current_user.gym_id, payload=payload)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="member_bulk_updated",
+        entity="member_bulk_update",
+        user=current_user,
+        details={
+            "target_mode": payload.target_mode,
+            "selected_member_ids": [str(member_id) for member_id in payload.selected_member_ids],
+            "filters": payload.filters.model_dump(exclude_none=True),
+            "changed_fields": result.changed_fields,
+            "updated": result.updated,
+            "unchanged": result.unchanged,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
 
 
 @router.get("/{member_id}", response_model=MemberOut)
