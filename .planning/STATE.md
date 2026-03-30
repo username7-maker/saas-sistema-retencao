@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.40
-plan: "04.40-STATUS.md"
-status: Piloto segue em execucao, 4.36-4.40 endureceram borda publica, sessao, resiliencia, tenant guardrails e falha cedo de configuracao em producao
-last_activity: 2026-03-30 - fases 4.36 e 4.37 bloquearam rotas publicas por padrao, removeram lead hydration publica, tiraram segredo novo de webhook da query string, reduziram PII em falhas publicas e 4.40 passou a falhar cedo para envs inseguros de producao
+phase: 4.41
+plan: "04.41-STATUS.md"
+status: Piloto segue em execucao e agora o foco ativo virou handoff seguro para Kommo, preservando o numero oficial da academia enquanto o AI GYM OS continua como motor de decisao
+last_activity: 2026-03-30 - 4.41 adicionou configuracao por academia para Kommo, handoff operacional nas automacoes e envio manual da bioimpedancia para a Kommo, com validacao de backend/frontend e pendencia apenas de credenciais reais para teste ponta a ponta
 ---
 
 # STATE
@@ -17,10 +17,10 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.40
-**Plan:** `04.40-STATUS.md`
-**Status:** Piloto controlado segue ativo, 4.36-4.40 reduziram bastante o risco de incidente imediato e o foco agora e publicar e validar esse hardening em producao
-**Last activity:** 2026-03-30 - rotas publicas criticas foram colocadas behind feature flag, proposal publica perdeu lead hydration por id, webhook do WhatsApp passou a usar header, diagnostico publico mascarou PII em falha e a configuracao de producao passou a falhar cedo para combinacoes inseguras
+**Phase:** 4.41
+**Plan:** `04.41-STATUS.md`
+**Status:** Piloto controlado segue ativo, com handoff seguro para Kommo implementado no codigo e pronto para configuracao por academia sem disputar o numero oficial no AI GYM OS
+**Last activity:** 2026-03-30 - o sistema ganhou configuracao Kommo por gym, nova acao de automacao `send_to_kommo` e handoff manual da bioimpedancia para a operacao na Kommo
 
 ## Progress Snapshot
 
@@ -54,6 +54,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.38: resiliencia de consultas, jobs e DoS logico - em execucao
 - Phase 4.39: guardrails de tenant e consistencia transacional - em execucao
 - Phase 4.40: hardening de sessao e borda de producao - em execucao
+- Phase 4.41: handoff seguro para Kommo - em execucao
 - Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes 4.36-4.40
 - Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5
 

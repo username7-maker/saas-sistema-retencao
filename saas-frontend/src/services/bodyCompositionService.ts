@@ -1,6 +1,7 @@
 import type {
   ActuarMemberLink,
   BodyCompositionActuarSyncStatus,
+  BodyCompositionKommoDispatch,
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
   BodyCompositionManualSyncSummary,
@@ -145,6 +146,13 @@ export const bodyCompositionService = {
   async sendWhatsAppSummary(memberId: string, evaluationId: string): Promise<BodyCompositionWhatsAppDispatch> {
     const { data } = await api.post<BodyCompositionWhatsAppDispatch>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}/send-whatsapp`,
+    );
+    return data;
+  },
+
+  async sendKommoHandoff(memberId: string, evaluationId: string): Promise<BodyCompositionKommoDispatch> {
+    const { data } = await api.post<BodyCompositionKommoDispatch>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/send-kommo`,
     );
     return data;
   },

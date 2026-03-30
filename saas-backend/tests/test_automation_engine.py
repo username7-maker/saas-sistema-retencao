@@ -259,6 +259,52 @@ def test_execute_rule_notify_creates_notification(monkeypatch):
     assert "Aluno Teste" in notifications[0]["title"]
 
 
+def test_execute_rule_send_to_kommo_returns_handoff(monkeypatch):
+    db = DummyDB()
+    member = _make_member()
+    rule = _make_rule(
+        action_type=AutomationAction.SEND_TO_KOMMO,
+        action_config={
+            "title": "Kommo - {nome}",
+            "message": "Aluno {nome} com score {score}.",
+            "source": "automation_kommo_handoff",
+            "due_in_hours": 12,
+        },
+    )
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        automation_engine,
+        "handoff_member_to_kommo",
+        lambda *_args, **kwargs: (
+            captured.update(kwargs),
+            SimpleNamespace(
+                status="sent",
+                contact_id="123",
+                lead_id="456",
+                task_id="789",
+                detail="Handoff entregue para a Kommo.",
+            ),
+        )[1],
+    )
+    monkeypatch.setattr(
+        automation_engine,
+        "_build_member_profile_url",
+        lambda member_id: f"https://front.test/assessments/members/{member_id}",
+    )
+
+    result = automation_engine.execute_rule_for_member(db, rule, member)
+
+    assert result["status"] == "sent"
+    assert result["kommo_contact_id"] == "123"
+    assert result["kommo_lead_id"] == "456"
+    assert result["kommo_task_id"] == "789"
+    assert captured["title"] == "Kommo - Aluno Teste"
+    assert "score 80" in str(captured["summary"])
+    assert captured["source"] == "automation_kommo_handoff"
+
+
 def test_seed_default_rules_creates_when_empty():
     db = DummyDB()
     db.values = [0]  # 0 existing rules

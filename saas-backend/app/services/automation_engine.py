@@ -6,12 +6,14 @@ from uuid import UUID
 from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import Member, MemberStatus, RiskLevel, Task, TaskPriority, TaskStatus
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.models.automation_rule import AutomationAction, AutomationRule, AutomationTrigger
 from app.models.enums import LeadStage
 from app.models.lead import Lead
 from app.models.message_log import MessageLog
+from app.services.kommo_service import handoff_member_to_kommo
 from app.services.notification_service import create_notification
 from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
 from app.utils.birthday import birthday_label_matches_today
@@ -177,6 +179,31 @@ def execute_rule_for_member(
         )
         result["status"] = "notified"
         result["notification_id"] = str(notification.id)
+
+    elif action_type == AutomationAction.SEND_TO_KOMMO:
+        title = _render(action_config.get("title", "Acionar Kommo - {nome}"), template_vars)
+        summary_template = action_config.get(
+            "message",
+            "Aluno {nome} precisa de contato. Plano: {plano}. Dias sem atividade: {dias}. Score de risco: {score}.",
+        )
+        summary = _render(summary_template, template_vars)
+        due_in_hours = _coerce_int(action_config.get("due_in_hours"), default=24, minimum=1)
+        handoff = handoff_member_to_kommo(
+            db,
+            gym_id=member.gym_id,
+            member=member,
+            title=title,
+            summary=summary,
+            source=str(action_config.get("source") or "automation_kommo_handoff"),
+            ai_gym_profile_url=_build_member_profile_url(member.id),
+            due_in_hours=due_in_hours,
+        )
+        result["status"] = handoff.status
+        result["kommo_contact_id"] = handoff.contact_id
+        result["kommo_lead_id"] = handoff.lead_id
+        result["kommo_task_id"] = handoff.task_id
+        if handoff.detail:
+            result["detail"] = handoff.detail
 
     rule.executions_count = (rule.executions_count or 0) + 1
     rule.last_executed_at = now
@@ -510,6 +537,13 @@ def _log_message(
     db.add(log)
     db.flush()
     return log
+
+
+def _build_member_profile_url(member_id: UUID) -> str | None:
+    frontend_url = (settings.frontend_url or "").strip().rstrip("/")
+    if not frontend_url:
+        return None
+    return f"{frontend_url}/assessments/members/{member_id}"
 
 
 def seed_default_rules(db: Session, gym_id: UUID) -> list[AutomationRule]:

@@ -9,6 +9,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { api } from "../../services/api";
 import { userService } from "../../services/userService";
 import { ActuarConnectionTab } from "../../components/settings/ActuarConnectionTab";
+import { KommoConnectionTab } from "../../components/settings/KommoConnectionTab";
 import { WhatsAppConnectionTab } from "../../components/settings/WhatsAppConnectionTab";
 import { UserAvatar } from "../../components/common/UserAvatar";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
@@ -229,6 +230,7 @@ export function SettingsPage() {
   const { user } = useAuth();
   const canManageWhatsapp = user?.role === "owner" || user?.role === "manager";
   const canManageActuar = user?.role === "owner" || user?.role === "manager";
+  const canManageKommo = user?.role === "owner" || user?.role === "manager";
 
   return (
     <section className="space-y-8">
@@ -242,6 +244,7 @@ export function SettingsPage() {
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="security">Segurança</TabsTrigger>
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}
+          {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
           {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
         </TabsList>
 
@@ -274,6 +277,12 @@ export function SettingsPage() {
         {canManageActuar ? (
           <TabsContent value="actuar">
             <ActuarConnectionTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageKommo ? (
+          <TabsContent value="kommo">
+            <KommoConnectionTab />
           </TabsContent>
         ) : null}
 

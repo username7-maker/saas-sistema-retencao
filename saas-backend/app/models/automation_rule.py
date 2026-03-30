@@ -22,6 +22,7 @@ class AutomationAction:
     SEND_WHATSAPP = "send_whatsapp"
     SEND_EMAIL = "send_email"
     NOTIFY = "notify"
+    SEND_TO_KOMMO = "send_to_kommo"
 
 
 class AutomationRule(Base, TimestampMixin):

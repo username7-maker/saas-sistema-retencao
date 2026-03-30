@@ -512,6 +512,24 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     },
   });
 
+  const sendKommoMutation = useMutation({
+    mutationFn: (evaluationId: string) => bodyCompositionService.sendKommoHandoff(memberId, evaluationId),
+    onSuccess: (payload) => {
+      if (payload.status === "sent") {
+        toast.success("Handoff da bioimpedancia enviado para a Kommo.");
+        return;
+      }
+      toast.error(payload.detail || "A Kommo nao recebeu o handoff desta bioimpedancia.");
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel enviar esta bioimpedancia para a Kommo.");
+    },
+  });
+
   const highlightedWarnings = new Map(
     (ocrMetadata.ocr_warnings_json ?? [])
       .filter((warning) => warning.field)
@@ -535,6 +553,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const actuarCapability = resolveActuarCapability(syncStatus);
   const unsupportedFieldsMessage = buildUnsupportedFieldsMessage(syncStatus);
   const canSendWhatsAppSummary = Boolean(focusEvaluation?.id && memberPhone?.trim());
+  const canSendKommoHandoff = Boolean(focusEvaluation?.id);
 
   async function handleCopyCriticalFields() {
     if (!focusEvaluation?.id) return;
@@ -947,12 +966,27 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                         <MessageCircle size={14} />
                         {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar no WhatsApp"}
                       </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={!canSendKommoHandoff || sendKommoMutation.isPending}
+                        onClick={() => focusEvaluation?.id && sendKommoMutation.mutate(focusEvaluation.id)}
+                      >
+                        <Link2 size={14} />
+                        {sendKommoMutation.isPending ? "Enviando..." : "Enviar para Kommo"}
+                      </Button>
                     </div>
-                    <p className="mt-3 text-xs text-lovable-ink-muted">
-                      {memberPhone
-                        ? `Envia este resumo e o PDF da bioimpedancia para o WhatsApp cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
-                        : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF."}
-                    </p>
+                    <div className="mt-3 space-y-1 text-xs text-lovable-ink-muted">
+                      <p>
+                        {memberPhone
+                          ? `WhatsApp direto: envia este resumo e o PDF da bioimpedancia para o numero cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
+                          : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF pelo canal direto."}
+                      </p>
+                      <p>
+                        Kommo: cria um handoff operacional com resumo, alertas e link do exame no AI GYM OS para a equipe usar o numero oficial por la.
+                      </p>
+                    </div>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas principais</p>

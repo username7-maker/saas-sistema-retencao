@@ -83,6 +83,12 @@
 - [ ] **EDGE-01**: frontend e backend publicos servem baseline de headers de seguranca e CSP coerente com SPA + API
 - [ ] **EDGE-02**: builds e runtimes de producao falham rapido diante de envs ausentes ou defaults inseguros como `localhost`
 
+### Handoff seguro para Kommo
+
+- [ ] **KOMMO-01**: owner/manager configuram Kommo por academia com URL, token e teste de conexao sem expor o numero oficial em um segundo motor de WhatsApp
+- [ ] **KOMMO-02**: automacoes do AI GYM OS conseguem entregar contexto operacional para a Kommo como handoff, sem depender do envio direto por WhatsApp do proprio sistema
+- [ ] **KOMMO-03**: bioimpedancia consegue gerar handoff manual para a Kommo com resumo do aluno, resumo operacional e link do exame no AI GYM OS
+
 ### Import Flow
 
 - [x] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
@@ -144,6 +150,9 @@
 | SESSION-01 | Phase 4.40 | Planned |
 | EDGE-01 | Phase 4.40 | Planned |
 | EDGE-02 | Phase 4.40 | Planned |
+| KOMMO-01 | Phase 4.41 | Planned |
+| KOMMO-02 | Phase 4.41 | Planned |
+| KOMMO-03 | Phase 4.41 | Planned |
 | IMP-01 | Phase 4 | Completed |
 | IMP-02 | Phase 4 | Completed |
 | BULK-01 | Phase 5 | Deferred until post-pilot |

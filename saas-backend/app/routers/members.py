@@ -28,6 +28,7 @@ from app.schemas.body_composition import (
     BodyCompositionEvaluationRead,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
+    BodyCompositionKommoDispatchRead,
     BodyCompositionManualSyncSummaryRead,
     BodyCompositionWhatsAppDispatchRead,
     BodyCompositionEvaluationUpdate,
@@ -42,7 +43,10 @@ from app.services.body_composition_actuar_sync_service import (
     upsert_body_composition_actuar_link,
 )
 from app.services.body_composition_image_parse_service import parse_body_composition_image
-from app.services.body_composition_delivery_service import send_body_composition_whatsapp_summary
+from app.services.body_composition_delivery_service import (
+    send_body_composition_kommo_handoff,
+    send_body_composition_whatsapp_summary,
+)
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     list_body_composition_evaluations,
@@ -51,6 +55,7 @@ from app.services.body_composition_service import (
     update_body_composition_evaluation,
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
+from app.services.kommo_service import KommoServiceError
 from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
@@ -477,6 +482,61 @@ def send_body_composition_whatsapp_endpoint(
         recipient=log.recipient,
         pdf_filename=(log.extra_data or {}).get("file_name"),
         error_detail=log.error_detail,
+    )
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/send-kommo",
+    response_model=BodyCompositionKommoDispatchRead,
+)
+def send_body_composition_kommo_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> BodyCompositionKommoDispatchRead:
+    try:
+        handoff = send_body_composition_kommo_handoff(
+            db,
+            gym_id=current_user.gym_id,
+            member_id=member_id,
+            evaluation_id=evaluation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except KommoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if handoff.status != "sent":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=handoff.detail or "A Kommo nao recebeu o handoff desta bioimpedancia.")
+
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="body_composition_kommo_sent",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={
+            "status": handoff.status,
+            "lead_id": handoff.lead_id,
+            "contact_id": handoff.contact_id,
+            "task_id": handoff.task_id,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return BodyCompositionKommoDispatchRead(
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        status=handoff.status,
+        lead_id=handoff.lead_id,
+        contact_id=handoff.contact_id,
+        task_id=handoff.task_id,
+        detail=handoff.detail,
     )
 
 

@@ -431,6 +431,34 @@ export interface ActuarSettingsUpdateInput {
   clear_password?: boolean;
 }
 
+export interface KommoSettings {
+  kommo_enabled: boolean;
+  kommo_base_url: string | null;
+  kommo_has_access_token: boolean;
+  kommo_default_pipeline_id: string | null;
+  kommo_default_stage_id: string | null;
+  kommo_default_responsible_user_id: string | null;
+  automatic_handoff_ready: boolean;
+}
+
+export interface KommoConnectionTestResult {
+  success: boolean;
+  automatic_handoff_ready: boolean;
+  message: string;
+  detail: string | null;
+  base_url: string | null;
+}
+
+export interface KommoSettingsUpdateInput {
+  kommo_enabled: boolean;
+  kommo_base_url?: string | null;
+  kommo_access_token?: string | null;
+  kommo_default_pipeline_id?: string | null;
+  kommo_default_stage_id?: string | null;
+  kommo_default_responsible_user_id?: string | null;
+  clear_access_token?: boolean;
+}
+
 export interface BodyCompositionEvaluation {
   id: string;
   gym_id: string;
@@ -501,6 +529,16 @@ export interface BodyCompositionWhatsAppDispatch {
   recipient: string;
   pdf_filename: string | null;
   error_detail: string | null;
+}
+
+export interface BodyCompositionKommoDispatch {
+  member_id: string;
+  evaluation_id: string;
+  status: string;
+  lead_id: string | null;
+  contact_id: string | null;
+  task_id: string | null;
+  detail: string | null;
 }
 
 export interface BodyCompositionEvaluationCreate {

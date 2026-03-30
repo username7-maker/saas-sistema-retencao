@@ -31,6 +31,12 @@ class Gym(Base, TimestampMixin):
     actuar_auto_sync_body_composition: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     actuar_notes_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     actuar_required_match_strategy: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    kommo_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    kommo_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    kommo_access_token_encrypted: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    kommo_default_pipeline_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    kommo_default_stage_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    kommo_default_responsible_user_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     users = relationship("User", back_populates="gym")
     members = relationship("Member", back_populates="gym")

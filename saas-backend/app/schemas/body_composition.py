@@ -286,6 +286,16 @@ class BodyCompositionWhatsAppDispatchRead(BaseModel):
     error_detail: str | None = None
 
 
+class BodyCompositionKommoDispatchRead(BaseModel):
+    member_id: UUID
+    evaluation_id: UUID
+    status: str
+    lead_id: str | None = None
+    contact_id: str | None = None
+    task_id: str | None = None
+    detail: str | None = None
+
+
 class ActuarSyncQueueItemRead(BaseModel):
     evaluation_id: UUID
     member_id: UUID

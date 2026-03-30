@@ -24,6 +24,7 @@ from app.models.enums import (
 from app.models.goal import Goal
 from app.models.gym import Gym
 from app.models.in_app_notification import InAppNotification
+from app.models.kommo_link import KommoMemberLink
 from app.models.lead_booking import LeadBooking
 from app.models.lead import Lead
 from app.models.member import Member
@@ -55,6 +56,7 @@ __all__ = [
     "Goal",
     "Gym",
     "InAppNotification",
+    "KommoMemberLink",
     "Lead",
     "LeadBooking",
     "LeadStage",

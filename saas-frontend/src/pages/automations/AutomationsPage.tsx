@@ -35,6 +35,7 @@ const TRIGGER_META: Record<string, { label: string; icon: string; color: string;
 const ACTION_META: Record<string, { label: string; Icon: React.ElementType; color: string; bg: string }> = {
   create_task:   { label: "Criar Tarefa", Icon: ListTodo,      color: "#185FA5", bg: "#E6F1FB" },
   send_whatsapp: { label: "WhatsApp",     Icon: MessageSquare, color: "#0F7553", bg: "#E1F5EE" },
+  send_to_kommo: { label: "Kommo",        Icon: MessageSquare, color: "#7C3DB3", bg: "#F3ECFC" },
   send_email:    { label: "E-mail",       Icon: Mail,          color: "#5E5B52", bg: "#EDEBE3" },
   notify:        { label: "Notificação",  Icon: Bell,          color: "#BA7517", bg: "#FAEEDA" },
 };
@@ -98,6 +99,7 @@ function buildActionConfig(v: RuleFormValues): Record<string, unknown> {
   const m = v.message ?? "";
   switch (v.action_type) {
     case "send_whatsapp": return { template: "custom", message: m, extra_vars: { mensagem: m || "Olá {nome}!" } };
+    case "send_to_kommo": return { title: v.name, message: m || "Aluno {nome} precisa de contato pela Kommo.", due_in_hours: 24, source: "automation_kommo_handoff" };
     case "send_email":    return { subject: v.name, body: m };
     case "create_task":   return { title: v.name, description: m || "Tarefa criada por automação.", priority: "high" };
     case "notify":        return { title: v.name, message: m || "Ação necessária para {nome}" };
@@ -113,6 +115,7 @@ function thresholdFromConfig(type: string, cfg: Record<string, unknown>): number
 
 function msgFromActionConfig(type: string, cfg: Record<string, unknown>): string {
   if (type === "send_whatsapp") return typeof cfg.message === "string" ? cfg.message : "";
+  if (type === "send_to_kommo") return typeof cfg.message === "string" ? cfg.message : "";
   if (type === "send_email") return typeof cfg.body === "string" ? cfg.body : "";
   return typeof cfg.description === "string" ? cfg.description : "";
 }
@@ -551,7 +554,7 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
             </p>
           </div>
         )}
-        {["send_whatsapp","send_email","notify","create_task"].includes(actionType) && (
+        {["send_whatsapp","send_to_kommo","send_email","notify","create_task"].includes(actionType) && (
           <FormField label={actionType === "create_task" ? "Descrição da tarefa" : "Mensagem"}>
             <Textarea
               {...register("message")}
@@ -559,6 +562,8 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
               placeholder={
                 actionType === "send_whatsapp"
                   ? "Use {nome}, {plano}, {dias} como variáveis dinâmicas..."
+                  : actionType === "send_to_kommo"
+                  ? "Resumo operacional que deve cair na Kommo para a equipe agir..."
                   : actionType === "create_task"
                   ? "Descrição da tarefa criada automaticamente..."
                   : "Conteúdo da mensagem..."

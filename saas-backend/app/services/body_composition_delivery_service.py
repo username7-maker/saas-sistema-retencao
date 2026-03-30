@@ -8,10 +8,12 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import Member
 from app.models.body_composition import BodyCompositionEvaluation
 from app.services.body_composition_actuar_sync_service import get_body_composition_evaluation_or_404
 from app.services.body_composition_ai_service import build_body_composition_member_summary
+from app.services.kommo_service import KommoHandoffResult, handoff_member_to_kommo
 from app.services.member_service import get_member_or_404
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_document_sync
 
@@ -60,6 +62,51 @@ def send_body_composition_whatsapp_summary(
         event_type="body_composition_summary_pdf",
     )
     return log
+
+
+def send_body_composition_kommo_handoff(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> KommoHandoffResult:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+
+    first_name = (member.full_name or "").split(" ")[0] or "aluno"
+    member_summary = build_body_composition_member_summary(evaluation, member_first_name=first_name)
+    coach_summary = " ".join((evaluation.ai_coach_summary or "").split()).strip()
+    risk_flags = evaluation.ai_risk_flags_json or []
+    training_focus = evaluation.ai_training_focus_json or {}
+    suggested_focuses = [str(item).strip() for item in (training_focus.get("suggested_focuses") or []) if str(item).strip()]
+
+    summary_lines = [
+        f"Bioimpedancia pronta de {member.full_name}.",
+        member_summary.strip(),
+    ]
+    if coach_summary:
+        summary_lines.extend(["", "Resumo para o coach:", coach_summary])
+    if risk_flags:
+        summary_lines.extend(["", "Alertas principais:"] + [f"- {flag}" for flag in risk_flags[:4]])
+    if suggested_focuses:
+        summary_lines.extend(["", "Direcao inicial sugerida:"] + [f"- {focus}" for focus in suggested_focuses[:4]])
+
+    return handoff_member_to_kommo(
+        db,
+        gym_id=gym_id,
+        member=member,
+        title=f"Bioimpedancia pronta - {member.full_name}",
+        summary="\n".join(summary_lines).strip()[:2400],
+        source="body_composition",
+        ai_gym_profile_url=_build_member_profile_url(member.id),
+        due_in_hours=12,
+    )
 
 
 def build_body_composition_whatsapp_message(member: Member, evaluation: BodyCompositionEvaluation) -> str:
@@ -156,3 +203,10 @@ def _format_goal(value: object) -> str:
         "controle_de_gordura": "Controle de gordura",
     }
     return labels.get(goal, goal.replace("_", " ") if goal else "Acompanhamento geral")
+
+
+def _build_member_profile_url(member_id: UUID) -> str | None:
+    frontend_url = (settings.frontend_url or "").strip().rstrip("/")
+    if not frontend_url:
+        return None
+    return f"{frontend_url}/assessments/members/{member_id}"
