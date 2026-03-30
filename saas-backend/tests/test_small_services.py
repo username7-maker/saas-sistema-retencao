@@ -269,3 +269,23 @@ class TestMarkNotificationRead:
         with pytest.raises(HTTPException) as exc_info:
             mark_notification_read(db, notification_id=notif.id, current_user=user)
         assert exc_info.value.status_code == 403
+
+
+class TestBuildBodyCompositionAssistant:
+    def test_uses_operational_language_instead_of_raw_truncated_summary(self):
+        member = SimpleNamespace(id=MEMBER_ID, full_name="Erick Bedin")
+        evaluation = SimpleNamespace(
+            ai_risk_flags_json=["Peso acima da faixa recomendada", "Gordura visceral elevada"],
+            ai_training_focus_json={"primary_goal": "reducao_de_gordura", "suggested_focuses": ["redução de gordura corporal"]},
+            ocr_confidence=0.53,
+            needs_review=True,
+            reviewed_manually=False,
+        )
+
+        from app.services.ai_assistant_service import build_body_composition_assistant
+
+        result = build_body_composition_assistant(member, evaluation)
+
+        assert "foco inicial em reducao de gordura" in result.summary.lower()
+        assert result.why_it_matters.lower().startswith("a leitura ja ajuda")
+        assert result.confidence_label == "Revisao recomendada"

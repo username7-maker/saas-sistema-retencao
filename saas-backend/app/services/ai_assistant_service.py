@@ -279,7 +279,8 @@ def build_body_composition_assistant(
 ) -> AIAssistantPayload:
     risk_flags = list(evaluation.ai_risk_flags_json or [])
     focus = evaluation.ai_training_focus_json or {}
-    primary_goal = str(focus.get("primary_goal") or "acompanhamento_geral").replace("_", " ")
+    primary_goal_slug = str(focus.get("primary_goal") or "acompanhamento_geral")
+    primary_goal = _format_body_goal(primary_goal_slug)
     suggested_focuses = [str(item) for item in focus.get("suggested_focuses") or []]
     change_summary = _body_change_summary(evaluation, previous_evaluation)
 
@@ -289,15 +290,12 @@ def build_body_composition_assistant(
     if suggested_focuses:
         evidence.extend(suggested_focuses[:2])
 
+    summary = _build_body_assistant_summary(primary_goal, risk_flags)
+    why_it_matters = _build_body_assistant_why(evaluation=evaluation, primary_goal=primary_goal)
+
     return AIAssistantPayload(
-        summary=(
-            evaluation.ai_coach_summary
-            or f"A bioimpedancia de {member.full_name} aponta foco inicial em {primary_goal}."
-        ),
-        why_it_matters=(
-            evaluation.ai_member_friendly_summary
-            or "Transformar a leitura do exame em acao simples aumenta clareza para o coach e para o aluno."
-        ),
+        summary=summary,
+        why_it_matters=why_it_matters,
         next_best_action=(
             f"Usar o exame para alinhar o foco inicial em {primary_goal} e ajustar o acompanhamento desta semana."
         ),
@@ -305,7 +303,7 @@ def build_body_composition_assistant(
             f"Seu exame mostra um bom ponto de partida. Agora vamos focar em {primary_goal} e acompanhar as proximas semanas com metas simples."
         ),
         evidence=evidence[:5],
-        confidence_label="Moderada" if evaluation.ocr_confidence is None else f"{round(evaluation.ocr_confidence * 100)}% de leitura",
+        confidence_label=_body_confidence_label(evaluation),
         recommended_channel="Explicacao guiada",
         cta_target=f"/assessments/members/{member.id}?tab=plano",
         cta_label="Ajustar plano",
@@ -354,3 +352,46 @@ def _delta_text(current: float | None, previous: float | None, label: str, unit:
         return f"{label} estavel"
     direction = "subiu" if delta > 0 else "caiu"
     return f"{label} {direction} {abs(delta)} {unit}"
+
+
+def _format_body_goal(value: str) -> str:
+    mapping = {
+        "reducao_de_gordura": "reducao de gordura",
+        "ganho_de_massa": "ganho de massa",
+        "melhora_metabolica": "melhora metabolica",
+        "acompanhamento_geral": "acompanhamento geral",
+        "preservacao_de_massa_magra": "preservacao de massa magra",
+        "controle_de_gordura": "controle de gordura",
+    }
+    return mapping.get(value, value.replace("_", " "))
+
+
+def _build_body_assistant_summary(primary_goal: str, risk_flags: list[str]) -> str:
+    if risk_flags:
+        flags_text = ", ".join(flag.lower() for flag in risk_flags[:2])
+        return f"Bioimpedancia com foco inicial em {primary_goal}, com atencao principal para {flags_text}."
+    return f"Bioimpedancia sem alertas prioritarios fora da faixa, com foco inicial em {primary_goal}."
+
+
+def _build_body_assistant_why(*, evaluation: BodyCompositionEvaluation, primary_goal: str) -> str:
+    if evaluation.needs_review:
+        return (
+            f"A leitura ja ajuda a conduzir a conversa inicial e alinhar {primary_goal}, "
+            "mas ainda pede revisao manual antes de fechar o plano."
+        )
+    return (
+        f"A leitura ja ajuda o professor a explicar o exame com clareza, alinhar {primary_goal} "
+        "e transformar o resultado em acompanhamento pratico."
+    )
+
+
+def _body_confidence_label(evaluation: BodyCompositionEvaluation) -> str:
+    if evaluation.reviewed_manually:
+        return "Revisado manualmente"
+    if evaluation.needs_review:
+        return "Revisao recomendada"
+    if evaluation.ocr_confidence is not None and evaluation.ocr_confidence >= 0.85:
+        return "Leitura confiavel"
+    if evaluation.ocr_confidence is not None:
+        return "Leitura assistida"
+    return "Moderada"

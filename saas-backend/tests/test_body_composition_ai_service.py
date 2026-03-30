@@ -153,3 +153,21 @@ def test_normalize_ai_payload_maps_free_text_goals_to_allowed_slugs():
 
     assert result["training_focus"]["primary_goal"] == "reducao_de_gordura"
     assert result["training_focus"]["secondary_goal"] == "acompanhamento_geral"
+
+
+def test_normalize_ai_payload_trims_without_cutting_mid_word():
+    from app.services.body_composition_ai_service import _normalize_ai_payload
+
+    long_summary = ("Resumo muito longo com varias frases coerentes. " * 60).strip()
+    result = _normalize_ai_payload(
+        {
+            "coach_summary": long_summary,
+            "member_friendly_summary": long_summary,
+            "risk_flags": [],
+            "training_focus": {},
+        }
+    )
+
+    assert len(result["coach_summary"]) <= 1200
+    assert not result["coach_summary"].endswith("fr")
+    assert result["coach_summary"].endswith(".") or result["coach_summary"].endswith("...")

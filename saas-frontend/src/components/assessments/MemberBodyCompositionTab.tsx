@@ -47,6 +47,12 @@ import {
   syncModeLabel,
 } from "./bodyCompositionCapability";
 import { resolveBodyCompositionFieldSignal } from "./bodyCompositionFieldSignals";
+import {
+  buildBodyCompositionRangeClassifications,
+  formatBodyCompositionGoal,
+  resolveCoachSummary,
+  resolveMemberSummary,
+} from "./bodyCompositionInterpretation";
 import { invalidateAssessmentQueries } from "./queryUtils";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
@@ -229,19 +235,6 @@ const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvalua
   { label: "IMC", field: "bmi" },
   { label: "Health score", field: "health_score" },
 ];
-
-const RANGE_LABELS: Partial<Record<keyof BodyCompositionEvaluation, string>> = {
-  weight_kg: "Peso",
-  body_fat_kg: "Gordura corporal (kg)",
-  body_fat_percent: "Gordura corporal (%)",
-  waist_hip_ratio: "Relacao cintura-quadril",
-  fat_free_mass_kg: "Massa livre de gordura",
-  muscle_mass_kg: "Massa muscular",
-  skeletal_muscle_kg: "Musculo esqueletico",
-  visceral_fat_level: "Gordura visceral",
-  bmi: "IMC",
-  health_score: "Health score",
-};
 
 function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): FormData {
   return {
@@ -504,7 +497,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
       .map((warning) => [String(warning.field), warning]),
   );
 
-  const rangeClassifications = buildRangeClassifications(focusEvaluation);
+  const rangeClassifications = buildBodyCompositionRangeClassifications(focusEvaluation);
   const canManualConfirm = user?.role === "owner" || user?.role === "manager";
   const currentSyncMode = syncStatus?.sync_mode ?? focusEvaluation?.actuar_sync_mode ?? "disabled";
   const syncDisabled = currentSyncMode === "disabled";
@@ -914,11 +907,11 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                   />
                   <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
-                    <p className="mt-2 text-sm text-lovable-ink">{focusEvaluation.ai_coach_summary || "Resumo ainda nao gerado."}</p>
+                    <p className="mt-2 text-sm text-lovable-ink">{resolveCoachSummary(focusEvaluation) || "Resumo ainda nao gerado."}</p>
                   </div>
                   <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
-                    <p className="mt-2 text-sm text-lovable-ink">{focusEvaluation.ai_member_friendly_summary || "Resumo amigavel ainda nao gerado."}</p>
+                    <p className="mt-2 text-sm text-lovable-ink">{resolveMemberSummary(focusEvaluation) || "Resumo amigavel ainda nao gerado."}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas principais</p>
@@ -951,10 +944,10 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                       Direcao inicial sugerida
                     </p>
                     <p className="mt-2 text-sm text-lovable-ink">
-                      Objetivo principal: {focusEvaluation.ai_training_focus_json?.primary_goal?.replace(/_/g, " ") || "acompanhamento geral"}
+                      Objetivo principal: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.primary_goal) || "Acompanhamento geral"}
                     </p>
                     <p className="text-sm text-lovable-ink">
-                      Objetivo secundario: {focusEvaluation.ai_training_focus_json?.secondary_goal?.replace(/_/g, " ") || "preservacao de massa magra"}
+                      Objetivo secundario: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.secondary_goal) || "Preservacao de massa magra"}
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-lovable-ink-muted">
                       {(focusEvaluation.ai_training_focus_json?.suggested_focuses ?? []).map((focus) => (
@@ -1200,28 +1193,6 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
       </Card>
     </div>
   );
-}
-
-function buildRangeClassifications(evaluation?: BodyCompositionEvaluation | null): Array<{ label: string; status: "abaixo" | "dentro" | "acima" }> {
-  if (!evaluation?.measured_ranges_json) return [];
-  const results: Array<{ label: string; status: "abaixo" | "dentro" | "acima" }> = [];
-
-  for (const [field, range] of Object.entries(evaluation.measured_ranges_json)) {
-    const typedField = field as keyof BodyCompositionEvaluation;
-    const currentValue = evaluation[typedField];
-    if (typeof currentValue !== "number" || !range) continue;
-    const min = typeof range.min === "number" ? range.min : null;
-    const max = typeof range.max === "number" ? range.max : null;
-    if (min == null && max == null) continue;
-
-    let status: "abaixo" | "dentro" | "acima" = "dentro";
-    if (min != null && currentValue < min) status = "abaixo";
-    if (max != null && currentValue > max) status = "acima";
-
-    results.push({ label: RANGE_LABELS[typedField] ?? field, status });
-  }
-
-  return results.slice(0, 6);
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

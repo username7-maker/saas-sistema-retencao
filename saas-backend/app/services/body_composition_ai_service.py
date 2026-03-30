@@ -44,6 +44,8 @@ _SECONDARY_GOAL_ALLOWED = {
     "melhora_metabolica",
     "acompanhamento_geral",
 }
+_COACH_SUMMARY_MAX_LENGTH = 1200
+_MEMBER_SUMMARY_MAX_LENGTH = 900
 
 
 class _OpenAITrainingFocus(BaseModel):
@@ -298,12 +300,12 @@ def _generate_deterministic_fallback(
         coach_parts.append("Validar foco com restricoes e contexto do professor responsavel.")
     elif goals:
         coach_parts.append("Cruzar o foco com as metas registradas antes de ajustar a direcao do acompanhamento.")
-    coach_summary = " ".join(part for part in coach_parts if part).strip()[:500]
+    coach_summary = _trim_summary_text(" ".join(part for part in coach_parts if part).strip(), max_length=_COACH_SUMMARY_MAX_LENGTH)
 
-    member_summary = (
+    member_summary = _trim_summary_text(
         "O exame ajuda a orientar o acompanhamento corporal inicial, sem substituir avaliacao presencial. "
         f"No momento, a direcao sugerida e {primary_goal.replace('_', ' ')} com monitoramento das medidas-chave."
-    )[:500]
+    , max_length=_MEMBER_SUMMARY_MAX_LENGTH)
 
     return {
         "coach_summary": coach_summary,
@@ -326,8 +328,11 @@ def _normalize_ai_payload(payload: dict[str, Any]) -> dict[str, Any]:
     training_focus = payload.get("training_focus")
     normalized_focus = training_focus if isinstance(training_focus, dict) else {}
     return {
-        "coach_summary": str(payload.get("coach_summary") or "")[:500],
-        "member_friendly_summary": str(payload.get("member_friendly_summary") or "")[:500],
+        "coach_summary": _trim_summary_text(payload.get("coach_summary"), max_length=_COACH_SUMMARY_MAX_LENGTH),
+        "member_friendly_summary": _trim_summary_text(
+            payload.get("member_friendly_summary"),
+            max_length=_MEMBER_SUMMARY_MAX_LENGTH,
+        ),
         "risk_flags": [str(item) for item in payload.get("risk_flags") or []][:5],
         "training_focus": {
             "primary_goal": _normalize_goal_slug(
@@ -540,6 +545,26 @@ def _normalize_goal_slug(value: object, *, allowed: set[str], fallback: str) -> 
             return "preservacao_de_massa_magra"
 
     return fallback
+
+
+def _trim_summary_text(value: object, *, max_length: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= max_length:
+        return text
+
+    sentence_cutoff = max(
+        text.rfind(". ", 0, max_length),
+        text.rfind("! ", 0, max_length),
+        text.rfind("? ", 0, max_length),
+    )
+    if sentence_cutoff >= int(max_length * 0.6):
+        return text[: sentence_cutoff + 1].strip()
+
+    word_cutoff = text.rfind(" ", 0, max_length)
+    if word_cutoff >= int(max_length * 0.6):
+        return text[:word_cutoff].rstrip(" ,;:-") + "..."
+
+    return text[:max_length].rstrip(" ,;:-") + "..."
 
 
 def _to_float(value: object) -> float | None:
