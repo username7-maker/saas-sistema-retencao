@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     actuar_sync_timeout_seconds: int = 60
     actuar_sync_required_for_training: bool = True
     actuar_sync_evidence_dir: str = "data/actuar-sync-evidence"
+    actuar_ignore_https_errors: bool = False
 
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"
@@ -90,8 +91,13 @@ class Settings(BaseSettings):
     public_whatsapp_webhook_rate_limit: str = "30/minute"
     public_objection_response_rate_limit: str = "5/hour"
     public_proposal_rate_limit: str = "5/hour"
+    public_diagnosis_enabled: bool = False
+    public_booking_confirm_enabled: bool = False
+    public_booking_confirm_token: str = ""
     public_objection_response_enabled: bool = False
     public_proposal_enabled: bool = False
+    public_proposal_email_enabled: bool = False
+    monthly_reports_dispatch_enabled: bool = False
     booking_reminder_minutes_before: int = 60
     proposal_followup_delay_hours: int = 24
 
@@ -132,8 +138,13 @@ class Settings(BaseSettings):
         "actuar_sync_screenshot_on_success",
         "actuar_sync_screenshot_on_failure",
         "actuar_sync_required_for_training",
+        "actuar_ignore_https_errors",
+        "public_diagnosis_enabled",
+        "public_booking_confirm_enabled",
         "public_objection_response_enabled",
         "public_proposal_enabled",
+        "public_proposal_email_enabled",
+        "monthly_reports_dispatch_enabled",
         "whatsapp_allow_global_fallback",
         mode="before",
     )
@@ -168,6 +179,27 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY insegura para ambiente de producao")
         if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):
             raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
+        if _is_local_url(self.frontend_url):
+            raise ValueError("FRONTEND_URL nao pode apontar para localhost em producao")
+        if any(_is_local_url(origin) for origin in self.cors_origins):
+            raise ValueError("CORS_ORIGINS nao pode usar localhost em producao")
+        if self.enable_scheduler_in_api:
+            raise ValueError("ENABLE_SCHEDULER_IN_API deve permanecer false em producao; use worker dedicado")
+        if self.enable_scheduler and not self.redis_url.strip():
+            raise ValueError("REDIS_URL obrigatorio quando ENABLE_SCHEDULER=true em producao")
+        if self.scheduler_critical_lock_fail_open:
+            raise ValueError("scheduler_critical_lock_fail_open deve permanecer false em producao")
+        if self.public_booking_confirm_enabled and not self.public_booking_confirm_token.strip():
+            raise ValueError("PUBLIC_BOOKING_CONFIRM_TOKEN obrigatorio quando booking publico estiver habilitado")
+        if self.public_diagnosis_enabled and not self.public_diag_gym_id.strip():
+            raise ValueError("PUBLIC_DIAG_GYM_ID obrigatorio quando diagnostico publico estiver habilitado")
+        if self.public_proposal_email_enabled:
+            if not self.sendgrid_api_key.strip():
+                raise ValueError("SENDGRID_API_KEY obrigatoria quando proposal email publico estiver habilitado")
+            if self.sendgrid_sender.endswith(".local"):
+                raise ValueError("SENDGRID_SENDER invalido para producao")
+        if bool(self.whatsapp_api_url.strip()) != bool(self.whatsapp_api_token.strip()):
+            raise ValueError("WHATSAPP_API_URL e WHATSAPP_API_TOKEN devem ser configurados juntos em producao")
         return self
 
     @property
@@ -190,6 +222,11 @@ def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
     if normalized in blocked_values:
         return True
     return len(normalized) < 32
+
+
+def _is_local_url(value: str) -> bool:
+    normalized = (value or "").strip().lower()
+    return normalized.startswith("http://localhost") or normalized.startswith("http://127.0.0.1")
 
 
 @lru_cache

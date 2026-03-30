@@ -78,6 +78,16 @@ class TestExtractContext:
         assert result["revenue"] == 50000
         assert result["lead_name"] == "Ana"
 
+    def test_respects_gym_scope_for_lead_context(self):
+        scoped_gym = uuid.uuid4()
+        foreign_lead = SimpleNamespace(full_name="Outro Lead", stage=SimpleNamespace(value="new"), gym_id=uuid.uuid4())
+        db = MagicMock()
+        db.scalar.return_value = None
+        db.get.return_value = foreign_lead
+        result = _extract_context(db, uuid.uuid4(), {}, gym_scope=scoped_gym)
+        assert "lead_name" not in result
+        assert "lead_stage" not in result
+
 
 class TestRenderTemplate:
     def test_replaces_vars(self):

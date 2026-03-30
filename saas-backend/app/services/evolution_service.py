@@ -116,23 +116,26 @@ def disconnect_instance(instance: str) -> bool:
         return False
 
 
-def configure_webhook(instance: str, webhook_url: str) -> bool:
+def configure_webhook(instance: str, webhook_url: str, webhook_headers: dict[str, str] | None = None) -> bool:
     try:
+        payload = {
+            "url": webhook_url,
+            "webhook_by_events": False,
+            "webhook_base64": False,
+            "events": [
+                "QRCODE_UPDATED",
+                "CONNECTION_UPDATE",
+                "STATUS_INSTANCE",
+                "MESSAGES_UPSERT",
+            ],
+        }
+        if webhook_headers:
+            payload["headers"] = webhook_headers
         with httpx.Client(timeout=10.0) as client:
             response = client.post(
                 f"{_base()}/webhook/set/{instance}",
                 headers=_headers(),
-                json={
-                    "url": webhook_url,
-                    "webhook_by_events": False,
-                    "webhook_base64": False,
-                    "events": [
-                        "QRCODE_UPDATED",
-                        "CONNECTION_UPDATE",
-                        "STATUS_INSTANCE",
-                        "MESSAGES_UPSERT",
-                    ],
-                },
+                json=payload,
             )
             return response.status_code in (200, 201)
     except Exception:

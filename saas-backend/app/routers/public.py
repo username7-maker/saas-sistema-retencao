@@ -65,6 +65,22 @@ def _ensure_public_endpoint_enabled(enabled: bool, endpoint_name: str) -> None:
     )
 
 
+def _require_public_shared_token(
+    *,
+    configured_token: str,
+    provided_token: str | None,
+    endpoint_name: str,
+) -> None:
+    expected = configured_token.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Endpoint publico '{endpoint_name}' exige token compartilhado configurado.",
+        )
+    if not provided_token or provided_token.strip() != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token publico invalido")
+
+
 @router.post("/diagnostico", response_model=PublicDiagnosisQueuedResponse, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit(settings.public_diag_rate_limit)
 async def public_diagnostico(
@@ -79,6 +95,7 @@ async def public_diagnostico(
     avg_monthly_fee: str = Form(...),
     csv_file: UploadFile = File(...),
 ) -> PublicDiagnosisQueuedResponse:
+    _ensure_public_endpoint_enabled(settings.public_diagnosis_enabled, "diagnostico")
     _apply_fallback_rate_limit(request)
     try:
         public_gym_id = resolve_public_gym_id()
@@ -168,9 +185,10 @@ def public_proposal(
     db: Session = Depends(get_db),
 ) -> Response:
     _ensure_public_endpoint_enabled(settings.public_proposal_enabled, "proposal")
-    hydrated = hydrate_proposal_from_lead(db, payload)
+    hydrated = hydrate_proposal_from_lead(db, payload, allow_lead_lookup=False)
     pdf_bytes, filename = generate_proposal_pdf(hydrated)
-    send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
+    if settings.public_proposal_email_enabled:
+        send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
@@ -198,7 +216,15 @@ def public_booking_confirm(
     request: Request,
     payload: PublicBookingConfirmRequest,
     db: Session = Depends(get_db),
+    x_public_booking_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ) -> PublicBookingConfirmResponse:
+    _ensure_public_endpoint_enabled(settings.public_booking_confirm_enabled, "booking/confirm")
+    _require_public_shared_token(
+        configured_token=settings.public_booking_confirm_token,
+        provided_token=x_public_booking_token or _extract_bearer_token(authorization),
+        endpoint_name="booking/confirm",
+    )
     lead, booking = confirm_public_booking(db, payload)
     return PublicBookingConfirmResponse(
         message="Agendamento confirmado",

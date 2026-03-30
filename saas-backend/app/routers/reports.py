@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
+from app.core.config import settings
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import APIMessage
@@ -51,6 +52,8 @@ def dispatch_monthly_reports(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> APIMessage:
+    if not settings.monthly_reports_dispatch_enabled:
+        raise HTTPException(status_code=503, detail="Disparo mensal temporariamente desabilitado para o piloto")
     result = send_monthly_reports(db)
     context = get_request_context(request)
     log_audit_event(

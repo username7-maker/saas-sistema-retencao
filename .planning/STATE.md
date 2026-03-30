@@ -2,8 +2,8 @@
 milestone: v3.2.0
 phase: 4.40
 plan: "04.40-STATUS.md"
-status: Piloto segue em execucao, 4.36-4.39 endureceram seguranca, resiliencia e guardrails de tenant, e 4.40 ja moveu o refresh token para cookie HttpOnly, removeu o refresh do localStorage e adicionou headers de borda no backend e na Vercel
-last_activity: 2026-03-27 - fase 4.40 implementou cookie HttpOnly para refresh, bootstrap de sessao por cookie, single-flight de refresh no frontend e headers basicos de seguranca na borda
+status: Piloto segue em execucao, 4.36-4.40 endureceram borda publica, sessao, resiliencia, tenant guardrails e falha cedo de configuracao em producao
+last_activity: 2026-03-30 - fases 4.36 e 4.37 bloquearam rotas publicas por padrao, removeram lead hydration publica, tiraram segredo novo de webhook da query string, reduziram PII em falhas publicas e 4.40 passou a falhar cedo para envs inseguros de producao
 ---
 
 # STATE
@@ -19,8 +19,8 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Phase:** 4.40
 **Plan:** `04.40-STATUS.md`
-**Status:** Piloto controlado segue ativo, 4.34 continua como hardening administrativo em paralelo, 4.36-4.39 reduziram exposicao, custo e risco de isolamento, e o trabalho ativo agora esta em 4.40
-**Last activity:** 2026-03-27 - fase 4.40 implementou refresh em cookie HttpOnly, removeu refresh do localStorage, adicionou bootstrap de sessao por cookie e endureceu headers do backend/Vercel
+**Status:** Piloto controlado segue ativo, 4.36-4.40 reduziram bastante o risco de incidente imediato e o foco agora e publicar e validar esse hardening em producao
+**Last activity:** 2026-03-30 - rotas publicas criticas foram colocadas behind feature flag, proposal publica perdeu lead hydration por id, webhook do WhatsApp passou a usar header, diagnostico publico mascarou PII em falha e a configuracao de producao passou a falhar cedo para combinacoes inseguras
 
 ## Progress Snapshot
 

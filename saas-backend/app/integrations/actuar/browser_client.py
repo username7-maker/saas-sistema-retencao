@@ -39,7 +39,8 @@ class ActuarBrowserClient:
             raise RuntimeError("playwright_unavailable") from exc
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=self.headless)
-        self._context = self._browser.new_context(ignore_https_errors=True)
+        ignore_https_errors = bool(settings.actuar_ignore_https_errors and settings.environment.lower() != "production")
+        self._context = self._browser.new_context(ignore_https_errors=ignore_https_errors)
         self.page = self._context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
 

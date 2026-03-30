@@ -67,3 +67,17 @@ def test_health_ready_returns_503_when_required_redis_is_down(client):
     data = response.json()
     assert data["status"] == "degraded"
     assert data["checks"]["cache"]["status"] == "error"
+
+
+def test_health_ready_hides_dependency_details_in_production(client):
+    mock_session = MagicMock()
+    with (
+        patch("app.main.SessionLocal", return_value=mock_session),
+        patch("app.main.dashboard_cache.healthcheck", return_value={"available": True, "backend": "redis"}),
+        patch.object(settings, "environment", "production"),
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {"status": "ok"}

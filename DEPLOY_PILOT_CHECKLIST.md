@@ -40,6 +40,7 @@ Ficam desligados no go-live inicial:
 - `SENDGRID_API_KEY` e `SENDGRID_SENDER` se o piloto usar e-mail
   - `SENDGRID_SENDER` precisa ser um `Sender Identity` verificado no SendGrid, senao o worker vai responder `403 Forbidden`
 - `WHATSAPP_API_URL`, `WHATSAPP_API_TOKEN` e `WHATSAPP_INSTANCE` se o piloto usar WhatsApp
+- `PUBLIC_BOOKING_CONFIRM_TOKEN` apenas se `PUBLIC_BOOKING_CONFIRM_ENABLED=true`
 
 ## Flags do Piloto
 
@@ -49,11 +50,16 @@ Ficam desligados no go-live inicial:
 - Worker: `ENABLE_SCHEDULER_IN_API=false`
 - Worker: `SCHEDULER_CRITICAL_LOCK_FAIL_OPEN=false`
 - Manter desligado:
+  - `PUBLIC_DIAGNOSIS_ENABLED=false`
+  - `PUBLIC_BOOKING_CONFIRM_ENABLED=false`
   - `PUBLIC_OBJECTION_RESPONSE_ENABLED=false`
   - `PUBLIC_PROPOSAL_ENABLED=false`
+  - `PUBLIC_PROPOSAL_EMAIL_ENABLED=false`
+  - `MONTHLY_REPORTS_DISPATCH_ENABLED=false`
   - `ACTUAR_ENABLED=false`
   - `ACTUAR_SYNC_ENABLED=false`
   - `ACTUAR_SYNC_MODE=disabled`
+  - `ACTUAR_IGNORE_HTTPS_ERRORS=false`
   - `BODY_COMPOSITION_IMAGE_AI_ENABLED=false`
 
 ## Comandos Corretos
@@ -74,6 +80,7 @@ Ficam desligados no go-live inicial:
 ## Validacoes Pos-Deploy
 
 - `GET /health/ready` responde `200`
+- `GET /health/ready` em producao responde apenas `{ "status": "ok" }`
 - Login funciona e refresh token continua valido para usuario ativo
 - Criacao de member gera membro, tarefas de onboarding e audit log
 - Importacao pequena de membros funciona com preview e commit
@@ -81,6 +88,11 @@ Ficam desligados no go-live inicial:
 - WebSocket em `/ws/updates` conecta com access token valido
 - Logs do worker mostram jobs iniciando normalmente
 - Logs do worker nao mostram `job_skipped_lock_unavailable`
+- Rotas publicas bloqueadas retornam `503`:
+  - `/api/v1/public/diagnostico`
+  - `/api/v1/public/booking/confirm`
+  - `/api/v1/public/proposal`
+  - `/api/v1/public/objection-response`
 - E-mail real via SendGrid funciona
 - Um fluxo real de WhatsApp funciona
 

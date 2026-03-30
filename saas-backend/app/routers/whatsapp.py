@@ -3,9 +3,8 @@ Endpoints de gerenciamento da conexao WhatsApp por academia.
 """
 import logging
 from datetime import datetime, timezone
-from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -78,6 +77,15 @@ def _extract_instance_name(body: dict) -> str:
     return body.get("instanceName", "") or ""
 
 
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.strip().split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return authorization.strip() or None
+
+
 @router.post("/connect", response_model=QRCodeOut)
 def connect_whatsapp(
     db: Session = Depends(get_db),
@@ -94,11 +102,13 @@ def connect_whatsapp(
     db.commit()
 
     if settings.public_backend_url and settings.whatsapp_webhook_token and background_tasks is not None:
-        webhook_url = (
-            f"{settings.public_backend_url.rstrip('/')}/api/v1/whatsapp/webhook"
-            f"?token={quote(settings.whatsapp_webhook_token, safe='')}"
+        webhook_url = f"{settings.public_backend_url.rstrip('/')}/api/v1/whatsapp/webhook"
+        background_tasks.add_task(
+            configure_webhook,
+            instance,
+            webhook_url,
+            {"X-Webhook-Token": settings.whatsapp_webhook_token},
         )
-        background_tasks.add_task(configure_webhook, instance, webhook_url)
     else:
         logger.warning("Webhook da Evolution nao configurado: PUBLIC_BACKEND_URL ou WHATSAPP_WEBHOOK_TOKEN ausente")
 
@@ -167,10 +177,13 @@ def disconnect_whatsapp(
 async def whatsapp_webhook(
     request: Request,
     token: str | None = Query(None),
+    x_webhook_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
     configured_token = (settings.whatsapp_webhook_token or "").strip()
-    if not configured_token or token != configured_token:
+    provided_token = x_webhook_token or _extract_bearer_token(authorization) or token
+    if not configured_token or provided_token != configured_token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook token")
 
     body = await request.json()

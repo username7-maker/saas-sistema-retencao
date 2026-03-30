@@ -129,8 +129,13 @@ def send_proposal_email_if_needed(payload: PublicProposalRequest, pdf_bytes: byt
     )
 
 
-def hydrate_proposal_from_lead(db: Session, payload: PublicProposalRequest) -> PublicProposalRequest:
-    if not payload.lead_id:
+def hydrate_proposal_from_lead(
+    db: Session,
+    payload: PublicProposalRequest,
+    *,
+    allow_lead_lookup: bool = False,
+) -> PublicProposalRequest:
+    if not allow_lead_lookup or not payload.lead_id:
         return payload
 
     sequence = db.scalar(
@@ -189,7 +194,7 @@ def generate_and_send_for_lead(db: Session, lead_id) -> dict:
         diagnosed_yellow=int(diagnosis.get("yellow_total") or 0),
         email=lead.email,
     )
-    hydrated = hydrate_proposal_from_lead(db, payload)
+    hydrated = hydrate_proposal_from_lead(db, payload, allow_lead_lookup=True)
     pdf_bytes, filename = generate_proposal_pdf(hydrated)
     emailed = send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
     return {

@@ -34,6 +34,7 @@ def test_multi_tenant_jobs_continue_after_a_gym_failure(job_func, runner_patch, 
         patch("app.background_jobs.jobs.clear_current_gym_id"),
         patch(runner_patch, side_effect=[RuntimeError("boom"), success_result]) as runner,
         patch.object(settings, "scheduler_critical_lock_fail_open", True),
+        patch.object(settings, "monthly_reports_dispatch_enabled", True),
     ):
         job_func()
 
@@ -72,3 +73,15 @@ def test_daily_loyalty_update_job_commits_per_successful_gym():
     assert db.flush.call_count == 1
     mock_set_gym.assert_has_calls([call("gym-a"), call("gym-b")])
     db.close.assert_called_once()
+
+
+def test_monthly_reports_job_skips_when_dispatch_disabled():
+    with (
+        patch.object(settings, "monthly_reports_dispatch_enabled", False),
+        patch("app.background_jobs.jobs.SessionLocal") as session_local,
+        patch("app.background_jobs.jobs.send_monthly_reports") as send_monthly_reports,
+    ):
+        jobs.monthly_reports_job()
+
+    session_local.assert_not_called()
+    send_monthly_reports.assert_not_called()

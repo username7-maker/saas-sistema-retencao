@@ -234,13 +234,12 @@ def readiness_check() -> JSONResponse:
     cache_healthy = (not cache_required) or bool(cache_info.get("available"))
     cache_status = "ok" if cache_healthy else ("not_configured" if not cache_required else "error")
     healthy = db_status == "ok" and cache_healthy
-    payload = {
-        "status": "ok" if healthy else "degraded",
-        "checks": {
+    payload = {"status": "ok" if healthy else "degraded"}
+    if settings.environment.lower() != "production":
+        payload["checks"] = {
             "database": {"status": db_status},
             "cache": {"status": cache_status},
-        },
-    }
+        }
     status_code = 200 if healthy else 503
     return JSONResponse(status_code=status_code, content=payload)
 

@@ -231,8 +231,13 @@ def test_background_failure_records_diagnosis_error_and_audit(monkeypatch):
     )
 
     added_objects = [call.args[0] for call in fake_db.add.call_args_list]
-    assert any(isinstance(obj, DiagnosisError) for obj in added_objects)
+    diagnosis_errors = [obj for obj in added_objects if isinstance(obj, DiagnosisError)]
+    assert diagnosis_errors
+    assert diagnosis_errors[0].prospect_email == "pr***@test.com"
+    assert diagnosis_errors[0].payload["email"] == "pr***@test.com"
+    assert diagnosis_errors[0].payload["whatsapp"] == "55***99"
     assert audit_calls[0]["action"] == "public_diagnosis_failed"
+    assert audit_calls[0]["details"]["email"] == "pr***@test.com"
     assert any(note["type"] == "public_diagnosis_failed" for note in lead.notes)
 
 

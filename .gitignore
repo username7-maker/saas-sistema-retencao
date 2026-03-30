@@ -24,6 +24,10 @@ dist/
 .docker-tmp/
 *.log
 database.db
+_tmp_*.csv
+_tmp_*.db
+saas-backend/_tmp_*.db
+saas-backend/_tmp_*.sqlite*
 
 # --- SYSTEM / IDE ---
 .DS_Store

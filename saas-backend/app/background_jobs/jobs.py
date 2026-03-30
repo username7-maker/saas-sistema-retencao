@@ -153,6 +153,12 @@ def daily_crm_followup_job() -> None:
 @with_distributed_lock("monthly_reports", ttl_seconds=3600, fail_open=_critical_lock_fail_open)
 def monthly_reports_job() -> None:
     job_name = "monthly_reports"
+    if not settings.monthly_reports_dispatch_enabled:
+        logger.info(
+            "Monthly reports dispatch disabled by configuration.",
+            extra={"extra_fields": {"event": "job_skipped_disabled", "job_name": job_name, "status": "disabled"}},
+        )
+        return
     db = SessionLocal()
     try:
         for gym in _active_gyms(db):

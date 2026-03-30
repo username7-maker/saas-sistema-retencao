@@ -39,6 +39,34 @@ CHECKIN_DATE_COLUMN_ALIASES = ("checkin_date", "data", "date", "data_checkin")
 CHECKIN_TIME_COLUMN_ALIASES = ("checkin_time", "hora", "time", "hora_checkin")
 
 
+def _mask_email(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw or "@" not in raw:
+        return "[redacted-email]"
+    local, domain = raw.split("@", 1)
+    if len(local) <= 2:
+        masked_local = "*" * len(local)
+    else:
+        masked_local = f"{local[:2]}***"
+    return f"{masked_local}@{domain}"
+
+
+def _mask_phone(value: str | None) -> str:
+    digits = "".join(ch for ch in (value or "") if ch.isdigit())
+    if len(digits) < 4:
+        return "[redacted-phone]"
+    return f"{digits[:2]}***{digits[-2:]}"
+
+
+def _redact_public_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    safe = {k: v for k, v in payload.items() if k not in {"csv_content", "email", "whatsapp"}}
+    if "email" in payload:
+        safe["email"] = _mask_email(str(payload.get("email") or ""))
+    if "whatsapp" in payload:
+        safe["whatsapp"] = _mask_phone(str(payload.get("whatsapp") or ""))
+    return safe
+
+
 def resolve_public_gym_id() -> UUID:
     raw = (settings.public_diag_gym_id or "").strip()
     if not raw:
@@ -306,7 +334,7 @@ def process_public_diagnosis_background(
             entity="lead",
             gym_id=gym_id,
             entity_id=lead_id,
-            details={"diagnosis_id": str(diagnosis_id), "email": payload["email"], "kpis": kpis},
+            details={"diagnosis_id": str(diagnosis_id), "email": _mask_email(payload["email"]), "kpis": kpis},
             ip_address=requester_ip,
             user_agent=user_agent,
         )
@@ -316,12 +344,12 @@ def process_public_diagnosis_background(
         db.add(
             DiagnosisError(
                 gym_id=gym_id,
-                prospect_email=payload.get("email", ""),
+                prospect_email=_mask_email(payload.get("email", "")),
                 prospect_name=payload.get("full_name"),
                 endpoint="public_diagnostico",
                 error_message=str(exc)[:1000],
                 traceback_snippet=traceback_snippet,
-                payload={k: v for k, v in payload.items() if k != "csv_content"},
+                payload=_redact_public_payload(payload),
             )
         )
 
@@ -348,7 +376,7 @@ def process_public_diagnosis_background(
             entity_id=lead_id,
             details={
                 "diagnosis_id": str(diagnosis_id),
-                "email": payload.get("email"),
+                "email": _mask_email(payload.get("email")),
                 "error": str(exc)[:500],
             },
             ip_address=requester_ip,

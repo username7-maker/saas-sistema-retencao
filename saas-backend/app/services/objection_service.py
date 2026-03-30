@@ -20,22 +20,31 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", ascii_text).strip().lower()
 
 
-def _extract_context(db: Session, lead_id: UUID | None, context: dict | None) -> dict[str, Any]:
+def _extract_context(
+    db: Session,
+    lead_id: UUID | None,
+    context: dict | None,
+    *,
+    gym_scope: UUID | None = None,
+) -> dict[str, Any]:
     merged: dict[str, Any] = dict(context or {})
     if not lead_id:
         return merged
 
-    seq = db.scalar(
+    seq_stmt = (
         select(NurturingSequence)
         .where(NurturingSequence.lead_id == lead_id)
         .order_by(NurturingSequence.created_at.desc())
         .limit(1)
     )
+    if gym_scope:
+        seq_stmt = seq_stmt.where(NurturingSequence.gym_id == gym_scope)
+    seq = db.scalar(seq_stmt)
     if seq and isinstance(seq.diagnosis_data, dict):
         merged.update(seq.diagnosis_data)
 
     lead = db.get(Lead, lead_id)
-    if lead:
+    if lead and (gym_scope is None or lead.gym_id == gym_scope):
         merged.setdefault("lead_name", lead.full_name)
         merged.setdefault("lead_stage", lead.stage.value)
     return merged
@@ -108,7 +117,7 @@ def generate_objection_response(
         filters.append(ObjectionResponse.gym_id.is_(None))
 
     objections = list(db.scalars(select(ObjectionResponse).where(*filters)).all())
-    merged_context = _extract_context(db, lead_id, context)
+    merged_context = _extract_context(db, lead_id, context, gym_scope=public_gym_id)
 
     matched = _keyword_match(message_text, objections)
     if matched:
