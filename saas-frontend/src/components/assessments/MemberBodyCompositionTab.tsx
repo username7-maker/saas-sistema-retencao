@@ -6,6 +6,7 @@ import {
   FilePlus2,
   ImageUp,
   Link2,
+  MessageCircle,
   Pencil,
   RefreshCcw,
   Save,
@@ -163,6 +164,8 @@ interface OcrReadSessionState {
 
 interface Props {
   memberId: string;
+  memberName?: string;
+  memberPhone?: string | null;
 }
 
 const EMPTY_OCR_METADATA: OcrMetadataState = {
@@ -353,7 +356,7 @@ function buildAssistedReadSummary(
   return null;
 }
 
-export function MemberBodyCompositionTab({ memberId }: Props) {
+export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
@@ -491,6 +494,24 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
     onError: () => toast.error("Nao foi possivel salvar o vinculo Actuar."),
   });
 
+  const sendWhatsAppMutation = useMutation({
+    mutationFn: (evaluationId: string) => bodyCompositionService.sendWhatsAppSummary(memberId, evaluationId),
+    onSuccess: (payload) => {
+      if (payload.status === "sent") {
+        toast.success("Resumo do aluno e PDF enviados pelo WhatsApp.");
+        return;
+      }
+      toast.error(payload.error_detail || "O envio por WhatsApp nao foi concluido.");
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel enviar o resumo do aluno no WhatsApp.");
+    },
+  });
+
   const highlightedWarnings = new Map(
     (ocrMetadata.ocr_warnings_json ?? [])
       .filter((warning) => warning.field)
@@ -513,6 +534,7 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
   });
   const actuarCapability = resolveActuarCapability(syncStatus);
   const unsupportedFieldsMessage = buildUnsupportedFieldsMessage(syncStatus);
+  const canSendWhatsAppSummary = Boolean(focusEvaluation?.id && memberPhone?.trim());
 
   async function handleCopyCriticalFields() {
     if (!focusEvaluation?.id) return;
@@ -910,8 +932,27 @@ export function MemberBodyCompositionTab({ memberId }: Props) {
                     <p className="mt-2 text-sm text-lovable-ink">{resolveCoachSummary(focusEvaluation) || "Resumo ainda nao gerado."}</p>
                   </div>
                   <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
-                    <p className="mt-2 text-sm text-lovable-ink">{resolveMemberSummary(focusEvaluation) || "Resumo amigavel ainda nao gerado."}</p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
+                        <p className="mt-2 text-sm text-lovable-ink">{resolveMemberSummary(focusEvaluation) || "Resumo amigavel ainda nao gerado."}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={!focusEvaluation?.id || !canSendWhatsAppSummary || sendWhatsAppMutation.isPending}
+                        onClick={() => focusEvaluation?.id && sendWhatsAppMutation.mutate(focusEvaluation.id)}
+                      >
+                        <MessageCircle size={14} />
+                        {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar no WhatsApp"}
+                      </Button>
+                    </div>
+                    <p className="mt-3 text-xs text-lovable-ink-muted">
+                      {memberPhone
+                        ? `Envia este resumo e o PDF da bioimpedancia para o WhatsApp cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
+                        : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF."}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas principais</p>

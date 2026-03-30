@@ -10,6 +10,7 @@ from app.services.whatsapp_service import (
     get_gym_instance,
     render_template,
     resolve_instance,
+    send_whatsapp_document_sync,
     send_whatsapp_sync,
 )
 
@@ -154,3 +155,28 @@ def test_send_global_fallback_logged(monkeypatch):
         mock_client.return_value.__enter__.return_value.post.return_value = response
         log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance=None)
     assert log.extra_data["instance_source"] == "global_fallback"
+
+
+def test_send_document_uses_send_media_endpoint(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_rate_limit_per_hour", 100)
+    with patch("httpx.Client") as mock_client:
+        response = MagicMock(status_code=201)
+        response.raise_for_status = MagicMock()
+        mock_client.return_value.__enter__.return_value.post.return_value = response
+        log = send_whatsapp_document_sync(
+            _mock_db_send(),
+            phone="11999999999",
+            caption="Resumo da bioimpedancia",
+            file_bytes=b"%PDF-1.4 fake",
+            filename="bioimpedancia.pdf",
+            instance="gym_abc123",
+        )
+
+    call = mock_client.return_value.__enter__.return_value.post.call_args
+    assert "/message/sendMedia/gym_abc123" in call[0][0]
+    assert call.kwargs["json"]["mediatype"] == "document"
+    assert call.kwargs["json"]["fileName"] == "bioimpedancia.pdf"
+    assert log.status == "sent"
+    assert log.extra_data["delivery_kind"] == "document"

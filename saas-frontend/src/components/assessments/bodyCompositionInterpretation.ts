@@ -31,6 +31,15 @@ const RANGE_LABELS: Partial<Record<keyof BodyCompositionEvaluation, string>> = {
   health_score: "Health score",
 };
 
+const TECHNICAL_MEMBER_TERMS = [
+  "gordura visceral",
+  "relacao cintura-quadril",
+  "indice de massa corporal",
+  "massa muscular esqueletica",
+  "percentual de gordura",
+  "imc",
+];
+
 function normalizeSummary(text: string | null | undefined): string {
   return (text ?? "").replace(/\s+/g, " ").trim();
 }
@@ -42,6 +51,26 @@ function looksTruncated(text: string | null | undefined): boolean {
   const parts = normalized.split(" ");
   const lastToken = parts[parts.length - 1] ?? "";
   return normalized.length >= 80 && lastToken.length <= 2 && !/[.!?…]$/.test(normalized);
+}
+
+function soundsTooTechnicalForStudent(text: string | null | undefined): boolean {
+  const normalized = normalizeSummary(text).toLowerCase();
+  if (!normalized) return false;
+  const jargonHits = TECHNICAL_MEMBER_TERMS.filter((term) => normalized.includes(term)).length;
+  const numericHits = normalized.match(/\d+[,.]?\d*/g)?.length ?? 0;
+  return jargonHits >= 2 || (jargonHits >= 1 && numericHits >= 4);
+}
+
+function humanizeRiskFlag(flag: string): string {
+  const normalized = flag.trim().toLowerCase();
+  const replacements: Record<string, string> = {
+    "peso acima da faixa recomendada": "o peso estar acima da faixa recomendada",
+    "gordura visceral elevada": "a gordura na regiao abdominal estar acima do desejado",
+    "percentual de gordura acima da faixa": "o percentual de gordura estar acima do desejado",
+    "imc acima da faixa": "o indice corporal estar acima do desejado",
+    "massa muscular abaixo da faixa": "a massa muscular estar abaixo do ideal",
+  };
+  return replacements[normalized] ?? normalized;
 }
 
 export function formatBodyCompositionGoal(value: string | null | undefined): string {
@@ -65,13 +94,23 @@ export function resolveCoachSummary(evaluation: BodyCompositionEvaluation | null
 
 export function resolveMemberSummary(evaluation: BodyCompositionEvaluation | null | undefined): string {
   const stored = normalizeSummary(evaluation?.ai_member_friendly_summary);
-  if (stored && !looksTruncated(stored)) return stored;
+  if (stored && !looksTruncated(stored) && !soundsTooTechnicalForStudent(stored)) return stored;
 
   const primaryGoal = formatBodyCompositionGoal(evaluation?.ai_training_focus_json?.primary_goal);
-  return (
-    `Este exame serve como ponto de partida para organizar o acompanhamento com foco inicial em ${primaryGoal.toLowerCase()}. ` +
-    "Vamos revisar os proximos passos com clareza e acompanhar a evolucao nas proximas semanas."
-  );
+  const flags = (evaluation?.ai_risk_flags_json ?? []).slice(0, 2).map(humanizeRiskFlag);
+  const concernText =
+    flags.length === 0
+      ? "Sem nenhum alerta forte fora do esperado neste momento."
+      : flags.length === 1
+        ? `O principal ponto de atencao agora e ${flags[0]}.`
+        : `Os principais pontos de atencao agora sao ${flags[0]} e ${flags[1]}.`;
+
+  return [
+    "Seu exame mostra um bom ponto de partida para organizar os proximos passos com mais clareza.",
+    `Agora vamos concentrar o acompanhamento em ${primaryGoal.toLowerCase()}.`,
+    concernText,
+    "Com constancia nas proximas semanas, fica mais facil ajustar o plano e acompanhar sua evolucao de forma segura.",
+  ].join(" ");
 }
 
 export function buildBodyCompositionRangeClassifications(

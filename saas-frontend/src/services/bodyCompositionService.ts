@@ -4,6 +4,7 @@ import type {
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
   BodyCompositionManualSyncSummary,
+  BodyCompositionWhatsAppDispatch,
   BodyCompositionEvaluationUpdate,
 } from "../types";
 import { api } from "./api";
@@ -137,6 +138,13 @@ export const bodyCompositionService = {
     const { data } = await api.post<BodyCompositionActuarSyncStatus>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}/manual-sync-confirm`,
       payload,
+    );
+    return data;
+  },
+
+  async sendWhatsAppSummary(memberId: string, evaluationId: string): Promise<BodyCompositionWhatsAppDispatch> {
+    const { data } = await api.post<BodyCompositionWhatsAppDispatch>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/send-whatsapp`,
     );
     return data;
   },

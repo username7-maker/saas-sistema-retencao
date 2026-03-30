@@ -108,6 +108,16 @@ describe("bodyCompositionInterpretation helpers", () => {
     expect(resolveMemberSummary(evaluation)).toContain("ponto de partida");
   });
 
+  it("softens member summary when stored text is too technical", () => {
+    const evaluation = makeEvaluation({
+      ai_member_friendly_summary:
+        "Seu exame mostra relacao cintura-quadril em 0,88, gordura visceral em 9,1 e indice de massa corporal em 26,7.",
+    });
+
+    expect(resolveMemberSummary(evaluation)).toContain("bom ponto de partida");
+    expect(resolveMemberSummary(evaluation)).toContain("regiao abdominal");
+  });
+
   it("keeps only the most useful range classifications for the professor", () => {
     const evaluation = makeEvaluation();
 

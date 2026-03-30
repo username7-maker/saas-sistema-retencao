@@ -29,6 +29,7 @@ from app.schemas.body_composition import (
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionManualSyncSummaryRead,
+    BodyCompositionWhatsAppDispatchRead,
     BodyCompositionEvaluationUpdate,
 )
 from app.services.audit_service import log_audit_event
@@ -41,6 +42,7 @@ from app.services.body_composition_actuar_sync_service import (
     upsert_body_composition_actuar_link,
 )
 from app.services.body_composition_image_parse_service import parse_body_composition_image
+from app.services.body_composition_delivery_service import send_body_composition_whatsapp_summary
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     list_body_composition_evaluations,
@@ -429,6 +431,52 @@ def get_body_composition_manual_sync_summary_endpoint(
         gym_id=current_user.gym_id,
         member_id=member_id,
         evaluation_id=evaluation_id,
+    )
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/send-whatsapp",
+    response_model=BodyCompositionWhatsAppDispatchRead,
+)
+def send_body_composition_whatsapp_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> BodyCompositionWhatsAppDispatchRead:
+    try:
+        log = send_body_composition_whatsapp_summary(
+            db,
+            gym_id=current_user.gym_id,
+            member_id=member_id,
+            evaluation_id=evaluation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="body_composition_whatsapp_sent",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={"status": log.status, "pdf_filename": (log.extra_data or {}).get("file_name")},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    db.refresh(log)
+    return BodyCompositionWhatsAppDispatchRead(
+        log_id=log.id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        status=log.status,
+        recipient=log.recipient,
+        pdf_filename=(log.extra_data or {}).get("file_name"),
+        error_detail=log.error_detail,
     )
 
 

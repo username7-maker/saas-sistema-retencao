@@ -493,6 +493,16 @@ export interface BodyCompositionEvaluation {
   assistant?: AIAssistantPayload | null;
 }
 
+export interface BodyCompositionWhatsAppDispatch {
+  log_id: string;
+  member_id: string;
+  evaluation_id: string;
+  status: string;
+  recipient: string;
+  pdf_filename: string | null;
+  error_detail: string | null;
+}
+
 export interface BodyCompositionEvaluationCreate {
   evaluation_date: string;
   weight_kg?: number | null;

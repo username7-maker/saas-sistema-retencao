@@ -175,6 +175,90 @@ class TestListBodyComposition:
         assert result == []
 
 
+class TestBodyCompositionDelivery:
+    @patch("app.services.body_composition_delivery_service.send_whatsapp_document_sync")
+    @patch("app.services.body_composition_delivery_service.generate_body_composition_pdf")
+    @patch("app.services.body_composition_delivery_service.get_gym_instance", return_value="gym_instance")
+    @patch("app.services.body_composition_delivery_service.get_body_composition_evaluation_or_404")
+    @patch("app.services.body_composition_delivery_service.get_member_or_404")
+    def test_send_whatsapp_summary_uses_member_phone(
+        self,
+        mock_get_member,
+        mock_get_evaluation,
+        mock_get_instance,
+        mock_generate_pdf,
+        mock_send_document,
+    ):
+        member = SimpleNamespace(id=MEMBER_ID, full_name="Erick Bedin", phone="11999999999")
+        evaluation = SimpleNamespace(
+            id=EVALUATION_ID,
+            evaluation_date=date(2026, 3, 30),
+            ai_member_friendly_summary="Seu exame mostra um bom ponto de partida para organizar o acompanhamento.",
+            ai_risk_flags_json=["Peso acima da faixa recomendada"],
+            ai_training_focus_json={"primary_goal": "reducao_de_gordura"},
+            weight_kg=84.5,
+            body_fat_percent=23.0,
+            muscle_mass_kg=37.2,
+            skeletal_muscle_kg=35.6,
+            waist_hip_ratio=0.88,
+            visceral_fat_level=9.1,
+            bmi=26.7,
+            health_score=62,
+        )
+        mock_get_member.return_value = member
+        mock_get_evaluation.return_value = evaluation
+        mock_generate_pdf.return_value = (b"%PDF-1.4 fake", "bioimpedancia_erick.pdf")
+        mock_send_document.return_value = SimpleNamespace(
+            id=uuid.uuid4(),
+            status="sent",
+            recipient="5511999999999",
+            error_detail=None,
+            extra_data={"file_name": "bioimpedancia_erick.pdf"},
+        )
+        db = MagicMock()
+
+        from app.services.body_composition_delivery_service import send_body_composition_whatsapp_summary
+
+        log = send_body_composition_whatsapp_summary(
+            db,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            evaluation_id=EVALUATION_ID,
+        )
+
+        assert log.status == "sent"
+        assert mock_send_document.call_args.kwargs["phone"] == "11999999999"
+        assert mock_send_document.call_args.kwargs["instance"] == "gym_instance"
+
+    def test_generate_body_composition_pdf_contains_core_sections(self):
+        member = SimpleNamespace(full_name="Erick Bedin")
+        evaluation = SimpleNamespace(
+            evaluation_date=date(2026, 3, 30),
+            ai_member_friendly_summary="Seu exame mostra um bom ponto de partida para organizar os proximos passos.",
+            ai_risk_flags_json=["Peso acima da faixa recomendada", "Gordura visceral elevada"],
+            ai_training_focus_json={
+                "primary_goal": "reducao_de_gordura",
+                "secondary_goal": "preservacao_de_massa_magra",
+                "suggested_focuses": ["reduzir gordura corporal"],
+            },
+            weight_kg=84.5,
+            body_fat_percent=23.0,
+            muscle_mass_kg=37.2,
+            skeletal_muscle_kg=35.6,
+            waist_hip_ratio=0.88,
+            visceral_fat_level=9.1,
+            bmi=26.7,
+            health_score=62,
+        )
+
+        from app.services.body_composition_delivery_service import generate_body_composition_pdf
+
+        pdf_bytes, filename = generate_body_composition_pdf(member, evaluation)
+
+        assert filename.endswith(".pdf")
+        assert pdf_bytes.startswith(b"%PDF")
+
+
 class TestSyncLookup:
     def test_get_body_composition_evaluation_or_404_respects_member_and_gym_scope(self):
         db = MagicMock()

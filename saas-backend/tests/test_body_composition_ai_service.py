@@ -58,7 +58,8 @@ def test_generate_body_composition_ai_fallback_is_safe_and_structured():
     assert "medicamento" not in result["coach_summary"].lower()
     assert "tratamento" not in result["coach_summary"].lower()
     assert "exercicio especifico" not in result["coach_summary"].lower()
-    assert "avaliacao presencial" in result["member_friendly_summary"].lower()
+    assert "bom ponto de partida" in result["member_friendly_summary"].lower()
+    assert "acompanhar sua evolucao" in result["member_friendly_summary"].lower()
     assert result["training_focus"]["cautions"]
 
 
@@ -171,3 +172,39 @@ def test_normalize_ai_payload_trims_without_cutting_mid_word():
     assert len(result["coach_summary"]) <= 1200
     assert not result["coach_summary"].endswith("fr")
     assert result["coach_summary"].endswith(".") or result["coach_summary"].endswith("...")
+
+
+def test_normalize_ai_payload_softens_overly_technical_member_summary():
+    from app.services.body_composition_ai_service import _normalize_ai_payload
+
+    result = _normalize_ai_payload(
+        {
+            "coach_summary": "ok",
+            "member_friendly_summary": (
+                "Seu exame mostra relacao cintura-quadril em 0,88, gordura visceral em 9,1 "
+                "e indice de massa corporal em 26,7, com percentual de gordura em 23%."
+            ),
+            "risk_flags": ["Peso acima da faixa recomendada", "Gordura visceral elevada"],
+            "training_focus": {"primary_goal": "reducao_de_gordura"},
+        }
+    )
+
+    assert "bom ponto de partida" in result["member_friendly_summary"].lower()
+    assert "gordura na regiao abdominal" in result["member_friendly_summary"].lower()
+
+
+def test_build_body_composition_member_summary_uses_stored_text_when_human():
+    from app.services.body_composition_ai_service import build_body_composition_member_summary
+
+    evaluation = _evaluation(
+        ai_member_friendly_summary=(
+            "Seu exame mostra um bom ponto de partida para seguir com mais constancia. "
+            "Agora vamos ajustar o foco para reduzir gordura sem perder massa muscular."
+        ),
+        ai_risk_flags_json=["Peso acima da faixa recomendada"],
+        ai_training_focus_json={"primary_goal": "reducao_de_gordura"},
+    )
+
+    result = build_body_composition_member_summary(evaluation, member_first_name="Erick")
+
+    assert "bom ponto de partida" in result.lower()

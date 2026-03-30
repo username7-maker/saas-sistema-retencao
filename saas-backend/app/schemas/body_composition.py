@@ -276,6 +276,16 @@ class BodyCompositionManualSyncSummaryRead(BaseModel):
     summary_text: str
 
 
+class BodyCompositionWhatsAppDispatchRead(BaseModel):
+    log_id: UUID
+    member_id: UUID
+    evaluation_id: UUID
+    status: str
+    recipient: str
+    pdf_filename: str | None = None
+    error_detail: str | None = None
+
+
 class ActuarSyncQueueItemRead(BaseModel):
     evaluation_id: UUID
     member_id: UUID

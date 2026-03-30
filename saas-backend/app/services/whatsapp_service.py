@@ -1,4 +1,5 @@
 import logging
+from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -215,6 +216,45 @@ def _mark_log(log_entry: MessageLog, *, status: str, error: str | None = None, e
     log_entry.status = status
     log_entry.error_detail = error
     log_entry.extra_data = extra_data or {}
+
+
+def _data_uri_from_bytes(file_bytes: bytes, mime_type: str) -> str:
+    encoded = b64encode(file_bytes).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _send_whatsapp_media_payload_sync(
+    *,
+    resolved_instance: str,
+    formatted_phone: str,
+    file_bytes: bytes,
+    filename: str,
+    caption: str,
+    mime_type: str,
+) -> httpx.Response:
+    payload = {
+        "number": formatted_phone,
+        "mediatype": "document",
+        "mimetype": mime_type,
+        "caption": caption,
+        "media": _data_uri_from_bytes(file_bytes, mime_type),
+        "fileName": filename,
+    }
+    with httpx.Client(timeout=25.0) as client:
+        response = client.post(
+            f"{settings.whatsapp_api_url}/message/sendMedia/{resolved_instance}",
+            headers={"apikey": settings.whatsapp_api_token},
+            json=payload,
+        )
+        if response.status_code in {400, 415, 422}:
+            fallback_payload = {**payload, "media": b64encode(file_bytes).decode("ascii")}
+            response = client.post(
+                f"{settings.whatsapp_api_url}/message/sendMedia/{resolved_instance}",
+                headers={"apikey": settings.whatsapp_api_token},
+                json=fallback_payload,
+            )
+        response.raise_for_status()
+        return response
 
 
 async def send_whatsapp_message(
@@ -482,6 +522,115 @@ def send_whatsapp_sync(
             extra_data={"instance_used": resolved, "instance_source": _instance_source(instance)},
         )
         logger.exception("Falha ao enviar WhatsApp para %s via %s", _mask_phone_for_log(formatted_phone), resolved)
+
+    db.flush()
+    return log_entry
+
+
+def send_whatsapp_document_sync(
+    db: Session,
+    *,
+    phone: str,
+    caption: str,
+    file_bytes: bytes,
+    filename: str,
+    mime_type: str = "application/pdf",
+    instance: str | None = None,
+    member_id: UUID | None = None,
+    lead_id: UUID | None = None,
+    automation_rule_id: UUID | None = None,
+    template_name: str | None = None,
+    direction: str | None = "outbound",
+    event_type: str | None = "document",
+    provider_message_id: str | None = None,
+) -> MessageLog:
+    formatted_phone, log_entry = _build_message_log(
+        db=db,
+        phone=phone,
+        message=caption,
+        member_id=member_id,
+        lead_id=lead_id,
+        automation_rule_id=automation_rule_id,
+        template_name=template_name,
+        direction=direction,
+        event_type=event_type,
+        provider_message_id=provider_message_id,
+    )
+    resolved = resolve_instance(instance)
+
+    if not resolved:
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error=(
+                "WhatsApp instance not configured or not connected for this gym. "
+                "Go to Settings -> WhatsApp to connect."
+            ),
+            extra_data={"instance_used": None, "instance_source": "none", "delivery_kind": "document"},
+        )
+        db.flush()
+        logger.warning(
+            "WhatsApp document skipped: sem instancia conectada phone=%s instance_arg=%s",
+            _mask_phone_for_log(formatted_phone),
+            instance,
+        )
+        return log_entry
+
+    if not settings.whatsapp_api_url or not settings.whatsapp_api_token:
+        _mark_log(
+            log_entry,
+            status="skipped",
+            error="WhatsApp API URL/token not configured",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance), "delivery_kind": "document"},
+        )
+        db.flush()
+        return log_entry
+
+    if _is_rate_limited(db, formatted_phone, settings.whatsapp_rate_limit_per_hour):
+        _mark_log(
+            log_entry,
+            status="blocked",
+            error="Rate limit exceeded for recipient",
+            extra_data={"instance_used": resolved, "instance_source": _instance_source(instance), "delivery_kind": "document"},
+        )
+        db.flush()
+        return log_entry
+
+    try:
+        response = _send_whatsapp_media_payload_sync(
+            resolved_instance=resolved,
+            formatted_phone=formatted_phone,
+            file_bytes=file_bytes,
+            filename=filename,
+            caption=caption,
+            mime_type=mime_type,
+        )
+        _mark_log(
+            log_entry,
+            status="sent",
+            extra_data={
+                "instance_used": resolved,
+                "instance_source": _instance_source(instance),
+                "response_status": response.status_code,
+                "delivery_kind": "document",
+                "file_name": filename,
+                "mime_type": mime_type,
+            },
+        )
+    except Exception as exc:
+        _mark_log(
+            log_entry,
+            status="failed",
+            error=str(exc)[:500],
+            extra_data={
+                "instance_used": resolved,
+                "instance_source": _instance_source(instance),
+                "delivery_kind": "document",
+                "file_name": filename,
+                "mime_type": mime_type,
+            },
+        )
+        logger.exception("Falha ao enviar documento WhatsApp para %s via %s", _mask_phone_for_log(formatted_phone), resolved)
 
     db.flush()
     return log_entry

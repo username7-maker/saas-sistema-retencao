@@ -1082,7 +1082,7 @@ export function MemberProfile360Page() {
 
         {visibleTabs.includes("bioimpedancia") ? (
           <TabsContent value="bioimpedancia">
-            <MemberBodyCompositionTab memberId={memberId} />
+            <MemberBodyCompositionTab memberId={memberId} memberName={member.full_name} memberPhone={member.phone} />
           </TabsContent>
         ) : null}
       </Tabs>

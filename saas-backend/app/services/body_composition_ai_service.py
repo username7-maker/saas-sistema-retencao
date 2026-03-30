@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,6 +47,14 @@ _SECONDARY_GOAL_ALLOWED = {
 }
 _COACH_SUMMARY_MAX_LENGTH = 1200
 _MEMBER_SUMMARY_MAX_LENGTH = 900
+_TECHNICAL_MEMBER_TERMS = (
+    "gordura visceral",
+    "relacao cintura-quadril",
+    "indice de massa corporal",
+    "massa muscular esqueletica",
+    "percentual de gordura",
+    "imc",
+)
 
 
 class _OpenAITrainingFocus(BaseModel):
@@ -173,6 +182,12 @@ def _generate_with_openai(
         "- nao substituir avaliacao profissional presencial\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
+        "- o campo member_friendly_summary deve soar como uma conversa do professor com o aluno depois do exame\n"
+        "- use linguagem acolhedora, simples, humana e motivadora\n"
+        "- evite jargao tecnico; se precisar citar um conceito tecnico, explique em palavras simples\n"
+        "- comece destacando um bom ponto de partida real antes de falar do foco de melhora\n"
+        "- termine convidando para acompanhamento continuo nas proximas semanas\n"
+        "- no maximo 4 frases curtas, sem lista\n"
         "- training_focus.primary_goal deve ser um de: reducao_de_gordura, ganho_de_massa, melhora_metabolica, acompanhamento_geral\n"
         "- training_focus.secondary_goal deve ser um de: preservacao_de_massa_magra, controle_de_gordura, melhora_metabolica, acompanhamento_geral\n"
         "- responder em portugues do Brasil\n"
@@ -242,6 +257,12 @@ def _generate_with_claude(
         "- responder em portugues do Brasil\n"
         "- training_focus deve ter primary_goal, secondary_goal, suggested_focuses, cautions\n"
         "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
+        "- member_friendly_summary deve soar como uma conversa do professor com o aluno depois do exame\n"
+        "- use linguagem acolhedora, simples, humana e motivadora\n"
+        "- evite jargao tecnico; se precisar citar um conceito tecnico, explique em palavras simples\n"
+        "- comece destacando um bom ponto de partida real antes de falar do foco de melhora\n"
+        "- termine convidando para acompanhamento continuo nas proximas semanas\n"
+        "- no maximo 4 frases curtas, sem lista\n"
         "- training_focus.primary_goal deve ser um de: reducao_de_gordura, ganho_de_massa, melhora_metabolica, acompanhamento_geral\n"
         "- training_focus.secondary_goal deve ser um de: preservacao_de_massa_magra, controle_de_gordura, melhora_metabolica, acompanhamento_geral\n"
         f"Aluno: {member.full_name}\n"
@@ -302,10 +323,12 @@ def _generate_deterministic_fallback(
         coach_parts.append("Cruzar o foco com as metas registradas antes de ajustar a direcao do acompanhamento.")
     coach_summary = _trim_summary_text(" ".join(part for part in coach_parts if part).strip(), max_length=_COACH_SUMMARY_MAX_LENGTH)
 
-    member_summary = _trim_summary_text(
-        "O exame ajuda a orientar o acompanhamento corporal inicial, sem substituir avaliacao presencial. "
-        f"No momento, a direcao sugerida e {primary_goal.replace('_', ' ')} com monitoramento das medidas-chave."
-    , max_length=_MEMBER_SUMMARY_MAX_LENGTH)
+    member_summary = _build_member_summary_from_signals(
+        primary_goal=primary_goal,
+        risk_flags=risk_flags,
+        member_first_name=(member.full_name or "").split(" ")[0],
+        max_length=_MEMBER_SUMMARY_MAX_LENGTH,
+    )
 
     return {
         "coach_summary": coach_summary,
@@ -327,24 +350,28 @@ def _generate_deterministic_fallback(
 def _normalize_ai_payload(payload: dict[str, Any]) -> dict[str, Any]:
     training_focus = payload.get("training_focus")
     normalized_focus = training_focus if isinstance(training_focus, dict) else {}
+    primary_goal = _normalize_goal_slug(
+        normalized_focus.get("primary_goal"),
+        allowed=_PRIMARY_GOAL_ALLOWED,
+        fallback="acompanhamento_geral",
+    )
+    secondary_goal = _normalize_goal_slug(
+        normalized_focus.get("secondary_goal"),
+        allowed=_SECONDARY_GOAL_ALLOWED,
+        fallback="preservacao_de_massa_magra",
+    )
     return {
         "coach_summary": _trim_summary_text(payload.get("coach_summary"), max_length=_COACH_SUMMARY_MAX_LENGTH),
-        "member_friendly_summary": _trim_summary_text(
+        "member_friendly_summary": _normalize_member_summary_text(
             payload.get("member_friendly_summary"),
+            primary_goal=primary_goal,
+            risk_flags=payload.get("risk_flags") or [],
             max_length=_MEMBER_SUMMARY_MAX_LENGTH,
         ),
         "risk_flags": [str(item) for item in payload.get("risk_flags") or []][:5],
         "training_focus": {
-            "primary_goal": _normalize_goal_slug(
-                normalized_focus.get("primary_goal"),
-                allowed=_PRIMARY_GOAL_ALLOWED,
-                fallback="acompanhamento_geral",
-            ),
-            "secondary_goal": _normalize_goal_slug(
-                normalized_focus.get("secondary_goal"),
-                allowed=_SECONDARY_GOAL_ALLOWED,
-                fallback="preservacao_de_massa_magra",
-            ),
+            "primary_goal": primary_goal,
+            "secondary_goal": secondary_goal,
             "suggested_focuses": [str(item) for item in normalized_focus.get("suggested_focuses") or []][:5],
             "cautions": [str(item) for item in normalized_focus.get("cautions") or []][:4]
             or [
@@ -545,6 +572,118 @@ def _normalize_goal_slug(value: object, *, allowed: set[str], fallback: str) -> 
             return "preservacao_de_massa_magra"
 
     return fallback
+
+
+def build_body_composition_member_summary(
+    evaluation: BodyCompositionEvaluation,
+    *,
+    member_first_name: str | None = None,
+) -> str:
+    stored = _normalize_member_summary_text(
+        evaluation.ai_member_friendly_summary,
+        primary_goal=_normalize_goal_slug(
+            (evaluation.ai_training_focus_json or {}).get("primary_goal"),
+            allowed=_PRIMARY_GOAL_ALLOWED,
+            fallback="acompanhamento_geral",
+        ),
+        risk_flags=evaluation.ai_risk_flags_json or [],
+        max_length=_MEMBER_SUMMARY_MAX_LENGTH,
+    )
+    if stored:
+        return stored
+
+    return _build_member_summary_from_signals(
+        primary_goal=_normalize_goal_slug(
+            (evaluation.ai_training_focus_json or {}).get("primary_goal"),
+            allowed=_PRIMARY_GOAL_ALLOWED,
+            fallback="acompanhamento_geral",
+        ),
+        risk_flags=evaluation.ai_risk_flags_json or [],
+        member_first_name=member_first_name,
+        max_length=_MEMBER_SUMMARY_MAX_LENGTH,
+    )
+
+
+def _normalize_member_summary_text(
+    value: object,
+    *,
+    primary_goal: str,
+    risk_flags: list[object],
+    max_length: int,
+) -> str:
+    text = _trim_summary_text(value, max_length=max_length)
+    if text and not _looks_too_technical_for_member(text):
+        return text
+    return _build_member_summary_from_signals(
+        primary_goal=primary_goal,
+        risk_flags=[str(item) for item in risk_flags][:3],
+        max_length=max_length,
+    )
+
+
+def _looks_too_technical_for_member(text: str) -> bool:
+    lowered = text.lower()
+    jargon_hits = sum(1 for term in _TECHNICAL_MEMBER_TERMS if term in lowered)
+    has_dense_numbers = len(re.findall(r"\d+[,.]?\d*", lowered)) >= 4
+    has_parenthetical_numbers = bool(re.search(r"\([^)]*\d", text))
+    return jargon_hits >= 2 or (jargon_hits >= 1 and (has_dense_numbers or has_parenthetical_numbers))
+
+
+def _build_member_summary_from_signals(
+    *,
+    primary_goal: str,
+    risk_flags: list[str],
+    member_first_name: str | None = None,
+    max_length: int,
+) -> str:
+    intro = (
+        f"{member_first_name}, seu exame mostra um bom ponto de partida para organizar os proximos passos. "
+        if member_first_name
+        else "Seu exame mostra um bom ponto de partida para organizar os proximos passos. "
+    )
+    main_goal = _goal_for_member(primary_goal)
+    flags_text = _humanize_risk_flags_for_member(risk_flags)
+    message = (
+        f"{intro}Agora vamos concentrar o acompanhamento em {main_goal}. "
+        f"{flags_text} "
+        "Com constancia nas proximas semanas, fica mais facil ajustar o plano e acompanhar sua evolucao de forma segura."
+    )
+    return _trim_summary_text(message, max_length=max_length)
+
+
+def _goal_for_member(primary_goal: str) -> str:
+    if primary_goal == "reducao_de_gordura":
+        return "reduzir gordura sem perder o que voce ja tem de massa muscular"
+    if primary_goal == "ganho_de_massa":
+        return "ganhar massa com mais consistencia e acompanhar a resposta do corpo"
+    if primary_goal == "melhora_metabolica":
+        return "melhorar marcadores corporais e retomar ritmo com mais equilibrio"
+    return "acompanhar sua evolucao corporal com mais clareza"
+
+
+def _humanize_risk_flags_for_member(risk_flags: list[str]) -> str:
+    if not risk_flags:
+        return "Nao apareceu nenhum alerta forte fora do esperado neste momento."
+
+    normalized = [_humanize_single_risk_flag(flag) for flag in risk_flags[:2] if str(flag).strip()]
+    if not normalized:
+        return "Nao apareceu nenhum alerta forte fora do esperado neste momento."
+    if len(normalized) == 1:
+        return f"O principal ponto de atencao agora e {normalized[0]}."
+    return f"Os principais pontos de atencao agora sao {normalized[0]} e {normalized[1]}."
+
+
+def _humanize_single_risk_flag(flag: str) -> str:
+    lowered = flag.strip().lower()
+    replacements = {
+        "peso acima da faixa recomendada": "o peso estar acima da faixa recomendada",
+        "gordura visceral elevada": "a gordura na regiao abdominal estar acima do desejado",
+        "percentual de gordura acima da faixa": "o percentual de gordura estar acima do desejado",
+        "imc acima da faixa": "o indice corporal estar acima do desejado",
+        "massa muscular abaixo da faixa": "a massa muscular estar abaixo do ideal",
+        "musculo esqueletico abaixo da faixa": "a musculatura de sustentacao estar abaixo do ideal",
+    }
+    return replacements.get(lowered, lowered)
 
 
 def _trim_summary_text(value: object, *, max_length: int) -> str:
