@@ -306,7 +306,7 @@ export function LovableLayout() {
   }, [headerSearch, location.search, navigate, pathname, searchConfig]);
 
   return (
-    <div className="relative min-h-screen bg-lovable-bg font-body text-lovable-ink">
+    <div className="relative min-h-dvh overflow-x-clip bg-lovable-bg font-body text-lovable-ink">
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-24 -top-20 h-[420px] w-[420px] rounded-full bg-[hsl(var(--lovable-primary)/0.22)] blur-[150px]" />
         <div className="absolute right-[-140px] top-[10%] h-[360px] w-[360px] rounded-full bg-[hsl(var(--lovable-info)/0.16)] blur-[150px]" />
@@ -422,11 +422,11 @@ export function LovableLayout() {
         <SidebarNav onNavigate={() => setMobileOpen(false)} />
       </Drawer>
 
-      <div className="min-h-screen lg:ml-72">
-        <header role="banner" className="sticky top-0 z-20 px-4 pt-3 md:px-6 lg:px-7">
-          <div className="rounded-[24px] border border-lovable-border/70 bg-[hsl(var(--lovable-topbar)/0.92)] px-4 py-3 shadow-panel backdrop-blur-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
+      <div className="min-h-dvh lg:ml-72">
+        <header role="banner" className="sticky top-0 z-20 px-3 pt-3 sm:px-4 md:px-6 lg:px-7">
+          <div className="rounded-[24px] border border-lovable-border/70 bg-[hsl(var(--lovable-topbar)/0.92)] px-3 py-3 shadow-panel backdrop-blur-2xl sm:px-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -439,7 +439,7 @@ export function LovableLayout() {
 
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-lovable-ink-muted">Workspace</p>
-                  <h1 className="truncate font-heading text-2xl font-bold tracking-tight text-lovable-ink">{currentSection}</h1>
+                  <h1 className="truncate font-heading text-xl font-bold tracking-tight text-lovable-ink sm:text-2xl">{currentSection}</h1>
                 </div>
               </div>
 
@@ -459,7 +459,7 @@ export function LovableLayout() {
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center justify-end gap-2 self-start sm:self-auto">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -493,13 +493,23 @@ export function LovableLayout() {
                 <button
                   type="button"
                   onClick={() => navigate(profileTarget)}
-                  className="hidden items-center gap-3 rounded-2xl border border-lovable-border/60 bg-lovable-surface/62 px-3 py-1.5 text-left transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft md:flex"
+                  className="hidden items-center gap-3 rounded-2xl border border-lovable-border/60 bg-lovable-surface/62 px-3 py-1.5 text-left transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft xl:flex"
                 >
                   <UserAvatar fullName={user?.full_name} avatarUrl={user?.avatar_url} size="md" />
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">{user?.full_name ?? "Owner"}</p>
                     <p className="text-[11px] uppercase tracking-[0.18em] text-lovable-ink-muted">{userRoleLabel}</p>
                   </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate(profileTarget)}
+                  className="hidden items-center rounded-xl border border-lovable-border/60 bg-lovable-surface/62 p-1.5 transition hover:border-lovable-border-strong/60 hover:bg-lovable-surface-soft sm:flex xl:hidden"
+                  aria-label="Abrir perfil"
+                  title="Abrir perfil"
+                >
+                  <UserAvatar fullName={user?.full_name} avatarUrl={user?.avatar_url} size="sm" />
                 </button>
 
                 <Button
@@ -514,10 +524,27 @@ export function LovableLayout() {
                 </Button>
               </div>
             </div>
+
+            {searchConfig ? (
+              <div className="mt-3 lg:hidden">
+                <div className="relative w-full">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted"
+                  />
+                  <Input
+                    value={headerSearch}
+                    onChange={(event) => setHeaderSearch(event.target.value)}
+                    placeholder={searchConfig.placeholder}
+                    className="h-10 rounded-2xl border-lovable-border/60 bg-lovable-surface/62 pl-10 shadow-none"
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         </header>
 
-        <main id="main-content" role="main" className="px-4 py-5 md:px-6 lg:px-7">
+        <main id="main-content" role="main" className="px-3 py-4 sm:px-4 md:px-6 lg:px-7">
           <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>

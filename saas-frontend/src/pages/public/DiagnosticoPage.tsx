@@ -92,7 +92,7 @@ export function DiagnosticoPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(17,178,142,0.16),_transparent_30%),linear-gradient(135deg,#f4efe7_0%,#fbfaf7_44%,#eaf5f2_100%)] px-6 py-10 text-lovable-ink">
+    <main className="min-h-dvh bg-[radial-gradient(circle_at_top_left,_rgba(17,178,142,0.16),_transparent_30%),linear-gradient(135deg,#f4efe7_0%,#fbfaf7_44%,#eaf5f2_100%)] px-4 py-8 text-lovable-ink sm:px-6 sm:py-10">
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="space-y-6">
           <div className="space-y-4">

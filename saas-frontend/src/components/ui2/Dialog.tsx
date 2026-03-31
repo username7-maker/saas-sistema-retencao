@@ -95,7 +95,7 @@ export function Dialog({ open, onClose, title, description, children, size = "sm
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[90] flex items-end justify-center p-3 sm:items-center sm:p-4">
       <button
         type="button"
         className="absolute inset-0 bg-[hsl(var(--lovable-bg)/0.72)] backdrop-blur-sm"
@@ -110,7 +110,7 @@ export function Dialog({ open, onClose, title, description, children, size = "sm
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full rounded-[24px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel outline-none transition duration-200 ease-out backdrop-blur-xl",
+          "relative z-10 max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-[24px] border border-lovable-border bg-lovable-surface/96 p-4 shadow-panel outline-none transition duration-200 ease-out backdrop-blur-xl sm:max-h-[calc(100dvh-2rem)] sm:p-5",
           "scale-100 opacity-100",
           sizeClasses[size],
         )}

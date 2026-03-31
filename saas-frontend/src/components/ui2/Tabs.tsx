@@ -45,7 +45,7 @@ export function TabsList({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return (
     <div
       className={cn(
-        "inline-flex rounded-2xl border border-lovable-border bg-lovable-bg-muted/80 p-1 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]",
+        "inline-flex max-w-full overflow-x-auto rounded-2xl border border-lovable-border bg-lovable-bg-muted/80 p-1 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]",
         className,
       )}
       {...props}
@@ -66,7 +66,7 @@ export function TabsTrigger({ className, value, ...props }: TabsTriggerProps) {
     <button
       type="button"
       className={cn(
-        "rounded-xl px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition",
+        "shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition",
         active
           ? "border border-[hsl(var(--lovable-primary)/0.35)] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)/0.28),hsl(var(--lovable-info)/0.12))] text-white shadow-[0_12px_32px_-18px_hsl(var(--lovable-primary)/0.75)]"
           : "text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink",

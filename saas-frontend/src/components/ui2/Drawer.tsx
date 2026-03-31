@@ -22,7 +22,7 @@ export function Drawer({ open, onClose, title, side = "left", children }: Drawer
       />
       <aside
         className={cn(
-          "fixed top-0 z-50 h-full w-80 max-w-[88vw] border-lovable-border bg-lovable-surface/96 shadow-panel backdrop-blur-xl transition-transform",
+          "fixed top-0 z-50 h-full w-full max-w-full border-lovable-border bg-lovable-surface/96 shadow-panel backdrop-blur-xl transition-transform sm:w-80 sm:max-w-[88vw]",
           side === "left"
             ? "left-0 border-r " + (open ? "translate-x-0" : "-translate-x-full")
             : "right-0 border-l " + (open ? "translate-x-0" : "translate-x-full"),
@@ -38,7 +38,7 @@ export function Drawer({ open, onClose, title, side = "left", children }: Drawer
             <X size={18} />
           </button>
         </header>
-        <div className="h-[calc(100%-53px)] overflow-y-auto">{children}</div>
+        <div className="h-[calc(100%-53px)] overflow-y-auto overscroll-contain">{children}</div>
       </aside>
     </>
   );

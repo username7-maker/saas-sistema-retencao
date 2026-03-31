@@ -59,3 +59,18 @@ created: 2026-03-24
 - Leitura de risco honesta:
   - O dado agora esta util para parte real da base.
   - Ainda existe volume grande de membros sem sinal suficiente de check-in; nesses casos o sistema mantem `null` em vez de inventar turno.
+
+### 2026-03-30 - Preferred shift explanation and responsive hardening
+
+- Badge de `Turno por check-in` agora explica na propria UI que o valor e inferido pelo padrao recente de horarios de treino.
+- Shell principal, filtros, tabs, drawers, dialogs e formularios criticos receberam ajustes para celular e tablet.
+- Ganhos principais desta rodada:
+  - topbar nao disputa largura com perfil e busca em telas menores
+  - filtros deixam de quebrar layout horizontalmente
+  - drawers e dialogs ocupam largura util no celular sem cortar conteudo
+  - modais e formularios com grade dupla agora quebram corretamente para uma coluna em mobile
+  - listagens de avaliacoes e tarefas ficam mais legiveis em viewport estreita
+- Validacao local:
+  - `npm.cmd run test -- src/test/PreferredShiftBadge.test.tsx src/test/MembersPage.test.tsx src/test/AssessmentsPage.test.tsx src/test/TasksPage.test.tsx`
+  - `npm.cmd run lint`
+  - `npm.cmd run build`

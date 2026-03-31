@@ -70,10 +70,10 @@ export default function ReportsPage() {
     <section className="space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Relatórios</h2>
+          <h2 className="font-heading text-2xl font-bold text-lovable-ink sm:text-3xl">Relatórios</h2>
           <p className="text-sm text-lovable-ink-muted">Baixe relatórios em PDF por dashboard e dispare o consolidado mensal para a liderança.</p>
         </div>
-        <Button variant="primary" onClick={() => setConfirmDispatch(true)} disabled={dispatching}>
+        <Button variant="primary" onClick={() => setConfirmDispatch(true)} disabled={dispatching} className="w-full md:w-auto">
           <Send size={14} />
           {dispatching ? "Enviando..." : "Disparar relatório mensal"}
         </Button>

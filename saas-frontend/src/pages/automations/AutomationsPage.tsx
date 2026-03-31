@@ -268,7 +268,7 @@ function StatsStrip({ rules }: { rules: AutomationRule[] }) {
     .sort((a, b) => new Date(b.last_executed_at!).getTime() - new Date(a.last_executed_at!).getTime())[0];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
       {[
         { label: "Regras ativas", value: `${active}/${rules.length}`, icon: Zap, accent: "#1D9E75" },
         { label: "Total execuções", value: execTotal.toLocaleString("pt-BR"), icon: Activity, accent: "#185FA5" },
@@ -501,7 +501,7 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
           <Input {...register("description")} placeholder="Objetivo da regra (opcional)" />
         </FormField>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <FormField label="Gatilho" required error={errors.trigger_type?.message}>
             <Select {...register("trigger_type")} disabled={isEdit}>
               <option value="">Selecione...</option>

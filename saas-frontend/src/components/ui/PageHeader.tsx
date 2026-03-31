@@ -38,12 +38,12 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
         ) : null}
 
         <div className="min-w-0 space-y-1">
-          <h1 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink md:text-[2rem]">{title}</h1>
+          <h1 className="font-heading text-xl font-bold tracking-tight text-lovable-ink sm:text-2xl md:text-[2rem]">{title}</h1>
           {subtitle ? <p className="text-sm text-lovable-ink-muted">{subtitle}</p> : null}
         </div>
       </div>
 
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
+      {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto lg:justify-end">{actions}</div> : null}
     </header>
   );
 }

@@ -112,10 +112,10 @@ export function TasksPage() {
       <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="operations" className="min-w-[150px]">
+            <TabsTrigger value="operations" className="flex-1 sm:min-w-[150px]">
               Operacao
             </TabsTrigger>
-            <TabsTrigger value="onboarding" className="min-w-[150px]">
+            <TabsTrigger value="onboarding" className="flex-1 sm:min-w-[150px]">
               Onboarding
             </TabsTrigger>
           </TabsList>

@@ -240,7 +240,7 @@ export function SettingsPage() {
       </header>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="overflow-x-auto whitespace-nowrap">
+        <TabsList className="max-w-full overflow-x-auto whitespace-nowrap">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="security">Segurança</TabsTrigger>
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}

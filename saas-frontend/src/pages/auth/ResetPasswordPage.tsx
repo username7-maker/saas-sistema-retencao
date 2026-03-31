@@ -64,20 +64,20 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-lovable-bg px-4 py-10">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-lovable-bg px-4 py-10">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-24 top-0 h-[420px] w-[420px] rounded-full bg-[hsl(var(--lovable-primary)/0.2)] blur-[150px]" />
         <div className="absolute right-[-120px] top-[12%] h-[340px] w-[340px] rounded-full bg-[hsl(var(--lovable-info)/0.15)] blur-[140px]" />
       </div>
 
-      <div className="relative w-full max-w-md rounded-[30px] border border-lovable-border bg-lovable-surface/96 p-8 shadow-panel backdrop-blur-2xl">
-        <div className="flex items-center gap-4">
+      <div className="relative w-full max-w-md rounded-[30px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-2xl sm:p-8">
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)),hsl(var(--lovable-info)))] text-white shadow-[0_20px_40px_-22px_hsl(var(--lovable-primary)/0.95)]">
             <Dumbbell size={24} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-heading text-3xl font-bold tracking-tight text-lovable-ink">Nova senha</h1>
+              <h1 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink sm:text-3xl">Nova senha</h1>
               <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--lovable-primary)/0.15)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--lovable-primary))]">
                 <KeyRound size={11} />
                 Seguro

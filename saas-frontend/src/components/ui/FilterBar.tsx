@@ -20,13 +20,13 @@ interface FilterBarProps {
 
 function FilterControl({ filter }: { filter: FilterItem }) {
   return (
-    <label className="flex items-center gap-2">
+    <label className="flex w-full items-center gap-2 sm:w-auto">
       <span className="sr-only">{filter.label}</span>
       <Select
         aria-label={filter.label}
         value={filter.value}
         onChange={(event) => filter.onChange(event.target.value)}
-        className="h-9 max-w-[180px] rounded-lg"
+        className="h-9 w-full rounded-lg sm:max-w-[180px]"
       >
         {filter.options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -46,7 +46,7 @@ function SearchControl({
   trailing?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-[220px] flex-1 items-center gap-2 lg:mr-1 lg:border-r lg:border-lovable-border lg:pr-3">
+    <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center lg:mr-1 lg:border-r lg:border-lovable-border lg:pr-3">
       <div className="relative min-w-0 flex-1">
         <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted" />
         <Input
@@ -66,13 +66,18 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
   const canClear = activeCount > 0 && Boolean(onClear);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col items-stretch gap-2 xl:flex-row xl:items-center">
       {search ? (
         <SearchControl
           search={search}
           trailing={
             canClear ? (
-              <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-xl px-2 text-xs text-lovable-ink-muted">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onClear}
+                className="h-9 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto"
+              >
                 <X size={14} />
                 Limpar filtros
               </Button>
@@ -80,14 +85,24 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
           }
         />
       ) : canClear ? (
-        <Button size="sm" variant="ghost" onClick={onClear} className="h-9 rounded-xl px-2 text-xs text-lovable-ink-muted">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onClear}
+          className="h-9 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto"
+        >
           <X size={14} />
           Limpar filtros
         </Button>
       ) : null}
 
       {hasFilters ? (
-        <div className={cn("flex flex-wrap items-center gap-2", !search && canClear ? "lg:ml-1" : undefined)}>
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center",
+            !search && canClear ? "lg:ml-1" : undefined,
+          )}
+        >
           {filters?.map((filter) => (
             <FilterControl key={filter.key} filter={filter} />
           ))}

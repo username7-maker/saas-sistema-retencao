@@ -16,7 +16,7 @@ export function ProtectedRoute({
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <div className="flex min-h-dvh items-center justify-center bg-slate-950 text-white">
         Carregando sessão...
       </div>
     );

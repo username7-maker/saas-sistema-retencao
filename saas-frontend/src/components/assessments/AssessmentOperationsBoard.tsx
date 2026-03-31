@@ -318,7 +318,7 @@ export function AssessmentOperationsBoard({
           onClear={onClearFilters}
         />
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 overflow-x-auto pb-1">
           {ASSESSMENT_QUEUE_FILTER_OPTIONS.map((option) => (
             <Button
               key={option.key}
@@ -417,7 +417,7 @@ export function AssessmentOperationsBoard({
           ) : (
             <>
               <div className="overflow-hidden rounded-2xl border border-lovable-border bg-lovable-surface">
-                <div className="grid gap-3 border-b border-lovable-border bg-lovable-surface-soft px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-lovable-ink-muted lg:grid-cols-[minmax(0,1.5fr)_minmax(180px,0.9fr)_minmax(240px,1fr)_auto]">
+                <div className="hidden gap-3 border-b border-lovable-border bg-lovable-surface-soft px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-lovable-ink-muted lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(180px,0.9fr)_minmax(240px,1fr)_auto]">
                   <span>Aluno</span>
                   <span>Risco e cobertura</span>
                   <span>Status operacional</span>
