@@ -240,6 +240,22 @@ const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvalua
   { label: "Health score", field: "health_score" },
 ];
 
+const SUPPORTED_OCR_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const SUPPORTED_OCR_IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+
+function isSupportedOcrImageFile(file: File): boolean {
+  const normalizedType = (file.type || "").trim().toLowerCase();
+  if (normalizedType) {
+    return SUPPORTED_OCR_IMAGE_TYPES.has(normalizedType);
+  }
+
+  const normalizedName = file.name.trim().toLowerCase();
+  return normalizedName.endsWith(".jpg")
+    || normalizedName.endsWith(".jpeg")
+    || normalizedName.endsWith(".png")
+    || normalizedName.endsWith(".webp");
+}
+
 function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): FormData {
   return {
     evaluation_date: evaluation?.evaluation_date ?? new Date().toISOString().split("T")[0],
@@ -678,6 +694,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       toast.error("Selecione uma imagem do exame.");
       return;
     }
+    if (!isSupportedOcrImageFile(ocrFile)) {
+      toast.error("Use uma imagem JPEG, PNG ou WEBP para a leitura.");
+      return;
+    }
 
     setOcrLoading(true);
     try {
@@ -809,7 +829,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   </div>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <Input type="file" accept="image/*" onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)} />
+                  <Input
+                    type="file"
+                    accept={SUPPORTED_OCR_IMAGE_ACCEPT}
+                    onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)}
+                  />
                   <Button type="button" variant="ghost" onClick={() => void handleReadPhoto()} disabled={!ocrFile || ocrLoading}>
                     <ScanText size={14} />
                     {ocrLoading ? "Lendo..." : "Ler foto"}

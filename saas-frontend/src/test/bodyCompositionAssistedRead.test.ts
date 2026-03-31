@@ -131,4 +131,32 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(result.result.values.weight_kg).toBe(14.41);
     expect(result.result.engine).toBe("local");
   });
+
+  it("calls parse-image directly when forced assisted read is requested and local OCR fails first", async () => {
+    vi.mocked(readBodyCompositionFromImage).mockRejectedValue(new Error("Falha ao carregar imagem para OCR"));
+    vi.mocked(api.post).mockResolvedValue({
+      data: localResult({
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23.0,
+          waist_hip_ratio: 0.88,
+        },
+        confidence: 0.95,
+        engine: "ai_assisted",
+        fallback_used: true,
+      }),
+    });
+
+    const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile(), {
+      forceAssisted: true,
+    });
+
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(result.localResult).toBeNull();
+    expect(result.assistedAttempted).toBe(true);
+    expect(result.assistedUsed).toBe(true);
+    expect(result.result.engine).toBe("ai_assisted");
+    expect(result.result.values.weight_kg).toBe(84.5);
+  });
 });

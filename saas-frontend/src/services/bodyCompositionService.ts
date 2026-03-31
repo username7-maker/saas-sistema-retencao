@@ -63,7 +63,7 @@ function stripLocalOcrTransportMetadata(result: BodyCompositionOcrResult): Omit<
 }
 
 export interface BodyCompositionAssistedReadResult {
-  localResult: BodyCompositionOcrResult;
+  localResult: BodyCompositionOcrResult | null;
   result: BodyCompositionOcrResult;
   fallbackReasons: string[];
   assistedAttempted: boolean;
@@ -201,11 +201,24 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionAssistedReadResult> {
     const deviceProfile = options?.deviceProfile ?? BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE;
     const forceAssisted = Boolean(options?.forceAssisted);
-    const localResult = ensureOcrResultMetadata(await readBodyCompositionFromImage(file, deviceProfile), "local", false);
-    const fallbackReasons = getBodyCompositionAiFallbackReasons(localResult);
+    let localResult: BodyCompositionOcrResult | null = null;
+    let fallbackReasons: string[] = [];
+    let localOcrError: Error | null = null;
+
+    try {
+      localResult = ensureOcrResultMetadata(await readBodyCompositionFromImage(file, deviceProfile), "local", false);
+      fallbackReasons = getBodyCompositionAiFallbackReasons(localResult);
+    } catch (error) {
+      localOcrError = error instanceof Error ? error : new Error("Falha ao carregar imagem para OCR");
+      if (!forceAssisted) {
+        throw localOcrError;
+      }
+      fallbackReasons = ["OCR local falhou antes da leitura assistida."];
+    }
+
     const shouldAttemptAssisted = forceAssisted || fallbackReasons.length > 0;
 
-    if (!shouldAttemptAssisted) {
+    if (!shouldAttemptAssisted && localResult) {
       return {
         localResult,
         result: localResult,
@@ -228,6 +241,12 @@ export const bodyCompositionService = {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Leitura assistida indisponivel no momento.";
+      if (!localResult) {
+        if (localOcrError && localOcrError.message !== message) {
+          throw new Error(`${message} OCR local tambem falhou: ${localOcrError.message}`);
+        }
+        throw new Error(localOcrError?.message ?? message);
+      }
       return {
         localResult,
         result: localResult,
