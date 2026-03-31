@@ -120,6 +120,24 @@ class TestFrequencyDropBaseline:
         assert drop_pct is None
         assert baseline_avg == 0.0
 
+    def test_tiny_baseline_does_not_create_artificial_drop(self):
+        # baseline_total = 2 (avg ~0.22/week), current = 0
+        db = DummyDB(values=[0, 2])
+        now = datetime.now(tz=timezone.utc)
+
+        points, drop_pct, baseline_avg = risk_service._frequency_drop_points(db, "member-1", now)
+
+        assert points == 0
+        assert drop_pct is None
+        assert baseline_avg == pytest.approx(2 / 9.0)
+
+    def test_prefetched_metrics_with_tiny_baseline_do_not_create_artificial_drop(self):
+        points, drop_pct, baseline_avg = risk_service._frequency_drop_points_from_metrics(0, 2)
+
+        assert points == 0
+        assert drop_pct is None
+        assert baseline_avg == pytest.approx(2 / 9.0)
+
     def test_moderate_drop_50pct(self):
         # baseline_total = 36 (avg 4/week), current = 2 → drop 50% → 12 pts
         db = DummyDB(values=[2, 36])
@@ -211,6 +229,149 @@ class TestRiskHistory:
         from app.models.member_risk_history import MemberRiskHistory
         history_entries = [obj for obj in added_objects if isinstance(obj, MemberRiskHistory)]
         assert len(history_entries) == 0
+
+    def test_run_daily_risk_processing_clears_invalid_assessment_fallback(self, monkeypatch):
+        member = SimpleNamespace(
+            id="m1",
+            gym_id="g1",
+            risk_score=20,
+            risk_level=RiskLevel.GREEN,
+            extra_data={"retention_forecast_60d": 31, "retention_forecast_source": "assessment_fallback"},
+            deleted_at=None,
+            status="active",
+        )
+        new_result = risk_service.RiskResult(score=20, level=RiskLevel.GREEN, reasons={}, days_without_checkin=3)
+
+        monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_: new_result)
+        monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", lambda *_a, **_kw: None)
+        monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_count_active_members_for_risk_processing", lambda *_: 1)
+        monkeypatch.setattr(risk_service, "_iter_active_members_for_risk_processing", lambda *_a, **_kw: [[member]])
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_open_call_tasks", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_find_manager", lambda *_a, **_kw: None)
+        monkeypatch.setattr(risk_service, "_prefetch_member_checkin_metrics", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_member_ids_with_assessments", lambda *_a, **_kw: set())
+
+        db = MagicMock()
+        db.execute.return_value.all.return_value = []
+
+        risk_service.run_daily_risk_processing(db)
+
+        assert member.extra_data == {}
+        added_objects = [call.args[0] for call in db.add.call_args_list]
+        assert member in added_objects
+
+    def test_run_daily_risk_processing_resolves_stale_alert_when_member_recovers(self, monkeypatch):
+        member = SimpleNamespace(
+            id="m1",
+            gym_id="g1",
+            risk_score=62,
+            risk_level=RiskLevel.YELLOW,
+            extra_data={},
+            deleted_at=None,
+            status="active",
+        )
+        stale_alert = SimpleNamespace(
+            id="alert-1",
+            member_id="m1",
+            score=62,
+            level=RiskLevel.YELLOW,
+            reasons={"frequency_drop_pct": 100.0, "baseline_avg_weekly": 0.22},
+            action_history=[],
+            resolved=False,
+            resolved_by_user_id="legacy-user",
+            resolved_at=None,
+        )
+        new_result = risk_service.RiskResult(
+            score=11,
+            level=RiskLevel.GREEN,
+            reasons={"frequency_drop_pct": None, "baseline_avg_weekly": 0.22},
+            days_without_checkin=4,
+        )
+        create_or_update_alert = MagicMock()
+
+        monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_: new_result)
+        monkeypatch.setattr(risk_service, "_run_inactivity_automations", lambda *_a, **_kw: [])
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", create_or_update_alert)
+        monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
+        monkeypatch.setattr(risk_service, "_count_active_members_for_risk_processing", lambda *_: 1)
+        monkeypatch.setattr(risk_service, "_iter_active_members_for_risk_processing", lambda *_a, **_kw: [[member]])
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {member.id: stale_alert})
+        monkeypatch.setattr(risk_service, "_prefetch_open_call_tasks", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_find_manager", lambda *_a, **_kw: None)
+        monkeypatch.setattr(risk_service, "_prefetch_member_checkin_metrics", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_member_ids_with_assessments", lambda *_a, **_kw: set())
+
+        db = MagicMock()
+        db.execute.return_value.all.return_value = []
+
+        result = risk_service.run_daily_risk_processing(db)
+
+        assert result["risk_alerts_processed"] == 1
+        assert member.risk_score == 11
+        assert member.risk_level == RiskLevel.GREEN
+        assert stale_alert.resolved is True
+        assert stale_alert.resolved_by_user_id is None
+        assert stale_alert.resolved_at is not None
+        assert stale_alert.action_history[-1]["type"] == "automatic_resolution"
+        create_or_update_alert.assert_not_called()
+
+    def test_refresh_member_risk_snapshot_resolves_stale_alert_when_member_recovers(self, monkeypatch):
+        member = SimpleNamespace(
+            id="m1",
+            gym_id="g1",
+            risk_score=62,
+            risk_level=RiskLevel.YELLOW,
+            extra_data={},
+            deleted_at=None,
+            status="active",
+        )
+        stale_alert = SimpleNamespace(
+            id="alert-1",
+            member_id="m1",
+            score=62,
+            level=RiskLevel.YELLOW,
+            reasons={"frequency_drop_pct": 100.0},
+            action_history=[],
+            resolved=False,
+            resolved_by_user_id=None,
+            resolved_at=None,
+        )
+        new_result = risk_service.RiskResult(
+            score=14,
+            level=RiskLevel.GREEN,
+            reasons={"frequency_drop_pct": None},
+            days_without_checkin=3,
+        )
+        create_or_update_alert = MagicMock()
+
+        monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_: new_result)
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", create_or_update_alert)
+        monkeypatch.setattr(risk_service, "_prefetch_member_checkin_metrics", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_member_ids_with_assessments", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {member.id: stale_alert})
+        monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_: None)
+        monkeypatch.setattr(risk_service.websocket_manager, "broadcast_event_sync", lambda *_a, **_kw: None)
+
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = [member]
+
+        result = risk_service.refresh_member_risk_snapshot(
+            db,
+            member_ids=[member.id],
+            sync_alerts=True,
+            now=datetime.now(tz=timezone.utc),
+        )
+
+        assert result == {"members_refreshed": 1, "alerts_synced": 1}
+        assert member.risk_score == 14
+        assert member.risk_level == RiskLevel.GREEN
+        assert stale_alert.resolved is True
+        assert stale_alert.resolved_at is not None
+        assert stale_alert.action_history[-1]["reason"] == "score_below_threshold"
+        create_or_update_alert.assert_not_called()
 
     def test_apply_risk_statement_timeout_uses_configured_limit(self, monkeypatch):
         db = MagicMock()

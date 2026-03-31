@@ -10,13 +10,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
-from app.models import AuditLog, Checkin, Member, MemberRiskHistory, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
+from app.models import Assessment, AuditLog, Checkin, Member, MemberRiskHistory, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
 from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email_result
 
 logger = logging.getLogger(__name__)
+
+_MIN_RELIABLE_BASELINE_AVG_WEEKLY = 1.0
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,41 @@ def _iter_active_members_for_risk_processing(
             break
 
 
+def _prefetch_member_ids_with_assessments(db: Session, member_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+    if not member_ids:
+        return set()
+    return {
+        member_id
+        for member_id in db.scalars(
+            select(Assessment.member_id)
+            .where(
+                Assessment.member_id.in_(member_ids),
+                Assessment.deleted_at.is_(None),
+            )
+            .distinct()
+        ).all()
+        if member_id is not None
+    }
+
+
+def _clear_invalid_assessment_fallback(member: Member, *, assessment_member_ids: set[uuid.UUID]) -> bool:
+    extra_data = dict(getattr(member, "extra_data", {}) or {})
+    if extra_data.get("retention_forecast_source") != "assessment_fallback":
+        return False
+    if member.id in assessment_member_ids:
+        return False
+
+    changed = False
+    for key in ("retention_forecast_60d", "retention_forecast_source"):
+        if key in extra_data:
+            extra_data.pop(key, None)
+            changed = True
+
+    if changed:
+        member.extra_data = extra_data
+    return changed
+
+
 def run_daily_risk_processing(db: Session) -> dict[str, int]:
     _apply_risk_statement_timeout(db)
     now = datetime.now(tz=timezone.utc)
@@ -187,9 +224,12 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
     for batch in _iter_active_members_for_risk_processing(db, batch_size=batch_size):
         batch_member_ids = {member.id for member in batch}
         metrics_by_member = _prefetch_member_checkin_metrics(db, now, member_ids=batch_member_ids)
+        assessment_member_ids = _prefetch_member_ids_with_assessments(db, batch_member_ids)
         try:
             _apply_risk_statement_timeout(db)
             for member in batch:
+                if _clear_invalid_assessment_fallback(member, assessment_member_ids=assessment_member_ids):
+                    db.add(member)
                 result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
                 previous_score = member.risk_score
                 previous_level = member.risk_level
@@ -223,6 +263,15 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
                     alerts_created += 1
                 else:
                     effective_result = result
+                    current_alert_obj = current_alerts_by_member.pop(member.id, None)
+                    if _resolve_alert(
+                        db,
+                        member,
+                        current_alert_obj,
+                        resolved_at=now,
+                        ws_events=ws_events,
+                    ):
+                        alerts_created += 1
 
                 if (
                     effective_result.score != previous_score
@@ -298,10 +347,13 @@ def refresh_member_risk_snapshot(
         return {"members_refreshed": 0}
 
     metrics_by_member = _prefetch_member_checkin_metrics(db, now, member_ids={member.id for member in members})
+    assessment_member_ids = _prefetch_member_ids_with_assessments(db, {member.id for member in members})
     current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True) if sync_alerts else {}
     refreshed = 0
     alerts_synced = 0
     for member in members:
+        if _clear_invalid_assessment_fallback(member, assessment_member_ids=assessment_member_ids):
+            db.add(member)
         result = calculate_risk_score(db, member, now, metrics_by_member.get(member.id))
         if member.risk_score != result.score or member.risk_level != result.level:
             member.risk_score = result.score
@@ -318,10 +370,50 @@ def refresh_member_risk_snapshot(
             )
             current_alerts_by_member[member.id] = synced_alert
             alerts_synced += 1
+        elif sync_alerts:
+            current_alert = current_alerts_by_member.pop(member.id, None)
+            if _resolve_alert(db, member, current_alert, resolved_at=now):
+                alerts_synced += 1
         refreshed += 1
 
     invalidate_dashboard_cache("risk")
     return {"members_refreshed": refreshed, "alerts_synced": alerts_synced}
+
+
+def _resolve_alert(
+    db: Session,
+    member: Member,
+    current_alert: RiskAlert | None,
+    *,
+    resolved_at: datetime,
+    ws_events: list[dict] | None = None,
+) -> bool:
+    if current_alert is None or current_alert.resolved:
+        return False
+
+    history = list(current_alert.action_history or [])
+    history.append(
+        {
+            "type": "automatic_resolution",
+            "timestamp": resolved_at.isoformat(),
+            "reason": "score_below_threshold",
+        }
+    )
+    current_alert.action_history = history
+    current_alert.resolved = True
+    current_alert.resolved_by_user_id = None
+    current_alert.resolved_at = resolved_at
+    db.add(current_alert)
+    _emit_ws_event(
+        ws_events,
+        member.gym_id,
+        "risk_alert_resolved",
+        member.id,
+        current_alert.id,
+        current_alert.score,
+        current_alert.level.value,
+    )
+    return True
 
 
 def _result_from_member_state(member: Member, result: RiskResult) -> RiskResult:
@@ -492,11 +584,12 @@ def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, 
 
     baseline_avg = baseline_total / 9.0
 
-    # Sem baseline recente nao existe "queda de frequencia" confiavel para comparar.
-    # A inatividade continua sendo penalizada por _inactivity_points, mas evitamos
-    # transformar ausencia de historico em queda artificial de 100%.
-    if baseline_avg <= 0:
-        return 0, None, 0.0
+    # Sem baseline minimamente confiavel nao existe "queda de frequencia" segura
+    # para comparar. A inatividade continua sendo penalizada por
+    # _inactivity_points, mas evitamos transformar historico irrisorio em 100%
+    # de queda artificial.
+    if baseline_avg < _MIN_RELIABLE_BASELINE_AVG_WEEKLY:
+        return 0, None, baseline_avg
 
     drop_pct = max(0.0, ((baseline_avg - current_week_count) / baseline_avg) * 100)
     return _score_frequency_drop(drop_pct, baseline_avg)
@@ -505,8 +598,8 @@ def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, 
 def _frequency_drop_points_from_metrics(current_week_count: int, baseline_total: int) -> tuple[int, float | None, float]:
     baseline_avg = baseline_total / 9.0
 
-    if baseline_avg <= 0:
-        return 0, None, 0.0
+    if baseline_avg < _MIN_RELIABLE_BASELINE_AVG_WEEKLY:
+        return 0, None, baseline_avg
 
     drop_pct = max(0.0, ((baseline_avg - current_week_count) / baseline_avg) * 100)
     return _score_frequency_drop(drop_pct, baseline_avg)

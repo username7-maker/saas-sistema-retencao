@@ -223,7 +223,7 @@ class TestRetentionQueueService:
                     id=UUID("44444444-4444-4444-4444-444444444448"),
                     score=74,
                     level=RiskLevel.RED,
-                    reasons={"frequency_drop_pct": 100.0, "baseline_avg_weekly": 0.0},
+                    reasons={"frequency_drop_pct": 100.0, "baseline_avg_weekly": 0.22},
                     action_history=[],
                     automation_stage="d21",
                     created_at=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),

@@ -34,6 +34,7 @@ from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
+from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
@@ -423,7 +424,7 @@ def _normalize_retention_reasons(reasons: dict | None) -> dict:
     except (TypeError, ValueError):
         baseline_avg = None
 
-    if baseline_avg is not None and baseline_avg <= 0 and isinstance(drop_raw, (int, float)):
+    if baseline_avg is not None and baseline_avg < _MIN_RELIABLE_BASELINE_AVG_WEEKLY and isinstance(drop_raw, (int, float)):
         normalized["frequency_drop_pct"] = None
     elif baseline_avg is None and isinstance(drop_raw, (int, float)) and float(drop_raw) >= 100:
         normalized["frequency_drop_pct"] = None
