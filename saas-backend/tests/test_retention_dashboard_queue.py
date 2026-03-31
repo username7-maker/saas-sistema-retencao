@@ -42,7 +42,7 @@ class TestRetentionQueueService:
         member_id = UUID("33333333-3333-3333-3333-333333333339")
         db = MagicMock()
         db.scalar.return_value = 1
-        db.scalars.return_value.all.return_value = []
+        db.scalars.return_value.all.return_value = [member_id]
 
         member = SimpleNamespace(
             id=member_id,
@@ -58,8 +58,6 @@ class TestRetentionQueueService:
             extra_data={},
             join_date=date(2025, 9, 1),
         )
-        db.scalars.return_value.all.return_value = [member]
-
         queue_rows = MagicMock()
         queue_rows.all.return_value = [
             (
@@ -109,6 +107,7 @@ class TestRetentionQueueService:
         member_yellow_id = UUID("33333333-3333-3333-3333-333333333332")
         db = MagicMock()
         db.scalar.return_value = 2
+        db.scalars.return_value.all.return_value = [member_red_id]
 
         queue_rows = MagicMock()
         queue_rows.all.return_value = [
@@ -196,6 +195,67 @@ class TestRetentionQueueService:
         assert result.items[0].last_contact_at == datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
         assert "queda de 62% na frequência" in result.items[0].signals_summary
         assert result.items[1].risk_level == RiskLevel.YELLOW
+
+    @patch("app.services.dashboard_service.get_assessment_forecast")
+    @patch("app.services.dashboard_service.build_retention_playbook")
+    @patch("app.services.dashboard_service.get_current_gym_id")
+    def test_hides_artificial_drop_and_forecast_without_baseline_or_assessment_context(
+        self,
+        mock_get_current_gym_id,
+        mock_build_playbook,
+        mock_get_assessment_forecast,
+        gym_id,
+    ):
+        from app.services.dashboard_service import get_retention_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        mock_build_playbook.return_value = []
+
+        member_id = UUID("33333333-3333-3333-3333-333333333338")
+        db = MagicMock()
+        db.scalar.return_value = 1
+        db.scalars.return_value.all.return_value = []
+
+        queue_rows = MagicMock()
+        queue_rows.all.return_value = [
+            (
+                SimpleNamespace(
+                    id=UUID("44444444-4444-4444-4444-444444444448"),
+                    score=74,
+                    level=RiskLevel.RED,
+                    reasons={"frequency_drop_pct": 100.0, "baseline_avg_weekly": 0.0},
+                    action_history=[],
+                    automation_stage="d21",
+                    created_at=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    id=member_id,
+                    full_name="Sem Baseline",
+                    email="sem-baseline@teste.com",
+                    phone="5511999991112",
+                    plan_name="Plano Mensal",
+                    risk_score=74,
+                    risk_level=RiskLevel.RED,
+                    nps_last_score=7,
+                    last_checkin_at=datetime(2026, 3, 27, 8, 0, tzinfo=timezone.utc),
+                    churn_type="involuntary_inactivity",
+                    extra_data={"retention_forecast_60d": 31, "retention_forecast_source": "assessment_fallback"},
+                    join_date=date(2025, 9, 1),
+                ),
+            )
+        ]
+
+        contact_rows = MagicMock()
+        contact_rows.all.return_value = []
+        db.execute.side_effect = [queue_rows, contact_rows]
+
+        result = get_retention_queue(db, page=1, page_size=50)
+
+        assert result.items[0].forecast_60d is None
+        assert result.items[0].reasons["frequency_drop_pct"] is None
+        assert "queda de" not in result.items[0].signals_summary
+        assert "forecast em" not in result.items[0].signals_summary
+        assert not mock_get_assessment_forecast.called
 
     @patch("app.services.dashboard_service.get_current_gym_id")
     def test_search_filters_and_pagination_are_applied(self, mock_get_current_gym_id, gym_id):

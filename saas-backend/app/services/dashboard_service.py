@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.database import get_current_gym_id
-from app.models import AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskAlert, RiskLevel
+from app.models import Assessment, AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskAlert, RiskLevel
 from app.models.enums import ChurnType
 from app.schemas import (
     ChurnPoint,
@@ -390,6 +390,47 @@ def _extract_forecast_60d(extra_data: dict | None) -> int | None:
     return None
 
 
+def _extract_forecast_source(extra_data: dict | None) -> str | None:
+    if not isinstance(extra_data, dict):
+        return None
+    value = extra_data.get("retention_forecast_source")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _prefetch_member_ids_with_assessments(db: Session, member_ids: list) -> set:
+    if not member_ids:
+        return set()
+    return {
+        member_id
+        for member_id in db.scalars(
+            select(Assessment.member_id)
+            .where(
+                Assessment.member_id.in_(member_ids),
+                Assessment.deleted_at.is_(None),
+            )
+            .distinct()
+        ).all()
+        if member_id is not None
+    }
+
+
+def _normalize_retention_reasons(reasons: dict | None) -> dict:
+    normalized = dict(reasons or {})
+    baseline_raw = normalized.get("baseline_avg_weekly")
+    drop_raw = normalized.get("frequency_drop_pct")
+    try:
+        baseline_avg = float(baseline_raw) if baseline_raw is not None else None
+    except (TypeError, ValueError):
+        baseline_avg = None
+
+    if baseline_avg is not None and baseline_avg <= 0 and isinstance(drop_raw, (int, float)):
+        normalized["frequency_drop_pct"] = None
+    elif baseline_avg is None and isinstance(drop_raw, (int, float)) and float(drop_raw) >= 100:
+        normalized["frequency_drop_pct"] = None
+
+    return normalized
+
+
 def _materialize_retention_context(
     db: Session,
     members: list[Member],
@@ -432,6 +473,7 @@ def _resolve_retention_context_snapshot(
     member: Member,
     *,
     include_forecast: bool,
+    assessment_member_ids: set | None = None,
 ) -> tuple[str | None, int | None]:
     churn_type = member.churn_type
     if not churn_type:
@@ -441,14 +483,21 @@ def _resolve_retention_context_snapshot(
             churn_type = ChurnType.UNKNOWN.value
 
     forecast_60d = _extract_forecast_60d(member.extra_data)
+    forecast_source = _extract_forecast_source(member.extra_data)
+    has_assessment_context = assessment_member_ids is not None and member.id in assessment_member_ids
+
+    if not has_assessment_context and forecast_source == "assessment_fallback":
+        forecast_60d = None
+
     if include_forecast and forecast_60d is None:
-        try:
-            forecast = get_assessment_forecast(db, member.id)
-        except Exception:
-            forecast = None
-        probability_60d = forecast.get("probability_60d") if isinstance(forecast, dict) else None
-        if isinstance(probability_60d, (int, float)):
-            forecast_60d = int(round(probability_60d))
+        if has_assessment_context:
+            try:
+                forecast = get_assessment_forecast(db, member.id)
+            except Exception:
+                forecast = None
+            probability_60d = forecast.get("probability_60d") if isinstance(forecast, dict) else None
+            if isinstance(probability_60d, (int, float)):
+                forecast_60d = int(round(probability_60d))
 
     return churn_type, forecast_60d
 
@@ -485,7 +534,7 @@ def _days_without_checkin(member: Member) -> int:
 
 
 def _retention_signals_summary(member: Member, alert: RiskAlert, *, days_without_checkin: int, forecast_60d: int | None) -> str:
-    reasons = alert.reasons or {}
+    reasons = _normalize_retention_reasons(alert.reasons)
     parts: list[str] = [f"{days_without_checkin} dias sem check-in"]
 
     frequency_drop_pct = reasons.get("frequency_drop_pct")
@@ -581,12 +630,19 @@ def get_retention_queue(
     ).all()
 
     member_ids = [member.id for _, member in rows]
+    assessment_member_ids = _prefetch_member_ids_with_assessments(db, member_ids)
     last_contact_map = _retention_last_contact_map(db, member_ids)
 
     items: list[RetentionQueueItem] = []
     for alert, member in rows:
-        churn_type, forecast_60d = _resolve_retention_context_snapshot(db, member, include_forecast=True)
+        churn_type, forecast_60d = _resolve_retention_context_snapshot(
+            db,
+            member,
+            include_forecast=True,
+            assessment_member_ids=assessment_member_ids,
+        )
         days_without_checkin = _days_without_checkin(member)
+        normalized_reasons = _normalize_retention_reasons(alert.reasons)
         playbook = [
             RetentionPlaybookStep.model_validate(step)
             for step in build_retention_playbook(db, member, churn_type or ChurnType.UNKNOWN.value)
@@ -615,7 +671,7 @@ def get_retention_queue(
                 forecast_60d=forecast_60d,
             ),
             next_action=playbook[0].title if playbook else None,
-            reasons=alert.reasons or {},
+            reasons=normalized_reasons,
             action_history=alert.action_history or [],
             playbook_steps=playbook,
         )

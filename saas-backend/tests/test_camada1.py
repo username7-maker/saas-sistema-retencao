@@ -98,8 +98,8 @@ class TestFrequencyDropBaseline:
 
         points, drop_pct, baseline_avg = risk_service._frequency_drop_points(db, "member-1", now)
 
-        assert points == 12
-        assert drop_pct == 100.0
+        assert points == 0
+        assert drop_pct is None
         assert baseline_avg == 0.0
 
     def test_new_member_no_history_with_current(self):
@@ -110,7 +110,15 @@ class TestFrequencyDropBaseline:
         points, drop_pct, baseline_avg = risk_service._frequency_drop_points(db, "member-1", now)
 
         assert points == 0
-        assert drop_pct == 0.0
+        assert drop_pct is None
+        assert baseline_avg == 0.0
+
+    def test_prefetched_metrics_without_baseline_do_not_create_artificial_drop(self):
+        points, drop_pct, baseline_avg = risk_service._frequency_drop_points_from_metrics(0, 0)
+
+        assert points == 0
+        assert drop_pct is None
+        assert baseline_avg == 0.0
 
     def test_moderate_drop_50pct(self):
         # baseline_total = 36 (avg 4/week), current = 2 → drop 50% → 12 pts

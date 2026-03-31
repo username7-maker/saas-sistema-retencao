@@ -470,7 +470,7 @@ def _prefetch_open_manager_alert_tasks(
     return task_keys
 
 
-def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, float, float]:
+def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, float | None, float]:
     one_week_ago = now - timedelta(weeks=1)
     ten_weeks_ago = now - timedelta(weeks=10)
 
@@ -492,18 +492,21 @@ def _frequency_drop_points(db: Session, member_id, now: datetime) -> tuple[int, 
 
     baseline_avg = baseline_total / 9.0
 
+    # Sem baseline recente nao existe "queda de frequencia" confiavel para comparar.
+    # A inatividade continua sendo penalizada por _inactivity_points, mas evitamos
+    # transformar ausencia de historico em queda artificial de 100%.
     if baseline_avg <= 0:
-        return (12, 100.0, 0.0) if current_week_count == 0 else (0, 0.0, 0.0)
+        return 0, None, 0.0
 
     drop_pct = max(0.0, ((baseline_avg - current_week_count) / baseline_avg) * 100)
     return _score_frequency_drop(drop_pct, baseline_avg)
 
 
-def _frequency_drop_points_from_metrics(current_week_count: int, baseline_total: int) -> tuple[int, float, float]:
+def _frequency_drop_points_from_metrics(current_week_count: int, baseline_total: int) -> tuple[int, float | None, float]:
     baseline_avg = baseline_total / 9.0
 
     if baseline_avg <= 0:
-        return (12, 100.0, 0.0) if current_week_count == 0 else (0, 0.0, 0.0)
+        return 0, None, 0.0
 
     drop_pct = max(0.0, ((baseline_avg - current_week_count) / baseline_avg) * 100)
     return _score_frequency_drop(drop_pct, baseline_avg)

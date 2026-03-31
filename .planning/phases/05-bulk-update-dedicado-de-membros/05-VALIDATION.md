@@ -74,3 +74,29 @@ created: 2026-03-24
   - `npm.cmd run test -- src/test/PreferredShiftBadge.test.tsx src/test/MembersPage.test.tsx src/test/AssessmentsPage.test.tsx src/test/TasksPage.test.tsx`
   - `npm.cmd run lint`
   - `npm.cmd run build`
+
+### 2026-03-31 - Retencao sem baseline e forecast 60d artificial
+
+- Incidente investigado em modo `GSD debug` a partir de evidencias da fila de retencao publicada:
+  - multiplos alunos exibindo `queda de 100% na frequencia`
+  - `forecast 60d` repetido em `31%` para muitos casos sem contexto suficiente
+- Causa raiz confirmada no backend:
+  - `risk.py` tratava `baseline_avg_weekly <= 0` como `frequency_drop_pct = 100.0`, gerando queda artificial quando nao havia historico recente confiavel
+  - `dashboard_service.py` usava fallback de `get_assessment_forecast()` na fila de retencao mesmo sem contexto de avaliacao, o que levava muitos membros sem avaliacao para um `31%` quase padrao
+- Correcoes aplicadas:
+  - `sem baseline recente` deixou de gerar queda de frequencia artificial; a inatividade continua sendo capturada por `days_without_checkin`
+  - fila de retencao passou a esconder `frequency_drop_pct` quando o baseline e inexistente/insuficiente
+  - fallback de `forecast_60d` na retencao agora so entra para membros com contexto real de avaliacao
+  - forecast legado com fonte `assessment_fallback` deixa de aparecer quando o membro nao tem avaliacao
+- Validacao automatizada:
+  - `pytest saas-backend/tests/test_camada1.py -q`
+  - `pytest saas-backend/tests/test_retention_dashboard_queue.py -q`
+  - `pytest saas-backend/tests/test_dashboard_service.py -q`
+- Resultado:
+  - `24 passed`
+  - `6 passed`
+  - `10 passed`
+- Leitura honesta:
+  - essa correcao elimina boa parte do comportamento "todo mundo com 100% de queda / 31% forecast"
+  - ainda pode haver membros sem `forecast_60d`; nesse caso o sistema agora prefere `Sem forecast` em vez de inventar previsao
+  - se a base tiver alertas antigos muito distorcidos, um novo processamento de risco continua sendo recomendado para alinhar os `RiskAlert.reasons` persistidos com a regra nova
