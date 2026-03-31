@@ -100,6 +100,16 @@ describe("bodyCompositionCapability helpers", () => {
     expect(capability.tone).toBe("warning");
   });
 
+  it("warns when local bridge sync is pending but no station is online", () => {
+    const capability = resolveActuarCapability(
+      makeSyncStatus({ sync_mode: "local_bridge", sync_status: "sync_pending" }),
+      { localBridgeReady: false },
+    );
+
+    expect(capability.title).toBe("Aguardando bridge online");
+    expect(capability.tone).toBe("warning");
+  });
+
   it("builds a summary message for unsupported Actuar fields", () => {
     const message = buildUnsupportedFieldsMessage(
       makeSyncStatus({

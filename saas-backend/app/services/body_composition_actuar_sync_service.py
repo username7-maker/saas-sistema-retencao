@@ -39,6 +39,7 @@ from app.services.actuar_member_link_service import (
     resolve_actuar_member,
     upsert_actuar_member_link,
 )
+from app.services.actuar_bridge_service import count_online_actuar_bridge_devices
 from app.services.actuar_settings_service import has_actuar_credentials, resolve_effective_actuar_sync_mode
 from app.services.body_composition_actuar_mapping_service import (
     build_actuar_field_mapping,
@@ -50,6 +51,7 @@ from app.services.member_service import get_member_or_404
 logger = logging.getLogger(__name__)
 
 ACTIVE_JOB_STATUSES = {"pending", "processing"}
+LOCAL_BRIDGE_OFFLINE_DETAIL = "Nenhuma estacao Actuar Bridge esta online para esta academia."
 
 
 @dataclass(slots=True)
@@ -73,6 +75,7 @@ def prepare_body_composition_sync_attempt(
     member: Member,
     evaluation: BodyCompositionEvaluation,
     force_retry: bool = False,
+    require_online_bridge: bool = False,
 ) -> ActuarSyncJob | None:
     gym = _get_gym(db, evaluation.gym_id)
     mapping = build_actuar_field_mapping(member, evaluation)
@@ -90,6 +93,27 @@ def prepare_body_composition_sync_attempt(
             extra={
                 "extra_fields": {
                     "event": "actuar_training_blocked_pending_sync",
+                    "status": "saved",
+                    "evaluation_id": str(evaluation.id),
+                    "gym_id": str(evaluation.gym_id),
+                }
+            },
+        )
+        return None
+
+    if not _ensure_local_bridge_ready(
+        db,
+        gym_id=evaluation.gym_id,
+        sync_mode=evaluation.actuar_sync_mode,
+        raise_on_unavailable=require_online_bridge,
+    ):
+        evaluation.actuar_sync_status = "saved"
+        evaluation.actuar_sync_job_id = None
+        logger.info(
+            "Actuar local bridge offline; keeping evaluation saved only.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_local_bridge_offline",
                     "status": "saved",
                     "evaluation_id": str(evaluation.id),
                     "gym_id": str(evaluation.gym_id),
@@ -146,11 +170,24 @@ def create_body_composition_sync_job(
 ) -> ActuarSyncJob | None:
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
     member = get_member_or_404(db, member_id, gym_id=gym_id)
+    gym = _get_gym(db, evaluation.gym_id)
     current_job = _get_current_sync_job(db, evaluation)
     if current_job and current_job.status in ACTIVE_JOB_STATUSES and not force_new:
+        _ensure_local_bridge_ready(
+            db,
+            gym_id=gym_id,
+            sync_mode=resolve_actuar_sync_mode(gym),
+            raise_on_unavailable=True,
+        )
         return current_job
 
-    job = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation, force_retry=force_new)
+    job = prepare_body_composition_sync_attempt(
+        db,
+        member=member,
+        evaluation=evaluation,
+        force_retry=force_new,
+        require_online_bridge=True,
+    )
     if job:
         job.created_by_user_id = created_by_user_id
     db.flush()
@@ -580,6 +617,22 @@ def get_body_composition_evaluation_or_404(
 
 def _should_auto_sync(gym: Gym) -> bool:
     return bool(settings.actuar_sync_enabled and gym.actuar_enabled and gym.actuar_auto_sync_body_composition)
+
+
+def _ensure_local_bridge_ready(
+    db: Session,
+    *,
+    gym_id: UUID,
+    sync_mode: str | None,
+    raise_on_unavailable: bool,
+) -> bool:
+    if (sync_mode or "").strip().lower() != "local_bridge":
+        return True
+    if count_online_actuar_bridge_devices(db, gym_id=gym_id) > 0:
+        return True
+    if raise_on_unavailable:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=LOCAL_BRIDGE_OFFLINE_DETAIL)
+    return False
 
 
 def _get_gym(db: Session, gym_id: UUID) -> Gym:

@@ -575,6 +575,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const canManageSync = canManageActuarSync(user?.role) && !syncDisabled;
   const canConfirmManualSync = canManualConfirm && !syncDisabled;
   const syncSummary: BodyCompositionManualSyncSummary | null = syncStatus?.fallback_manual_summary ?? null;
+  const localBridgeReady =
+    currentSyncMode === "local_bridge"
+      ? typeof actuarSettingsQuery.data?.automatic_sync_ready === "boolean"
+        ? actuarSettingsQuery.data.automatic_sync_ready
+        : null
+      : null;
   const readCapability = resolveReadCapability({
     currentSource,
     ocrResult,
@@ -582,7 +588,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     assistedAttempted: ocrReadSession.assistedAttempted,
     assistedError: ocrReadSession.assistedError,
   });
-  const actuarCapability = resolveActuarCapability(syncStatus);
+  const actuarCapability = resolveActuarCapability(syncStatus, { localBridgeReady });
   const unsupportedFieldsMessage = buildUnsupportedFieldsMessage(syncStatus);
   const canSendWhatsAppSummary = Boolean(focusEvaluation?.id && memberPhone?.trim());
   const canSendKommoHandoff = Boolean(focusEvaluation?.id);
@@ -1104,7 +1110,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     size="sm"
                     variant="secondary"
                     onClick={() => enqueueSyncMutation.mutate(focusEvaluation.id)}
-                    disabled={enqueueSyncMutation.isPending}
+                    disabled={enqueueSyncMutation.isPending || (currentSyncMode === "local_bridge" && localBridgeReady === false)}
                   >
                     <RefreshCcw size={14} />
                     {enqueueSyncMutation.isPending ? "Enviando..." : "Enviar para Actuar"}
@@ -1116,7 +1122,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     size="sm"
                     variant="secondary"
                     onClick={() => retrySyncMutation.mutate(focusEvaluation.id)}
-                    disabled={retrySyncMutation.isPending}
+                    disabled={retrySyncMutation.isPending || (currentSyncMode === "local_bridge" && localBridgeReady === false)}
                   >
                     <RefreshCcw size={14} />
                     {retrySyncMutation.isPending ? "Agendando..." : "Reprocessar"}

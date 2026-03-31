@@ -3,18 +3,22 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
+
 from app.models.actuar_sync import ActuarSyncJob
 from app.integrations.actuar.base import ActuarSyncOutcome
 from app.services.actuar_member_link_service import ActuarMemberResolution
 from app.services.body_composition_actuar_mapping_service import build_actuar_field_mapping, build_manual_sync_summary
 from app.services.body_composition_actuar_sync_service import (
     ActuarSyncServiceError,
+    LOCAL_BRIDGE_OFFLINE_DETAIL,
     _build_provider,
     _finalize_non_browser_outcome,
     _finalize_sync_failure,
     _finalize_sync_success,
     claim_next_actuar_sync_job,
     confirm_manual_actuar_sync,
+    create_body_composition_sync_job,
     get_body_composition_sync_status,
     prepare_body_composition_sync_attempt,
 )
@@ -145,6 +149,77 @@ def test_prepare_sync_job_keeps_saved_when_auto_sync_disabled():
     assert job is None
     assert evaluation.actuar_sync_status == "saved"
     assert evaluation.actuar_sync_job_id is None
+
+
+def test_prepare_sync_job_keeps_saved_when_local_bridge_is_offline():
+    db = MagicMock()
+    gym = SimpleNamespace(id=GYM_ID, actuar_enabled=True, actuar_auto_sync_body_composition=True)
+    evaluation = _evaluation()
+
+    with patch("app.services.body_composition_actuar_sync_service._get_gym", return_value=gym), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_enabled",
+        True,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_mode",
+        "local_bridge",
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_required_for_training",
+        True,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.count_online_actuar_bridge_devices",
+        return_value=0,
+    ):
+        job = prepare_body_composition_sync_attempt(db, member=_member(), evaluation=evaluation)
+
+    assert job is None
+    assert evaluation.actuar_sync_status == "saved"
+    assert evaluation.actuar_sync_job_id is None
+
+
+def test_create_sync_job_requires_online_local_bridge_for_explicit_request():
+    db = MagicMock()
+    gym = SimpleNamespace(id=GYM_ID, actuar_enabled=True, actuar_auto_sync_body_composition=True)
+    evaluation = _evaluation()
+    member = _member()
+
+    with patch(
+        "app.services.body_composition_actuar_sync_service.get_body_composition_evaluation_or_404",
+        return_value=evaluation,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.get_member_or_404",
+        return_value=member,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service._get_current_sync_job",
+        return_value=None,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service._get_gym",
+        return_value=gym,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_enabled",
+        True,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_mode",
+        "local_bridge",
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_required_for_training",
+        True,
+    ), patch(
+        "app.services.body_composition_actuar_sync_service.count_online_actuar_bridge_devices",
+        return_value=0,
+    ):
+        try:
+            create_body_composition_sync_job(
+                db,
+                gym_id=GYM_ID,
+                member_id=MEMBER_ID,
+                evaluation_id=EVALUATION_ID,
+                created_by_user_id=uuid.UUID("77777777-7777-7777-7777-777777777777"),
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 409
+            assert exc.detail == LOCAL_BRIDGE_OFFLINE_DETAIL
+        else:
+            raise AssertionError("create_body_composition_sync_job should reject explicit local bridge sync without an online station")
 
 
 def test_existing_link_external_id_short_circuits_matching():

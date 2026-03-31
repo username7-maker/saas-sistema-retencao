@@ -23,6 +23,10 @@ interface ReadCapabilityInput {
   assistedError: string | null;
 }
 
+interface ActuarCapabilityOptions {
+  localBridgeReady?: boolean | null;
+}
+
 function hasAiUnavailableWarning(warnings: BodyCompositionOcrWarning[]): boolean {
   return warnings.some((warning) => warning.message.includes("Leitura assistida por IA indisponivel"));
 }
@@ -111,7 +115,10 @@ export function resolveReadCapability(input: ReadCapabilityInput): CapabilityBan
   };
 }
 
-export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncStatus | null | undefined): CapabilityBanner {
+export function resolveActuarCapability(
+  syncStatus: BodyCompositionActuarSyncStatus | null | undefined,
+  options: ActuarCapabilityOptions = {},
+): CapabilityBanner {
   if (!syncStatus || syncStatus.sync_mode === "disabled") {
     return {
       tone: "warning",
@@ -130,6 +137,14 @@ export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncSta
   }
 
   if (syncStatus.sync_mode === "local_bridge" && (syncStatus.sync_status === "sync_pending" || syncStatus.sync_status === "syncing")) {
+    if (options.localBridgeReady === false) {
+      return {
+        tone: "warning",
+        title: "Aguardando bridge online",
+        description:
+          "Nenhuma estacao Actuar Bridge esta online agora. Abra a ponte local no computador da academia e tente novamente quando ela voltar a ficar disponivel.",
+      };
+    }
     return {
       tone: "neutral",
       title: "Ponte local em andamento",
