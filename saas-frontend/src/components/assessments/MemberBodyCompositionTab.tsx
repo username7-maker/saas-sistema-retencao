@@ -359,13 +359,13 @@ function buildAssistedReadSummary(
 ): string | null {
   if (!result && !session.assistedAttempted) return null;
   if (result?.engine === "hybrid") {
-    return "OCR local veio ambiguo; combinamos o OCR local com a leitura assistida por IA para revisar os campos mais sensiveis.";
+    return "OCR local veio ambiguo; combinamos o OCR local com a leitura assistida por IA para cobrir os campos do exame com revisao final.";
   }
   if (result?.engine === "ai_assisted") {
-    return "A imagem foi lida diretamente pela IA assistida e os campos principais ja vieram estruturados para revisao final.";
+    return "A imagem foi lida diretamente pela IA assistida e os campos reconhecidos do exame vieram estruturados para revisao final.";
   }
   if (result?.engine === "ai_fallback") {
-    return "A leitura assistida por IA prevaleceu nos campos principais porque a foto estava dificil para o OCR local.";
+    return "A leitura assistida por IA prevaleceu nos campos do exame porque a foto estava dificil para o OCR local.";
   }
   if (session.assistedAttempted) {
     return "Tentamos uma leitura assistida, mas mantivemos o OCR local nesta execucao. Revise manualmente os campos destacados.";

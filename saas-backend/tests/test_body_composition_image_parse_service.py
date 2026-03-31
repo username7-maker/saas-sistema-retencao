@@ -161,7 +161,7 @@ class TestImageParseService:
         assert result.confidence > stale_local.confidence
 
     @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
-    def test_drops_non_key_local_value_when_only_noisy_local_support_exists(self, _mock_available):
+    def test_keeps_non_key_local_value_when_only_noisy_local_support_exists(self, _mock_available):
         stale_local = _local_ocr_payload()
         stale_local.values.body_water_kg = 17.7
         stale_local.warnings.append(
@@ -185,7 +185,7 @@ class TestImageParseService:
                 local_ocr_result=stale_local,
             )
 
-        assert result.values.body_water_kg is None
+        assert result.values.body_water_kg == 17.7
 
     def test_resolve_image_ai_provider_returns_none_without_keys(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", ""), patch(
@@ -312,6 +312,8 @@ class TestImageParseRoute:
             assert _image_ai_available("openai") is True
 
     def test_parse_with_openai_vision_uses_json_mode_response(self):
+        captured_kwargs = {}
+
         mock_response = SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -324,7 +326,7 @@ class TestImageParseRoute:
         mock_client = SimpleNamespace(
             chat=SimpleNamespace(
                 completions=SimpleNamespace(
-                    create=lambda **kwargs: mock_response,
+                    create=lambda **kwargs: captured_kwargs.update(kwargs) or mock_response,
                 )
             )
         )
@@ -344,3 +346,10 @@ class TestImageParseRoute:
         assert result.values.body_fat_percent == 23.0
         assert result.engine == "ai_assisted"
         assert result.fallback_used is False
+        prompt = captured_kwargs["messages"][1]["content"][0]["text"]
+        assert "Template obrigatorio de values" in prompt
+        assert "body_water_percent" in prompt
+        assert "target_weight_kg" in prompt
+        assert "total_energy_kcal" in prompt
+        assert "muscle_control_kg" in prompt
+        assert "nao pare nos campos principais" in prompt

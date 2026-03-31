@@ -64,7 +64,7 @@ export function resolveReadCapability(input: ReadCapabilityInput): CapabilityBan
     return {
       tone: "success",
       title: "Leitura hibrida ativa",
-      description: "O OCR local encontrou ambiguidades e a leitura assistida ajudou a revisar os campos mais sensiveis.",
+      description: "O OCR local encontrou ambiguidades e a leitura assistida ajudou a cobrir os campos do exame para revisao final.",
     };
   }
 
@@ -72,7 +72,7 @@ export function resolveReadCapability(input: ReadCapabilityInput): CapabilityBan
     return {
       tone: "success",
       title: "Leitura assistida por IA ativa",
-      description: "A leitura foi interpretada diretamente pela IA assistida e ja trouxe os campos principais para revisao final.",
+      description: "A leitura foi interpretada diretamente pela IA assistida e trouxe os campos reconhecidos do exame para revisao final.",
     };
   }
 
@@ -80,7 +80,7 @@ export function resolveReadCapability(input: ReadCapabilityInput): CapabilityBan
     return {
       tone: "success",
       title: "Leitura assistida por IA ativa",
-      description: "A leitura assistida prevaleceu nos campos principais, mas os destaques ainda devem ser revisados antes do salvamento.",
+      description: "A leitura assistida prevaleceu nos campos do exame, mas os destaques ainda devem ser revisados antes do salvamento.",
     };
   }
 

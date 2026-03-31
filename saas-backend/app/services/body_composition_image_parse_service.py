@@ -59,6 +59,31 @@ NUMERIC_FIELDS = (
     "physical_age",
     "health_score",
 )
+FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
+    ("evaluation_date", "data da avaliacao impressa no recibo, em YYYY-MM-DD quando visivel"),
+    ("weight_kg", "Weight (kg) ou peso atual"),
+    ("body_fat_kg", "Body fat (kg)"),
+    ("body_fat_percent", "Body fat ratio (%) ou percentual de gordura"),
+    ("waist_hip_ratio", "Waist-Hip Ratio"),
+    ("fat_free_mass_kg", "Fat-free mass (kg)"),
+    ("inorganic_salt_kg", "Inorganic salt (kg)"),
+    ("muscle_mass_kg", "Muscle mass (kg)"),
+    ("protein_kg", "Protein (kg)"),
+    ("body_water_kg", "Body water (kg)"),
+    ("lean_mass_kg", "Lean mass (kg), quando existir nessa versao do recibo"),
+    ("body_water_percent", "Body water ratio (%)"),
+    ("visceral_fat_level", "Visceral fat"),
+    ("bmi", "BMI"),
+    ("basal_metabolic_rate_kcal", "BMR ou basal metabolic rate (kcal)"),
+    ("skeletal_muscle_kg", "Skeletal muscle (kg)"),
+    ("target_weight_kg", "Target weight (kg)"),
+    ("weight_control_kg", "Weight control (kg)"),
+    ("muscle_control_kg", "Muscle control (kg)"),
+    ("fat_control_kg", "Fat control (kg)"),
+    ("total_energy_kcal", "Total energy / energy consumption (kcal)"),
+    ("physical_age", "Physical age"),
+    ("health_score", "Health score"),
+)
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
     "weight_kg": (30, 300),
     "body_fat_kg": (1, 80),
@@ -89,6 +114,55 @@ class _BodyCompositionVisionResponse(BaseModel):
     ranges: dict[str, BodyCompositionRangeValue] = Field(default_factory=dict)
     warnings: list[BodyCompositionOcrWarning] = Field(default_factory=list)
     needs_review: bool = False
+
+
+def _build_values_template() -> str:
+    template = {field_name: None for field_name in BodyCompositionOcrValues.model_fields}
+    return json.dumps(template, ensure_ascii=False)
+
+
+def _build_field_guide_text() -> str:
+    return "\n".join(f"- {field_name}: {description}" for field_name, description in FIELD_EXTRACTION_GUIDE)
+
+
+def _build_vision_prompt(
+    *,
+    device_profile: BodyCompositionDeviceProfile,
+    local_ocr_result: BodyCompositionImageOcrPayload | None,
+    provider_name: str,
+) -> str:
+    local_hint = _build_local_hint(local_ocr_result)
+    provider_instruction = (
+        "Retorne APENAS JSON com chaves: device_model, values, ranges, warnings, needs_review.\n"
+        if provider_name == "claude"
+        else "Retorne APENAS os campos estruturados solicitados.\n"
+    )
+    return (
+        "Voce extrai dados estruturados de um recibo de bioimpedancia para um sistema de academia.\n"
+        "O layout esperado e do perfil tezewa_receipt_v1.\n"
+        f"{provider_instruction}"
+        "Regras obrigatorias:\n"
+        "- use a imagem como fonte de verdade; o OCR local e apenas pista auxiliar\n"
+        "- nao invente valores; se estiver em duvida, use null e adicione warning\n"
+        "- percorra todo o recibo; nao pare nos campos principais e cubra composicao corporal, metabolismo, comprehensive evaluation e controles\n"
+        "- values deve conter TODAS as chaves esperadas do sistema, mesmo quando o valor for null\n"
+        "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
+        "- body_fat_kg corresponde a 'Body fat (kg)'\n"
+        "- body_fat_percent corresponde a 'Body fat ratio (%)'\n"
+        "- body_water_kg e body_water_percent sao campos diferentes e podem coexistir\n"
+        "- skeletal_muscle_kg e muscle_mass_kg sao campos diferentes e podem coexistir\n"
+        "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
+        "- physical_age e health_score devem ser inteiros quando visiveis\n"
+        "- quando houver faixa impressa, preencha ranges com min/max\n"
+        "- warnings deve ser lista de objetos com field, message, severity (warning|critical)\n"
+        "- evaluation_date so deve ser preenchida se estiver realmente visivel na imagem\n"
+        f"- device_profile atual: {device_profile}\n"
+        "Campos esperados em values:\n"
+        f"{_build_field_guide_text()}\n"
+        f"Template obrigatorio de values: {_build_values_template()}\n"
+        f"- dica opcional do OCR local: {json.dumps(local_hint, ensure_ascii=False)}\n"
+        "Responda em portugues do Brasil."
+    )
 
 
 def parse_body_composition_image(
@@ -166,25 +240,10 @@ def _parse_with_openai_vision(
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
 ) -> BodyCompositionImageParseResultRead:
-    local_hint = _build_local_hint(local_ocr_result)
-    prompt = (
-        "Voce extrai dados estruturados de um recibo de bioimpedancia para um sistema de academia.\n"
-        "O layout esperado e do perfil tezewa_receipt_v1.\n"
-        "Retorne APENAS os campos estruturados solicitados.\n"
-        "Regras obrigatorias:\n"
-        "- use a imagem como fonte de verdade; o OCR local e apenas pista auxiliar\n"
-        "- nao invente valores; se estiver em duvida, use null e adicione warning\n"
-        "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
-        "- body_fat_kg corresponde a 'Body fat (kg)'\n"
-        "- body_fat_percent corresponde a 'Body fat ratio (%)'\n"
-        "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
-        "- quando houver faixa impressa, preencha ranges com min/max\n"
-        "- warnings deve ser lista de objetos com field, message, severity (warning|critical)\n"
-        "- values deve usar apenas as chaves esperadas do sistema\n"
-        "- evaluation_date so deve ser preenchida se estiver realmente visivel na imagem\n"
-        f"- device_profile atual: {device_profile}\n"
-        f"- dica opcional do OCR local: {json.dumps(local_hint, ensure_ascii=False)}\n"
-        "Responda em portugues do Brasil."
+    prompt = _build_vision_prompt(
+        device_profile=device_profile,
+        local_ocr_result=local_ocr_result,
+        provider_name="openai",
     )
 
     client = _create_openai_client(timeout_seconds=settings.body_composition_image_ai_timeout_seconds)
@@ -225,33 +284,22 @@ def _parse_with_claude_vision(
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
 ) -> BodyCompositionImageParseResultRead:
-    local_hint = _build_local_hint(local_ocr_result)
+    prompt = _build_vision_prompt(
+        device_profile=device_profile,
+        local_ocr_result=local_ocr_result,
+        provider_name="claude",
+    )
     prompt = (
-        "Voce extrai dados estruturados de um recibo de bioimpedancia para um sistema de academia.\n"
-        "O layout esperado e do perfil tezewa_receipt_v1.\n"
-        "Retorne APENAS JSON com chaves: device_model, values, ranges, warnings, needs_review.\n"
-        "Regras obrigatorias:\n"
-        "- use a imagem como fonte de verdade; o OCR local e apenas pista auxiliar\n"
-        "- nao invente valores; se estiver em duvida, use null e adicione warning\n"
-        "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
-        "- body_fat_kg corresponde a 'Body fat (kg)'\n"
-        "- body_fat_percent corresponde a 'Body fat ratio (%)'\n"
-        "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
-        "- quando houver faixa impressa, preencha ranges com min/max\n"
-        "- warnings deve ser lista de objetos com field, message, severity (warning|critical)\n"
-        "- values deve usar apenas as chaves esperadas do sistema\n"
-        "- evaluation_date so deve ser preenchida se estiver realmente visivel na imagem\n"
-        f"- device_profile atual: {device_profile}\n"
-        f"- dica opcional do OCR local: {json.dumps(local_hint, ensure_ascii=False)}\n"
+        f"{prompt}\n"
         "JSON esperado:\n"
         "{"
         "\"device_model\": \"Tezewa ou null\", "
-        "\"values\": {\"weight_kg\": 84.5, \"body_fat_kg\": 19.46, \"body_fat_percent\": 23.0}, "
+        "\"values\": "
+        f"{_build_values_template()}, "
         "\"ranges\": {\"weight_kg\": {\"min\": 61.7, \"max\": 75.5}}, "
         "\"warnings\": [], "
         "\"needs_review\": false"
         "}\n"
-        "Responda em portugues do Brasil."
     )
 
     client = anthropic.Anthropic(
@@ -480,21 +528,15 @@ def _choose_value_source(
 ) -> str | None:
     ai_plausible = _is_plausible(field_name, ai_value)
     local_plausible = _is_plausible(field_name, local_value)
-    local_warnings = local_warnings or []
-    local_noisy = _is_noisy_local_field(local_warnings)
 
     if ai_plausible and local_plausible:
         return "ai"
     if ai_plausible:
         return "ai"
-    if local_plausible and local_noisy and field_name not in KEY_FIELDS:
-        return None
     if local_plausible:
         return "local"
     if ai_value is not None:
         return "ai"
-    if local_value is not None and local_noisy and field_name not in KEY_FIELDS:
-        return None
     if local_value is not None:
         return "local"
     return None
@@ -529,14 +571,6 @@ def _warnings_for_field_without_local_ai_fallback(
 def _is_local_ai_unavailable_warning(warning: BodyCompositionOcrWarning) -> bool:
     message = (warning.message or "").lower()
     return "leitura assistida por ia indisponivel" in message or "leitura assistida por ia falhou" in message
-
-
-def _is_noisy_local_field(warnings: list[BodyCompositionOcrWarning]) -> bool:
-    for warning in warnings:
-        message = (warning.message or "").lower()
-        if "ordem esperada do recibo" in message or "linha vizinha" in message or "ocr ruidoso" in message:
-            return True
-    return False
 
 
 def _range_has_values(value: BodyCompositionRangeValue | None) -> bool:

@@ -208,3 +208,35 @@ def test_build_body_composition_member_summary_uses_stored_text_when_human():
     result = build_body_composition_member_summary(evaluation, member_first_name="Erick")
 
     assert "bom ponto de partida" in result.lower()
+
+
+def test_serialize_measurements_includes_secondary_exam_fields():
+    from app.services.body_composition_ai_service import _serialize_measurements
+
+    payload = _serialize_measurements(
+        _evaluation(
+            inorganic_salt_kg=3.2,
+            protein_kg=17.7,
+            body_water_kg=43.3,
+            lean_mass_kg=65.0,
+            body_water_percent=51.2,
+            basal_metabolic_rate_kcal=1880,
+            target_weight_kg=68.3,
+            weight_control_kg=-16.1,
+            muscle_control_kg=-7.8,
+            fat_control_kg=-8.3,
+            total_energy_kcal=3008,
+            physical_age=26,
+        )
+    )
+
+    assert payload["inorganic_salt_kg"] == 3.2
+    assert payload["protein_kg"] == 17.7
+    assert payload["body_water_kg"] == 43.3
+    assert payload["body_water_percent"] == 51.2
+    assert payload["target_weight_kg"] == 68.3
+    assert payload["weight_control_kg"] == -16.1
+    assert payload["muscle_control_kg"] == -7.8
+    assert payload["fat_control_kg"] == -8.3
+    assert payload["total_energy_kcal"] == 3008
+    assert payload["physical_age"] == 26

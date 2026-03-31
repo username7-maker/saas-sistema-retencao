@@ -22,15 +22,28 @@ from app.utils.claude import _parse_claude_json
 logger = logging.getLogger(__name__)
 
 _FIELD_LABELS = {
+    "evaluation_date": "data da avaliacao",
     "weight_kg": "peso",
     "body_fat_kg": "gordura corporal em kg",
     "body_fat_percent": "percentual de gordura",
     "waist_hip_ratio": "relacao cintura-quadril",
     "fat_free_mass_kg": "massa livre de gordura",
+    "inorganic_salt_kg": "sal inorganico",
+    "protein_kg": "proteina corporal",
+    "body_water_kg": "agua corporal em kg",
+    "lean_mass_kg": "massa magra",
     "muscle_mass_kg": "massa muscular",
+    "body_water_percent": "percentual de agua corporal",
+    "basal_metabolic_rate_kcal": "taxa metabolica basal",
     "skeletal_muscle_kg": "musculo esqueletico",
+    "target_weight_kg": "peso alvo",
+    "weight_control_kg": "controle de peso",
+    "muscle_control_kg": "controle de musculo",
+    "fat_control_kg": "controle de gordura",
+    "total_energy_kcal": "energia total",
     "visceral_fat_level": "gordura visceral",
     "bmi": "IMC",
+    "physical_age": "idade fisica",
     "health_score": "health score",
 }
 _PRIMARY_GOAL_ALLOWED = {
@@ -386,6 +399,12 @@ def _normalize_ai_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _serialize_measurements(evaluation: BodyCompositionEvaluation) -> dict[str, float | int]:
     payload: dict[str, float | int] = {}
     for field in _FIELD_LABELS:
+        if field == "evaluation_date":
+            value = getattr(evaluation, field, None)
+            if value is None:
+                continue
+            payload[field] = value.isoformat() if hasattr(value, "isoformat") else str(value)
+            continue
         value = getattr(evaluation, field, None)
         numeric = _to_float(value)
         if numeric is None:
