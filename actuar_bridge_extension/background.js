@@ -42,6 +42,22 @@ async function attachCurrentTab() {
   if (!tab?.id || !tab.url || !tab.url.toLowerCase().includes(ACTUAR_URL_HINT)) {
     return { ok: false, error: "Abra a aba do Actuar antes de anexar." };
   }
+  await attachTab(tab);
+  return { ok: true, tabId: tab.id, url: tab.url };
+}
+
+async function attachFirstActuarTab() {
+  const tabs = await chrome.tabs.query({});
+  const tab = tabs.find((item) => item?.id && item.url && item.url.toLowerCase().includes(ACTUAR_URL_HINT));
+  if (!tab?.id || !tab.url) {
+    await postBrowserStatus({ attached: false });
+    return null;
+  }
+  await attachTab(tab);
+  return tab;
+}
+
+async function attachTab(tab) {
   await chrome.storage.local.set({
     [STORAGE_KEY]: {
       tabId: tab.id,
@@ -51,7 +67,6 @@ async function attachCurrentTab() {
     },
   });
   await postBrowserStatus({ attached: true, tab_id: tab.id, url: tab.url, title: tab.title || "Actuar" });
-  return { ok: true, tabId: tab.id, url: tab.url };
 }
 
 async function detachTab() {
@@ -69,18 +84,39 @@ async function pollRelayAndExecute() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const attached = stored[STORAGE_KEY] || null;
   if (!attached?.tabId) {
-    await postBrowserStatus({ attached: false });
-    return;
+    const autoAttachedTab = await attachFirstActuarTab();
+    if (!autoAttachedTab?.id) {
+      await postBrowserStatus({ attached: false });
+      return;
+    }
   }
 
-  const tab = await chrome.tabs.get(attached.tabId).catch(() => null);
+  const latestStored = await chrome.storage.local.get(STORAGE_KEY);
+  const resolvedAttached = latestStored[STORAGE_KEY] || null;
+  const tab = await chrome.tabs.get(resolvedAttached?.tabId).catch(() => null);
   if (!tab?.id || !tab.url || !tab.url.toLowerCase().includes(ACTUAR_URL_HINT)) {
     await chrome.storage.local.remove(STORAGE_KEY);
-    await postBrowserStatus({ attached: false });
-    return;
+    const autoAttachedTab = await attachFirstActuarTab();
+    if (!autoAttachedTab?.id) {
+      await postBrowserStatus({ attached: false });
+      return;
+    }
+    const refreshedStored = await chrome.storage.local.get(STORAGE_KEY);
+    const refreshedAttached = refreshedStored[STORAGE_KEY] || null;
+    const refreshedTab = await chrome.tabs.get(refreshedAttached?.tabId).catch(() => null);
+    if (!refreshedTab?.id || !refreshedTab.url) {
+      await postBrowserStatus({ attached: false });
+      return;
+    }
+    await postBrowserStatus({ attached: true, tab_id: refreshedTab.id, url: refreshedTab.url, title: refreshedTab.title || "Actuar" });
+    return await executePendingJob(refreshedTab);
   }
 
   await postBrowserStatus({ attached: true, tab_id: tab.id, url: tab.url, title: tab.title || "Actuar" });
+  return await executePendingJob(tab);
+}
+
+async function executePendingJob(tab) {
   const job = await relayGet("/v1/jobs/next", true);
   if (!job) return;
 
