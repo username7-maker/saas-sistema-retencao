@@ -39,3 +39,23 @@ created: 2026-03-24
 - [x] Infra de teste existente cobre a fase
 - [x] Criticos mapeados para backend e frontend
 - [x] Manual follow-up listado
+
+## Post-Deploy Validation Notes
+
+### 2026-03-30 - Preferred shift derived from check-ins
+
+- Backend deploy validado no Railway (`/health/ready` -> `{"status":"ok"}`).
+- Frontend publicado validado na Vercel.
+- Distribuicao atual no piloto `ai-gym-os-piloto`:
+  - `<null>`: `5976`
+  - `morning`: `486`
+  - `afternoon`: `412`
+  - `evening`: `473`
+- Isso confirma que `preferred_shift` deixou de depender apenas de valor legado importado e passou a ser derivado de padrao real de check-in quando existe sinal suficiente.
+- Validacao operacional no ambiente publicado:
+  - `GET /api/v1/members/` retorna `preferred_shift` derivado (`afternoon` observado em resposta real).
+  - `GET /api/v1/assessments/queue` retorna `preferred_shift` derivado (`afternoon` e `evening` observados em resposta real).
+  - `GET /api/v1/tasks/` retorna `preferred_shift` no payload; tarefas sem sinal suficiente continuam vindo com `null`.
+- Leitura de risco honesta:
+  - O dado agora esta util para parte real da base.
+  - Ainda existe volume grande de membros sem sinal suficiente de check-in; nesses casos o sistema mantem `null` em vez de inventar turno.
