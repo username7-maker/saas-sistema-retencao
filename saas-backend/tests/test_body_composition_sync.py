@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from app.models.actuar_sync import ActuarSyncJob
 from app.integrations.actuar.base import ActuarSyncOutcome
 from app.services.actuar_member_link_service import ActuarMemberResolution
-from app.services.body_composition_actuar_mapping_service import build_manual_sync_summary
+from app.services.body_composition_actuar_mapping_service import build_actuar_field_mapping, build_manual_sync_summary
 from app.services.body_composition_actuar_sync_service import (
     ActuarSyncServiceError,
     _build_provider,
@@ -331,7 +331,16 @@ def test_manual_sync_summary_lists_critical_fields():
     assert summary["critical_fields"]
     assert "Aluno: Aluno Sync" in summary["summary_text"]
     assert "weight" in summary["summary_text"]
+    assert "height_cm" in summary["summary_text"]
     assert "body_fat_percent" in summary["summary_text"]
+
+
+def test_build_actuar_field_mapping_derives_height_from_weight_and_bmi():
+    mapping = build_actuar_field_mapping(_member(), _evaluation())
+
+    critical_fields = {item["field"]: item for item in mapping["critical_fields"]}
+    assert critical_fields["height_cm"]["value"] == 180
+    assert critical_fields["height_cm"]["actuar_field"] == "height_cm"
 
 
 def test_confirm_manual_actuar_sync_marks_evaluation_as_ready():

@@ -7,16 +7,19 @@ from app.models import BodyCompositionEvaluation, Member
 
 def build_body_composition_canonical_payload(member: Member, evaluation: BodyCompositionEvaluation) -> dict[str, Any]:
     measured_at = evaluation.evaluation_date.isoformat()
+    weight_kg = _to_float(getattr(evaluation, "weight_kg", None))
+    bmi = _to_float(getattr(evaluation, "bmi", None))
     return {
         "evaluation_id": str(evaluation.id),
         "member_id": str(member.id),
         "measured_at": measured_at,
-        "weight_kg": _to_float(getattr(evaluation, "weight_kg", None)),
+        "weight_kg": weight_kg,
+        "height_cm": _derive_height_cm(weight_kg, bmi),
         "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None)),
         "muscle_mass_kg": _to_float(getattr(evaluation, "skeletal_muscle_kg", None)) or _to_float(getattr(evaluation, "muscle_mass_kg", None)),
         "lean_mass_kg": _to_float(getattr(evaluation, "fat_free_mass_kg", None)) or _to_float(getattr(evaluation, "lean_mass_kg", None)),
         "body_water_pct": _to_float(getattr(evaluation, "body_water_percent", None)),
-        "bmi": _to_float(getattr(evaluation, "bmi", None)),
+        "bmi": bmi,
         "bmr_kcal": _to_float(getattr(evaluation, "basal_metabolic_rate_kcal", None)),
         "visceral_fat": _to_float(getattr(evaluation, "visceral_fat_level", None)),
         "circumference_fields": _build_circumference_fields(evaluation),
@@ -32,12 +35,13 @@ def build_actuar_field_mapping(
 ) -> dict[str, Any]:
     payload = build_body_composition_canonical_payload(member, evaluation)
     mappings = [
-        _mapping("evaluation_date", "evaluation_date", payload["measured_at"], "critical_direct", required=True),
         _mapping("weight_kg", "weight", payload["weight_kg"], "critical_direct", required=True),
+        _mapping("height_cm", "height_cm", payload["height_cm"], "critical_derived", required=True),
         _mapping("body_fat_pct", "body_fat_percent", payload["body_fat_pct"], "critical_direct", required=True),
-        _mapping("lean_mass_kg", "lean_mass_kg", payload["lean_mass_kg"], "critical_derived", required=True),
-        _mapping("muscle_mass_kg", "muscle_mass_kg", payload["muscle_mass_kg"], "critical_derived", required=True),
-        _mapping("bmi", "bmi", payload["bmi"], "critical_derived", required=True),
+        _mapping("muscle_mass_kg", "muscle_mass_kg", payload["muscle_mass_kg"], "critical_direct", required=True),
+        _mapping("lean_mass_kg", "lean_mass_kg", payload["lean_mass_kg"], "non_critical_direct"),
+        _mapping("bmi", "bmi", payload["bmi"], "non_critical_direct"),
+        _mapping("evaluation_date", None, payload["measured_at"], "text_note_only"),
         _mapping("body_water_pct", "body_water_percent", payload["body_water_pct"], "non_critical_direct"),
         _mapping("bmr_kcal", None, payload["bmr_kcal"], "unsupported", supported=False),
         _mapping("visceral_fat", None, payload["visceral_fat"], "unsupported", supported=False),
@@ -112,3 +116,12 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _derive_height_cm(weight_kg: float | None, bmi: float | None) -> int | None:
+    if weight_kg is None or bmi is None or weight_kg <= 0 or bmi <= 0:
+        return None
+    height_m = (weight_kg / bmi) ** 0.5
+    if height_m <= 0:
+        return None
+    return round(height_m * 100)

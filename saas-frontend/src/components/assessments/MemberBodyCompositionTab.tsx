@@ -21,6 +21,7 @@ import toast from "react-hot-toast";
 import { z } from "zod";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
+import { actuarSettingsService } from "../../services/actuarSettingsService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import type { BodyCompositionOcrEngine, BodyCompositionOcrResult } from "../../services/bodyCompositionOcr";
 import type {
@@ -375,6 +376,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     staleTime: 60 * 1000,
   });
 
+  const actuarSettingsQuery = useQuery({
+    queryKey: ["actuar-settings", "body-composition-workspace"],
+    queryFn: () => actuarSettingsService.getSettings(),
+    staleTime: 30 * 1000,
+  });
+
   const focusEvaluation = editingEvaluationId
     ? evaluations?.find((evaluation) => evaluation.id === editingEvaluationId) ?? null
     : evaluations?.[0] ?? null;
@@ -416,8 +423,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       }
       return bodyCompositionService.create(memberId, payload);
     },
-    onSuccess: async () => {
-      toast.success(editingEvaluationId ? "Bioimpedancia atualizada com sucesso." : "Bioimpedancia registrada com sucesso.");
+    onSuccess: async (savedEvaluation) => {
+      if (savedEvaluation.actuar_sync_status === "sync_pending") {
+        const bridgeMode = actuarSettingsQuery.data?.effective_sync_mode === "local_bridge";
+        toast.success(
+          bridgeMode
+            ? "Bioimpedancia salva e enviada para a estacao do Actuar."
+            : "Bioimpedancia salva e enviada para sincronizacao com o Actuar.",
+        );
+      } else {
+        toast.success(editingEvaluationId ? "Bioimpedancia atualizada com sucesso." : "Bioimpedancia registrada com sucesso.");
+      }
       await invalidateAssessmentQueries(queryClient, memberId);
       resetEditor(null);
     },
@@ -554,6 +570,20 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const unsupportedFieldsMessage = buildUnsupportedFieldsMessage(syncStatus);
   const canSendWhatsAppSummary = Boolean(focusEvaluation?.id && memberPhone?.trim());
   const canSendKommoHandoff = Boolean(focusEvaluation?.id);
+  const automaticActuarSaveReady = Boolean(
+    actuarSettingsQuery.data?.actuar_enabled &&
+      actuarSettingsQuery.data?.actuar_auto_sync_body_composition &&
+      actuarSettingsQuery.data?.automatic_sync_ready,
+  );
+  const saveButtonLabel = saveMutation.isPending
+    ? "Salvando..."
+    : automaticActuarSaveReady
+      ? editingEvaluationId
+        ? "Salvar e reenviar ao Actuar"
+        : "Salvar e enviar ao Actuar"
+      : editingEvaluationId
+        ? "Salvar alteracoes"
+        : "Salvar bioimpedancia";
 
   async function handleCopyCriticalFields() {
     if (!focusEvaluation?.id) return;
@@ -742,6 +772,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
               Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}
             </StatusPill>
           </div>
+          {automaticActuarSaveReady ? (
+            <p className="mt-3 text-xs font-medium text-emerald-700">
+              Estacao Actuar online. Ao salvar, esta avaliacao entra automaticamente no fluxo externo.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -924,7 +959,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 ) : null}
                 <Button type="submit" variant="primary" disabled={saveMutation.isPending}>
                   {editingEvaluationId ? <Save size={14} /> : <ImageUp size={14} />}
-                  {saveMutation.isPending ? "Salvando..." : editingEvaluationId ? "Salvar alteracoes" : "Salvar bioimpedancia"}
+                  {saveButtonLabel}
                 </Button>
               </div>
             </form>
@@ -1039,7 +1074,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle>Sync Actuar</CardTitle>
               <div className="flex flex-wrap gap-2">
-                {focusEvaluation?.id && canManageSync ? (
+                {focusEvaluation?.id && canManageSync && !automaticActuarSaveReady ? (
                   <Button
                     type="button"
                     size="sm"

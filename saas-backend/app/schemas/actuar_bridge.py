@@ -59,6 +59,7 @@ class ActuarBridgeClaimedJobRead(BaseModel):
     member_id: UUID
     sync_mode: str
     member_name: str
+    member_email: str | None = None
     member_birthdate: date | None = None
     member_document: str | None = None
     actuar_external_id: str | None = None

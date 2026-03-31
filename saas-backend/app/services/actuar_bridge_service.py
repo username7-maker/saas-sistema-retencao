@@ -23,6 +23,7 @@ from app.schemas.actuar_bridge import (
     ActuarBridgePairRequest,
     ActuarBridgePairResponse,
 )
+from app.services.actuar_member_link_service import get_actuar_member_link, resolve_member_document_for_actuar, upsert_actuar_member_link
 from app.services.body_composition_actuar_mapping_service import build_manual_sync_summary
 
 
@@ -217,8 +218,9 @@ def claim_next_actuar_bridge_job(
         member_id=member.id,
         sync_mode=evaluation.actuar_sync_mode,
         member_name=member.full_name,
+        member_email=member.email,
         member_birthdate=member.birthdate,
-        member_document=member_link.actuar_search_document if member_link else None,
+        member_document=resolve_member_document_for_actuar(member, member_link),
         actuar_external_id=member_link.actuar_external_id if member_link else None,
         payload_json=job.payload_json,
         mapped_fields_json=job.mapped_fields_json,
@@ -254,6 +256,7 @@ def complete_actuar_bridge_job(
         external_id=payload.external_id,
         action_log=action_log,
     )
+    _persist_member_link_from_bridge_success(db, job=job, external_id=payload.external_id)
 
 
 def fail_actuar_bridge_job(
@@ -334,6 +337,47 @@ def _finalize_bridge_failure(
             manual_fallback=manual_fallback,
         ),
         provider=None,
+    )
+
+
+def _persist_member_link_from_bridge_success(db: Session, *, job: ActuarSyncJob, external_id: str | None) -> None:
+    normalized_external_id = (external_id or "").strip()
+    if not normalized_external_id:
+        return
+
+    member = db.scalar(
+        include_all_tenants(
+            select(Member).where(Member.id == job.member_id),
+            reason="actuar_bridge.persist_member_link.member",
+        )
+    )
+    if member is None:
+        return
+
+    current_link = get_actuar_member_link(db, gym_id=job.gym_id, member_id=job.member_id)
+    if current_link is not None:
+        current_link.actuar_external_id = normalized_external_id
+        current_link.actuar_search_name = current_link.actuar_search_name or member.full_name
+        current_link.actuar_search_document = resolve_member_document_for_actuar(member, current_link)
+        current_link.actuar_search_birthdate = member.birthdate
+        current_link.linked_at = _now()
+        current_link.linked_by_user_id = None
+        current_link.match_confidence = 1.0
+        current_link.is_active = True
+        db.add(current_link)
+        db.flush()
+        return
+
+    upsert_actuar_member_link(
+        db,
+        gym_id=job.gym_id,
+        member_id=job.member_id,
+        user_id=None,
+        actuar_external_id=normalized_external_id,
+        actuar_search_name=(current_link.actuar_search_name if current_link else None) or member.full_name,
+        actuar_search_document=resolve_member_document_for_actuar(member, current_link),
+        actuar_search_birthdate=member.birthdate,
+        match_confidence=1.0,
     )
 
 

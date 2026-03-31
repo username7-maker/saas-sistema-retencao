@@ -85,7 +85,7 @@ def resolve_actuar_member(
             action_log=action_log,
         )
 
-    document = _resolve_member_document(member, link)
+    document = resolve_member_document_for_actuar(member, link)
     if document:
         lookup = provider.find_member({"document": document, "strategy": "document"})
         action_log.append({"strategy": "document", "result": lookup.get("status")})
@@ -168,7 +168,7 @@ def mask_document(value: str | None) -> str | None:
     return f"{'*' * (len(normalized) - 4)}{normalized[-4:]}"
 
 
-def _resolve_member_document(member: Member, link: ActuarMemberLink | None) -> str | None:
+def resolve_member_document_for_actuar(member: Member, link: ActuarMemberLink | None) -> str | None:
     if link and link.actuar_search_document:
         return normalize_document(link.actuar_search_document)
     encrypted_cpf = getattr(member, "cpf_encrypted", None)

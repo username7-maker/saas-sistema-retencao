@@ -40,7 +40,7 @@ def _test_attr(result: ActuarConnectionTestResult | dict, key: str):
 @router.get("/actuar", response_model=ActuarSettingsRead)
 def get_actuar_settings_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> ActuarSettingsRead:
     return get_actuar_settings(db, gym_id=current_user.gym_id)
 
