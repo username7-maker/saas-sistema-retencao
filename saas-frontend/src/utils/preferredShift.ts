@@ -22,13 +22,10 @@ export function getPreferredShiftLabel(value: string | null | undefined): string
   if (key === "morning") return "Manha";
   if (key === "afternoon") return "Tarde";
   if (key === "evening") return "Noite";
-  const raw = (value ?? "").trim();
-  if (!raw) return null;
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+  return null;
 }
 
 export function matchesPreferredShift(value: string | null | undefined, filter: PreferredShiftKey | "all"): boolean {
   if (filter === "all") return true;
   return getPreferredShiftKey(value) === filter;
 }
-
