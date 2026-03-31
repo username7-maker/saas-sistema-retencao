@@ -89,6 +89,9 @@ export function ActuarConnectionTab() {
         <p className="text-sm text-lovable-ink-muted">
           Configure a conexao externa para deixar a bioimpedancia menos manual e promover o sync automatico quando o ambiente estiver pronto.
         </p>
+        <p className="text-xs text-lovable-ink-muted">
+          Quando o sync automatico estiver habilitado, a tentativa roda em um navegador isolado do worker. Ela nao reutiliza a aba do Actuar que estiver aberta no computador do operador.
+        </p>
       </CardHeader>
 
       <CardContent className="space-y-6">
@@ -113,7 +116,7 @@ export function ActuarConnectionTab() {
                 value={modeLabel(settings.effective_sync_mode)}
                 description={
                   settings.automatic_sync_ready
-                    ? "Com credenciais validas, o piloto tenta sync automatico."
+                    ? "Com credenciais validas, o worker tenta sync automatico em sessao isolada."
                     : "Sem credenciais validas, o piloto continua no fallback manual/CSV."
                 }
                 tone={settings.automatic_sync_ready ? "success" : "warning"}
@@ -214,6 +217,16 @@ export function ActuarConnectionTab() {
                 {testMutation.isPending ? "Testando..." : "Testar conexao"}
               </Button>
             </div>
+
+            {!settings.automatic_sync_ready ? (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4 text-sm text-lovable-ink">
+                <p className="font-semibold">Metodo recomendado para o piloto</p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  Se o professor estiver com o Actuar aberto em outra aba no mesmo computador, o fluxo mais seguro e previsivel continua sendo o manual assistido:
+                  abrir o Actuar, lancar os campos criticos com apoio do resumo do AI GYM OS e confirmar o sync depois.
+                </p>
+              </div>
+            ) : null}
 
             {testMutation.data ? (
               <div

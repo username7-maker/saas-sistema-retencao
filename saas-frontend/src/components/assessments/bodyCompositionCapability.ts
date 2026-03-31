@@ -123,7 +123,8 @@ export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncSta
     return {
       tone: "warning",
       title: "Exportacao CSV pronta",
-      description: "Geramos a exportacao para apoio manual no Actuar. Lance externamente e confirme o sync so depois da conclusao.",
+      description:
+        "Geramos a exportacao para apoio manual no Actuar. Esse e o metodo mais seguro quando o professor ja esta com o Actuar aberto em outra aba: lance externamente e confirme o sync so depois da conclusao.",
     };
   }
 
@@ -139,7 +140,8 @@ export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncSta
     return {
       tone: "warning",
       title: "Fluxo manual assistido",
-      description: "O piloto nao conseguiu concluir o envio automatico. Use o resumo manual e confirme o sync apenas depois do lancamento externo.",
+      description:
+        "O piloto nao concluiu o envio automatico. Use o resumo manual no Actuar aberto pelo operador e confirme o sync apenas depois do lancamento externo.",
     };
   }
 
@@ -155,7 +157,8 @@ export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncSta
     return {
       tone: "neutral",
       title: "Sync automatico em andamento",
-      description: "Os campos criticos ja estao em processamento. Evite lancamento duplicado antes do retorno final.",
+      description:
+        "Os campos criticos ja estao em processamento no worker. Essa tentativa nao usa a aba do operador; evite lancamento duplicado antes do retorno final.",
     };
   }
 
