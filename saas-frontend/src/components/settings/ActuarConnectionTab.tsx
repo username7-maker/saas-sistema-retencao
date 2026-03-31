@@ -115,7 +115,7 @@ export function ActuarConnectionTab() {
           Configure a conexao externa para deixar a bioimpedancia menos manual e promover o sync automatico quando o ambiente estiver pronto.
         </p>
         <p className="text-xs text-lovable-ink-muted">
-          Quando o sync automatico estiver habilitado, a tentativa roda em um navegador isolado do worker. Ela nao reutiliza a aba do Actuar que estiver aberta no computador do operador.
+          No modo `Ponte local`, o recomendado agora e usar o relay local com extensao do navegador anexada explicitamente a aba do Actuar. O fallback tecnico antigo por sessao CDP continua disponivel, mas deixou de ser o caminho principal para a academia.
         </p>
       </CardHeader>
 
@@ -257,7 +257,7 @@ export function ActuarConnectionTab() {
                   <div>
                     <p className="font-semibold">Actuar Bridge local</p>
                     <p className="mt-1 text-xs text-lovable-ink-muted">
-                      Este modo usa uma estacao local da academia para automatizar a aba do Actuar ja aberta no computador do operador.
+                      Este modo usa uma estacao local da academia para automatizar a aba do Actuar ja aberta no computador do operador. O caminho recomendado e rodar o bridge local em `extension-relay` e anexar a aba com a extensao Chrome/Edge.
                     </p>
                   </div>
                   <Button variant="secondary" onClick={() => pairingMutation.mutate()} disabled={pairingMutation.isPending}>

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from actuar_bridge.bridge_client import BridgeClient
 from actuar_bridge.executor import AttachedActuarBrowserExecutor, DryRunBridgeExecutor
+from actuar_bridge.relay import ExtensionRelayService, ExtensionRelayState
 from actuar_bridge.runner import ActuarBridgeRunner
 
 
@@ -25,9 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--api-base-url", required=True)
     run_parser.add_argument("--device-token", default="")
     run_parser.add_argument("--token-file", default=".actuar-bridge-token.json")
-    run_parser.add_argument("--mode", choices=["dry-run", "attached-browser"], default="dry-run")
+    run_parser.add_argument("--mode", choices=["dry-run", "attached-browser", "extension-relay"], default="dry-run")
     run_parser.add_argument("--debug-url", default="http://127.0.0.1:9222")
     run_parser.add_argument("--page-url-hint", default="actuar")
+    run_parser.add_argument("--listen-host", default="127.0.0.1")
+    run_parser.add_argument("--listen-port", type=int, default=44777)
     return parser
 
 
@@ -57,6 +60,12 @@ def main() -> None:
 
     device_token = args.device_token or _load_token(args.token_file)
     client = BridgeClient(api_base_url=args.api_base_url, device_token=device_token)
+    if args.mode == "extension-relay":
+        state = ExtensionRelayState(client=client)
+        service = ExtensionRelayService(state=state, host=args.listen_host, port=args.listen_port)
+        service.run_forever()
+        return
+
     executor = (
         DryRunBridgeExecutor()
         if args.mode == "dry-run"

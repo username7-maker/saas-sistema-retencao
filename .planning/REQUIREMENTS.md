@@ -95,6 +95,8 @@
 - [ ] **ACTBRIDGE-02**: jobs do Actuar em modo `local_bridge` sao consumidos apenas pela estacao local, nunca pelo worker server-side atual
 - [ ] **ACTBRIDGE-03**: a estacao local consegue fazer heartbeat, reivindicar um job, concluir ou falhar a execucao e devolver esse estado ao AI GYM OS
 - [ ] **ACTBRIDGE-04**: Settings deixa claro quando existe uma estacao online, quando ela ficou offline e quando o piloto segue no fallback manual
+- [ ] **ACTBRIDGE-05**: a operacao consegue anexar explicitamente a aba real do Actuar por extensao do navegador, sem exigir abrir o browser com flags de debugging
+- [ ] **ACTBRIDGE-06**: o relay local em loopback consegue entregar jobs para a extensao e receber sucesso/falha de forma segura e observavel
 
 ### Import Flow
 
@@ -164,6 +166,8 @@
 | ACTBRIDGE-02 | Phase 4.42 | Implemented, awaiting live validation |
 | ACTBRIDGE-03 | Phase 4.42 | Implemented, awaiting live validation |
 | ACTBRIDGE-04 | Phase 4.42 | Implemented, awaiting live validation |
+| ACTBRIDGE-05 | Phase 4.42.1 | Implemented, awaiting live validation |
+| ACTBRIDGE-06 | Phase 4.42.1 | Implemented, awaiting live validation |
 | IMP-01 | Phase 4 | Completed |
 | IMP-02 | Phase 4 | Completed |
 | BULK-01 | Phase 5 | Deferred until post-pilot |

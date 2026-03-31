@@ -1,9 +1,9 @@
 ---
 milestone: v3.2.0
-phase: 4.42
-plan: "04.42-STATUS.md"
-status: A ponte local do Actuar foi implementada e validada em testes; o proximo passo operacional e a validacao ao vivo na estacao da academia com a aba real do Actuar aberta
-last_activity: 2026-03-30 - 4.42 implementou local_bridge, pareamento, fila dedicada, app local e executor anexado ao navegador, com suites verdes
+phase: 4.42.1
+plan: "04.42.1-STATUS.md"
+status: A ponte local do Actuar evoluiu para relay local + extensao de navegador, reduzindo o atrito operacional para usar a aba real do operador sem depender de flags manuais de debugging
+last_activity: 2026-03-31 - 4.42.1 abriu a trilha de extensao/relay para simplificar a operacao da ponte local do Actuar
 ---
 
 # STATE
@@ -17,10 +17,10 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ## Current Position
 
-**Phase:** 4.42
-**Plan:** `04.42-STATUS.md`
-**Status:** Piloto controlado segue ativo, com a ponte local do Actuar pronta em codigo e testes, aguardando apenas a validacao ao vivo na maquina da academia
-**Last activity:** 2026-03-30 - a fase 4.42 implementou `local_bridge`, device pairing, heartbeat, claim dedicado e o executor anexado ao navegador local
+**Phase:** 4.42.1
+**Plan:** `04.42.1-STATUS.md`
+**Status:** Piloto controlado segue ativo, agora com a evolucao da ponte local para relay + extensao de navegador, buscando uma instalacao mais simples no computador da academia
+**Last activity:** 2026-03-31 - a fase 4.42.1 abriu o caminho de relay local HTTP e extensao Chrome/Edge para anexar explicitamente a aba do Actuar
 
 ## Progress Snapshot
 
@@ -55,7 +55,8 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.39: guardrails de tenant e consistencia transacional - em execucao
 - Phase 4.40: hardening de sessao e borda de producao - em execucao
 - Phase 4.41: handoff seguro para Kommo - em execucao
-- Phase 4.42: Actuar Bridge local - em execucao
+- Phase 4.42: Actuar Bridge local - infraestrutura implementada e validada em testes; falta validacao ao vivo
+- Phase 4.42.1: Actuar Bridge extension relay - em execucao
 - Phase 5: bulk update dedicado de membros - pausada ate saida do piloto e fechamento das fases urgentes 4.36-4.40
 - Phase 6: busca operacional por telefone/CPF - pausada ate saida do piloto e fase 5
 

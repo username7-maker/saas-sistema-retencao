@@ -6,6 +6,7 @@ Ponte local para o AI GYM OS automatizar o Actuar usando a sessao ja aberta do o
 
 - `dry-run`: prova o fluxo da ponte sem tocar no navegador
 - `attached-browser`: conecta em um Chrome/Edge local com remote debugging e tenta usar a aba do Actuar ja aberta
+- `extension-relay`: sobe um relay local em loopback para a extensao do navegador anexada a aba do Actuar
 
 ## Pareamento
 
@@ -27,6 +28,21 @@ Para usar a aba local do navegador, inicie o Chrome/Edge com remote debugging e 
 ```bash
 python -m actuar_bridge.main run --api-base-url https://api.exemplo.com --mode attached-browser --debug-url http://127.0.0.1:9222
 ```
+
+## Modo recomendado para a academia
+
+Se quiser o caminho mais simples para o operador, rode:
+
+```bash
+python -m actuar_bridge.main run --api-base-url https://api.exemplo.com --mode extension-relay --listen-host 127.0.0.1 --listen-port 44777
+```
+
+Depois:
+
+1. carregue a extensao em `actuar_bridge_extension/`
+2. abra e faça login no Actuar
+3. clique em `Anexar aba atual` no popup da extensao
+4. deixe a ponte rodando; a extensao passa a executar os jobs na aba anexada
 
 ### Chrome no Windows
 
@@ -58,3 +74,4 @@ Depois:
 
 - conferir os seletores na aba real do Actuar
 - ajustar o mapeamento final dos campos se a tela real divergir do DOM simulado
+- validar a experiencia completa da extensao no Chrome/Edge da academia
