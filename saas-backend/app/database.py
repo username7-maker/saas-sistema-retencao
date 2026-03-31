@@ -11,6 +11,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 from app.models import (
+    ActuarBridgeDevice,
     ActuarMemberLink,
     ActuarSyncAttempt,
     ActuarSyncJob,
@@ -60,6 +61,7 @@ _unscoped_access_reason: ContextVar[str | None] = ContextVar("unscoped_access_re
 _DENY_GYM_ID = UUID(int=0)  # Impossible UUID — matches no real row
 TENANT_SCOPED_MODELS = (
     User,
+    ActuarBridgeDevice,
     Member,
     ActuarMemberLink,
     ActuarSyncJob,

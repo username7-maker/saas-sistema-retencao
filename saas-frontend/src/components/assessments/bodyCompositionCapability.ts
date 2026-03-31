@@ -36,6 +36,7 @@ export function syncModeLabel(mode: ActuarSyncMode | string | null | undefined):
   if (mode === "http_api") return "API direta";
   if (mode === "csv_export") return "Exportacao CSV";
   if (mode === "assisted_rpa") return "RPA assistido";
+  if (mode === "local_bridge") return "Ponte local";
   return "Nao configurado";
 }
 
@@ -125,6 +126,24 @@ export function resolveActuarCapability(syncStatus: BodyCompositionActuarSyncSta
       title: "Exportacao CSV pronta",
       description:
         "Geramos a exportacao para apoio manual no Actuar. Esse e o metodo mais seguro quando o professor ja esta com o Actuar aberto em outra aba: lance externamente e confirme o sync so depois da conclusao.",
+    };
+  }
+
+  if (syncStatus.sync_mode === "local_bridge" && (syncStatus.sync_status === "sync_pending" || syncStatus.sync_status === "syncing")) {
+    return {
+      tone: "neutral",
+      title: "Ponte local em andamento",
+      description:
+        "A bioimpedancia foi entregue para a estacao local do Actuar. Aguarde o retorno da ponte antes de repetir o lancamento manual.",
+    };
+  }
+
+  if (syncStatus.sync_mode === "local_bridge" && (syncStatus.sync_status === "manual_sync_required" || syncStatus.sync_status === "needs_review")) {
+    return {
+      tone: "warning",
+      title: "Ponte local precisa de revisao",
+      description:
+        "A estacao local nao concluiu o sync no Actuar. Revise a estacao, a aba aberta do Actuar e siga pelo fallback manual assistido se necessario.",
     };
   }
 

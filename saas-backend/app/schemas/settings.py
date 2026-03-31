@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.actuar_bridge import ActuarBridgeDeviceRead
+
 
 class ActuarSettingsRead(BaseModel):
     actuar_enabled: bool
@@ -11,6 +13,9 @@ class ActuarSettingsRead(BaseModel):
     environment_sync_mode: str
     effective_sync_mode: str
     automatic_sync_ready: bool
+    bridge_device_count: int = 0
+    bridge_online_device_count: int = 0
+    bridge_devices: list[ActuarBridgeDeviceRead] = Field(default_factory=list)
 
 
 class ActuarSettingsUpdate(BaseModel):

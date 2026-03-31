@@ -1,4 +1,5 @@
 from app.routers import (
+    actuar_bridge,
     admin_objections,
     assessments,
     audit,
@@ -26,6 +27,7 @@ from app.routers import (
 
 __all__ = [
     "admin_objections",
+    "actuar_bridge",
     "assessments",
     "audit",
     "auth",

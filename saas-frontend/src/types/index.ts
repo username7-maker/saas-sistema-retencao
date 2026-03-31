@@ -260,7 +260,7 @@ export interface ImportPreview {
 }
 
 export type EvaluationSource = "tezewa" | "manual" | "ocr_receipt" | "device_import" | "actuar_sync";
-export type ActuarSyncMode = "disabled" | "http_api" | "csv_export" | "assisted_rpa";
+export type ActuarSyncMode = "disabled" | "http_api" | "csv_export" | "assisted_rpa" | "local_bridge";
 export type ActuarSyncStatus =
   | "draft"
   | "saved"
@@ -412,6 +412,9 @@ export interface ActuarSettings {
   environment_sync_mode: ActuarSyncMode | "disabled";
   effective_sync_mode: ActuarSyncMode | "disabled";
   automatic_sync_ready: boolean;
+  bridge_device_count: number;
+  bridge_online_device_count: number;
+  bridge_devices: ActuarBridgeDevice[];
 }
 
 export interface ActuarConnectionTestResult {
@@ -430,6 +433,30 @@ export interface ActuarSettingsUpdateInput {
   actuar_username?: string | null;
   actuar_password?: string | null;
   clear_password?: boolean;
+}
+
+export interface ActuarBridgeDevice {
+  id: string;
+  gym_id: string;
+  device_name: string;
+  status: "pairing" | "online" | "offline" | "revoked";
+  bridge_version: string | null;
+  browser_name: string | null;
+  paired_at: string | null;
+  last_seen_at: string | null;
+  last_job_claimed_at: string | null;
+  last_job_completed_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActuarBridgePairingCode {
+  device_id: string;
+  pairing_code: string;
+  expires_at: string;
 }
 
 export interface KommoSettings {

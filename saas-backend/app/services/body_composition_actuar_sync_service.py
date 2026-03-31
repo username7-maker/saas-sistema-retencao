@@ -394,6 +394,7 @@ def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob 
     candidate = db.scalar(
         include_all_tenants(
             select(ActuarSyncJob)
+            .join(BodyCompositionEvaluation, BodyCompositionEvaluation.id == ActuarSyncJob.body_composition_evaluation_id)
             .where(
                 or_(
                     ActuarSyncJob.status == "pending",
@@ -405,6 +406,7 @@ def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob 
                     ),
                 )
             )
+            .where(BodyCompositionEvaluation.actuar_sync_mode != "local_bridge")
             .order_by(ActuarSyncJob.created_at.asc())
             .limit(1),
             reason="actuar_sync.claim_next_job",
@@ -902,6 +904,13 @@ def _build_provider(
         return ActuarCsvExportProvider()
     if normalized_mode == "http_api":
         return ActuarHttpApiProvider()
+    if normalized_mode == "local_bridge":
+        raise ActuarSyncServiceError(
+            "actuar_bridge_required",
+            "Este job deve ser processado por uma estacao local Actuar Bridge, nao pelo worker server-side.",
+            retryable=False,
+            manual_fallback=True,
+        )
 
     if normalized_mode == "assisted_rpa" and not has_actuar_credentials(gym):
         return ActuarCsvExportProvider()

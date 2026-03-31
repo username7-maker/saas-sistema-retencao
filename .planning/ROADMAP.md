@@ -3,7 +3,7 @@
 ## Milestones
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
-- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 5, 6
+- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 5, 6
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
@@ -91,7 +91,7 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
+- [~] execute (infraestrutura da ponte local implementada e validada em testes; falta validacao ao vivo na aba real do Actuar)
 - [ ] verify/validate
 
 ### Phase 4.32: Canais reais do piloto
@@ -264,11 +264,28 @@ Status:
 - [~] execute
 - [ ] verify/validate
 
+### Phase 4.42: Actuar Bridge local
+
+**Goal:** Tirar o sync Actuar do worker isolado e levar a automacao para uma estacao local da academia, usando a sessao ja aberta do operador sem depender de API/webhook do Actuar.
+**Requirements**: `ACTBRIDGE-01` a `ACTBRIDGE-04`
+**Depends on:** Phase 4.41
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.42-PLAN.md - adicionar modo `local_bridge`, pareamento seguro por estacao, fila dedicada para a ponte local e scaffold do app que conversa com o AI GYM OS
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [ ] execute
+- [ ] verify/validate
+
 ### Phase 5: Bulk update dedicado de membros
 
 **Goal:** Criar fluxo dedicado de atualizacao em massa fora da importacao.
 **Requirements**: `BULK-01`, `BULK-02`
-**Depends on:** Phase 4.41
+**Depends on:** Phase 4.42
 **Plans:** 1 plan
 
 Plans:

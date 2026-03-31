@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -14,6 +15,8 @@ from app.schemas.settings import (
     KommoSettingsRead,
     KommoSettingsUpdate,
 )
+from app.schemas.actuar_bridge import ActuarBridgeDeviceRead, ActuarBridgePairingCodeRead
+from app.services.actuar_bridge_service import issue_actuar_bridge_pairing_code, list_actuar_bridge_devices, revoke_actuar_bridge_device
 from app.services.actuar_settings_service import get_actuar_settings, test_actuar_connection, update_actuar_settings
 from app.services.kommo_settings_service import get_kommo_settings, test_kommo_connection_for_gym, update_kommo_settings
 from app.services.audit_service import log_audit_event
@@ -93,6 +96,59 @@ def test_actuar_connection_endpoint(
             "automatic_sync_ready": _test_attr(result, "automatic_sync_ready"),
             "message": _test_attr(result, "message"),
         },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
+
+
+@router.get("/actuar/bridge/devices", response_model=list[ActuarBridgeDeviceRead])
+def list_actuar_bridge_devices_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> list[ActuarBridgeDeviceRead]:
+    return list_actuar_bridge_devices(db, gym_id=current_user.gym_id)
+
+
+@router.post("/actuar/bridge/pairing-code", response_model=ActuarBridgePairingCodeRead)
+def issue_actuar_bridge_pairing_code_endpoint(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> ActuarBridgePairingCodeRead:
+    result = issue_actuar_bridge_pairing_code(db, gym_id=current_user.gym_id, created_by_user_id=current_user.id)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_bridge_pairing_issued",
+        entity="gym_settings",
+        user=current_user,
+        entity_id=current_user.gym_id,
+        details={"device_id": str(result.device_id), "expires_at": result.expires_at.isoformat()},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
+
+
+@router.post("/actuar/bridge/devices/{device_id}/revoke", response_model=ActuarBridgeDeviceRead)
+def revoke_actuar_bridge_device_endpoint(
+    request: Request,
+    device_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> ActuarBridgeDeviceRead:
+    result = revoke_actuar_bridge_device(db, gym_id=current_user.gym_id, device_id=device_id)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="actuar_bridge_device_revoked",
+        entity="gym_settings",
+        user=current_user,
+        entity_id=current_user.gym_id,
+        details={"device_id": str(device_id), "device_name": result.device_name},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

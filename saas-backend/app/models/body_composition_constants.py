@@ -11,6 +11,7 @@ ACTUAR_SYNC_MODES = (
     "http_api",
     "csv_export",
     "assisted_rpa",
+    "local_bridge",
 )
 
 ACTUAR_SYNC_STATUSES = (
@@ -60,6 +61,13 @@ ACTUAR_SYNC_ATTEMPT_V2_STATUSES = (
     "started",
     "succeeded",
     "failed",
+)
+
+ACTUAR_BRIDGE_DEVICE_STATUSES = (
+    "pairing",
+    "online",
+    "offline",
+    "revoked",
 )
 
 ACTUAR_FIELD_CLASSIFICATIONS = (

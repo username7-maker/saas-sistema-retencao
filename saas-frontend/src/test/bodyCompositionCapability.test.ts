@@ -115,6 +115,7 @@ describe("bodyCompositionCapability helpers", () => {
 
   it("returns user friendly labels for sync modes", () => {
     expect(syncModeLabel("assisted_rpa")).toBe("RPA assistido");
+    expect(syncModeLabel("local_bridge")).toBe("Ponte local");
     expect(syncModeLabel("disabled")).toBe("Desligado");
   });
 });

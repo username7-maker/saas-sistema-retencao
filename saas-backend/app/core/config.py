@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     actuar_sync_required_for_training: bool = True
     actuar_sync_evidence_dir: str = "data/actuar-sync-evidence"
     actuar_ignore_https_errors: bool = False
+    actuar_bridge_poll_seconds: int = 15
+    actuar_bridge_device_stale_seconds: int = 90
+    actuar_bridge_pairing_code_ttl_minutes: int = 10
 
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=lambda: DEFAULT_CORS_ORIGINS.copy())
     frontend_url: str = "http://localhost:5173"

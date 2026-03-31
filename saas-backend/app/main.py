@@ -35,6 +35,7 @@ if settings.sentry_dsn:
 
 from app.models import User
 from app.routers import (
+    actuar_bridge,
     admin_objections,
     assessments,
     audit,
@@ -209,6 +210,7 @@ app.include_router(sales.router, prefix=settings.api_prefix)
 app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(admin_objections.router, prefix=settings.api_prefix)
 app.include_router(settings_router.router, prefix=settings.api_prefix)
+app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
 
 

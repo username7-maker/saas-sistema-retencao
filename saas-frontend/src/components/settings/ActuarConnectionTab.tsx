@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Loader2, ShieldCheck, TriangleAlert, Unplug } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { actuarSettingsService } from "../../services/actuarSettingsService";
-import type { ActuarSyncMode } from "../../types";
+import type { ActuarBridgeDevice, ActuarBridgePairingCode, ActuarSyncMode } from "../../types";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
 
 function modeLabel(mode: ActuarSyncMode | "disabled" | string | null | undefined): string {
   if (mode === "assisted_rpa") return "Automacao assistida";
   if (mode === "http_api") return "HTTP API";
   if (mode === "csv_export") return "Exportacao CSV";
+  if (mode === "local_bridge") return "Ponte local";
   return "Desabilitado";
 }
 
@@ -27,6 +28,7 @@ export function ActuarConnectionTab() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [clearPassword, setClearPassword] = useState(false);
+  const [pairingCode, setPairingCode] = useState<ActuarBridgePairingCode | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -55,7 +57,9 @@ export function ActuarConnectionTab() {
       toast.success(
         payload.effective_sync_mode === "assisted_rpa"
           ? "Actuar pronto para tentar automacao assistida."
-          : "Configuracao do Actuar salva.",
+          : payload.effective_sync_mode === "local_bridge"
+            ? "Actuar configurado para usar a ponte local."
+            : "Configuracao do Actuar salva.",
       );
     },
     onError: () => toast.error("Nao foi possivel salvar a configuracao do Actuar."),
@@ -74,10 +78,31 @@ export function ActuarConnectionTab() {
     onError: () => toast.error("Falha ao testar a conexao com o Actuar."),
   });
 
+  const pairingMutation = useMutation({
+    mutationFn: () => actuarSettingsService.issuePairingCode(),
+    onSuccess: async (result) => {
+      setPairingCode(result);
+      await queryClient.invalidateQueries({ queryKey: ["actuar-settings"] });
+      toast.success("Codigo de pareamento gerado para a estacao local.");
+    },
+    onError: () => toast.error("Nao foi possivel gerar o codigo de pareamento do Actuar Bridge."),
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (deviceId: string) => actuarSettingsService.revokeBridgeDevice(deviceId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["actuar-settings"] });
+      toast.success("Estacao Actuar Bridge revogada.");
+    },
+    onError: () => toast.error("Nao foi possivel revogar a estacao Actuar Bridge."),
+  });
+
   const settings = settingsQuery.data;
+  const bridgeMode = settings?.effective_sync_mode === "local_bridge" || settings?.environment_sync_mode === "local_bridge";
   const canTest = useMemo(() => {
+    if (bridgeMode) return Boolean(enabled);
     return Boolean(enabled && baseUrl.trim() && username.trim() && (password.trim() || settings?.actuar_has_password) && !clearPassword);
-  }, [baseUrl, clearPassword, enabled, password, settings?.actuar_has_password, username]);
+  }, [baseUrl, bridgeMode, clearPassword, enabled, password, settings?.actuar_has_password, username]);
 
   return (
     <Card>
@@ -115,17 +140,25 @@ export function ActuarConnectionTab() {
                 title="Modo efetivo"
                 value={modeLabel(settings.effective_sync_mode)}
                 description={
-                  settings.automatic_sync_ready
-                    ? "Com credenciais validas, o worker tenta sync automatico em sessao isolada."
-                    : "Sem credenciais validas, o piloto continua no fallback manual/CSV."
+                  settings.effective_sync_mode === "local_bridge"
+                    ? settings.automatic_sync_ready
+                      ? "Uma estacao local online pode usar a sessao do navegador do operador."
+                      : "Sem estacao online, o piloto continua no fallback manual/CSV."
+                    : settings.automatic_sync_ready
+                      ? "Com credenciais validas, o worker tenta sync automatico em sessao isolada."
+                      : "Sem credenciais validas, o piloto continua no fallback manual/CSV."
                 }
                 tone={settings.automatic_sync_ready ? "success" : "warning"}
               />
               <StatusCard
-                title="Senha salva"
-                value={settings.actuar_has_password ? "Sim" : "Nao"}
-                description="A senha nunca volta para a tela. Voce so envia uma nova quando quiser trocar."
-                tone={settings.actuar_has_password ? "success" : "neutral"}
+                title={bridgeMode ? "Estacoes online" : "Senha salva"}
+                value={bridgeMode ? `${settings.bridge_online_device_count}/${settings.bridge_device_count}` : settings.actuar_has_password ? "Sim" : "Nao"}
+                description={
+                  bridgeMode
+                    ? "A ponte local so fica pronta quando existir pelo menos uma estacao online."
+                    : "A senha nunca volta para a tela. Voce so envia uma nova quando quiser trocar."
+                }
+                tone={bridgeMode ? (settings.bridge_online_device_count > 0 ? "success" : "warning") : settings.actuar_has_password ? "success" : "neutral"}
               />
             </div>
 
@@ -218,7 +251,46 @@ export function ActuarConnectionTab() {
               </Button>
             </div>
 
-            {!settings.automatic_sync_ready ? (
+            {bridgeMode ? (
+              <div className="space-y-4 rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">Actuar Bridge local</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      Este modo usa uma estacao local da academia para automatizar a aba do Actuar ja aberta no computador do operador.
+                    </p>
+                  </div>
+                  <Button variant="secondary" onClick={() => pairingMutation.mutate()} disabled={pairingMutation.isPending}>
+                    {pairingMutation.isPending ? "Gerando..." : "Gerar codigo de pareamento"}
+                  </Button>
+                </div>
+
+                {pairingCode ? (
+                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Codigo atual</p>
+                    <p className="mt-2 text-2xl font-semibold tracking-[0.18em] text-lovable-ink">{pairingCode.pairing_code}</p>
+                    <p className="mt-2 text-xs text-lovable-ink-muted">Expira em {new Date(pairingCode.expires_at).toLocaleString("pt-BR")}.</p>
+                  </div>
+                ) : null}
+
+                {settings.bridge_devices.length ? (
+                  <div className="space-y-3">
+                    {settings.bridge_devices.map((device) => (
+                      <BridgeDeviceCard
+                        key={device.id}
+                        device={device}
+                        isRevoking={revokeMutation.isPending}
+                        onRevoke={() => revokeMutation.mutate(device.id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-lovable-border p-4 text-xs text-lovable-ink-muted">
+                    Nenhuma estacao foi pareada ainda. Gere um codigo, rode o Actuar Bridge local no computador da academia e deixe a aba do Actuar aberta para a automacao usar essa sessao.
+                  </div>
+                )}
+              </div>
+            ) : !settings.automatic_sync_ready ? (
               <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4 text-sm text-lovable-ink">
                 <p className="font-semibold">Metodo recomendado para o piloto</p>
                 <p className="mt-1 text-xs text-lovable-ink-muted">
@@ -253,6 +325,56 @@ export function ActuarConnectionTab() {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function BridgeDeviceCard({
+  device,
+  isRevoking,
+  onRevoke,
+}: {
+  device: ActuarBridgeDevice;
+  isRevoking: boolean;
+  onRevoke: () => void;
+}) {
+  const toneClass =
+    device.status === "online"
+      ? "border-emerald-500/20 bg-emerald-500/8"
+      : device.status === "pairing"
+        ? "border-sky-500/20 bg-sky-500/8"
+        : device.status === "revoked"
+          ? "border-rose-500/20 bg-rose-500/8"
+          : "border-amber-500/20 bg-amber-500/8";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-lovable-ink">{device.device_name}</p>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
+            {device.status === "online"
+              ? "Online"
+              : device.status === "pairing"
+                ? "Aguardando pareamento"
+                : device.status === "revoked"
+                  ? "Revogada"
+                  : "Offline"}
+            {device.browser_name ? ` • ${device.browser_name}` : ""}
+            {device.bridge_version ? ` • v${device.bridge_version}` : ""}
+          </p>
+          {device.last_seen_at ? (
+            <p className="mt-1 text-xs text-lovable-ink-muted">Ultimo heartbeat: {new Date(device.last_seen_at).toLocaleString("pt-BR")}</p>
+          ) : null}
+          {device.last_error_message ? <p className="mt-2 text-xs text-lovable-ink-muted">Ultimo erro: {device.last_error_message}</p> : null}
+        </div>
+        {device.status !== "revoked" ? (
+          <Button variant="ghost" onClick={onRevoke} disabled={isRevoking} className="!px-3">
+            <Unplug size={16} />
+            Revogar
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime
+from types import SimpleNamespace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +34,9 @@ def _settings_payload():
         "environment_sync_mode": "csv_export",
         "effective_sync_mode": "assisted_rpa",
         "automatic_sync_ready": True,
+        "bridge_device_count": 0,
+        "bridge_online_device_count": 0,
+        "bridge_devices": [],
     }
 
 
@@ -134,5 +139,33 @@ def test_test_actuar_connection_returns_result(app, client):
     assert response.status_code == 200
     assert response.json()["success"] is True
     test_mock.assert_called_once()
+    audit_mock.assert_called_once()
+    db.commit.assert_called_once()
+
+
+def test_issue_actuar_bridge_pairing_code_logs_and_commits(app, client):
+    db = MagicMock()
+
+    def _override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.OWNER)
+
+    with patch(
+        "app.routers.settings.issue_actuar_bridge_pairing_code",
+        return_value=SimpleNamespace(
+            device_id=uuid.uuid4(),
+            pairing_code="ABCD-1234",
+            expires_at=datetime(2026, 3, 30, 23, 59, 0),
+        ),
+    ) as pairing_mock, patch("app.routers.settings.log_audit_event") as audit_mock:
+        try:
+            response = client.post("/api/v1/settings/actuar/bridge/pairing-code")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    pairing_mock.assert_called_once()
     audit_mock.assert_called_once()
     db.commit.assert_called_once()

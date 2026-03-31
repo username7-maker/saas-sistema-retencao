@@ -16,11 +16,14 @@ from app.schemas.settings import (
     ActuarSettingsRead,
     ActuarSettingsUpdate,
 )
-
-
 def get_actuar_settings(db: Session, *, gym_id: UUID) -> ActuarSettingsRead:
+    from app.services.actuar_bridge_service import list_actuar_bridge_devices
+
     gym = _get_gym_or_404(db, gym_id=gym_id)
-    return serialize_actuar_settings(gym)
+    return serialize_actuar_settings(
+        gym,
+        bridge_devices=list_actuar_bridge_devices(db, gym_id=gym_id),
+    )
 
 
 def update_actuar_settings(
@@ -29,6 +32,8 @@ def update_actuar_settings(
     gym_id: UUID,
     payload: ActuarSettingsUpdate,
 ) -> ActuarSettingsRead:
+    from app.services.actuar_bridge_service import list_actuar_bridge_devices
+
     gym = _get_gym_or_404(db, gym_id=gym_id)
     gym.actuar_enabled = payload.actuar_enabled
     gym.actuar_auto_sync_body_composition = payload.actuar_auto_sync_body_composition
@@ -44,26 +49,47 @@ def update_actuar_settings(
 
     db.add(gym)
     db.flush()
-    return serialize_actuar_settings(gym)
+    return serialize_actuar_settings(
+        gym,
+        bridge_devices=list_actuar_bridge_devices(db, gym_id=gym_id),
+    )
 
 
 def test_actuar_connection(db: Session, *, gym_id: UUID) -> ActuarConnectionTestResult:
+    from app.services.actuar_bridge_service import count_online_actuar_bridge_devices
+
     gym = _get_gym_or_404(db, gym_id=gym_id)
+    effective_mode = resolve_effective_actuar_sync_mode(gym)
     if not settings.actuar_enabled or not settings.actuar_sync_enabled:
         return ActuarConnectionTestResult(
             success=False,
             provider="actuar_assisted_rpa",
-            effective_sync_mode=resolve_effective_actuar_sync_mode(gym),
+            effective_sync_mode=effective_mode,
             automatic_sync_ready=False,
             message="Actuar desabilitado neste ambiente.",
             detail="Ative ACTUAR_ENABLED e ACTUAR_SYNC_ENABLED antes de testar a automacao.",
+        )
+
+    if effective_mode == "local_bridge":
+        online_devices = count_online_actuar_bridge_devices(db, gym_id=gym.id)
+        return ActuarConnectionTestResult(
+            success=online_devices > 0,
+            provider="actuar_local_bridge",
+            effective_sync_mode=effective_mode,
+            automatic_sync_ready=online_devices > 0,
+            message="Ponte local do Actuar online." if online_devices > 0 else "Nenhuma estacao Actuar Bridge esta online.",
+            detail=(
+                "A automacao local esta pronta para usar a sessao do navegador do operador."
+                if online_devices > 0
+                else "Pareie e mantenha online uma estacao local para usar a automacao no computador da academia."
+            ),
         )
 
     if not has_actuar_credentials(gym):
         return ActuarConnectionTestResult(
             success=False,
             provider="actuar_assisted_rpa",
-            effective_sync_mode=resolve_effective_actuar_sync_mode(gym),
+            effective_sync_mode=effective_mode,
             automatic_sync_ready=False,
             message="Configure URL, usuario e senha do Actuar para ativar o modo automatico.",
             detail="Sem credenciais validas, o piloto continua no fallback de exportacao/manual.",
@@ -82,7 +108,7 @@ def test_actuar_connection(db: Session, *, gym_id: UUID) -> ActuarConnectionTest
         return ActuarConnectionTestResult(
             success=True,
             provider="actuar_assisted_rpa",
-            effective_sync_mode=resolve_effective_actuar_sync_mode(gym),
+            effective_sync_mode=effective_mode,
             automatic_sync_ready=True,
             message="Conexao com o Actuar validada com sucesso.",
             detail="O ambiente esta pronto para tentar o sync automatico da bioimpedancia.",
@@ -91,7 +117,7 @@ def test_actuar_connection(db: Session, *, gym_id: UUID) -> ActuarConnectionTest
         return ActuarConnectionTestResult(
             success=False,
             provider="actuar_assisted_rpa",
-            effective_sync_mode=resolve_effective_actuar_sync_mode(gym),
+            effective_sync_mode=effective_mode,
             automatic_sync_ready=False,
             message="Nao foi possivel validar a conexao automatica com o Actuar.",
             detail=_map_connection_error(exc),
@@ -101,8 +127,16 @@ def test_actuar_connection(db: Session, *, gym_id: UUID) -> ActuarConnectionTest
             provider.close()
 
 
-def serialize_actuar_settings(gym: Gym) -> ActuarSettingsRead:
+def serialize_actuar_settings(gym: Gym, *, bridge_devices: list | None = None) -> ActuarSettingsRead:
+    bridge_devices = list(bridge_devices or [])
     effective_sync_mode = resolve_effective_actuar_sync_mode(gym)
+    online_devices = sum(1 for device in bridge_devices if getattr(device, "status", None) == "online")
+    automatic_sync_ready = False
+    if settings.actuar_enabled and settings.actuar_sync_enabled:
+        if effective_sync_mode == "assisted_rpa":
+            automatic_sync_ready = has_actuar_credentials(gym)
+        elif effective_sync_mode == "local_bridge":
+            automatic_sync_ready = online_devices > 0
     return ActuarSettingsRead(
         actuar_enabled=bool(gym.actuar_enabled),
         actuar_auto_sync_body_composition=bool(gym.actuar_auto_sync_body_composition),
@@ -112,12 +146,10 @@ def serialize_actuar_settings(gym: Gym) -> ActuarSettingsRead:
         environment_enabled=bool(settings.actuar_enabled and settings.actuar_sync_enabled),
         environment_sync_mode=(settings.actuar_sync_mode or "disabled").strip().lower(),
         effective_sync_mode=effective_sync_mode,
-        automatic_sync_ready=bool(
-            settings.actuar_enabled
-            and settings.actuar_sync_enabled
-            and effective_sync_mode == "assisted_rpa"
-            and has_actuar_credentials(gym)
-        ),
+        automatic_sync_ready=automatic_sync_ready,
+        bridge_device_count=len(bridge_devices),
+        bridge_online_device_count=online_devices,
+        bridge_devices=bridge_devices,
     )
 
 
@@ -140,6 +172,8 @@ def resolve_effective_actuar_sync_mode(gym: Gym | None) -> str:
     configured_mode = (settings.actuar_sync_mode or "assisted_rpa").strip().lower()
     if configured_mode == "http_api":
         return "http_api"
+    if configured_mode == "local_bridge":
+        return "local_bridge"
     if configured_mode == "assisted_rpa":
         return "assisted_rpa"
     if configured_mode == "csv_export":

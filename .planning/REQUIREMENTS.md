@@ -89,6 +89,13 @@
 - [ ] **KOMMO-02**: automacoes do AI GYM OS conseguem entregar contexto operacional para a Kommo como handoff, sem depender do envio direto por WhatsApp do proprio sistema
 - [ ] **KOMMO-03**: bioimpedancia consegue gerar handoff manual para a Kommo com resumo do aluno, resumo operacional e link do exame no AI GYM OS
 
+### Actuar Bridge local
+
+- [ ] **ACTBRIDGE-01**: owner/manager conseguem parear uma estacao local do Actuar por academia sem expor senha do Actuar no backend
+- [ ] **ACTBRIDGE-02**: jobs do Actuar em modo `local_bridge` sao consumidos apenas pela estacao local, nunca pelo worker server-side atual
+- [ ] **ACTBRIDGE-03**: a estacao local consegue fazer heartbeat, reivindicar um job, concluir ou falhar a execucao e devolver esse estado ao AI GYM OS
+- [ ] **ACTBRIDGE-04**: Settings deixa claro quando existe uma estacao online, quando ela ficou offline e quando o piloto segue no fallback manual
+
 ### Import Flow
 
 - [x] **IMP-01**: Preview de importacao permite mapear/reconciliar colunas antes do commit
@@ -153,6 +160,10 @@
 | KOMMO-01 | Phase 4.41 | Planned |
 | KOMMO-02 | Phase 4.41 | Planned |
 | KOMMO-03 | Phase 4.41 | Planned |
+| ACTBRIDGE-01 | Phase 4.42 | Implemented, awaiting live validation |
+| ACTBRIDGE-02 | Phase 4.42 | Implemented, awaiting live validation |
+| ACTBRIDGE-03 | Phase 4.42 | Implemented, awaiting live validation |
+| ACTBRIDGE-04 | Phase 4.42 | Implemented, awaiting live validation |
 | IMP-01 | Phase 4 | Completed |
 | IMP-02 | Phase 4 | Completed |
 | BULK-01 | Phase 5 | Deferred until post-pilot |

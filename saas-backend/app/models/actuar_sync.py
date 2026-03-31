@@ -8,11 +8,39 @@ from sqlalchemy.sql import func
 
 from app.models.base import Base, TimestampMixin
 from app.models.body_composition_constants import (
+    ACTUAR_BRIDGE_DEVICE_STATUSES,
     ACTUAR_SYNC_ATTEMPT_V2_STATUSES,
     ACTUAR_SYNC_JOB_STATUSES,
     ACTUAR_SYNC_JOB_TYPES,
 )
 from app.utils.encryption import EncryptedString
+
+
+class ActuarBridgeDevice(Base, TimestampMixin):
+    __tablename__ = "actuar_bridge_devices"
+    __table_args__ = (
+        CheckConstraint(f"status IN {ACTUAR_BRIDGE_DEVICE_STATUSES}", name="actuar_bridge_devices_status_valid"),
+        Index("ix_actuar_bridge_devices_gym_status", "gym_id", "status"),
+        Index("ix_actuar_bridge_devices_gym_last_seen", "gym_id", "last_seen_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("gyms.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pairing")
+    pairing_code_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pairing_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auth_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bridge_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    browser_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_job_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_job_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ActuarMemberLink(Base, TimestampMixin):

@@ -13,6 +13,7 @@ from app.services.body_composition_actuar_sync_service import (
     _finalize_non_browser_outcome,
     _finalize_sync_failure,
     _finalize_sync_success,
+    claim_next_actuar_sync_job,
     confirm_manual_actuar_sync,
     get_body_composition_sync_status,
     prepare_body_composition_sync_attempt,
@@ -311,6 +312,17 @@ def test_finalize_structural_failure_marks_manual_sync_required():
     assert job.status == "needs_review"
     assert evaluation.actuar_sync_status == "manual_sync_required"
     assert evaluation.sync_last_error_code == "critical_fields_missing"
+
+
+def test_worker_claim_skips_local_bridge_jobs():
+    db = MagicMock()
+    select_result = MagicMock()
+    select_result.scalar_one_or_none.return_value = None
+    db.scalar.return_value = None
+
+    job = claim_next_actuar_sync_job(db, worker_id="worker:test")
+
+    assert job is None
 
 
 def test_manual_sync_summary_lists_critical_fields():

@@ -8,7 +8,7 @@ from app.schemas.assistant import AIAssistantPayload
 
 
 EvaluationSource = Literal["tezewa", "manual", "ocr_receipt", "device_import", "actuar_sync"]
-ActuarSyncMode = Literal["disabled", "http_api", "csv_export", "assisted_rpa"]
+ActuarSyncMode = Literal["disabled", "http_api", "csv_export", "assisted_rpa", "local_bridge"]
 ActuarSyncStatus = Literal[
     "draft",
     "saved",
