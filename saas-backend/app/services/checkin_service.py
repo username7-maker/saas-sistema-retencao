@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, Member
 from app.schemas import CheckinCreate
+from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
 
 
 def create_checkin(db: Session, payload: CheckinCreate, *, commit: bool = True) -> Checkin:
@@ -33,10 +34,10 @@ def create_checkin(db: Session, payload: CheckinCreate, *, commit: bool = True) 
     member.last_checkin_at = checkin_at
     db.add(checkin)
     db.add(member)
+    db.flush()
+    sync_preferred_shifts_from_checkins(db, member_ids={member.id}, commit=False, flush=False)
     if commit:
         db.commit()
-    else:
-        db.flush()
     db.refresh(checkin)
     invalidate_dashboard_cache("checkins")
     return checkin

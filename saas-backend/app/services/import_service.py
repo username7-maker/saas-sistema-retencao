@@ -26,6 +26,7 @@ from app.schemas import (
     MissingMemberEntry,
 )
 from app.services.onboarding_service import create_import_playbook_tasks_for_member
+from app.services.preferred_shift_service import normalize_preferred_shift, sync_preferred_shifts_from_checkins
 from app.services.risk import refresh_member_risk_snapshot
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
@@ -978,6 +979,9 @@ def import_checkins_csv(
         db.add(checkin)
         imported += 1
 
+    db.flush()
+    if touched_member_ids:
+        sync_preferred_shifts_from_checkins(db, member_ids=touched_member_ids, commit=False, flush=False)
     db.commit()
     if touched_member_ids:
         refresh_member_risk_snapshot(db, member_ids=touched_member_ids, sync_alerts=True)
@@ -1994,9 +1998,9 @@ def _extract_preferred_shift(row: dict[str, str]) -> str | None:
     if not candidate:
         return None
     normalized = _normalize_text(candidate)
-    if normalized in _GENERIC_SHIFT_VALUES:
+    if normalized in _GENERIC_SHIFT_VALUES or normalized.startswith("livre"):
         return None
-    return candidate
+    return normalize_preferred_shift(candidate)
 
 
 def refresh_member_plan_metadata(db: Session, gym_id=None) -> int:

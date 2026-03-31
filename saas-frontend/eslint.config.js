@@ -6,7 +6,7 @@ import tsParser from '@typescript-eslint/parser'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default defineConfig([
-  globalIgnores(['dist', 'node_modules']),
+  globalIgnores(['dist', 'node_modules', '.vercel', 'tmp-ui-audit']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [js.configs.recommended],

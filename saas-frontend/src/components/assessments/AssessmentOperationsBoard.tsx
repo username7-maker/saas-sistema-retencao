@@ -303,11 +303,11 @@ export function AssessmentOperationsBoard({
           filters={[
             {
               key: "preferred_shift",
-              label: "Turno",
+              label: "Turno por check-in",
               value: activeShift,
               onChange: (value) => onActiveShiftChange(value as PreferredShiftFilter),
               options: [
-                { value: "all", label: "Todos os turnos" },
+                { value: "all", label: "Todos os turnos por check-in" },
                 { value: "morning", label: "Manha" },
                 { value: "afternoon", label: "Tarde" },
                 { value: "evening", label: "Noite" },

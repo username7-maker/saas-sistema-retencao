@@ -154,7 +154,7 @@ describe("MembersPage", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Provisorios" }), {
       target: { value: "exclude" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "Turno" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Turno por check-in" }), {
       target: { value: "morning" },
     });
 

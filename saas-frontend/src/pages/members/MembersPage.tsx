@@ -210,11 +210,11 @@ export function MembersPage() {
             },
             {
               key: "preferred_shift",
-              label: "Turno",
+              label: "Turno por check-in",
               value: filters.preferred_shift ?? "",
               onChange: (value) => handleFilterChange("preferred_shift", (value || undefined) as MemberQueryFilters["preferred_shift"]),
               options: [
-                { value: "", label: "Todos os turnos" },
+                { value: "", label: "Todos os turnos por check-in" },
                 { value: "morning", label: "Manha" },
                 { value: "afternoon", label: "Tarde" },
                 { value: "evening", label: "Noite" },

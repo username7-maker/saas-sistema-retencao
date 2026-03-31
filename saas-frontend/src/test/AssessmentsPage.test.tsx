@@ -191,7 +191,7 @@ describe("AssessmentsPage", () => {
     renderPage();
 
     await screen.findByText("Ana Silva");
-    fireEvent.change(screen.getByRole("combobox", { name: "Turno" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Turno por check-in" }), {
       target: { value: "morning" },
     });
 

@@ -4,7 +4,7 @@ from collections import Counter
 from uuid import uuid4
 import zipfile
 from xml.sax.saxutils import escape
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models import CheckinSource, Member, MemberStatus
@@ -708,7 +708,12 @@ def test_import_members_csv_rejects_conflicting_manual_mappings() -> None:
 
 def test_extract_preferred_shift_uses_schedule_column() -> None:
     row = {"assinaturas_horarios": "Manha"}
-    assert import_service._extract_preferred_shift(row) == "Manha"
+    assert import_service._extract_preferred_shift(row) == "morning"
+
+
+def test_extract_preferred_shift_ignores_noisy_schedule_column() -> None:
+    row = {"assinaturas_horarios": "LIVRE, LIVRE"}
+    assert import_service._extract_preferred_shift(row) is None
 
 
 def test_extract_member_name_combines_first_and_last_names() -> None:
@@ -874,6 +879,41 @@ def test_import_checkins_csv_auto_creates_missing_members(monkeypatch) -> None:
     assert summary.missing_members == []
     assert summary.errors == []
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
+
+
+@patch("app.services.import_service.sync_preferred_shifts_from_checkins")
+def test_import_checkins_csv_syncs_preferred_shift_for_touched_members(mock_sync_shift) -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={"external_id": "mat-001"},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = "registro,data,hora\nMAT-001,2026-03-01,08:00\n".encode("utf-8")
+
+    summary = import_service.import_checkins_csv(
+        db,
+        csv_content,
+        filename="checkins.csv",
+        column_mappings={"registro": "external_id"},
+    )
+
+    assert summary.imported == 1
+    mock_sync_shift.assert_called_once()
+    assert mock_sync_shift.call_args.kwargs["member_ids"] == {member.id}
+    assert mock_sync_shift.call_args.kwargs["commit"] is False
+    assert mock_sync_shift.call_args.kwargs["flush"] is False
 
 
 def test_import_checkins_csv_applies_manual_mapping_to_external_id() -> None:

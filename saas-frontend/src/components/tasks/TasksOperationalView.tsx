@@ -342,12 +342,12 @@ export function TasksOperationalView({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Turno preferido</label>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Turno por check-in</label>
               <Select
                 value={filters.preferredShift}
                 onChange={(event) => handleFilterChange("preferredShift", event.target.value as OperationalFilters["preferredShift"])}
               >
-                <option value="all">Todos</option>
+                <option value="all">Todos os turnos</option>
                 <option value="morning">Manha</option>
                 <option value="afternoon">Tarde</option>
                 <option value="evening">Noite</option>

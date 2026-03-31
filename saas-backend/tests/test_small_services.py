@@ -82,7 +82,8 @@ class TestLogAuditEvent:
 
 class TestCreateCheckin:
     @patch("app.services.checkin_service.invalidate_dashboard_cache")
-    def test_creates_checkin(self, mock_cache):
+    @patch("app.services.checkin_service.sync_preferred_shifts_from_checkins")
+    def test_creates_checkin(self, mock_sync_shift, mock_cache):
         member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
         db = MagicMock()
         db.scalar.side_effect = [member, None]  # member found, no duplicate
@@ -98,10 +99,12 @@ class TestCreateCheckin:
         from app.services.checkin_service import create_checkin
         result = create_checkin(db, payload)
         db.commit.assert_called_once()
+        mock_sync_shift.assert_called_once_with(db, member_ids={member.id}, commit=False, flush=False)
         assert member.last_checkin_at is not None
 
     @patch("app.services.checkin_service.invalidate_dashboard_cache")
-    def test_creates_checkin_without_committing_when_router_owns_transaction(self, mock_cache):
+    @patch("app.services.checkin_service.sync_preferred_shifts_from_checkins")
+    def test_creates_checkin_without_committing_when_router_owns_transaction(self, mock_sync_shift, mock_cache):
         member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
         db = MagicMock()
         db.scalar.side_effect = [member, None]
@@ -123,6 +126,7 @@ class TestCreateCheckin:
         assert member.last_checkin_at is not None
         db.commit.assert_not_called()
         db.flush.assert_called_once()
+        mock_sync_shift.assert_called_once_with(db, member_ids={member.id}, commit=False, flush=False)
 
     def test_member_not_found_raises(self):
         db = MagicMock()
