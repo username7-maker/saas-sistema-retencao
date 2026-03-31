@@ -32,6 +32,7 @@ def _enrich(task: Task) -> TaskOut:
     out = TaskOut.model_validate(task)
     if task.member:
         out.member_name = task.member.full_name
+        out.preferred_shift = task.member.preferred_shift
     if task.lead:
         out.lead_name = task.lead.full_name
     return out

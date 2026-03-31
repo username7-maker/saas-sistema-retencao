@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import {
   type AssessmentDashboard,
   type AssessmentQueueResolutionStatus,
@@ -17,6 +18,7 @@ import {
   type AssessmentQueueBucket,
   type AssessmentQueueFilter,
   type AssessmentQueueItem,
+  type PreferredShiftFilter,
 } from "./assessmentOperationsUtils";
 
 interface AssessmentOperationsBoardProps {
@@ -29,6 +31,8 @@ interface AssessmentOperationsBoardProps {
   onSearchQueryChange: (value: string) => void;
   activeFilter: AssessmentQueueFilter;
   onActiveFilterChange: (value: AssessmentQueueFilter) => void;
+  activeShift: PreferredShiftFilter;
+  onActiveShiftChange: (value: PreferredShiftFilter) => void;
   page: number;
   onPageChange: (page: number) => void;
   onClearFilters: () => void;
@@ -113,6 +117,9 @@ function AssessmentQueueRow({
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
         <p className="mt-1 truncate text-xs text-lovable-ink-muted">{member.email || "Sem e-mail cadastrado"}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <PreferredShiftBadge preferredShift={member.preferred_shift} prefix />
+        </div>
       </div>
 
       <div className="min-w-0 space-y-2">
@@ -168,6 +175,9 @@ function AttentionNowList({
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
               <p className="truncate text-xs text-lovable-ink-muted">{member.due_label}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <PreferredShiftBadge preferredShift={member.preferred_shift} prefix />
+              </div>
               {(member.queue_resolution_status ?? "active") !== "active" ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Badge
@@ -235,6 +245,8 @@ export function AssessmentOperationsBoard({
   onSearchQueryChange,
   activeFilter,
   onActiveFilterChange,
+  activeShift,
+  onActiveShiftChange,
   page,
   onPageChange,
   onClearFilters,
@@ -243,7 +255,7 @@ export function AssessmentOperationsBoard({
   queueResolutionPendingMemberId,
   onQueueResolutionChange,
 }: AssessmentOperationsBoardProps) {
-  const hasActiveFilters = searchQuery.trim().length > 0 || activeFilter !== "all";
+  const hasActiveFilters = searchQuery.trim().length > 0 || activeFilter !== "all" || activeShift !== "all";
   const totalPages = queue ? Math.max(1, Math.ceil(queue.total / queue.page_size)) : 1;
   const coverageRatio = dashboard.total_members > 0 ? Math.round((dashboard.assessed_last_90_days / dashboard.total_members) * 100) : 0;
   const overduePressure = dashboard.total_members > 0 ? Math.round((dashboard.overdue_assessments / dashboard.total_members) * 100) : 0;
@@ -252,8 +264,8 @@ export function AssessmentOperationsBoard({
 
   const attentionNow = useMemo(() => {
     const source = hasActiveFilters ? queue?.items ?? [] : dashboard.attention_now ?? [];
-    return filterAttentionNowItems(source, searchQuery, activeFilter).slice(0, 6);
-  }, [activeFilter, dashboard.attention_now, hasActiveFilters, queue?.items, searchQuery]);
+    return filterAttentionNowItems(source, searchQuery, activeFilter, activeShift).slice(0, 6);
+  }, [activeFilter, activeShift, dashboard.attention_now, hasActiveFilters, queue?.items, searchQuery]);
 
   const executiveRead = [
     dashboard.overdue_assessments > 0
@@ -288,7 +300,21 @@ export function AssessmentOperationsBoard({
             onChange: onSearchQueryChange,
             placeholder: "Buscar qualquer aluno ativo por nome, e-mail ou plano...",
           }}
-          activeCount={(searchQuery.trim() ? 1 : 0) + (activeFilter !== "all" ? 1 : 0)}
+          filters={[
+            {
+              key: "preferred_shift",
+              label: "Turno",
+              value: activeShift,
+              onChange: (value) => onActiveShiftChange(value as PreferredShiftFilter),
+              options: [
+                { value: "all", label: "Todos os turnos" },
+                { value: "morning", label: "Manha" },
+                { value: "afternoon", label: "Tarde" },
+                { value: "evening", label: "Noite" },
+              ],
+            },
+          ]}
+          activeCount={(searchQuery.trim() ? 1 : 0) + (activeFilter !== "all" ? 1 : 0) + (activeShift !== "all" ? 1 : 0)}
           onClear={onClearFilters}
         />
 

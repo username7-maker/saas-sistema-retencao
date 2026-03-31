@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SkeletonList, StatusBadge } from "../../components/ui";
+import { PreferredShiftBadge } from "../../components/common/PreferredShiftBadge";
 import {
   Badge,
   Button,
@@ -146,6 +147,7 @@ export function MembersPage() {
     filters.status,
     filters.risk_level,
     filters.plan_cycle,
+    filters.preferred_shift,
     filters.min_days_without_checkin,
     filters.provisional_only,
   ].filter((value) => value !== undefined && value !== "").length;
@@ -204,6 +206,18 @@ export function MembersPage() {
                 { value: "monthly", label: "Mensal" },
                 { value: "semiannual", label: "Semestral" },
                 { value: "annual", label: "Anual" },
+              ],
+            },
+            {
+              key: "preferred_shift",
+              label: "Turno",
+              value: filters.preferred_shift ?? "",
+              onChange: (value) => handleFilterChange("preferred_shift", (value || undefined) as MemberQueryFilters["preferred_shift"]),
+              options: [
+                { value: "", label: "Todos os turnos" },
+                { value: "morning", label: "Manha" },
+                { value: "afternoon", label: "Tarde" },
+                { value: "evening", label: "Noite" },
               ],
             },
             {
@@ -304,6 +318,7 @@ export function MembersPage() {
                               {birthdayLabel}
                             </Badge>
                           ) : null}
+                          <PreferredShiftBadge preferredShift={member.preferred_shift} prefix />
                         </div>
                       </div>
                     </TableCell>

@@ -17,12 +17,14 @@ function createQueueItem(
   bucket: AssessmentQueueItem["queue_bucket"],
   risk: AssessmentQueueItem["risk_level"],
   dueLabel: string,
+  preferredShift: string | null = null,
 ): AssessmentQueueItem {
   return {
     id,
     full_name: fullName,
     email: `${id}@teste.com`,
     plan_name: "Plano Mensal",
+    preferred_shift: preferredShift,
     risk_level: risk,
     risk_score: risk === "red" ? 82 : 45,
     last_checkin_at: "2026-03-18T10:00:00Z",
@@ -63,7 +65,7 @@ const dashboard: AssessmentDashboard = {
   historical_backlog_total: 910,
   historical_never_assessed: 640,
   historical_overdue_assessments: 270,
-  attention_now: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente")],
+  attention_now: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente", "morning")],
   total_members_items: [],
   assessed_members: [],
   overdue_members: [],
@@ -73,8 +75,8 @@ const dashboard: AssessmentDashboard = {
 
 const queueAllPage1: AssessmentQueueResponse = {
   items: [
-    createQueueItem("member-1", "Ana Silva", "overdue", "red", "Atrasada desde 10/03/2026"),
-    createQueueItem("member-2", "Bruno Lima", "week", "yellow", "Janela ate 24/03/2026"),
+    createQueueItem("member-1", "Ana Silva", "overdue", "red", "Atrasada desde 10/03/2026", "morning"),
+    createQueueItem("member-2", "Bruno Lima", "week", "yellow", "Janela ate 24/03/2026", "evening"),
   ],
   total: 3,
   page: 1,
@@ -89,14 +91,14 @@ const queueAllPage2: AssessmentQueueResponse = {
 };
 
 const queueNever: AssessmentQueueResponse = {
-  items: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente")],
+  items: [createQueueItem("member-3", "Carla Nunes", "never", "yellow", "Primeira avaliacao pendente", "morning")],
   total: 1,
   page: 1,
   page_size: 50,
 };
 
 const queueSearch: AssessmentQueueResponse = {
-  items: [createQueueItem("member-5", "Erick Andrade", "upcoming", "yellow", "Proxima janela em 28/03/2026")],
+  items: [createQueueItem("member-5", "Erick Andrade", "upcoming", "yellow", "Proxima janela em 28/03/2026", "afternoon")],
   total: 1,
   page: 1,
   page_size: 50,
@@ -145,6 +147,7 @@ describe("AssessmentsPage", () => {
     expect(screen.getByText(/ficaram fora da fila do dia por serem backlog historico/i)).toBeInTheDocument();
     expect(screen.getByText("Fila operacional")).toBeInTheDocument();
     expect(screen.getByText("Ana Silva")).toBeInTheDocument();
+    expect(screen.getAllByText("Turno Manha").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Abrir workspace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Registrar avaliacao").length).toBeGreaterThan(0);
     expect(screen.getByText("Pagina 1 de 2")).toBeInTheDocument();
@@ -180,6 +183,21 @@ describe("AssessmentsPage", () => {
     await waitFor(() => {
       expect(assessmentService.queue).toHaveBeenLastCalledWith(
         expect.objectContaining({ search: "Erick", page: 1 }),
+      );
+    });
+  });
+
+  it("sends preferred shift filter to the queue endpoint", async () => {
+    renderPage();
+
+    await screen.findByText("Ana Silva");
+    fireEvent.change(screen.getByRole("combobox", { name: "Turno" }), {
+      target: { value: "morning" },
+    });
+
+    await waitFor(() => {
+      expect(assessmentService.queue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ preferred_shift: "morning", page: 1 }),
       );
     });
   });

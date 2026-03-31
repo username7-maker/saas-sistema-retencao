@@ -58,6 +58,7 @@ function countActiveFilters(filters: OperationalFilters): number {
   if (filters.assignee !== DEFAULT_OPERATIONAL_FILTERS.assignee) count += 1;
   if (filters.source !== DEFAULT_OPERATIONAL_FILTERS.source) count += 1;
   if (filters.plan !== DEFAULT_OPERATIONAL_FILTERS.plan) count += 1;
+  if (filters.preferredShift !== DEFAULT_OPERATIONAL_FILTERS.preferredShift) count += 1;
   if (filters.onlyMine) count += 1;
   if (filters.overdueOnly) count += 1;
   if (filters.dueTodayOnly) count += 1;
@@ -337,6 +338,19 @@ export function TasksOperationalView({
                 <option value="mensal">Mensal</option>
                 <option value="semestral">Semestral</option>
                 <option value="anual">Anual</option>
+              </Select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Turno preferido</label>
+              <Select
+                value={filters.preferredShift}
+                onChange={(event) => handleFilterChange("preferredShift", event.target.value as OperationalFilters["preferredShift"])}
+              >
+                <option value="all">Todos</option>
+                <option value="morning">Manha</option>
+                <option value="afternoon">Tarde</option>
+                <option value="evening">Noite</option>
               </Select>
             </div>
 

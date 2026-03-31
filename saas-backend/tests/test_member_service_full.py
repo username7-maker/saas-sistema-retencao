@@ -141,6 +141,22 @@ class TestGetMemberOr404:
         assert exc_info.value.status_code == 404
 
 
+class TestListMembers:
+    def test_applies_preferred_shift_filter(self):
+        db = MagicMock()
+        db.scalar.return_value = 0
+        scalars_result = MagicMock()
+        scalars_result.all.return_value = []
+        db.scalars.return_value = scalars_result
+
+        from app.services.member_service import list_members
+
+        list_members(db, gym_id=GYM_ID, preferred_shift="morning")
+
+        compiled = str(db.scalars.call_args.args[0])
+        assert "members.preferred_shift" in compiled
+
+
 class TestUpdateMember:
     @patch("app.services.member_service.invalidate_dashboard_cache")
     @patch("app.services.member_service.get_member_or_404")

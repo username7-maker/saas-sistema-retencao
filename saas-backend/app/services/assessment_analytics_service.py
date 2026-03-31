@@ -24,6 +24,18 @@ OPERATIONAL_REASSESSMENT_CHECKIN_WINDOW_DAYS = 30
 _ASSESSMENT_QUEUE_RESOLVED_STATUSES = ("scheduled", "dismissed")
 
 
+def _preferred_shift_condition(preferred_shift: str):
+    normalized = (preferred_shift or "").strip().lower()
+    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
+    if normalized == "morning":
+        return preferred_shift_col.in_(("morning", "manha", "matutino"))
+    if normalized == "afternoon":
+        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
+    if normalized == "evening":
+        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
+    return None
+
+
 def _resolve_gym_id(gym_id=None):
     return gym_id or get_current_gym_id()
 
@@ -176,6 +188,7 @@ def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
         full_name=getattr(row, "full_name"),
         email=getattr(row, "email"),
         plan_name=getattr(row, "plan_name"),
+        preferred_shift=getattr(row, "preferred_shift", None),
         risk_level=getattr(row, "risk_level"),
         risk_score=int(getattr(row, "risk_score") or 0),
         last_checkin_at=getattr(row, "last_checkin_at"),
@@ -197,6 +210,7 @@ def get_assessments_queue(
     page_size: int = 50,
     search: str | None = None,
     bucket: AssessmentQueueBucket = "all",
+    preferred_shift: str | None = None,
     gym_id=None,
 ) -> PaginatedResponse[AssessmentQueueItemOut]:
     now = datetime.now(tz=timezone.utc)
@@ -256,6 +270,7 @@ def get_assessments_queue(
                 Member.full_name.ilike(search_value),
                 Member.email.ilike(search_value),
                 Member.plan_name.ilike(search_value),
+                Member.preferred_shift.ilike(search_value),
             )
         )
         if bucket != "all":
@@ -267,6 +282,10 @@ def get_assessments_queue(
         else:
             filters.append(operational_filters[bucket])
 
+    preferred_shift_filter = _preferred_shift_condition(preferred_shift or "")
+    if preferred_shift_filter is not None:
+        filters.append(preferred_shift_filter)
+
     resolution_priority_expr = case((unresolved_queue_expr, 0), else_=1)
 
     base_stmt = (
@@ -275,6 +294,7 @@ def get_assessments_queue(
             Member.full_name.label("full_name"),
             Member.email.label("email"),
             Member.plan_name.label("plan_name"),
+            Member.preferred_shift.label("preferred_shift"),
             Member.risk_level.label("risk_level"),
             Member.risk_score.label("risk_score"),
             Member.last_checkin_at.label("last_checkin_at"),

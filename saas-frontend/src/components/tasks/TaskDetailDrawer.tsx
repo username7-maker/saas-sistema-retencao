@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, MessageCircle, PhoneCall, UserRound } from "lucide-react";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
+import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
 import { taskService, type UpdateTaskPayload } from "../../services/taskService";
 import type { Member, Task } from "../../types";
@@ -206,6 +207,9 @@ export function TaskDetailDrawer({
                       <p className="text-lovable-ink-muted">
                         {phoneDisplay ?? "Telefone nao informado"}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <PreferredShiftBadge preferredShift={activeTask.preferred_shift ?? relatedMember?.preferred_shift} prefix />
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {normalizedPhone && phoneDisplay ? (

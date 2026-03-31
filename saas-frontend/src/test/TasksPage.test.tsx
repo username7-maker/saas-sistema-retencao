@@ -79,7 +79,7 @@ describe("TasksPage", () => {
         plan_name: "Plano Mensal",
         monthly_fee: 199,
         join_date: dateAtOffset(-19),
-        preferred_shift: null,
+        preferred_shift: "morning",
         nps_last_score: 9,
         loyalty_months: 1,
         risk_score: 82,
@@ -101,7 +101,7 @@ describe("TasksPage", () => {
         plan_name: "Plano Anual",
         monthly_fee: 249,
         join_date: dateAtOffset(-15),
-        preferred_shift: null,
+        preferred_shift: "evening",
         nps_last_score: 8,
         loyalty_months: 1,
         risk_score: 41,
@@ -123,7 +123,7 @@ describe("TasksPage", () => {
         plan_name: "Plano Semestral",
         monthly_fee: 219,
         join_date: dateAtOffset(-33),
-        preferred_shift: null,
+        preferred_shift: "afternoon",
         nps_last_score: 7,
         loyalty_months: 1,
         risk_score: 38,
@@ -148,6 +148,7 @@ describe("TasksPage", () => {
         assigned_to_user_id: "user-1",
         member_name: "Ana Silva",
         lead_name: null,
+        preferred_shift: "morning",
         priority: "urgent",
         status: "todo",
         kanban_column: "todo",
@@ -167,6 +168,7 @@ describe("TasksPage", () => {
         assigned_to_user_id: "user-2",
         member_name: "Bruno Lima",
         lead_name: null,
+        preferred_shift: "evening",
         priority: "high",
         status: "doing",
         kanban_column: "doing",
@@ -186,6 +188,7 @@ describe("TasksPage", () => {
         assigned_to_user_id: null,
         member_name: null,
         lead_name: "Lead Carlos",
+        preferred_shift: null,
         priority: "medium",
         status: "todo",
         kanban_column: "todo",
@@ -205,6 +208,7 @@ describe("TasksPage", () => {
         assigned_to_user_id: "user-1",
         member_name: "Bruno Lima",
         lead_name: null,
+        preferred_shift: "evening",
         priority: "low",
         status: "done",
         kanban_column: "done",
@@ -330,6 +334,7 @@ describe("TasksPage", () => {
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
     expect(screen.getAllByText("Mensagem sugerida").length).toBeGreaterThan(0);
     expect(screen.getByText("Contato do aluno")).toBeInTheDocument();
+    expect(screen.getAllByText("Turno Manha").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Ligar" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
       "href",

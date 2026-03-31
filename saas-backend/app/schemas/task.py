@@ -41,6 +41,7 @@ class TaskOut(BaseModel):
     # Enriched display names — populated by the service layer via eager-loaded relationships
     member_name: str | None = None
     lead_name: str | None = None
+    preferred_shift: str | None = None
     priority: TaskPriority
     status: TaskStatus
     kanban_column: str

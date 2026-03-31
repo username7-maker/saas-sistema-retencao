@@ -84,6 +84,7 @@ export interface Task {
   assigned_to_user_id: string | null;
   member_name: string | null;
   lead_name: string | null;
+  preferred_shift?: string | null;
   priority: "low" | "medium" | "high" | "urgent";
   status: "todo" | "doing" | "done" | "cancelled";
   kanban_column: string;

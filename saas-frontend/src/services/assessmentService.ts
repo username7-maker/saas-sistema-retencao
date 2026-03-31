@@ -168,6 +168,7 @@ export interface AssessmentQueueItem {
   full_name: string;
   email: string | null;
   plan_name: string;
+  preferred_shift?: string | null;
   risk_level: RiskLevel;
   risk_score: number;
   last_checkin_at: string | null;
@@ -343,6 +344,7 @@ function normalizeAssessmentQueueItem(payload: unknown): AssessmentQueueItem {
     full_name: asString(data.full_name, "Aluno sem identificacao"),
     email: asNullableString(data.email),
     plan_name: asString(data.plan_name, "Plano nao informado"),
+    preferred_shift: asNullableString(data.preferred_shift),
     risk_level: asString(data.risk_level, "green") as RiskLevel,
     risk_score: asNumber(data.risk_score),
     last_checkin_at: asNullableString(data.last_checkin_at),
@@ -663,6 +665,7 @@ export interface AssessmentQueueParams {
   page_size?: number;
   search?: string;
   bucket?: AssessmentQueueFilter;
+  preferred_shift?: "morning" | "afternoon" | "evening";
 }
 
 export interface ActuarSyncQueueParams {
@@ -684,6 +687,7 @@ export const assessmentService = {
         page_size: params.page_size ?? 50,
         search: params.search?.trim() ? params.search.trim() : undefined,
         bucket: params.bucket ?? "all",
+        preferred_shift: params.preferred_shift ?? undefined,
       },
     });
     return normalizeAssessmentQueueResponse(data);

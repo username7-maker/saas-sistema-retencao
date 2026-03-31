@@ -24,6 +24,7 @@ class TestAssessmentQueueService:
                 full_name="Ana Silva",
                 email="ana@teste.com",
                 plan_name="Plano Mensal",
+                preferred_shift="manha",
                 risk_level=RiskLevel.RED,
                 risk_score=88,
                 last_checkin_at=datetime(2026, 3, 18, 10, 0, tzinfo=timezone.utc),
@@ -36,6 +37,7 @@ class TestAssessmentQueueService:
                 full_name="Bruno Lima",
                 email="bruno@teste.com",
                 plan_name="Plano Anual",
+                preferred_shift="noite",
                 risk_level=RiskLevel.YELLOW,
                 risk_score=51,
                 last_checkin_at=datetime(2026, 3, 17, 10, 0, tzinfo=timezone.utc),
@@ -52,6 +54,7 @@ class TestAssessmentQueueService:
         assert result.page == 1
         assert result.page_size == 50
         assert len(result.items) == 2
+        assert result.items[0].preferred_shift == "manha"
         assert result.items[0].queue_bucket == "never"
         assert result.items[0].coverage_label == "Nenhuma avaliacao registrada"
         assert result.items[0].due_label == "Primeira avaliacao pendente"
@@ -59,7 +62,7 @@ class TestAssessmentQueueService:
         assert "10/03/2026" in result.items[1].due_label
 
     @patch("app.services.assessment_analytics_service.get_current_gym_id")
-    def test_search_query_uses_name_email_and_plan_name(self, mock_get_current_gym_id, gym_id):
+    def test_search_query_uses_name_email_plan_and_shift(self, mock_get_current_gym_id, gym_id):
         from app.services.assessment_analytics_service import get_assessments_queue
 
         mock_get_current_gym_id.return_value = gym_id
@@ -76,6 +79,7 @@ class TestAssessmentQueueService:
         assert "members.full_name" in compiled
         assert "members.email" in compiled
         assert "members.plan_name" in compiled
+        assert "members.preferred_shift" in compiled
 
     @patch("app.services.assessment_analytics_service.get_current_gym_id")
     def test_search_query_in_all_bucket_does_not_force_operational_window_filters(self, mock_get_current_gym_id, gym_id):

@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { ArrowRight, Check, Clock3, Pencil, TriangleAlert, UserRound } from "lucide-react";
 
+import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import { StatusBadge } from "../ui";
 import { Button } from "../ui2";
 import type { Task } from "../../types";
@@ -85,6 +86,7 @@ export function TaskListItem({
 
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-lovable-ink-muted">
             <span className="truncate">{getTaskContextLabel(task)}</span>
+            <PreferredShiftBadge preferredShift={task.preferred_shift} prefix />
             <span className="inline-flex items-center gap-1">
               <UserRound size={12} />
               {assigneeLabel}

@@ -2,6 +2,7 @@ import type { AssessmentQueueBucket, AssessmentQueueFilter, AssessmentQueueItem 
 import type { RiskLevel } from "../../types";
 
 export type { AssessmentQueueBucket, AssessmentQueueFilter, AssessmentQueueItem };
+export type PreferredShiftFilter = "all" | "morning" | "afternoon" | "evening";
 
 export interface AssessmentQueueFilterOption {
   key: AssessmentQueueFilter;
@@ -54,13 +55,29 @@ export function filterAttentionNowItems(
   items: AssessmentQueueItem[],
   searchQuery: string,
   activeFilter: AssessmentQueueFilter,
+  preferredShift: PreferredShiftFilter,
 ): AssessmentQueueItem[] {
   const normalizedSearch = normalizeText(searchQuery);
 
   return items.filter((item) => {
     if (activeFilter !== "all" && item.queue_bucket !== activeFilter) return false;
+    if (preferredShift !== "all") {
+      const shift = normalizeText(item.preferred_shift ?? "");
+      const matchesShift =
+        (preferredShift === "morning" && ["morning", "manha", "matutino"].includes(shift)) ||
+        (preferredShift === "afternoon" && ["afternoon", "tarde", "vespertino"].includes(shift)) ||
+        (preferredShift === "evening" && ["evening", "night", "noite", "noturno"].includes(shift));
+      if (!matchesShift) return false;
+    }
     if (!normalizedSearch) return true;
-    const haystack = normalizeText([item.full_name, item.email ?? "", item.plan_name, item.coverage_label, item.due_label].join(" "));
+    const haystack = normalizeText([
+      item.full_name,
+      item.email ?? "",
+      item.plan_name,
+      item.preferred_shift ?? "",
+      item.coverage_label,
+      item.due_label,
+    ].join(" "));
     return haystack.includes(normalizedSearch);
   });
 }

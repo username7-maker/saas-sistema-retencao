@@ -192,6 +192,7 @@ class MemberMiniOut(BaseModel):
     risk_level: RiskLevel
     risk_score: int
     email: str | None = None
+    preferred_shift: str | None = None
     last_checkin_at: datetime | None = None
     extra_data: dict = Field(default_factory=dict)
 
@@ -203,6 +204,7 @@ class AssessmentQueueItemOut(BaseModel):
     full_name: str
     email: str | None = None
     plan_name: str
+    preferred_shift: str | None = None
     risk_level: RiskLevel
     risk_score: int
     last_checkin_at: datetime | None = None

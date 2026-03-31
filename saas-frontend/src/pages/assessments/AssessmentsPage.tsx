@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 
 import { AssessmentOperationsBoard } from "../../components/assessments/AssessmentOperationsBoard";
-import type { AssessmentQueueFilter } from "../../components/assessments/assessmentOperationsUtils";
+import type { AssessmentQueueFilter, PreferredShiftFilter } from "../../components/assessments/assessmentOperationsUtils";
 import { EmptyState, SkeletonList } from "../../components/ui";
 import { Card, CardContent } from "../../components/ui2";
 import { assessmentService, type AssessmentQueueResolutionStatus } from "../../services/assessmentService";
@@ -14,11 +14,12 @@ export function AssessmentsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<AssessmentQueueFilter>("all");
+  const [activeShift, setActiveShift] = useState<PreferredShiftFilter>("all");
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     setPage(1);
-  }, [activeFilter, searchQuery]);
+  }, [activeFilter, activeShift, searchQuery]);
 
   const dashboardQuery = useQuery({
     queryKey: ["assessments", "dashboard"],
@@ -27,13 +28,14 @@ export function AssessmentsPage() {
   });
 
   const queueQuery = useQuery({
-    queryKey: ["assessments", "queue", activeFilter, searchQuery, page],
+    queryKey: ["assessments", "queue", activeFilter, activeShift, searchQuery, page],
     queryFn: () =>
       assessmentService.queue({
         page,
         page_size: 50,
         search: searchQuery,
         bucket: activeFilter,
+        preferred_shift: activeShift === "all" ? undefined : activeShift,
       }),
     staleTime: 60 * 1000,
     placeholderData: (previousData) => previousData,
@@ -100,11 +102,14 @@ export function AssessmentsPage() {
         onSearchQueryChange={setSearchQuery}
         activeFilter={activeFilter}
         onActiveFilterChange={setActiveFilter}
+        activeShift={activeShift}
+        onActiveShiftChange={setActiveShift}
         page={page}
         onPageChange={setPage}
         onClearFilters={() => {
           setSearchQuery("");
           setActiveFilter("all");
+          setActiveShift("all");
         }}
         onRetryQueue={() => {
           void queueQuery.refetch();

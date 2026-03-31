@@ -1,4 +1,5 @@
 import type { Member, Task } from "../../types";
+import { getPreferredShiftLabel, matchesPreferredShift } from "../../utils/preferredShift";
 
 export const STATUS_LABELS: Record<Task["status"], string> = {
   todo: "A fazer",
@@ -20,6 +21,7 @@ export type PriorityFilter = "all" | Task["priority"];
 export type AssigneeFilter = "all" | "unassigned" | string;
 export type OperationalViewMode = "due" | "status";
 export type PlanFilter = "all" | "mensal" | "semestral" | "anual";
+export type PreferredShiftFilter = "all" | "morning" | "afternoon" | "evening";
 export type OnboardingPlaybookKey = "engajado" | "atencao" | "critico";
 
 export interface OperationalFilters {
@@ -29,6 +31,7 @@ export interface OperationalFilters {
   assignee: AssigneeFilter;
   source: SourceFilter;
   plan: PlanFilter;
+  preferredShift: PreferredShiftFilter;
   onlyMine: boolean;
   overdueOnly: boolean;
   dueTodayOnly: boolean;
@@ -58,6 +61,7 @@ export const DEFAULT_OPERATIONAL_FILTERS: OperationalFilters = {
   assignee: "all",
   source: "all",
   plan: "all",
+  preferredShift: "all",
   onlyMine: false,
   overdueOnly: false,
   dueTodayOnly: false,
@@ -269,6 +273,7 @@ export function filterOperationalTasks(
       ? normalizePlanType(membersById.get(task.member_id)?.plan_name) ?? normalizePlanType(taskPlanType(task))
       : normalizePlanType(taskPlanType(task));
     if (filters.plan !== "all" && planType !== filters.plan) return false;
+    if (!matchesPreferredShift(task.preferred_shift, filters.preferredShift)) return false;
 
     if (filters.assignee === "unassigned" && task.assigned_to_user_id) return false;
     if (filters.assignee !== "all" && filters.assignee !== "unassigned" && task.assigned_to_user_id !== filters.assignee) {
@@ -285,6 +290,7 @@ export function filterOperationalTasks(
       task.title,
       task.description ?? "",
       task.member_name ?? "",
+      getPreferredShiftLabel(task.preferred_shift) ?? "",
       task.lead_name ?? "",
       taskSourceLabel(task),
     ]

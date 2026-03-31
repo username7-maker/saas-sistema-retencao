@@ -16,6 +16,18 @@ from app.utils.encryption import encrypt_cpf
 MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
 
 
+def _preferred_shift_condition(preferred_shift: str):
+    normalized = (preferred_shift or "").strip().lower()
+    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
+    if normalized == "morning":
+        return preferred_shift_col.in_(("morning", "manha", "matutino"))
+    if normalized == "afternoon":
+        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
+    if normalized == "evening":
+        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
+    return None
+
+
 def _resolve_gym_id(gym_id: UUID | None = None) -> UUID | None:
     return gym_id or get_current_gym_id()
 
@@ -33,6 +45,7 @@ def _build_member_filters(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: MemberPlanCycle | None = None,
+    preferred_shift: str | None = None,
     min_days_without_checkin: int | None = None,
     provisional_only: bool | None = None,
 ) -> tuple[list, UUID | None]:
@@ -66,6 +79,9 @@ def _build_member_filters(
                 Member.plan_name.ilike(f"%{plan_label}%"),
             )
         )
+    preferred_shift_filter = _preferred_shift_condition(preferred_shift or "")
+    if preferred_shift_filter is not None:
+        base_filters.append(preferred_shift_filter)
     if min_days_without_checkin is not None:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=min_days_without_checkin)
         base_filters.append(Member.last_checkin_at.is_not(None))
@@ -140,6 +156,7 @@ def list_members(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: MemberPlanCycle | None = None,
+    preferred_shift: str | None = None,
     min_days_without_checkin: int | None = None,
     provisional_only: bool | None = None,
 ) -> PaginatedResponse:
@@ -149,6 +166,7 @@ def list_members(
         risk_level=risk_level,
         status=status,
         plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
         min_days_without_checkin=min_days_without_checkin,
         provisional_only=provisional_only,
     )
@@ -176,6 +194,7 @@ def list_member_index(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: MemberPlanCycle | None = None,
+    preferred_shift: str | None = None,
     min_days_without_checkin: int | None = None,
     provisional_only: bool | None = None,
 ) -> list[Member]:
@@ -185,6 +204,7 @@ def list_member_index(
         risk_level=risk_level,
         status=status,
         plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
         min_days_without_checkin=min_days_without_checkin,
         provisional_only=provisional_only,
     )

@@ -56,6 +56,7 @@ function makeMember(
   full_name: string,
   extra_data: Record<string, unknown> = {},
   birthdate?: string | null,
+  preferred_shift: Member["preferred_shift"] = null,
 ): Member {
   return {
     id,
@@ -67,7 +68,7 @@ function makeMember(
     plan_name: "Plano Mensal",
     monthly_fee: 199.9,
     join_date: "2026-01-10",
-    preferred_shift: null,
+    preferred_shift,
     nps_last_score: 9,
     loyalty_months: 2,
     risk_score: 34,
@@ -84,8 +85,8 @@ function makeMember(
 
 const membersResponse: PaginatedResponse<Member> = {
   items: [
-    makeMember("member-1", "Ana Silva", { external_id: "MAT-001", provisional_member: true }, formatIsoDate(2)),
-    makeMember("member-2", "Bruno Lima"),
+    makeMember("member-1", "Ana Silva", { external_id: "MAT-001", provisional_member: true }, formatIsoDate(2), "morning"),
+    makeMember("member-2", "Bruno Lima", {}, null, "evening"),
   ],
   total: 2,
   page: 1,
@@ -144,7 +145,8 @@ describe("MembersPage", () => {
     expect(screen.getByPlaceholderText("Buscar por nome, email ou matricula...")).toBeInTheDocument();
     expect(screen.getByText("Matricula MAT-001")).toBeInTheDocument();
     expect(screen.getByText("Provisorio")).toBeInTheDocument();
-    expect(screen.getByText("Aniversário em 2 dias")).toBeInTheDocument();
+    expect(screen.getByText(/Anivers/)).toBeInTheDocument();
+    expect(screen.getByText("Turno Manha")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("combobox", { name: "Sem check-in" }), {
       target: { value: "14" },
@@ -152,10 +154,14 @@ describe("MembersPage", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Provisorios" }), {
       target: { value: "exclude" },
     });
+    fireEvent.change(screen.getByRole("combobox", { name: "Turno" }), {
+      target: { value: "morning" },
+    });
 
     await waitFor(() => {
       expect(memberService.listMembers).toHaveBeenLastCalledWith(
         expect.objectContaining({
+          preferred_shift: "morning",
           min_days_without_checkin: 14,
           provisional_only: false,
           page: 1,
