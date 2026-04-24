@@ -11,6 +11,7 @@ from app.database import get_current_gym_id, include_all_tenants
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.preferred_shift_service import hydrate_missing_preferred_shifts_from_checkins
 from app.services.tenant_guard import ensure_optional_user_in_gym
 from app.utils.encryption import encrypt_cpf
 
@@ -186,6 +187,7 @@ def list_members(
 
     offset = (page - 1) * page_size
     items = db.scalars(stmt.offset(offset).limit(page_size)).all()
+    hydrate_missing_preferred_shifts_from_checkins(db, items)
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 

@@ -261,7 +261,7 @@ export function MembersPage() {
       <Table>
         {isLoading ? (
           <div className="px-5 py-2">
-            <SkeletonList rows={8} cols={5} />
+            <SkeletonList rows={8} cols={6} />
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center py-12 text-lovable-danger">
@@ -281,6 +281,7 @@ export function MembersPage() {
                 <tr>
                   <TableHeaderCell>Membro</TableHeaderCell>
                   <TableHeaderCell>Plano</TableHeaderCell>
+                  <TableHeaderCell>Turno preferido</TableHeaderCell>
                   <TableHeaderCell>Operação</TableHeaderCell>
                   <TableHeaderCell>Último check-in</TableHeaderCell>
                   <TableHeaderCell className="w-[140px]">Ações</TableHeaderCell>
@@ -318,7 +319,6 @@ export function MembersPage() {
                               {birthdayLabel}
                             </Badge>
                           ) : null}
-                          <PreferredShiftBadge preferredShift={member.preferred_shift} prefix />
                         </div>
                       </div>
                     </TableCell>
@@ -327,6 +327,15 @@ export function MembersPage() {
                       <div>
                         <p className="font-medium text-lovable-ink">{member.plan_name}</p>
                         <p className="mt-1 text-xs text-lovable-ink-muted">{formatCurrency(member.monthly_fee)}</p>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex min-w-[132px] flex-col items-start gap-1">
+                        <PreferredShiftBadge preferredShift={member.preferred_shift} prefix showFallback />
+                        <span className="text-[11px] leading-tight text-lovable-ink-muted">
+                          por check-ins
+                        </span>
                       </div>
                     </TableCell>
 

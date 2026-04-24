@@ -107,3 +107,46 @@ def sync_preferred_shifts_from_checkins(
         elif flush:
             db.flush()
     return updated
+
+
+def hydrate_missing_preferred_shifts_from_checkins(db: Session, members: Iterable[Member]) -> int:
+    """Fill preferred_shift in response objects without requiring the daily sync job."""
+    member_list = [
+        member
+        for member in members
+        if member is not None and normalize_preferred_shift(getattr(member, "preferred_shift", None)) is None
+    ]
+    if not member_list:
+        return 0
+
+    member_id_set = {member.id for member in member_list}
+    recent_cutoff = datetime.now(tz=timezone.utc) - timedelta(days=PREFERRED_SHIFT_LOOKBACK_DAYS)
+    shift_expr = case(
+        (Checkin.hour_bucket < 12, "morning"),
+        (Checkin.hour_bucket < 18, "afternoon"),
+        else_="evening",
+    )
+    rows = db.execute(
+        select(
+            Checkin.member_id.label("member_id"),
+            shift_expr.label("shift_key"),
+            func.count(Checkin.id).label("total"),
+        )
+        .where(
+            Checkin.member_id.in_(member_id_set),
+            Checkin.checkin_at >= recent_cutoff,
+        )
+        .group_by(Checkin.member_id, shift_expr)
+    ).all()
+
+    counts_by_member: dict[UUID, dict[str, int]] = defaultdict(dict)
+    for row in rows:
+        counts_by_member[row.member_id][row.shift_key] = int(row.total or 0)
+
+    hydrated = 0
+    for member in member_list:
+        derived_shift = derive_preferred_shift_from_counts(counts_by_member.get(member.id))
+        if derived_shift:
+            member.preferred_shift = derived_shift
+            hydrated += 1
+    return hydrated
