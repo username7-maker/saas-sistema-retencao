@@ -16,11 +16,15 @@ from app.services.automation_engine import run_automation_rules
 from app.services.booking_service import process_booking_reminders
 from app.services.body_composition_actuar_sync_service import process_pending_actuar_sync_jobs
 from app.services.call_script_service import process_proposal_followups
+from app.services.core_async_job_service import (
+    enqueue_monthly_reports_dispatch_job,
+    enqueue_nps_dispatch_job,
+    process_pending_core_async_jobs,
+)
 from app.services.crm_service import run_followup_automation
 from app.services.nurturing_service import run_nurturing_followup
-from app.services.nps_service import run_nps_dispatch
 from app.services.onboarding_score_service import run_daily_onboarding_score
-from app.services.report_service import send_monthly_reports
+from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
 from app.services.retention_intelligence_service import run_daily_retention_intelligence
 from app.services.risk import run_daily_risk_processing
 from app.services.risk_recalculation_service import process_pending_risk_recalculation_requests
@@ -120,9 +124,20 @@ def daily_nps_dispatch_job() -> None:
         for gym in _active_gyms(db):
             try:
                 set_current_gym_id(gym.id)
-                result = run_nps_dispatch(db)
+                job, created = enqueue_nps_dispatch_job(
+                    db,
+                    gym_id=gym.id,
+                    requested_by_user_id=None,
+                )
                 db.commit()
-                _log_job_metrics(job_name, gym_id=gym.id, result=result)
+                _log_job_metrics(
+                    job_name,
+                    gym_id=gym.id,
+                    queued_job_id=str(job.id),
+                    created=int(created),
+                    enqueued_count=1 if created else 0,
+                    deduped_count=0 if created else 1,
+                )
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -164,9 +179,20 @@ def monthly_reports_job() -> None:
         for gym in _active_gyms(db):
             try:
                 set_current_gym_id(gym.id)
-                result = send_monthly_reports(db)
+                job, created = enqueue_monthly_reports_dispatch_job(
+                    db,
+                    gym_id=gym.id,
+                    requested_by_user_id=None,
+                )
                 db.commit()
-                _log_job_metrics(job_name, gym_id=gym.id, result=result)
+                _log_job_metrics(
+                    job_name,
+                    gym_id=gym.id,
+                    queued_job_id=str(job.id),
+                    created=int(created),
+                    enqueued_count=1 if created else 0,
+                    deduped_count=0 if created else 1,
+                )
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -226,6 +252,26 @@ def daily_loyalty_update_job() -> None:
                     db.flush()
                 db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, processed_count=processed_count)
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("daily_preferred_shift_sync", ttl_seconds=1800, fail_open=_critical_lock_fail_open)
+def daily_preferred_shift_sync_job() -> None:
+    """Recalcula preferred_shift dos membros com base no horario dominante dos check-ins recentes."""
+    job_name = "daily_preferred_shift_sync"
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                updated_count = sync_preferred_shifts_from_checkins(db, gym_id=gym.id, commit=False, flush=False)
+                db.commit()
+                _log_job_metrics(job_name, gym_id=gym.id, updated_count=updated_count)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -316,6 +362,13 @@ def risk_recalculation_queue_job() -> None:
     _log_job_metrics(job_name, processed_count=processed_count)
 
 
+@with_distributed_lock("core_async_jobs_queue", ttl_seconds=300, fail_open=_critical_lock_fail_open)
+def core_async_jobs_queue_job() -> None:
+    job_name = "core_async_jobs_queue"
+    processed_count = process_pending_core_async_jobs(batch_size=5)
+    _log_job_metrics(job_name, processed_count=processed_count)
+
+
 @with_distributed_lock("daily_onboarding_score", ttl_seconds=900, fail_open=_critical_lock_fail_open)
 def daily_onboarding_score_job() -> None:
     """Recalcula onboarding score para membros nos primeiros 30 dias."""
@@ -354,5 +407,5 @@ def daily_retention_intelligence_job() -> None:
         db.close()
 
 
-def _active_gyms(db):
+def _active_gyms(db) -> list[Gym]:
     return db.scalars(select(Gym).where(Gym.is_active.is_(True))).all()

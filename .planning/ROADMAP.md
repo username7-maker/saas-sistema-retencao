@@ -3,11 +3,12 @@
 ## Milestones
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
-- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 5, 6
+- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 5, 6
+- Planned **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Future phases 7.0, 7.1, 7.2, 7.3, followed by [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md) to cover the expanded `ai_first_os_academia_v2.html` program
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
-**Goal:** Congelar feature nova por um ciclo curto, fechar hardening de confiabilidade e coerencia operacional para piloto controlado, e so depois retomar bulk update e busca sensivel.
+**Goal:** Congelar expansao lateral por um ciclo curto, operar 4.36+4.40 como um unico workstream de sessao e borda, fechar hardening estrutural do core e usar a Fase 4.3 apenas como gate de saida monitorado.
 
 ### Phase 4: Import mapper e reconciliacao manual
 
@@ -62,7 +63,7 @@ Status:
 
 ### Phase 4.3: Piloto controlado
 
-**Goal:** Rodar piloto com escopo fechado, monitoramento minimo e criterios de saida objetivos.
+**Goal:** Usar o piloto como gate de saida do hardening, com criterios mensuraveis e sem abrir novo escopo enquanto a fase 4.38 nao estiver verde.
 **Requirements**: piloto ativo por 2 a 4 semanas sem incidente critico de tenant, realtime ou job perdido
 **Depends on:** Phase 4.2
 **Plans:** 1 plan
@@ -74,8 +75,8 @@ Status:
 - [x] context
 - [ ] ui-spec
 - [x] plan
-- [~] execute (piloto publicado em 2026-03-26; dia 0 em andamento)
-- [ ] verify/validate (aguardando janela de 2 a 4 semanas e auditoria UAT)
+- [x] execute (piloto monitorado, amostra controlada gerada e gate final lido contra as superficies realmente ativas do tenant `ai-gym-os-piloto`)
+- [x] verify/validate (janela de 14 dias auditada com `nps_dispatch` e `whatsapp_webhook_setup` em `PASS`; artefatos finais em `04.3-PILOT-JOB-GATE-2026-04-18.*` e `04.3-VALIDATION.md`)
 
 ### Phase 4.31: Bioimpedancia assistida e Actuar readiness
 
@@ -99,34 +100,34 @@ Status:
 **Goal:** Colocar WhatsApp e email em estado realmente operacional ou rebaixar a promessa do piloto de forma explicita.
 **Requirements**: `COMMS-01`, `COMMS-02`
 **Depends on:** Phase 4.31
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 4.32 -> $gsd-plan-phase 4.32)
+- [x] 04.32-PLAN.md - WhatsApp real auditavel no piloto e Actuar automatico tratado como gate binario dependente de credenciais reais da academia piloto
 
 Status:
-- [ ] context
-- [ ] ui-spec
-- [ ] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (WhatsApp real validado; `assisted_rpa` do Actuar validado com credenciais reais; correcao final publicada para preencher os campos editaveis de `Composicao corporal e perimetria` no Actuar)
+- [x] verify/validate (evidencia operacional registrada em `04.32-STATUS.md`, incluindo job `87fef1c8-3b64-415b-8e0c-4e4dd35c71b8` finalizado como `synced`)
 
 ### Phase 4.33: Transparencia de IA e fluxos publicos
 
 **Goal:** Tornar explicitos os modos fallback de IA e decidir o que fica ativo ou escondido nos fluxos publicos do piloto.
 **Requirements**: `AI-01`, `PUB-01`
 **Depends on:** Phase 4.32
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 4.33 -> $gsd-plan-phase 4.33)
+- [x] 04.33-PLAN.md - contrato unico de transparencia para superficies AI existentes, com copy honesta para fallback/manual e sem promessas enganosa no piloto
 
 Status:
-- [ ] context
-- [ ] ui-spec
-- [ ] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (contrato minimo implementado, publicado no piloto e reforcado no painel compartilhado com `provider`/`mode` visiveis)
+- [x] verify/validate (verificacao visual fechada nas superficies autenticadas de `Tasks`, `Onboarding` e `Retencao`, com evidencia registrada em `.planning/phases/04.33-transparencia-de-ia-e-fluxos-publicos/evidence/`)
 
 ### Phase 4.34: Superficies administrativas e relatorios do piloto
 
@@ -142,7 +143,7 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [~] execute
+- [ ] execute (blocker-only durante o freeze; so entram correcoes que protejam o loop core)
 - [ ] verify/validate
 
 ### Phase 4.35: Upload real de foto e funcoes mais ricas por usuario
@@ -159,7 +160,7 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
+- [ ] execute (blocker-only durante o freeze; sem avancar identidade fora do loop core)
 - [ ] verify/validate
 
 ### Phase 4.36: Higiene de tokens e lockdown de superficies publicas
@@ -176,8 +177,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] execute (websocket/reset/webhook sairam de query string, readiness foi reduzido, `Origin/Referer` e `no-store` ficaram cobertos na superficie de auth e a regressao final do websocket publicado foi corrigida)
+- [x] verify/validate (release candidata validada ao vivo com refresh cookie cross-origin, reject fora da allowlist, websocket por primeira mensagem e headers/CSP da borda publicada)
 
 ### Phase 4.37: Protecao de PII e seguranca de import/export
 
@@ -193,8 +194,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] execute
+- [x] verify/validate
 
 ### Phase 4.38: Resiliencia de consultas, jobs e DoS logico
 
@@ -210,8 +211,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] execute (query cost e batching principal fecharam; o scheduler automatico de `nps_dispatch` e `monthly_reports_dispatch` ja usa envelope duravel, `queue_wait_seconds` ficou observavel, `whatsapp_webhook_setup` ganhou status consultavel, o `requeue` manual foi documentado e a medicao do budget ganhou script versionado)
+- [x] verify/validate (a amostra operacional minima controlada do piloto foi aceita como suficiente; `1` `CoreAsyncJob` registrado com `p95 queue_wait_seconds = 7.21s` e `04.38-VALIDATION.md` marcada como `PASS`)
 
 ### Phase 4.39: Guardrails de tenant e consistencia transacional
 
@@ -227,8 +228,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] execute (helpers de bypass exigem `reason` allowlisted, jobs cross-tenant ficaram presos a motivos aprovados, rotas comerciais/publicas do loop core ganharam regressao especifica e os helpers centrais agora emitem telemetria estruturada)
+- [x] verify/validate (fase validada com inventario central, regressao focada `40 passed` e `04.39-VALIDATION.md`)
 
 ### Phase 4.40: Hardening de sessao e borda de producao
 
@@ -244,8 +245,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute
-- [ ] verify/validate
+- [x] execute
+- [x] verify/validate
 
 ### Phase 4.41: Handoff seguro para Kommo
 
@@ -266,7 +267,7 @@ Status:
 
 ### Phase 4.42: Actuar Bridge local
 
-**Goal:** Tirar o sync Actuar do worker isolado e levar a automacao para uma estacao local da academia, usando a sessao ja aberta do operador sem depender de API/webhook do Actuar.
+**Goal:** Manter a ponte local do Actuar apenas em modo blocker-only durante o freeze, sem expandir escopo alem do necessario para nao travar o piloto.
 **Requirements**: `ACTBRIDGE-01` a `ACTBRIDGE-04`
 **Depends on:** Phase 4.41
 **Plans:** 1 plan
@@ -278,12 +279,12 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [~] execute (infraestrutura da ponte local implementada e validada em testes; falta validacao ao vivo na aba real do Actuar)
+- [ ] execute (blocker-only durante o freeze; apenas correcoes impeditivas ao piloto)
 - [ ] verify/validate
 
 ### Phase 4.42.1: Actuar Bridge extension relay
 
-**Goal:** Reduzir o atrito operacional da ponte local, trocando o setup manual de CDP por um relay local com extensao Chrome/Edge anexada explicitamente a aba do Actuar.
+**Goal:** Manter o relay/extensao do Actuar em blocker-only durante o freeze, evitando expansao lateral enquanto o core de sessao, tenant, PII e jobs fecha.
 **Requirements**: `ACTBRIDGE-05`, `ACTBRIDGE-06`
 **Depends on:** Phase 4.42
 **Plans:** 1 plan
@@ -295,8 +296,110 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [~] execute (relay local e extensao scaffoldados; falta validacao ao vivo no navegador/aba real do Actuar)
+- [ ] execute (blocker-only durante o freeze; apenas correcoes impeditivas ao piloto)
 - [ ] verify/validate
+
+### Phase 4.42.2: Plataforma de relatorios premium (INSERTED)
+
+**Goal:** Criar a fundacao unica de relatorios premium do produto, trocando os dumps textuais por um pipeline `HTML/CSS -> PDF` com payload semantico proprio, blocos reutilizaveis e branding leve por academia.
+**Requirements**: `RPT-01` a `RPT-04`
+**Depends on:** Phase 4.42.1
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.42.2-PLAN.md - fundacao premium de relatorios com pipeline HTML/CSS -> PDF, dominio unico de payload e biblioteca visual reutilizavel
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (fundacao premium validada no piloto com renderer compartilhado servindo tela dedicada, `Resumo do aluno`, `Relatorio tecnico` e board pack executivo em uma rodada real de browser + PDFs)
+- [x] verify/validate
+
+### Phase 4.42.3: Relatorios premium de avaliacoes (INSERTED)
+
+**Goal:** Transformar os relatorios de bioimpedancia e composicao corporal em laudos premium com leitura para aluno e leitura tecnica para coach, incluindo comparativos, evolucao e fallback elegante para dados opcionais.
+**Requirements**: `RPTA-01` a `RPTA-04`
+**Depends on:** Phase 4.42.2
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.42.3-PLAN.md - laudos premium de avaliacoes com `Resumo do aluno`, `Relatorio tecnico`, comparativos, fallback de perimetria e entrega pelos canais existentes
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (o fluxo real do workspace do aluno foi fechado no piloto: CTA pos-save, rota dedicada de laudo premium e os dois PDFs reais validados para uma avaliacao com historico)
+- [x] verify/validate
+
+### Phase 4.42.4: Relatorios premium de gestao (INSERTED)
+
+**Goal:** Levar `executive`, `operational`, `commercial`, `financial`, `retention` e `consolidated` para um patamar premium de board pack com KPIs, tendencias, leitura executiva e payloads robustos a cache serializado.
+**Requirements**: `RPTG-01` a `RPTG-04`
+**Depends on:** Phase 4.42.2
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.42.4-PLAN.md - PDFs premium de gestao com narrativa executiva, board pack mensal e coleta semantica independente dos dumps de dashboard
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (payloads premium de gestao e board packs foram validados no piloto com geracao real do `executive` board pack sobre o novo renderer)
+- [x] verify/validate
+
+### Phase 4.42.5: Central, distribuicao e rollout dos relatorios (INSERTED)
+
+**Goal:** Evoluir a Central de Relatorios para catalogo premium com geracao, historico, status, distribuicao assincrona e rollout controlado dos novos PDFs de avaliacoes e gestao.
+**Requirements**: `RPTH-01` a `RPTH-03`
+**Depends on:** Phase 4.42.4
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.42.5-PLAN.md - central de relatorios com catalogo, historico, jobs premium, rollout no piloto e evidencias visuais por trilho
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (catalogo premium, CTA no workspace e geracao real de board pack e laudos foram validados no piloto em uma rodada controlada)
+- [x] verify/validate
+
+### Phase 4.43: AI-first fase 1 - Inbox de triagem
+
+**Goal:** Abrir a primeira superficie realmente AI-first do produto sem quebrar o core endurecido, transformando a triagem diaria em uma inbox orientada por IA com prioridade explicavel, proxima melhor acao e aprovacao humana antes da execucao.
+**Requirements**: `AIFIRST-01` a `AIFIRST-05`
+**Depends on:** Phase 4.42.5
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.43-PLAN.md - AI Triage Inbox como primeira superficie AI-first, com decisao explicavel, tool layer segura e aprovacao humana obrigatoria
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (Wave 1 backend, Wave 2 inbox UI, Wave 3 tool layer/outcome measurement e Wave 4 walkthrough real no piloto concluidas)
+- [x] verify/validate
+
+### Phase 4.43.1: Simplificacao operacional do AI Inbox (INSERTED)
+
+**Goal:** Reduzir o atrito operacional da inbox AI-first validada na `4.43`, trocando explainability densa por uma fila de execucao com CTA principal unico, aprovacao leve e detalhes analiticos recolhidos.
+**Requirements**: `AIFIRST-OPS-01` a `AIFIRST-OPS-04`
+**Depends on:** Phase 4.43
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.43.1-PLAN.md - simplificar lista e inspector, unificar approval + prepare para itens normais e preservar guardrails auditaveis
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (payload operador-first, CTA unico para itens normais, confirmacao curta para itens criticos e filtros operacionais implementados, publicados no piloto e estabilizados por hotfixes de CTA/approval)
+- [x] verify/validate (fase validada com testes focados, build verde, feedback operacional real do piloto e hotfixes consolidados em `04.43.1-VALIDATION.md`)
 
 ### Phase 5: Bulk update dedicado de membros
 
@@ -312,7 +415,7 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute (blocked until Fase 4.3 atingir criterio de saida e as fases urgentes 4.31-4.33 serem fechadas)
+- [ ] execute (blocked until a Fase 4.3 passar no gate de saida)
 - [ ] verify/validate
 
 ### Phase 6: Busca operacional por telefone e CPF
@@ -323,4 +426,4 @@ Status:
 **Plans:** 0 plans
 
 Plans:
-- [ ] TBD (run $gsd-discuss-phase 6 -> $gsd-plan-phase 6) - blocked until Fase 5
+- [ ] TBD (run $gsd-discuss-phase 6 -> $gsd-plan-phase 6) - blocked until o freeze do core terminar e a Fase 5 reabrir

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException, Response
 from starlette.requests import Request
 
 from app.models import LeadStage
@@ -390,22 +390,32 @@ def test_booking_for_missing_lead_creates_or_ignores_cleanly(monkeypatch):
     assert lead.id == created_lead.id
 
 
-def test_proposal_requested_event_enqueues_background_task(monkeypatch):
-    lead = SimpleNamespace(id=uuid4(), stage=LeadStage.PROPOSAL_SENT)
-    background_tasks = BackgroundTasks()
+def test_proposal_requested_event_returns_durable_job_metadata(monkeypatch):
+    gym_id = uuid4()
+    lead = SimpleNamespace(id=uuid4(), gym_id=gym_id, stage=LeadStage.PROPOSAL_SENT)
+    current_user = SimpleNamespace(id=uuid4(), gym_id=gym_id, role="salesperson")
+    job_id = uuid4()
+    db = MagicMock()
 
     monkeypatch.setattr("app.routers.sales.register_call_event", lambda *_args, **_kwargs: lead)
+    monkeypatch.setattr(
+        "app.routers.sales.enqueue_lead_proposal_dispatch_job",
+        lambda *_args, **_kwargs: (SimpleNamespace(id=job_id, status="pending"), True),
+    )
+    monkeypatch.setattr("app.routers.sales.dispatch_lead_post_commit_effects", lambda *_args, **_kwargs: None)
 
     response = call_event_endpoint(
         lead_id=lead.id,
         payload=CallEventCreate(event_type="proposal_requested"),
-        background_tasks=background_tasks,
-        db=MagicMock(),
-        _=SimpleNamespace(role="salesperson"),
+        response=Response(),
+        db=db,
+        current_user=current_user,
     )
 
     assert response.lead_id == lead.id
-    assert len(background_tasks.tasks) == 1
+    assert response.job_id == job_id
+    assert response.job_status == "pending"
+    db.commit.assert_called_once()
 
 
 def test_lost_event_updates_stage_and_logs_audit(monkeypatch):

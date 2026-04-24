@@ -27,6 +27,17 @@ ActuarFieldClassification = Literal["critical_direct", "critical_derived", "non_
 OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
+BodyCompositionSex = Literal["male", "female"]
+BodyCompositionDataQualityFlag = Literal[
+    "missing_body_fat_percent",
+    "missing_muscle_mass",
+    "suspect_bmi",
+    "ocr_low_confidence",
+    "manually_review_required",
+]
+BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
+BodyCompositionRangeStatus = Literal["low", "adequate", "high", "unknown"]
+BodyCompositionInsightTone = Literal["positive", "warning", "neutral"]
 
 
 class BodyCompositionRangeValue(BaseModel):
@@ -42,6 +53,10 @@ class BodyCompositionOcrWarning(BaseModel):
 
 class BodyCompositionOcrValues(BaseModel):
     evaluation_date: str | None = None
+    measured_at: str | None = None
+    age_years: int | None = None
+    sex: BodyCompositionSex | None = None
+    height_cm: float | None = None
     weight_kg: float | None = None
     body_fat_kg: float | None = None
     body_fat_percent: float | None = None
@@ -72,6 +87,7 @@ class BodyCompositionImageOcrPayload(BaseModel):
     values: BodyCompositionOcrValues = Field(default_factory=BodyCompositionOcrValues)
     ranges: dict[str, BodyCompositionRangeValue] = Field(default_factory=dict)
     warnings: list[BodyCompositionOcrWarning] = Field(default_factory=list)
+    flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
     confidence: float = Field(default=0, ge=0, le=1)
     raw_text: str = ""
     needs_review: bool = False
@@ -84,9 +100,13 @@ class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
 
 class BodyCompositionEvaluationBase(BaseModel):
     evaluation_date: date
+    measured_at: datetime | None = None
+    age_years: int | None = Field(default=None, ge=1, le=119)
+    sex: BodyCompositionSex | None = None
+    height_cm: float | None = Field(default=None, ge=100, le=250)
     weight_kg: float | None = Field(default=None, gt=0)
     body_fat_kg: float | None = Field(default=None)
-    body_fat_percent: float | None = Field(default=None, ge=0, le=100)
+    body_fat_percent: float | None = Field(default=None, ge=0, le=75)
     waist_hip_ratio: float | None = Field(default=None, ge=0)
     fat_free_mass_kg: float | None = Field(default=None)
     inorganic_salt_kg: float | None = Field(default=None)
@@ -97,8 +117,8 @@ class BodyCompositionEvaluationBase(BaseModel):
     muscle_mass_kg: float | None = Field(default=None)
     skeletal_muscle_kg: float | None = Field(default=None)
     body_water_percent: float | None = Field(default=None, ge=0, le=100)
-    visceral_fat_level: float | None = Field(default=None, ge=0)
-    bmi: float | None = Field(default=None, gt=0)
+    visceral_fat_level: float | None = Field(default=None, ge=0, le=30)
+    bmi: float | None = Field(default=None, ge=5, le=80)
     basal_metabolic_rate_kcal: float | None = Field(default=None)
     target_weight_kg: float | None = Field(default=None)
     weight_control_kg: float | None = Field(default=None)
@@ -112,6 +132,7 @@ class BodyCompositionEvaluationBase(BaseModel):
     report_file_url: str | None = None
     raw_ocr_text: str | None = None
     ocr_confidence: float | None = Field(default=None, ge=0, le=1)
+    parsing_confidence: float | None = Field(default=None, ge=0, le=1)
     ocr_warnings_json: list[BodyCompositionOcrWarning] | None = None
     needs_review: bool = False
     reviewed_manually: bool = False
@@ -119,6 +140,7 @@ class BodyCompositionEvaluationBase(BaseModel):
     device_profile: str | None = None
     parsed_from_image: bool = False
     ocr_source_file_ref: str | None = None
+    import_batch_id: str | None = None
     measured_ranges_json: dict[str, BodyCompositionRangeValue] | None = None
 
 
@@ -169,6 +191,8 @@ class BodyCompositionEvaluationRead(BodyCompositionEvaluationBase):
     id: UUID
     gym_id: UUID
     member_id: UUID
+    reviewer_user_id: UUID | None
+    data_quality_flags_json: list[BodyCompositionDataQualityFlag] | None
     ai_coach_summary: str | None
     ai_member_friendly_summary: str | None
     ai_risk_flags_json: list[str] | None
@@ -191,6 +215,99 @@ class BodyCompositionEvaluationRead(BodyCompositionEvaluationBase):
     assistant: AIAssistantPayload | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BodyCompositionEvaluationReviewInput(BodyCompositionEvaluationBase):
+    pass
+
+
+class BodyCompositionReportHeaderRead(BaseModel):
+    member_name: str
+    gym_name: str | None = None
+    trainer_name: str | None = None
+    measured_at: datetime
+    age_years: int | None = None
+    sex: BodyCompositionSex | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+
+
+class BodyCompositionMetricCardRead(BaseModel):
+    key: str
+    label: str
+    value: float | int | None = None
+    unit: str | None = None
+    formatted_value: str
+    delta_absolute: float | None = None
+    delta_percent: float | None = None
+    trend: BodyCompositionTrend = "insufficient"
+
+
+class BodyCompositionReferenceMetricRead(BaseModel):
+    key: str
+    label: str
+    value: float | int | None = None
+    unit: str | None = None
+    formatted_value: str
+    reference_min: float | None = None
+    reference_max: float | None = None
+    status: BodyCompositionRangeStatus = "unknown"
+    hint: str | None = None
+
+
+class BodyCompositionComparisonRowRead(BaseModel):
+    key: str
+    label: str
+    unit: str | None = None
+    previous_value: float | int | None = None
+    current_value: float | int | None = None
+    previous_formatted: str
+    current_formatted: str
+    difference_absolute: float | None = None
+    difference_percent: float | None = None
+    trend: BodyCompositionTrend = "insufficient"
+
+
+class BodyCompositionHistoryPointRead(BaseModel):
+    evaluation_id: UUID
+    measured_at: datetime
+    evaluation_date: date
+    value: float | int | None = None
+
+
+class BodyCompositionHistorySeriesRead(BaseModel):
+    key: str
+    label: str
+    unit: str | None = None
+    points: list[BodyCompositionHistoryPointRead] = Field(default_factory=list)
+
+
+class BodyCompositionInsightRead(BaseModel):
+    key: str
+    title: str
+    message: str
+    tone: BodyCompositionInsightTone = "neutral"
+    reasons: list[str] = Field(default_factory=list)
+
+
+class BodyCompositionReportRead(BaseModel):
+    header: BodyCompositionReportHeaderRead
+    current_evaluation_id: UUID
+    previous_evaluation_id: UUID | None = None
+    reviewed_manually: bool
+    parsing_confidence: float | None = None
+    data_quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
+    primary_cards: list[BodyCompositionMetricCardRead] = Field(default_factory=list)
+    composition_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
+    muscle_fat_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
+    risk_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
+    goal_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
+    comparison_rows: list[BodyCompositionComparisonRowRead] = Field(default_factory=list)
+    history_series: list[BodyCompositionHistorySeriesRead] = Field(default_factory=list)
+    insights: list[BodyCompositionInsightRead] = Field(default_factory=list)
+    teacher_notes: str | None = None
+    methodological_note: str
+    segmental_analysis_available: bool = False
 
 
 class ActuarFieldMappingRead(BaseModel):

@@ -13,6 +13,7 @@ import type { Member } from "../../types";
 import { TasksOnboardingTab } from "../../components/tasks/TasksOnboardingTab";
 import { TasksOperationalView } from "../../components/tasks/TasksOperationalView";
 import { isOnboardingActiveMember, type SourceFilter } from "../../components/tasks/taskUtils";
+import { matchesPreferredShift } from "../../utils/preferredShift";
 
 type WorkspaceTab = "operations" | "onboarding";
 
@@ -27,14 +28,13 @@ export function TasksPage() {
   const searchParamValue = searchParams.get("search") ?? "";
 
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("operations");
-  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
 
   const tasksQuery = useQuery({
-    queryKey: ["tasks", page],
-    queryFn: () => taskService.listTasks({ page, page_size: 50 }),
+    queryKey: ["tasks", "all"],
+    queryFn: () => taskService.listAllTasks(),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -81,9 +81,15 @@ export function TasksPage() {
   const tasks = tasksQuery.data?.items ?? [];
   const members = membersQuery.data ?? [];
   const users = usersQuery.data ?? [];
-  const totalTasks = tasksQuery.data?.total ?? 0;
-  const pageSize = tasksQuery.data?.page_size ?? 50;
-  const onboardingCount = members.filter((member) => isOnboardingActiveMember(member)).length;
+  const currentUserShift = user?.work_shift ?? null;
+  const visibleTasks = currentUserShift
+    ? tasks.filter((task) => !task.preferred_shift || matchesPreferredShift(task.preferred_shift, currentUserShift))
+    : tasks;
+  const visibleOnboardingMembers = currentUserShift
+    ? members.filter((member) => isOnboardingActiveMember(member) && matchesPreferredShift(member.preferred_shift, currentUserShift))
+    : members.filter((member) => isOnboardingActiveMember(member));
+  const totalTasks = visibleTasks.length;
+  const onboardingCount = visibleOnboardingMembers.length;
 
   function openOnboardingQueue() {
     setSourcePreset("onboarding");
@@ -139,11 +145,10 @@ export function TasksPage() {
             <TasksOperationalView
               tasks={tasks}
               totalTasks={totalTasks}
-              currentPage={page}
-              pageSize={pageSize}
               members={members}
               users={users}
               currentUserId={user?.id ?? null}
+              currentUserShift={currentUserShift}
               initialSearch={searchParamValue}
               sourcePreset={sourcePreset}
               sourcePresetToken={sourcePresetToken}
@@ -154,7 +159,6 @@ export function TasksPage() {
               isDeleting={deleteMutation.isPending}
               onCreateOpen={() => setCreateOpen(true)}
               onCreateClose={() => setCreateOpen(false)}
-              onPageChange={setPage}
               onSearchChange={(value) => {
                 const nextParams = new URLSearchParams(searchParams);
                 const trimmedValue = value.trim();
@@ -178,6 +182,7 @@ export function TasksPage() {
             membersLoading={membersQuery.isLoading}
             membersError={membersQuery.isError}
             tasks={tasks}
+            currentUserShift={currentUserShift}
             onOpenOnboardingQueue={openOnboardingQueue}
           />
         </TabsContent>

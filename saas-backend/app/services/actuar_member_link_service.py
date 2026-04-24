@@ -76,14 +76,30 @@ def resolve_actuar_member(
     action_log: list[dict] = []
 
     if link and link.is_active and link.actuar_external_id:
-        action_log.append({"strategy": "linked_external_id", "result": "matched"})
-        return ActuarMemberResolution(
-            status="matched",
-            actuar_external_id=link.actuar_external_id,
-            member_context={"external_id": link.actuar_external_id},
-            match_confidence=float(link.match_confidence) if link.match_confidence is not None else 1.0,
-            action_log=action_log,
+        lookup = provider.find_member(
+            {
+                "external_id": link.actuar_external_id,
+                "full_name": member.full_name,
+                "birthdate": member.birthdate.isoformat() if member.birthdate else None,
+                "email": getattr(member, "email", None),
+                "strategy": "linked_external_id",
+            }
         )
+        action_log.append({"strategy": "linked_external_id", "result": lookup.get("status")})
+        resolution = _resolution_from_lookup(
+            db,
+            gym_id=gym_id,
+            member=member,
+            lookup=lookup,
+            action_log=action_log,
+            user_id=user_id,
+            document=resolve_member_document_for_actuar(member, link),
+            link=link,
+        )
+        if resolution.status != "not_found":
+            if resolution.match_confidence is None:
+                resolution.match_confidence = float(link.match_confidence) if link.match_confidence is not None else 1.0
+            return resolution
 
     document = resolve_member_document_for_actuar(member, link)
     if document:

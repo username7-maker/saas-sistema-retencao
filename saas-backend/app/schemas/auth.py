@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models import RoleEnum
@@ -12,6 +14,7 @@ class UserRegister(BaseModel):
     password: str = Field(min_length=8, max_length=72)
     role: RoleEnum = RoleEnum.RECEPTIONIST
     job_title: str | None = Field(default=None, max_length=120)
+    work_shift: Literal["morning", "afternoon", "evening"] | None = None
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -37,6 +40,7 @@ class UserOut(BaseModel):
     role: RoleEnum
     is_active: bool
     job_title: str | None = None
+    work_shift: str | None = None
     avatar_url: str | None = None
     created_at: datetime
 

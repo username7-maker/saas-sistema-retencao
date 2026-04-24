@@ -8,9 +8,10 @@ import type { Task } from "../../types";
 import {
   PRIORITY_LABELS,
   STATUS_LABELS,
-  formatDueDate,
+  getTaskSlaMeta,
   getAssigneeLabel,
   getPriorityAccentClass,
+  getTaskSourceContext,
   getTaskContextLabel,
   isOverdue,
 } from "./taskUtils";
@@ -19,9 +20,11 @@ interface TaskListItemProps {
   task: Task;
   todayKey: string;
   userNameById: Map<string, string>;
+  currentUserId: string | null;
   onOpenDetails: (task: Task) => void;
   onStart: (task: Task) => void;
   onComplete: (taskId: string) => void;
+  onAssignToMe: (taskId: string) => void;
   isUpdating: boolean;
 }
 
@@ -43,15 +46,19 @@ export function TaskListItem({
   task,
   todayKey,
   userNameById,
+  currentUserId,
   onOpenDetails,
   onStart,
   onComplete,
+  onAssignToMe,
   isUpdating,
 }: TaskListItemProps) {
   const overdue = isOverdue(task, todayKey);
   const assigneeLabel = getAssigneeLabel(task, userNameById);
+  const slaMeta = getTaskSlaMeta(task, todayKey);
   const canStart = task.status === "todo";
   const canComplete = task.status === "doing";
+  const canAssignToMe = !task.assigned_to_user_id && Boolean(currentUserId);
 
   function handleOpenDetails() {
     onOpenDetails(task);
@@ -79,31 +86,63 @@ export function TaskListItem({
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm font-semibold text-lovable-ink">{task.title}</p>
+            <p className="truncate text-sm font-semibold text-lovable-ink">{getTaskContextLabel(task)}</p>
+            {!task.assigned_to_user_id ? (
+              <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                Sem responsavel
+              </span>
+            ) : null}
+            {slaMeta.tone === "danger" ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/30 bg-rose-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-200">
+                <TriangleAlert size={10} />
+                {slaMeta.label}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm text-lovable-ink-muted">{task.title}</p>
             <StatusBadge status={task.priority} map={PRIORITY_BADGE_MAP} />
             <StatusBadge status={task.status} map={STATUS_BADGE_MAP} />
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-lovable-ink-muted">
-            <span className="truncate">{getTaskContextLabel(task)}</span>
-            <PreferredShiftBadge preferredShift={task.preferred_shift} prefix />
-            <span className="inline-flex items-center gap-1">
+            <span className={clsx("inline-flex items-center gap-1", !task.assigned_to_user_id && "font-semibold text-amber-200")}>
               <UserRound size={12} />
               {assigneeLabel}
             </span>
+            <span
+              className={clsx(
+                "inline-flex items-center gap-1",
+                slaMeta.tone === "danger" && "font-semibold text-lovable-danger",
+                slaMeta.tone === "warning" && "font-semibold text-amber-200",
+              )}
+            >
+              {slaMeta.tone === "danger" ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
+              {slaMeta.label}
+            </span>
+            <PreferredShiftBadge preferredShift={task.preferred_shift} prefix />
+            <span className="truncate">{getTaskSourceContext(task)}</span>
           </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={clsx(
-              "hidden items-center gap-1 text-xs text-lovable-ink-muted sm:inline-flex",
-              overdue && "font-semibold text-lovable-danger",
-            )}
-          >
-            {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
-            {formatDueDate(task.due_date)}
-          </span>
+          {canAssignToMe ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-lg"
+              title="Assumir tarefa"
+              aria-label={`Assumir ${task.title}`}
+              disabled={isUpdating}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAssignToMe(task.id);
+              }}
+            >
+              Assumir
+            </Button>
+          ) : null}
 
           {canStart ? (
             <Button
@@ -153,16 +192,6 @@ export function TaskListItem({
             <Pencil size={14} />
           </Button>
         </div>
-      </div>
-
-      <div
-        className={clsx(
-          "mt-2 inline-flex items-center gap-1 text-xs text-lovable-ink-muted sm:hidden",
-          overdue && "font-semibold text-lovable-danger",
-        )}
-      >
-        {overdue ? <TriangleAlert size={12} /> : <Clock3 size={12} />}
-        {formatDueDate(task.due_date)}
       </div>
     </article>
   );

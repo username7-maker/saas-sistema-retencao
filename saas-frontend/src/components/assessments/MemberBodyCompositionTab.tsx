@@ -2,7 +2,9 @@ import { AxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowUpRight,
   Copy,
+  Download,
   FilePlus2,
   ImageUp,
   Link2,
@@ -18,6 +20,7 @@ import {
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 import { z } from "zod";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
@@ -38,6 +41,7 @@ import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
 import { FormField } from "../ui2/FormField";
 import { Input } from "../ui2/Input";
+import { Select } from "../ui2/Select";
 import { Skeleton } from "../ui2/Skeleton";
 import { Textarea } from "../ui2/Textarea";
 import {
@@ -81,9 +85,16 @@ function normalizeNullableIntegerInput(value: unknown): number | null | unknown 
 
 const nullableNumberField = z.preprocess(normalizeNullableNumberInput, z.number().nullable().optional());
 const nullableIntegerField = z.preprocess(normalizeNullableIntegerInput, z.number().int().nonnegative().nullable().optional());
+const nullableSexField = z.preprocess(
+  (value) => (value == null || value === "" ? null : value),
+  z.enum(["male", "female"]).nullable().optional(),
+);
 
 const schema = z.object({
   evaluation_date: z.string().min(1, "Data obrigatoria"),
+  age_years: nullableIntegerField,
+  sex: nullableSexField,
+  height_cm: nullableNumberField,
   weight_kg: nullableNumberField,
   body_fat_kg: nullableNumberField,
   body_fat_percent: nullableNumberField,
@@ -114,6 +125,8 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 type NumericFieldKey =
+  | "age_years"
+  | "height_cm"
   | "weight_kg"
   | "body_fat_kg"
   | "body_fat_percent"
@@ -190,6 +203,14 @@ const EMPTY_OCR_READ_SESSION: OcrReadSessionState = {
 
 const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDef[] }> = [
   {
+    title: "Dados basicos do exame",
+    description: "Contexto do exame capturado na Tezewa ou revisado pelo professor.",
+    fields: [
+      { key: "age_years", label: "Idade (anos)", placeholder: "29", step: "1" },
+      { key: "height_cm", label: "Altura (cm)", placeholder: "178", step: "0.1" },
+    ],
+  },
+  {
     title: "Composicao corporal",
     description: "Medidas principais do exame e leitura corporal central.",
     fields: [
@@ -231,6 +252,29 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
   },
 ];
 
+const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
+  "weight_kg",
+  "body_fat_kg",
+  "body_fat_percent",
+  "waist_hip_ratio",
+  "fat_free_mass_kg",
+  "inorganic_salt_kg",
+  "protein_kg",
+  "body_water_kg",
+  "lean_mass_kg",
+  "muscle_mass_kg",
+  "skeletal_muscle_kg",
+  "body_water_percent",
+  "visceral_fat_level",
+  "bmi",
+  "basal_metabolic_rate_kcal",
+  "target_weight_kg",
+  "weight_control_kg",
+  "muscle_control_kg",
+  "fat_control_kg",
+  "total_energy_kcal",
+];
+
 const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvaluation; unit?: string }> = [
   { label: "Peso", field: "weight_kg", unit: " kg" },
   { label: "Gordura kg", field: "body_fat_kg", unit: " kg" },
@@ -259,6 +303,9 @@ function isSupportedOcrImageFile(file: File): boolean {
 function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): FormData {
   return {
     evaluation_date: evaluation?.evaluation_date ?? new Date().toISOString().split("T")[0],
+    age_years: evaluation?.age_years ?? null,
+    sex: evaluation?.sex ?? null,
+    height_cm: evaluation?.height_cm ?? null,
     weight_kg: evaluation?.weight_kg ?? null,
     body_fat_kg: evaluation?.body_fat_kg ?? null,
     body_fat_percent: evaluation?.body_fat_percent ?? null,
@@ -334,6 +381,10 @@ function syncLabel(status: string | null | undefined): string {
   return "Rascunho";
 }
 
+function hasAnyBodyCompositionMetric(data: FormData): boolean {
+  return SAVE_VALIDATION_FIELDS.some((field) => data[field] != null);
+}
+
 function warningTone(warning?: BodyCompositionOcrWarning): string {
   if (!warning) return "";
   return warning.severity === "critical" ? "border-lovable-danger focus:ring-lovable-danger/20" : "border-amber-400 focus:ring-amber-300/20";
@@ -381,6 +432,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [ocrResult, setOcrResult] = useState<BodyCompositionOcrResult | null>(null);
   const [ocrReadSession, setOcrReadSession] = useState<OcrReadSessionState>(EMPTY_OCR_READ_SESSION);
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
+  const [reportReadyEvaluationId, setReportReadyEvaluationId] = useState<string | null>(null);
   const [currentSource, setCurrentSource] = useState<EvaluationSource>("manual");
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
@@ -430,6 +482,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     setOcrResult(null);
     setOcrReadSession(EMPTY_OCR_READ_SESSION);
     setEditingEvaluationId(evaluation?.id ?? null);
+    setReportReadyEvaluationId(evaluation?.id ?? null);
   }
 
   const saveMutation = useMutation({
@@ -451,9 +504,15 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         toast.success(editingEvaluationId ? "Bioimpedancia atualizada com sucesso." : "Bioimpedancia registrada com sucesso.");
       }
       await invalidateAssessmentQueries(queryClient, memberId);
-      resetEditor(null);
+      resetEditor(savedEvaluation);
     },
-    onError: () => toast.error("Erro ao salvar a bioimpedancia."),
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Erro ao salvar a bioimpedancia.");
+    },
   });
 
   const retrySyncMutation = useMutation({
@@ -606,6 +665,23 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       : editingEvaluationId
         ? "Salvar alteracoes"
         : "Salvar bioimpedancia";
+  const selectedSex = watch("sex");
+  const reportEvaluationId = reportReadyEvaluationId ?? focusEvaluation?.id ?? null;
+  const reportHref = reportEvaluationId ? `/assessments/members/${memberId}/body-composition/${reportEvaluationId}/report` : null;
+  const canSendReportWhatsApp = Boolean(reportEvaluationId && memberPhone?.trim());
+  const canSendReportKommo = Boolean(reportEvaluationId);
+
+  async function handleOpenPdf(kind: "summary" | "technical") {
+    if (!reportEvaluationId) return;
+    const popup = window.open("", "_blank");
+    try {
+      if (popup) popup.opener = null;
+      await bodyCompositionService.openPdf(memberId, reportEvaluationId, kind, popup);
+    } catch {
+      popup?.close();
+      toast.error(kind === "technical" ? "Nao foi possivel abrir o relatorio tecnico." : "Nao foi possivel abrir o resumo do aluno.");
+    }
+  }
 
   async function handleCopyCriticalFields() {
     if (!focusEvaluation?.id) return;
@@ -651,6 +727,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       source: currentSource,
       reviewed_manually: currentSource === "manual" ? true : reviewedManually,
       raw_ocr_text: ocrMetadata.raw_ocr_text,
+      parsing_confidence: ocrMetadata.ocr_confidence,
       ocr_confidence: ocrMetadata.ocr_confidence,
       ocr_warnings_json: ocrMetadata.ocr_warnings_json.length > 0 ? ocrMetadata.ocr_warnings_json : null,
       needs_review: needsReview,
@@ -671,17 +748,24 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       }
     }
     const values = result.values;
-    const numericKeys = Object.keys(values).filter((key) => key !== "evaluation_date") as NumericFieldKey[];
+    const numericKeys = Object.keys(values).filter(
+      (key) => key !== "evaluation_date" && key !== "measured_at" && key !== "sex",
+    ) as NumericFieldKey[];
     for (const key of numericKeys) {
       const value = values[key];
       if (typeof value === "number") {
         setValue(key, value);
       }
     }
-    setValue("evaluation_date", values.evaluation_date ?? new Date().toISOString().split("T")[0]);
+    setValue(
+      "evaluation_date",
+      values.evaluation_date ?? values.measured_at?.slice(0, 10) ?? new Date().toISOString().split("T")[0],
+    );
+    setValue("sex", values.sex ?? null);
     setValue("ocr_source_file_ref", `local://${file.name}`);
     setCurrentSource("ocr_receipt");
     setReviewedManually(false);
+    setReportReadyEvaluationId(null);
     setOcrMetadata({
       raw_ocr_text: result.raw_text,
       ocr_confidence: result.confidence,
@@ -693,6 +777,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       measured_ranges_json: result.ranges,
       ocr_source_file_ref: `local://${file.name}`,
     });
+  }
+
+  function onSubmit(data: FormData) {
+    if (currentSource === "ocr_receipt" && !reviewedManually) {
+      toast.error("Confirme a revisao humana dos campos OCR antes de salvar a bioimpedancia.");
+      return;
+    }
+    if (!hasAnyBodyCompositionMetric(data)) {
+      toast.error("Preencha ao menos uma metrica da bioimpedancia antes de salvar.");
+      return;
+    }
+    saveMutation.mutate(buildPayload(data));
   }
 
   async function handleReadPhoto(forceAssisted = false) {
@@ -744,10 +840,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     resetEditor(evaluation);
   }
 
-  function onSubmit(data: FormData) {
-    saveMutation.mutate(buildPayload(data));
-  }
-
   const ocrEngine = ocrResult?.engine ?? null;
   const localOcrText = ocrReadSession.localResult?.raw_text ?? ocrResult?.raw_text ?? null;
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
@@ -797,11 +889,72 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <StatusPill tone={statusPillToneForSync(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status ?? null)}>
               Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}
             </StatusPill>
+            {(focusEvaluation?.age_years ?? watch("age_years")) != null ? (
+              <StatusPill tone="neutral">Idade: {focusEvaluation?.age_years ?? watch("age_years")} anos</StatusPill>
+            ) : null}
+            {(focusEvaluation?.height_cm ?? watch("height_cm")) != null ? (
+              <StatusPill tone="neutral">Altura: {fmt(focusEvaluation?.height_cm ?? watch("height_cm"), " cm")}</StatusPill>
+            ) : null}
+            {(focusEvaluation?.sex ?? selectedSex) ? (
+              <StatusPill tone="neutral">Sexo: {(focusEvaluation?.sex ?? selectedSex) === "female" ? "Feminino" : "Masculino"}</StatusPill>
+            ) : null}
           </div>
           {automaticActuarSaveReady ? (
             <p className="mt-3 text-xs font-medium text-emerald-700">
               Estacao Actuar online. Ao salvar, esta avaliacao entra automaticamente no fluxo externo.
             </p>
+          ) : null}
+          {reportHref ? (
+            <div className="mt-4 rounded-2xl border border-lovable-primary/20 bg-lovable-primary/5 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Relatorio premium pronto</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">
+                    Use o laudo no atendimento, no acompanhamento do professor e na entrega para o aluno.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link to={reportHref}>
+                    <Button type="button" size="sm" variant="primary">
+                      <ArrowUpRight size={14} />
+                      Abrir relatorio
+                    </Button>
+                  </Link>
+                  {reportEvaluationId ? (
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleOpenPdf("summary")}>
+                      <Download size={14} />
+                      Resumo do aluno
+                    </Button>
+                  ) : null}
+                  {reportEvaluationId ? (
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleOpenPdf("technical")}>
+                      <Download size={14} />
+                      Relatorio tecnico
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={!canSendReportWhatsApp || sendWhatsAppMutation.isPending}
+                    onClick={() => reportEvaluationId && sendWhatsAppMutation.mutate(reportEvaluationId)}
+                  >
+                    <MessageCircle size={14} />
+                    {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar WhatsApp"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={!canSendReportKommo || sendKommoMutation.isPending}
+                    onClick={() => reportEvaluationId && sendKommoMutation.mutate(reportEvaluationId)}
+                  >
+                    <Link2 size={14} />
+                    {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
+                  </Button>
+                </div>
+              </div>
+            </div>
           ) : null}
         </CardContent>
       </Card>
@@ -914,10 +1067,26 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 ) : null}
               </section>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <FormField label="Data da avaliacao" error={errors.evaluation_date?.message} required>
                   <Input type="date" {...register("evaluation_date")} />
                 </FormField>
+                <FormField label="Idade no exame" error={errors.age_years?.message}>
+                  <Input type="text" inputMode="numeric" placeholder="29" autoComplete="off" {...register("age_years")} />
+                </FormField>
+                <FormField label="Sexo" error={errors.sex?.message}>
+                  <Select defaultValue="" {...register("sex")}>
+                    <option value="">Nao informado</option>
+                    <option value="male">Masculino</option>
+                    <option value="female">Feminino</option>
+                  </Select>
+                </FormField>
+                <FormField label="Altura (cm)" error={errors.height_cm?.message}>
+                  <Input type="text" inputMode="decimal" placeholder="178" autoComplete="off" {...register("height_cm")} />
+                </FormField>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-1">
                 <FormField label="Referencia da imagem OCR" error={errors.ocr_source_file_ref?.message}>
                   <Input placeholder="local://arquivo.jpg" {...register("ocr_source_file_ref")} />
                 </FormField>
@@ -1321,10 +1490,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <p className="text-sm text-lovable-ink-muted">{evaluation.ai_coach_summary}</p>
                     ) : null}
                   </div>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handleEditEvaluation(evaluation)}>
-                    <Pencil size={14} />
-                    Editar
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Link to={`/assessments/members/${memberId}/body-composition/${evaluation.id}/report`}>
+                      <Button type="button" size="sm" variant="ghost">
+                        <ArrowUpRight size={14} />
+                        Relatorio
+                      </Button>
+                    </Link>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => handleEditEvaluation(evaluation)}>
+                      <Pencil size={14} />
+                      Editar
+                    </Button>
+                  </div>
                 </div>
               </article>
             ))

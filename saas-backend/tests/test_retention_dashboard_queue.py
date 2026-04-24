@@ -5,12 +5,26 @@ from uuid import UUID
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
-from app.models import RiskLevel
+from app.models import Member, RiskLevel
 from app.schemas import PaginatedResponse
 from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
 
 
 class TestRetentionQueueService:
+    def test_plan_cycle_filter_prioritizes_visible_plan_name_over_stale_extra_data(self):
+        from app.services.dashboard_service import _retention_plan_cycle_filter
+        from sqlalchemy import select
+
+        stmt = select(Member.id).where(_retention_plan_cycle_filter("annual"))
+        compiled = str(stmt)
+        params = stmt.compile().params
+
+        assert "members.plan_name" in compiled
+        assert "%mensal%" in params.values()
+        assert "%semestral%" in params.values()
+        assert "%anual%" in params.values()
+        assert "annual" in params.values()
+
     @patch("app.services.dashboard_service.get_assessment_forecast")
     @patch("app.services.dashboard_service.classify_churn_type")
     @patch("app.services.dashboard_service.build_retention_playbook")
@@ -194,7 +208,7 @@ class TestRetentionQueueService:
         ]
         assert result.items[0].last_contact_at == datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
         assert "queda de 62% na frequência" in result.items[0].signals_summary
-        assert result.items[1].risk_level == RiskLevel.YELLOW
+        assert result.items[1].risk_level == RiskLevel.RED
 
     @patch("app.services.dashboard_service.get_assessment_forecast")
     @patch("app.services.dashboard_service.build_retention_playbook")
@@ -275,17 +289,74 @@ class TestRetentionQueueService:
             search="retencao",
             level="red",
             churn_type="voluntary_dissatisfaction",
+            plan_cycle="annual",
         )
 
         stmt = db.execute.call_args.args[0]
         compiled = str(stmt)
+        params = stmt.compile().params
         assert "members.full_name" in compiled
         assert "members.email" in compiled
         assert "members.plan_name" in compiled
         assert "risk_alerts.gym_id" in compiled
         assert "members.churn_type" in compiled
+        assert "annual" in params.values()
+        assert "%anual%" in params.values()
         assert stmt._limit_clause.value == 50
         assert stmt._offset_clause.value == 50
+
+
+    @patch("app.services.dashboard_service.build_retention_playbook")
+    @patch("app.services.dashboard_service.get_current_gym_id")
+    def test_escalates_stale_yellow_alert_to_red_when_inactivity_is_already_extreme(self, mock_get_current_gym_id, mock_build_playbook, gym_id):
+        from app.services.dashboard_service import get_retention_queue
+
+        mock_get_current_gym_id.return_value = gym_id
+        mock_build_playbook.return_value = []
+
+        member_id = UUID("33333333-3333-3333-3333-333333333337")
+        db = MagicMock()
+        db.scalar.return_value = 1
+        db.scalars.return_value.all.return_value = []
+
+        queue_rows = MagicMock()
+        queue_rows.all.return_value = [
+            (
+                SimpleNamespace(
+                    id=UUID("44444444-4444-4444-4444-444444444447"),
+                    score=52,
+                    level=RiskLevel.YELLOW,
+                    reasons={},
+                    action_history=[],
+                    automation_stage="d14",
+                    created_at=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    id=member_id,
+                    full_name="Christian Da Rosa",
+                    email="christian@teste.com",
+                    phone="5554999305274",
+                    plan_name="LIVRE MENSAL",
+                    risk_score=52,
+                    risk_level=RiskLevel.YELLOW,
+                    nps_last_score=7,
+                    last_checkin_at=datetime(2026, 2, 24, 8, 0, tzinfo=timezone.utc),
+                    churn_type="involuntary_seasonal",
+                    extra_data={},
+                    join_date=date(2025, 1, 10),
+                ),
+            ),
+        ]
+
+        contact_rows = MagicMock()
+        contact_rows.all.return_value = []
+        db.execute.side_effect = [queue_rows, contact_rows]
+
+        result = get_retention_queue(db, page=1, page_size=50)
+
+        assert result.items[0].days_without_checkin >= 58
+        assert result.items[0].risk_level == RiskLevel.RED
+        assert result.items[0].risk_score >= 90
 
 
 class TestRetentionQueueRoute:
@@ -346,5 +417,24 @@ class TestRetentionQueueRoute:
             assert body["items"][0]["alert_id"] == "44444444-4444-4444-4444-444444444441"
             assert body["items"][0]["risk_level"] == "red"
             assert "assistant" in body["items"][0]
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_forwards_plan_cycle_filter(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.dashboards.get_retention_queue",
+                return_value=PaginatedResponse(items=[], total=0, page=1, page_size=50),
+            ) as mock_get_retention_queue:
+                response = client.get("/api/v1/dashboards/retention/queue?plan_cycle=semiannual")
+
+            assert response.status_code == 200
+            assert mock_get_retention_queue.call_args.kwargs["plan_cycle"] == "semiannual"
         finally:
             app.dependency_overrides.clear()

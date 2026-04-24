@@ -8,20 +8,24 @@ interface TasksFocusSectionProps {
   tasks: Task[];
   todayKey: string;
   userNameById: Map<string, string>;
+  currentUserId: string | null;
   isUpdating: boolean;
   onOpenDetails: (task: Task) => void;
   onStart: (task: Task) => void;
   onComplete: (taskId: string) => void;
+  onAssignToMe: (taskId: string) => void;
 }
 
 export function TasksFocusSection({
   tasks,
   todayKey,
   userNameById,
+  currentUserId,
   isUpdating,
   onOpenDetails,
   onStart,
   onComplete,
+  onAssignToMe,
 }: TasksFocusSectionProps) {
   return (
     <section className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-4">
@@ -47,10 +51,12 @@ export function TasksFocusSection({
               task={task}
               todayKey={todayKey}
               userNameById={userNameById}
+              currentUserId={currentUserId}
               isUpdating={isUpdating}
               onOpenDetails={onOpenDetails}
               onStart={onStart}
               onComplete={onComplete}
+              onAssignToMe={onAssignToMe}
             />
           ))}
         </div>

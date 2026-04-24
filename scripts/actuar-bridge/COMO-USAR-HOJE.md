@@ -1,23 +1,31 @@
 # Actuar Bridge Hoje
 
-Use estes arquivos na ordem:
+## Fluxo mais simples
+
+Primeiro uso no PC da academia:
+
+1. Gere o codigo em `Settings > Actuar`.
+2. Rode `0-primeiro-uso-academia.cmd`.
+3. Cole o codigo quando ele pedir.
+4. Use a janela do navegador que ele abrir.
+5. Faca login no Actuar.
+
+Uso diario depois disso:
+
+1. Rode `5-modo-academia.cmd`.
+2. Use a janela do navegador aberta por esse atalho.
+3. Deixe a janela da bridge aberta durante o uso.
+
+## Fluxo manual antigo
+
+Se precisar operar manualmente:
 
 1. `1-parear-bridge.cmd`
 2. `3-abrir-pasta-da-extensao.cmd`
 3. `2-iniciar-bridge.cmd`
 
-Checklist do teste:
-
-1. Gere o codigo em `Settings > Actuar`.
-2. Rode `1-parear-bridge.cmd` e cole o codigo.
-3. No Chrome/Edge, carregue a extensao que esta na pasta aberta por `3-abrir-pasta-da-extensao.cmd`.
-4. Abra o Actuar e faca login.
-5. Rode `2-iniciar-bridge.cmd`.
-6. No popup da extensao, clique em `Anexar aba atual`.
-7. Deixe a janela da bridge aberta.
-
-Se quiser conferir rapidamente:
+## Conferencia rapida
 
 - rode `4-ver-status-da-bridge.cmd`
 
-Se aparecer `Bridge local: ONLINE`, a academia ja esta pronta para consumir os syncs.
+Se aparecer `Bridge local: ONLINE`, a academia esta pronta para consumir os syncs.

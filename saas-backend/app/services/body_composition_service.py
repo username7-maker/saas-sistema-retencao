@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,7 @@ from app.models.body_composition import BodyCompositionEvaluation
 from app.schemas.body_composition import (
     BodyCompositionEvaluationCreate,
     BodyCompositionEvaluationRead,
+    BodyCompositionEvaluationReviewInput,
     BodyCompositionEvaluationUpdate,
 )
 from app.services.ai_assistant_service import build_body_composition_assistant
@@ -16,7 +18,33 @@ from app.services.body_composition_actuar_sync_service import (
     prepare_body_composition_sync_attempt,
 )
 from app.services.body_composition_ai_service import generate_body_composition_ai
+from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
 from app.services.member_service import get_member_or_404
+
+BODY_COMPOSITION_MEASUREMENT_FIELDS = (
+    "weight_kg",
+    "body_fat_kg",
+    "body_fat_percent",
+    "waist_hip_ratio",
+    "fat_free_mass_kg",
+    "inorganic_salt_kg",
+    "protein_kg",
+    "body_water_kg",
+    "lean_mass_kg",
+    "muscle_mass_kg",
+    "skeletal_muscle_kg",
+    "body_water_percent",
+    "visceral_fat_level",
+    "bmi",
+    "basal_metabolic_rate_kcal",
+    "target_weight_kg",
+    "weight_control_kg",
+    "muscle_control_kg",
+    "fat_control_kg",
+    "total_energy_kcal",
+    "physical_age",
+    "health_score",
+)
 
 
 def create_body_composition_evaluation(
@@ -24,9 +52,12 @@ def create_body_composition_evaluation(
     gym_id: UUID,
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
+    *,
+    reviewer_user_id: UUID | None = None,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    evaluation_data = payload.model_dump()
+    evaluation_data = resolve_body_composition_persistence_fields(payload.model_dump(), reviewer_user_id=reviewer_user_id)
+    _validate_body_composition_payload(payload)
     evaluation_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     evaluation = BodyCompositionEvaluation(
         gym_id=gym_id,
@@ -66,11 +97,14 @@ def update_body_composition_evaluation(
     member_id: UUID,
     evaluation_id: UUID,
     payload: BodyCompositionEvaluationUpdate,
+    *,
+    reviewer_user_id: UUID | None = None,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
-    update_data = payload.model_dump()
+    update_data = resolve_body_composition_persistence_fields(payload.model_dump(), reviewer_user_id=reviewer_user_id)
+    _validate_body_composition_payload(payload)
     update_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     for field, value in update_data.items():
         setattr(evaluation, field, value)
@@ -79,6 +113,28 @@ def update_body_composition_evaluation(
     sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
     db.flush()
     return evaluation, sync_attempt
+
+
+def review_body_composition_evaluation(
+    db: Session,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+    payload: BodyCompositionEvaluationReviewInput,
+    *,
+    reviewer_user_id: UUID,
+) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
+    review_payload = BodyCompositionEvaluationUpdate.model_validate(
+        payload.model_dump() | {"reviewed_manually": True, "needs_review": False}
+    )
+    return update_body_composition_evaluation(
+        db,
+        gym_id,
+        member_id,
+        evaluation_id,
+        review_payload,
+        reviewer_user_id=reviewer_user_id,
+    )
 
 
 def serialize_body_composition_evaluation(
@@ -142,3 +198,15 @@ def _apply_ai_payload(db: Session, *, member, evaluation: BodyCompositionEvaluat
         from datetime import datetime
 
         evaluation.ai_generated_at = datetime.fromisoformat(generated_at)
+
+
+def _validate_body_composition_payload(
+    payload: BodyCompositionEvaluationCreate | BodyCompositionEvaluationUpdate,
+) -> None:
+    has_any_measurement = any(getattr(payload, field, None) is not None for field in BODY_COMPOSITION_MEASUREMENT_FIELDS)
+    if has_any_measurement:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="Preencha ao menos uma metrica da bioimpedancia antes de salvar a avaliacao.",
+    )

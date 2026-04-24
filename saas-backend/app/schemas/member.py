@@ -84,3 +84,9 @@ class OnboardingScoreOut(BaseModel):
     completed_tasks: int
     total_tasks: int
     assistant: AIAssistantPayload | None = None
+
+
+class OnboardingScoreSnapshotOut(BaseModel):
+    member_id: UUID
+    score: int
+    status: str

@@ -244,6 +244,173 @@ def generate_diagnosis_pdf(payload: dict[str, Any], kpis: dict[str, Any], top_ri
     return buffer.getvalue(), filename
 
 
+def execute_public_diagnosis_job(
+    db: Session,
+    *,
+    diagnosis_id: UUID,
+    lead_id: UUID,
+    payload: dict[str, Any],
+    csv_content: bytes,
+    requester_ip: str | None = None,
+    user_agent: str | None = None,
+) -> dict[str, Any]:
+    from app.services.core_async_job_service import CoreAsyncJobNonRetryableError
+
+    try:
+        analyzed_members = parse_diagnosis_checkins_csv(csv_content)
+    except ValueError as exc:
+        raise CoreAsyncJobNonRetryableError("invalid_csv", str(exc)) from exc
+
+    avg_monthly_fee = Decimal(str(payload["avg_monthly_fee"]))
+    kpis = compute_diagnosis_kpis(
+        analyzed_members=analyzed_members,
+        total_members=int(payload["total_members"]),
+        avg_monthly_fee=avg_monthly_fee,
+    )
+    sorted_risk = sorted(
+        analyzed_members,
+        key=lambda item: (item["risk_level"] != "red", -item["days_since_last_checkin"]),
+    )
+
+    pdf_bytes, filename = generate_diagnosis_pdf(payload, kpis, sorted_risk)
+    email_sent = send_email_with_attachment(
+        to_email=payload["email"],
+        subject="Seu diagnostico de retencao - AI GYM OS",
+        content=(
+            f"Ola {payload['full_name']},\n\n"
+            "Seu diagnostico foi processado. Segue o relatorio em anexo.\n"
+            f"Para ver o plano de acao: {settings.public_booking_url}"
+        ),
+        filename=filename,
+        attachment_bytes=pdf_bytes,
+    )
+    wa_text = (
+        f"Ola {payload['full_name']}! Seu diagnostico ficou pronto: "
+        f"{kpis['red_total']} vermelhos, {kpis['yellow_total']} amarelos, "
+        f"MRR em risco de R$ {kpis['mrr_at_risk']:,.2f}. "
+        f"Agende sua call: {settings.public_booking_url}"
+    )
+    gym_id = resolve_public_gym_id()
+    instance = get_gym_instance(db, gym_id)
+    wa_log = send_whatsapp_sync(
+        db,
+        phone=payload["whatsapp"],
+        message=wa_text,
+        instance=instance,
+        template_name="custom",
+    )
+
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise CoreAsyncJobNonRetryableError("lead_not_found", "Lead do diagnostico nao encontrado")
+
+    notes = list(lead.notes or [])
+    notes.append(
+        {
+            "type": "public_diagnosis_completed",
+            "diagnosis_id": str(diagnosis_id),
+            "kpis": kpis,
+            "email_sent": email_sent,
+            "whatsapp_status": wa_log.status,
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        }
+    )
+    lead.notes = notes
+    db.add(lead)
+
+    create_nurturing_sequence(
+        db,
+        gym_id=gym_id,
+        lead_id=lead_id,
+        prospect_email=payload["email"],
+        prospect_whatsapp=payload["whatsapp"],
+        prospect_name=payload["full_name"],
+        diagnosis_data={
+            **kpis,
+            "diagnosis_id": str(diagnosis_id),
+            "gym_name": payload["gym_name"],
+        },
+    )
+
+    log_audit_event(
+        db,
+        action="public_diagnosis_completed",
+        entity="lead",
+        gym_id=gym_id,
+        entity_id=lead_id,
+        details={"diagnosis_id": str(diagnosis_id), "email": _mask_email(payload["email"]), "kpis": kpis},
+        ip_address=requester_ip,
+        user_agent=user_agent,
+    )
+    return {
+        "diagnosis_id": str(diagnosis_id),
+        "lead_id": str(lead_id),
+        "email_sent": email_sent,
+        "whatsapp_status": wa_log.status,
+        "filename": filename,
+        "kpis": kpis,
+    }
+
+
+def record_public_diagnosis_failure(
+    db: Session,
+    *,
+    diagnosis_id: UUID,
+    lead_id: UUID,
+    payload: dict[str, Any],
+    error_message: str,
+    traceback_snippet: str,
+    requester_ip: str | None = None,
+    user_agent: str | None = None,
+) -> None:
+    gym_id: UUID | None
+    try:
+        gym_id = resolve_public_gym_id()
+    except Exception:
+        gym_id = None
+
+    db.add(
+        DiagnosisError(
+            gym_id=gym_id,
+            prospect_email=_mask_email(payload.get("email", "")),
+            prospect_name=payload.get("full_name"),
+            endpoint="public_diagnostico",
+            error_message=error_message[:1000],
+            traceback_snippet=traceback_snippet,
+            payload=_redact_public_payload(payload),
+        )
+    )
+
+    lead = db.get(Lead, lead_id) if lead_id else None
+    if lead:
+        notes = list(lead.notes or [])
+        notes.append(
+            {
+                "type": "public_diagnosis_failed",
+                "diagnosis_id": str(diagnosis_id),
+                "error": error_message[:300],
+                "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            }
+        )
+        lead.notes = notes
+        db.add(lead)
+
+    log_audit_event(
+        db,
+        action="public_diagnosis_failed",
+        entity="public_diagnosis",
+        gym_id=gym_id,
+        entity_id=lead_id,
+        details={
+            "diagnosis_id": str(diagnosis_id),
+            "email": _mask_email(payload.get("email")),
+            "error": error_message[:500],
+        },
+        ip_address=requester_ip,
+        user_agent=user_agent,
+    )
+
+
 def process_public_diagnosis_background(
     *,
     diagnosis_id: UUID,
@@ -254,132 +421,29 @@ def process_public_diagnosis_background(
     user_agent: str | None = None,
 ) -> None:
     db = SessionLocal()
-    gym_id: UUID | None = None
     try:
         gym_id = resolve_public_gym_id()
         set_current_gym_id(gym_id)
-
-        analyzed_members = parse_diagnosis_checkins_csv(csv_content)
-        avg_monthly_fee = Decimal(str(payload["avg_monthly_fee"]))
-        kpis = compute_diagnosis_kpis(
-            analyzed_members=analyzed_members,
-            total_members=int(payload["total_members"]),
-            avg_monthly_fee=avg_monthly_fee,
-        )
-        sorted_risk = sorted(
-            analyzed_members,
-            key=lambda item: (item["risk_level"] != "red", -item["days_since_last_checkin"]),
-        )
-
-        pdf_bytes, filename = generate_diagnosis_pdf(payload, kpis, sorted_risk)
-        email_sent = send_email_with_attachment(
-            to_email=payload["email"],
-            subject="Seu diagnostico de retencao - AI GYM OS",
-            content=(
-                f"Ola {payload['full_name']},\n\n"
-                "Seu diagnostico foi processado. Segue o relatorio em anexo.\n"
-                f"Para ver o plano de acao: {settings.public_booking_url}"
-            ),
-            filename=filename,
-            attachment_bytes=pdf_bytes,
-        )
-        wa_text = (
-            f"Ola {payload['full_name']}! Seu diagnostico ficou pronto: "
-            f"{kpis['red_total']} vermelhos, {kpis['yellow_total']} amarelos, "
-            f"MRR em risco de R$ {kpis['mrr_at_risk']:,.2f}. "
-            f"Agende sua call: {settings.public_booking_url}"
-        )
-        instance = get_gym_instance(db, gym_id)
-        wa_log = send_whatsapp_sync(
+        execute_public_diagnosis_job(
             db,
-            phone=payload["whatsapp"],
-            message=wa_text,
-            instance=instance,
-            template_name="custom",
-        )
-
-        lead = db.get(Lead, lead_id)
-        if lead:
-            notes = list(lead.notes or [])
-            notes.append(
-                {
-                    "type": "public_diagnosis_completed",
-                    "diagnosis_id": str(diagnosis_id),
-                    "kpis": kpis,
-                    "email_sent": email_sent,
-                    "whatsapp_status": wa_log.status,
-                    "created_at": datetime.now(tz=timezone.utc).isoformat(),
-                }
-            )
-            lead.notes = notes
-            db.add(lead)
-
-        create_nurturing_sequence(
-            db,
-            gym_id=gym_id,
+            diagnosis_id=diagnosis_id,
             lead_id=lead_id,
-            prospect_email=payload["email"],
-            prospect_whatsapp=payload["whatsapp"],
-            prospect_name=payload["full_name"],
-            diagnosis_data={
-                **kpis,
-                "diagnosis_id": str(diagnosis_id),
-                "gym_name": payload["gym_name"],
-            },
-        )
-
-        log_audit_event(
-            db,
-            action="public_diagnosis_completed",
-            entity="lead",
-            gym_id=gym_id,
-            entity_id=lead_id,
-            details={"diagnosis_id": str(diagnosis_id), "email": _mask_email(payload["email"]), "kpis": kpis},
-            ip_address=requester_ip,
+            payload=payload,
+            csv_content=csv_content,
+            requester_ip=requester_ip,
             user_agent=user_agent,
         )
         db.commit()
     except Exception as exc:
         traceback_snippet = traceback.format_exc(limit=8)[:4000]
-        db.add(
-            DiagnosisError(
-                gym_id=gym_id,
-                prospect_email=_mask_email(payload.get("email", "")),
-                prospect_name=payload.get("full_name"),
-                endpoint="public_diagnostico",
-                error_message=str(exc)[:1000],
-                traceback_snippet=traceback_snippet,
-                payload=_redact_public_payload(payload),
-            )
-        )
-
-        if lead_id:
-            lead = db.get(Lead, lead_id)
-            if lead:
-                notes = list(lead.notes or [])
-                notes.append(
-                    {
-                        "type": "public_diagnosis_failed",
-                        "diagnosis_id": str(diagnosis_id),
-                        "error": str(exc)[:300],
-                        "created_at": datetime.now(tz=timezone.utc).isoformat(),
-                    }
-                )
-                lead.notes = notes
-                db.add(lead)
-
-        log_audit_event(
+        record_public_diagnosis_failure(
             db,
-            action="public_diagnosis_failed",
-            entity="public_diagnosis",
-            gym_id=gym_id,
-            entity_id=lead_id,
-            details={
-                "diagnosis_id": str(diagnosis_id),
-                "email": _mask_email(payload.get("email")),
-                "error": str(exc)[:500],
-            },
-            ip_address=requester_ip,
+            diagnosis_id=diagnosis_id,
+            lead_id=lead_id,
+            payload=payload,
+            error_message=str(exc),
+            traceback_snippet=traceback_snippet,
+            requester_ip=requester_ip,
             user_agent=user_agent,
         )
         db.commit()

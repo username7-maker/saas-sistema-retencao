@@ -78,6 +78,34 @@ def run_nps_dispatch(db: Session, *, commit: bool = True) -> dict[str, int]:
     return sent_counts
 
 
+def execute_nps_dispatch_job(
+    db: Session,
+    *,
+    gym_id,
+    job_id,
+    requested_by_user_id=None,
+) -> dict[str, int]:
+    result = run_nps_dispatch(db, commit=False)
+
+    if requested_by_user_id:
+        from app.models import User
+
+        requested_by = db.get(User, requested_by_user_id)
+    else:
+        requested_by = None
+
+    log_audit_event(
+        db,
+        action="nps_dispatch_completed",
+        entity="nps",
+        user=requested_by,
+        entity_id=job_id,
+        details={"job_id": str(job_id), "gym_id": str(gym_id), **result},
+    )
+    db.flush()
+    return result
+
+
 def nps_evolution(db: Session, months: int = 12) -> list[NPSEvolutionPoint]:
     since = datetime.now(tz=timezone.utc) - timedelta(days=31 * months)
     rows = db.execute(

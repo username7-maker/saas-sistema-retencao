@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -5,6 +7,7 @@ from app.services.actuar_settings_service import (
     has_actuar_credentials,
     resolve_effective_actuar_sync_mode,
     serialize_actuar_settings,
+    test_actuar_connection as run_actuar_connection_test,
 )
 
 
@@ -103,3 +106,40 @@ def test_serialize_actuar_settings_reports_local_bridge_counts():
     assert payload.automatic_sync_ready is True
     assert payload.bridge_device_count == 1
     assert payload.bridge_online_device_count == 1
+
+
+def test_test_actuar_connection_uses_assisted_rpa_provider():
+    db = MagicMock()
+    gym = _gym(
+        id="gym-1",
+        actuar_base_url="https://actuar.example",
+        actuar_username="owner",
+        actuar_password_encrypted="segredo",
+    )
+    provider = MagicMock()
+    provider.test_connection.return_value = {
+        "provider": "actuar_assisted_rpa",
+        "supported": True,
+        "mode": "assisted_rpa",
+    }
+
+    with patch("app.services.actuar_settings_service._get_gym_or_404", return_value=gym), patch(
+        "app.services.actuar_settings_service.settings.actuar_enabled",
+        True,
+    ), patch(
+        "app.services.actuar_settings_service.settings.actuar_sync_enabled",
+        True,
+    ), patch(
+        "app.services.actuar_settings_service.settings.actuar_sync_mode",
+        "assisted_rpa",
+    ), patch(
+        "app.services.actuar_settings_service.ActuarAssistedRpaProvider",
+        return_value=provider,
+    ):
+        result = run_actuar_connection_test(db, gym_id=gym.id)
+
+    assert result.success is True
+    assert result.provider == "actuar_assisted_rpa"
+    assert result.automatic_sync_ready is True
+    provider.test_connection.assert_called_once()
+    provider.close.assert_called_once()

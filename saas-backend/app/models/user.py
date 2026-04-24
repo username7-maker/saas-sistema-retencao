@@ -36,6 +36,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    work_shift: Mapped[str | None] = mapped_column(String(24), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     gym = relationship("Gym", back_populates="users")

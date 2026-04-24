@@ -9,11 +9,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.background_jobs.jobs import (
     actuar_sync_queue_job,
     booking_reminder_job,
+    core_async_jobs_queue_job,
     daily_automations_job,
     daily_crm_followup_job,
     daily_loyalty_update_job,
     daily_nps_dispatch_job,
     daily_onboarding_score_job,
+    daily_preferred_shift_sync_job,
     daily_retention_intelligence_job,
     daily_risk_job,
     monthly_reports_job,
@@ -169,6 +171,14 @@ def build_scheduler() -> BackgroundScheduler:
         **_CRON_DEFAULTS,
     )
     scheduler.add_job(
+        instrument_scheduler_job("daily_preferred_shift_sync", daily_preferred_shift_sync_job),
+        trigger="cron",
+        hour=3,
+        minute=20,
+        id="preferred_shift_sync_daily",
+        **_CRON_DEFAULTS,
+    )
+    scheduler.add_job(
         instrument_scheduler_job("sunday_briefing", sunday_briefing_job),
         trigger="cron",
         day_of_week="sun",
@@ -197,6 +207,14 @@ def build_scheduler() -> BackgroundScheduler:
         trigger="cron",
         minute="*/1",
         id="risk_recalculation_queue",
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("core_async_jobs_queue", core_async_jobs_queue_job),
+        trigger="cron",
+        minute="*/1",
+        id="core_async_jobs_queue",
         coalesce=True,
         misfire_grace_time=60,
     )

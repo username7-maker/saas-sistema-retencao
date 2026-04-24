@@ -8,6 +8,7 @@ export interface User {
   role: Role;
   is_active: boolean;
   job_title?: string | null;
+  work_shift?: "morning" | "afternoon" | "evening" | null;
   avatar_url?: string | null;
   created_at: string;
 }
@@ -27,10 +28,109 @@ export interface AIAssistantPayload {
   next_best_action: string;
   suggested_message?: string | null;
   evidence: string[];
+  provider: string;
+  mode: string;
+  fallback_used: boolean;
+  manual_required: boolean;
   confidence_label: string;
   recommended_channel: string;
   cta_target: string;
   cta_label: string;
+}
+
+export type AITriageSourceDomain = "retention" | "onboarding";
+export type AITriageApprovalState = "pending" | "approved" | "rejected";
+export type AITriageSuggestionState = "suggested" | "reviewed";
+export type AITriageExecutionState = "pending" | "blocked" | "prepared" | "queued" | "running" | "completed" | "failed";
+export type AITriageOutcomeState = "pending" | "dismissed" | "positive" | "neutral" | "negative";
+export type AITriageSafeActionType =
+  | "create_task"
+  | "assign_owner"
+  | "open_follow_up"
+  | "prepare_outbound_message"
+  | "enqueue_approved_job";
+
+export interface AITriageRecommendedOwner {
+  user_id: string | null;
+  role: string | null;
+  label: string | null;
+}
+
+export interface AITriageRecommendation {
+  id: string;
+  source_domain: AITriageSourceDomain;
+  source_entity_kind: string;
+  source_entity_id: string;
+  member_id: string | null;
+  lead_id: string | null;
+  subject_name: string;
+  priority_score: number;
+  priority_bucket: string;
+  why_now_summary: string;
+  why_now_details: string[];
+  recommended_action: string;
+  recommended_channel: string | null;
+  recommended_owner: AITriageRecommendedOwner | null;
+  suggested_message: string | null;
+  expected_impact: string;
+  operator_summary: string;
+  primary_action_type: AITriageSafeActionType | string | null;
+  primary_action_label: string | null;
+  requires_explicit_approval: boolean;
+  show_outcome_step: boolean;
+  suggestion_state: AITriageSuggestionState | string;
+  approval_state: AITriageApprovalState;
+  execution_state: AITriageExecutionState | string;
+  outcome_state: AITriageOutcomeState | string;
+  metadata: Record<string, unknown>;
+  last_refreshed_at: string;
+}
+
+export interface AITriageApprovalUpdateInput {
+  decision: "approved" | "rejected";
+  note?: string | null;
+}
+
+export interface AITriageSafeActionInput {
+  action: AITriageSafeActionType;
+  assigned_to_user_id?: string | null;
+  owner_role?: string | null;
+  owner_label?: string | null;
+  note?: string | null;
+  operator_note?: string | null;
+  auto_approve?: boolean;
+  confirm_approval?: boolean;
+}
+
+export interface AITriageSafeActionResult {
+  recommendation: AITriageRecommendation;
+  action: AITriageSafeActionType | string;
+  supported: boolean;
+  detail: string;
+  task_id: string | null;
+  follow_up_url: string | null;
+  prepared_message: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AITriageOutcomeUpdateInput {
+  outcome: "pending" | "positive" | "neutral" | "negative";
+  note?: string | null;
+}
+
+export interface AITriageMetricsSummary {
+  total_active: number;
+  pending_approval_total: number;
+  approved_total: number;
+  rejected_total: number;
+  prepared_action_total: number;
+  positive_outcome_total: number;
+  neutral_outcome_total: number;
+  negative_outcome_total: number;
+  acceptance_rate: number | null;
+  average_time_to_approval_seconds: number | null;
+  median_time_to_approval_seconds: number | null;
+  same_day_prepared_total: number;
 }
 
 export interface Member {
@@ -273,6 +373,16 @@ export type ActuarSyncStatus =
 export type ActuarSyncJobStatus = "pending" | "processing" | "synced" | "failed" | "needs_review" | "cancelled";
 export type ActuarSyncAttemptStatus = "started" | "succeeded" | "failed";
 export type OcrWarningSeverity = "warning" | "critical";
+export type BodyCompositionSex = "male" | "female";
+export type BodyCompositionDataQualityFlag =
+  | "missing_body_fat_percent"
+  | "missing_muscle_mass"
+  | "suspect_bmi"
+  | "ocr_low_confidence"
+  | "manually_review_required";
+export type BodyCompositionTrend = "up" | "down" | "stable" | "insufficient";
+export type BodyCompositionRangeStatus = "low" | "adequate" | "high" | "unknown";
+export type BodyCompositionInsightTone = "positive" | "warning" | "neutral";
 
 export interface BodyCompositionRangeValue {
   min: number | null;
@@ -283,6 +393,95 @@ export interface BodyCompositionOcrWarning {
   field: string | null;
   message: string;
   severity: OcrWarningSeverity;
+}
+
+export interface BodyCompositionReportHeader {
+  member_name: string;
+  gym_name: string | null;
+  trainer_name: string | null;
+  measured_at: string;
+  age_years: number | null;
+  sex: BodyCompositionSex | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+}
+
+export interface BodyCompositionMetricCard {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  formatted_value: string;
+  delta_absolute: number | null;
+  delta_percent: number | null;
+  trend: BodyCompositionTrend;
+}
+
+export interface BodyCompositionReferenceMetric {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  formatted_value: string;
+  reference_min: number | null;
+  reference_max: number | null;
+  status: BodyCompositionRangeStatus;
+  hint: string | null;
+}
+
+export interface BodyCompositionComparisonRow {
+  key: string;
+  label: string;
+  unit: string | null;
+  previous_value: number | null;
+  current_value: number | null;
+  previous_formatted: string;
+  current_formatted: string;
+  difference_absolute: number | null;
+  difference_percent: number | null;
+  trend: BodyCompositionTrend;
+}
+
+export interface BodyCompositionHistoryPoint {
+  evaluation_id: string;
+  measured_at: string;
+  evaluation_date: string;
+  value: number | null;
+}
+
+export interface BodyCompositionHistorySeries {
+  key: string;
+  label: string;
+  unit: string | null;
+  points: BodyCompositionHistoryPoint[];
+}
+
+export interface BodyCompositionInsight {
+  key: string;
+  title: string;
+  message: string;
+  tone: BodyCompositionInsightTone;
+  reasons: string[];
+}
+
+export interface BodyCompositionReport {
+  header: BodyCompositionReportHeader;
+  current_evaluation_id: string;
+  previous_evaluation_id: string | null;
+  reviewed_manually: boolean;
+  parsing_confidence: number | null;
+  data_quality_flags: BodyCompositionDataQualityFlag[];
+  primary_cards: BodyCompositionMetricCard[];
+  composition_metrics: BodyCompositionReferenceMetric[];
+  muscle_fat_metrics: BodyCompositionReferenceMetric[];
+  risk_metrics: BodyCompositionReferenceMetric[];
+  goal_metrics: BodyCompositionReferenceMetric[];
+  comparison_rows: BodyCompositionComparisonRow[];
+  history_series: BodyCompositionHistorySeries[];
+  insights: BodyCompositionInsight[];
+  teacher_notes: string | null;
+  methodological_note: string;
+  segmental_analysis_available: boolean;
 }
 
 export interface BodyCompositionTrainingFocus {
@@ -492,6 +691,10 @@ export interface BodyCompositionEvaluation {
   gym_id: string;
   member_id: string;
   evaluation_date: string;
+  measured_at: string | null;
+  age_years: number | null;
+  sex: BodyCompositionSex | null;
+  height_cm: number | null;
   weight_kg: number | null;
   body_fat_kg: number | null;
   body_fat_percent: number | null;
@@ -519,13 +722,17 @@ export interface BodyCompositionEvaluation {
   report_file_url: string | null;
   raw_ocr_text: string | null;
   ocr_confidence: number | null;
+  parsing_confidence: number | null;
   ocr_warnings_json: BodyCompositionOcrWarning[] | null;
+  data_quality_flags_json: BodyCompositionDataQualityFlag[] | null;
   needs_review: boolean;
   reviewed_manually: boolean;
+  reviewer_user_id: string | null;
   device_model: string | null;
   device_profile: string | null;
   parsed_from_image: boolean;
   ocr_source_file_ref: string | null;
+  import_batch_id: string | null;
   measured_ranges_json: Record<string, BodyCompositionRangeValue> | null;
   ai_coach_summary: string | null;
   ai_member_friendly_summary: string | null;
@@ -571,6 +778,10 @@ export interface BodyCompositionKommoDispatch {
 
 export interface BodyCompositionEvaluationCreate {
   evaluation_date: string;
+  measured_at?: string | null;
+  age_years?: number | null;
+  sex?: BodyCompositionSex | null;
+  height_cm?: number | null;
   weight_kg?: number | null;
   body_fat_kg?: number | null;
   body_fat_percent?: number | null;
@@ -598,6 +809,7 @@ export interface BodyCompositionEvaluationCreate {
   report_file_url?: string | null;
   raw_ocr_text?: string | null;
   ocr_confidence?: number | null;
+  parsing_confidence?: number | null;
   ocr_warnings_json?: BodyCompositionOcrWarning[] | null;
   needs_review?: boolean;
   reviewed_manually?: boolean;
@@ -605,10 +817,12 @@ export interface BodyCompositionEvaluationCreate {
   device_profile?: string | null;
   parsed_from_image?: boolean;
   ocr_source_file_ref?: string | null;
+  import_batch_id?: string | null;
   measured_ranges_json?: Record<string, BodyCompositionRangeValue> | null;
 }
 
 export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate;
+export type BodyCompositionEvaluationReviewInput = BodyCompositionEvaluationCreate;
 
 export interface SalesHistoryItem {
   kind: string;

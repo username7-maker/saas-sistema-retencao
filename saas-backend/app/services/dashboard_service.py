@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
@@ -34,7 +34,7 @@ from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
 from app.services.nps_service import nps_evolution
-from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY
+from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY, _determine_level, _inactivity_points
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
@@ -534,6 +534,17 @@ def _days_without_checkin(member: Member) -> int:
     return max(0, (_utcnow() - reference).days)
 
 
+def _effective_retention_severity(alert: RiskAlert, member: Member, *, days_without_checkin: int) -> tuple[int, RiskLevel]:
+    """Escala a fila com o estado vivo do aluno, nao so com o snapshot salvo no alerta."""
+    live_inactivity_floor = _inactivity_points(days_without_checkin)
+    effective_score = max(
+        int(alert.score or 0),
+        int(member.risk_score or 0),
+        int(live_inactivity_floor),
+    )
+    return effective_score, _determine_level(effective_score)
+
+
 def _retention_signals_summary(member: Member, alert: RiskAlert, *, days_without_checkin: int, forecast_60d: int | None) -> str:
     reasons = _normalize_retention_reasons(alert.reasons)
     parts: list[str] = [f"{days_without_checkin} dias sem check-in"]
@@ -570,6 +581,27 @@ def _retention_last_contact_map(db: Session, member_ids) -> dict[str, datetime]:
     return {str(row.member_id): row.last_at for row in rows if row.last_at is not None}
 
 
+def _retention_plan_cycle_filter(plan_cycle: str):
+    plan_label = {
+        "monthly": "mensal",
+        "semiannual": "semestral",
+        "annual": "anual",
+    }[plan_cycle]
+    stored_plan_cycle = func.coalesce(Member.extra_data["plan_cycle"].astext, "")
+    explicit_plan_cycle_in_name = or_(
+        Member.plan_name.ilike("%mensal%"),
+        Member.plan_name.ilike("%semestral%"),
+        Member.plan_name.ilike("%anual%"),
+    )
+    return or_(
+        Member.plan_name.ilike(f"%{plan_label}%"),
+        and_(
+            not_(explicit_plan_cycle_in_name),
+            stored_plan_cycle == plan_cycle,
+        ),
+    )
+
+
 def get_retention_queue(
     db: Session,
     *,
@@ -578,6 +610,7 @@ def get_retention_queue(
     search: str | None = None,
     level: str = "all",
     churn_type: str | None = None,
+    plan_cycle: str | None = None,
     gym_id=None,
 ) -> PaginatedResponse[RetentionQueueItem]:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
@@ -595,6 +628,8 @@ def get_retention_queue(
         filters.append(RiskAlert.level == RiskLevel(level))
     if churn_type:
         filters.append(Member.churn_type == churn_type)
+    if plan_cycle:
+        filters.append(_retention_plan_cycle_filter(plan_cycle))
     if search and search.strip():
         search_value = f"%{search.strip()}%"
         filters.append(
@@ -643,6 +678,11 @@ def get_retention_queue(
             assessment_member_ids=assessment_member_ids,
         )
         days_without_checkin = _days_without_checkin(member)
+        effective_risk_score, effective_risk_level = _effective_retention_severity(
+            alert,
+            member,
+            days_without_checkin=days_without_checkin,
+        )
         normalized_reasons = _normalize_retention_reasons(alert.reasons)
         playbook = [
             RetentionPlaybookStep.model_validate(step)
@@ -655,8 +695,8 @@ def get_retention_queue(
             email=member.email,
             phone=member.phone,
             plan_name=member.plan_name,
-            risk_level=alert.level,
-            risk_score=int(alert.score or member.risk_score or 0),
+            risk_level=effective_risk_level,
+            risk_score=effective_risk_score,
             nps_last_score=int(member.nps_last_score or 0),
             days_without_checkin=days_without_checkin,
             last_checkin_at=member.last_checkin_at,
@@ -678,6 +718,14 @@ def get_retention_queue(
         )
         queue_item.assistant = build_retention_assistant(queue_item)
         items.append(queue_item)
+
+    items.sort(
+        key=lambda item: (
+            0 if item.risk_level == RiskLevel.RED else 1 if item.risk_level == RiskLevel.YELLOW else 2,
+            -item.risk_score,
+            item.full_name.lower(),
+        )
+    )
 
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 

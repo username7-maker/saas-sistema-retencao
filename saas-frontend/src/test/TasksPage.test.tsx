@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,15 +9,18 @@ import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import type { Member, Task } from "../types";
 
+let currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null as "morning" | "afternoon" | "evening" | null };
+
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "user-1", full_name: "Julia Operacoes" },
+    user: currentUserMock,
   }),
 }));
 
 vi.mock("../services/taskService", () => ({
   taskService: {
     listTasks: vi.fn(),
+    listAllTasks: vi.fn(),
     getAssistant: vi.fn(),
     updateTask: vi.fn(),
     deleteTask: vi.fn(),
@@ -29,6 +32,7 @@ vi.mock("../services/memberService", () => ({
   memberService: {
     listMemberIndex: vi.fn(),
     getOnboardingScore: vi.fn(),
+    getOnboardingScoreboard: vi.fn(),
   },
 }));
 
@@ -61,6 +65,7 @@ function renderPage() {
 describe("TasksPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null };
 
     const now = new Date();
     const isoAtOffset = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString();
@@ -116,7 +121,7 @@ describe("TasksPage", () => {
       },
       {
         id: "member-3",
-        full_name: "André Luis Da Silva",
+        full_name: "Andre Luis Da Silva",
         email: "andre@teste.com",
         phone: null,
         status: "active",
@@ -135,6 +140,28 @@ describe("TasksPage", () => {
         onboarding_score: 42,
         created_at: isoAtOffset(-33),
         updated_at: isoAtOffset(-2),
+      },
+      {
+        id: "member-4",
+        full_name: "Carla Freitas",
+        email: "carla@teste.com",
+        phone: "11970001111",
+        status: "active",
+        plan_name: "Plano Mensal Light",
+        monthly_fee: 159,
+        join_date: dateAtOffset(-45),
+        preferred_shift: "morning",
+        nps_last_score: 10,
+        loyalty_months: 2,
+        risk_score: 18,
+        risk_level: "green",
+        last_checkin_at: isoAtOffset(-1),
+        extra_data: {},
+        suggested_action: null,
+        onboarding_status: "completed",
+        onboarding_score: 84,
+        created_at: isoAtOffset(-45),
+        updated_at: isoAtOffset(-1),
       },
     ];
 
@@ -155,7 +182,7 @@ describe("TasksPage", () => {
         due_date: isoAtOffset(-1),
         completed_at: null,
         suggested_message: "Oi Ana, queremos entender como te ajudar a voltar ao ritmo.",
-        extra_data: { source: "onboarding", plan_type: "mensal" },
+        extra_data: { source: "onboarding", plan_type: "mensal", day_offset: 1 },
         created_at: isoAtOffset(-8),
         updated_at: isoAtOffset(-8),
       },
@@ -219,9 +246,49 @@ describe("TasksPage", () => {
         created_at: isoAtOffset(-10),
         updated_at: isoTodayMorning,
       },
+      {
+        id: "task-5",
+        title: "Confirmar frequencia da Carla",
+        description: "Contato leve de acompanhamento.",
+        member_id: "member-4",
+        lead_id: null,
+        assigned_to_user_id: "user-2",
+        member_name: "Carla Freitas",
+        lead_name: null,
+        preferred_shift: "morning",
+        priority: "medium",
+        status: "todo",
+        kanban_column: "todo",
+        due_date: isoAtOffset(5),
+        completed_at: null,
+        suggested_message: null,
+        extra_data: { source: "manual", plan_type: "mensal" },
+        created_at: isoAtOffset(-2),
+        updated_at: isoAtOffset(-1),
+      },
+      {
+        id: "task-6",
+        title: "Handoff D7 com Bruno",
+        description: "Checar adesao e proximo passo da jornada.",
+        member_id: "member-2",
+        lead_id: null,
+        assigned_to_user_id: "user-2",
+        member_name: "Bruno Lima",
+        lead_name: null,
+        preferred_shift: "evening",
+        priority: "medium",
+        status: "todo",
+        kanban_column: "todo",
+        due_date: isoAtOffset(2),
+        completed_at: null,
+        suggested_message: null,
+        extra_data: { source: "onboarding", plan_type: "anual", day_offset: 7, onboarding_phase: "handoff" },
+        created_at: isoAtOffset(-3),
+        updated_at: isoAtOffset(-1),
+      },
     ];
 
-    vi.mocked(taskService.listTasks).mockResolvedValue({
+    vi.mocked(taskService.listAllTasks).mockResolvedValue({
       items: tasks,
       total: tasks.length,
       page: 1,
@@ -233,6 +300,10 @@ describe("TasksPage", () => {
       next_best_action: "Abrir o perfil e fazer o contato hoje.",
       suggested_message: "Oi Ana, quero te ajudar a voltar ao ritmo desta semana.",
       evidence: ["1 check-in nos ultimos 17 dias", "Primeira avaliacao pendente"],
+      provider: "system",
+      mode: "rule_based",
+      fallback_used: false,
+      manual_required: true,
       confidence_label: "Prioridade imediata",
       recommended_channel: "WhatsApp",
       cta_target: "/assessments/members/member-1?tab=acoes",
@@ -243,6 +314,10 @@ describe("TasksPage", () => {
     vi.mocked(taskService.createTask).mockResolvedValue(tasks[0]);
 
     vi.mocked(memberService.listMemberIndex).mockResolvedValue(members);
+    vi.mocked(memberService.getOnboardingScoreboard).mockResolvedValue([
+      { member_id: "member-1", score: 32, status: "at_risk" },
+      { member_id: "member-2", score: 61, status: "active" },
+    ]);
     vi.mocked(memberService.getOnboardingScore).mockResolvedValue({
       score: 32,
       status: "at_risk",
@@ -267,6 +342,7 @@ describe("TasksPage", () => {
         email: "julia@teste.com",
         role: "manager",
         is_active: true,
+        work_shift: null,
         created_at: "2026-03-01T00:00:00Z",
       },
       {
@@ -276,12 +352,13 @@ describe("TasksPage", () => {
         email: "carlos@teste.com",
         role: "trainer",
         is_active: true,
+        work_shift: "evening",
         created_at: "2026-03-01T00:00:00Z",
       },
     ]);
   });
 
-  it("renders operacao as default with cleaner hierarchy", async () => {
+  it("renders triage as the default operational view with fixed sections", async () => {
     renderPage();
 
     expect(screen.getByText("Tarefas")).toBeInTheDocument();
@@ -289,12 +366,30 @@ describe("TasksPage", () => {
     expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
     expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Triage" })).toBeInTheDocument();
     expect(screen.getByText("Total visiveis")).toBeInTheDocument();
     expect(screen.getByText("Pendentes")).toBeInTheDocument();
     expect(screen.getByText("Vencidas")).toBeInTheDocument();
     expect(screen.getByText("Concluidas hoje")).toBeInTheDocument();
+    expect(screen.getAllByText("Sem responsavel").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Atrasadas").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Concluidas recentemente").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Hoje").length).toBeGreaterThan(0);
+    expect(screen.getByText("Proximas 7 dias")).toBeInTheDocument();
+  });
+
+  it("does not duplicate triage tasks across sections and allows quick assign inline", async () => {
+    renderPage();
+
+    expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getByText("Lead: Lead Carlos")).toBeInTheDocument();
+    expect(screen.getAllByText("Lead: Lead Carlos")).toHaveLength(1);
+    expect(screen.getByText("Nenhuma task sem responsavel.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Assumir Revisar proposta de retorno" }));
+
+    await waitFor(() => {
+      expect(taskService.updateTask).toHaveBeenCalledWith("task-3", { assigned_to_user_id: "user-1" });
+    });
   });
 
   it("filters by only mine and clears filters", async () => {
@@ -305,44 +400,54 @@ describe("TasksPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "So minhas" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Limpar filtros")).toBeInTheDocument();
+      expect(screen.queryByText("Lead: Lead Carlos")).not.toBeInTheDocument();
     });
+
+    expect(screen.getByRole("button", { name: /Ana Silva .*Resolver atraso da Ana/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Bruno Lima .*Enviar follow-up para Bruno/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Limpar filtros")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Limpar filtros"));
 
     await waitFor(() => {
-      expect(screen.queryByText("Limpar filtros")).not.toBeInTheDocument();
+      expect(screen.getByText("Lead: Lead Carlos")).toBeInTheDocument();
     });
   });
 
-  it("supports quick action and detail drawer", async () => {
+  it("supports quick action and an enriched detail drawer", async () => {
     renderPage();
 
     await screen.findByText("Precisa de atencao agora");
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Iniciar Resolver atraso da Ana/i })[0]);
-
-    await waitFor(() => {
-      expect(taskService.updateTask).toHaveBeenCalled();
-    });
-    expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "doing" });
-
-    fireEvent.click(screen.getAllByRole("button", { name: /Editar Resolver atraso da Ana/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /Editar Resolver atraso da Ana/i }));
 
     expect(await screen.findByText("Detalhe da tarefa")).toBeInTheDocument();
     expect(await screen.findByText("Ana esta em onboarding de risco alto.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Resolver atraso da Ana")).toBeInTheDocument();
     expect(screen.getAllByText("Mensagem sugerida").length).toBeGreaterThan(0);
+    expect(screen.getByText("Estado operacional")).toBeInTheDocument();
+    expect(screen.getAllByText("Sistema").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Baseado em regras").length).toBeGreaterThan(0);
+    expect(screen.getByText("A recomendacao e explicavel, mas a execucao continua supervisionada neste ciclo.")).toBeInTheDocument();
     expect(screen.getByText("Contato do aluno")).toBeInTheDocument();
+    expect(screen.getByText("Risco atual")).toBeInTheDocument();
+    expect(screen.getByText(/Score 82/i)).toBeInTheDocument();
+    expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
     expect(screen.getAllByText("Turno Manha").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Ligar" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(
       "href",
       expect.stringContaining("https://wa.me/5511999990001?text="),
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /Iniciar Resolver atraso da Ana/i }));
+
+    await waitFor(() => {
+      expect(taskService.updateTask).toHaveBeenCalledWith("task-1", { status: "doing" });
+    });
   }, 10000);
 
-  it("keeps onboarding in a dedicated tab", async () => {
+  it("keeps onboarding in a dedicated tab with journey buckets and the queue CTA", async () => {
     renderPage();
 
     await screen.findByText("Precisa de atencao agora");
@@ -350,14 +455,93 @@ describe("TasksPage", () => {
 
     expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
     expect(screen.getByText("Intelligence de onboarding")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ver tasks de onboarding" })).toBeInTheDocument();
-    expect(screen.getByText("Onboarding ativo: 2")).toBeInTheDocument();
-    expect(screen.queryByText("André Luis Da Silva")).not.toBeInTheDocument();
+    expect(screen.getByText("Jornada ativa do onboarding")).toBeInTheDocument();
+    expect(screen.getByText("Pendentes")).toBeInTheDocument();
+    expect(screen.getAllByText("Sem responsavel").length).toBeGreaterThan(0);
+    expect(screen.getByText("D0 / D1")).toBeInTheDocument();
+    expect(screen.getByText("D7")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver tasks de onboarding" }));
+
+    expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ana Silva .*Resolver atraso da Ana/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Bruno Lima .*Handoff D7 com Bruno/i })).toBeInTheDocument();
+    expect(screen.queryByText("Lead: Lead Carlos")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Carla Freitas .*Confirmar frequencia da Carla/i })).not.toBeInTheDocument();
+  });
+
+  it("uses the resolved onboarding score to render the detail severity", async () => {
+    vi.mocked(memberService.getOnboardingScore).mockResolvedValueOnce({
+      score: 72,
+      status: "active",
+      days_since_join: 6,
+      factors: {
+        checkin_frequency: 100,
+        first_assessment: 0,
+        task_completion: 0,
+        consistency: 100,
+        member_response: 0,
+      },
+      checkin_count: 3,
+      completed_tasks: 0,
+      total_tasks: 1,
+      assistant: {
+        summary: "Aluno com presenca forte, mas ainda sem avaliacao inicial.",
+        next_best_action: "Agendar a primeira avaliacao e transformar a entrada em um plano claro.",
+        why_it_matters: "A frequencia ja apareceu. Falta consolidar objetivo e plano para reduzir risco futuro.",
+        suggested_message: "Oi Paulo, vamos marcar sua primeira avaliacao para ajustar meta, frequencia e plano de treino?",
+        evidence: ["3 check-in(s) nos primeiros 6 dias", "0/1 tarefa(s) concluidas no onboarding", "Primeira avaliacao: 0%"],
+        provider: "system",
+        mode: "rule_based",
+        fallback_used: false,
+        manual_required: true,
+        confidence_label: "Acompanhamento assistido",
+        recommended_channel: "WhatsApp",
+        cta_target: "/assessments/members/member-1?tab=acoes",
+        cta_label: "Abrir avaliacao",
+      },
+    });
+
+    renderPage();
+
+    await screen.findByText("Precisa de atencao agora");
+    fireEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await screen.findByText("Intelligence de onboarding");
+    fireEvent.click(screen.getByRole("button", { name: /Bruno Lima .*61/i }));
+
+    expect((await screen.findAllByText("72")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Engajados")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Score alto e rotina estavel").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Bruno Lima .*72/i })).toBeInTheDocument();
+    const engagedCards = screen.getAllByText("Engajados");
+    const summaryCard = engagedCards
+      .map((label) => label.closest("button"))
+      .find((node): node is HTMLButtonElement => Boolean(node));
+    expect(summaryCard).toBeTruthy();
+    expect(within(summaryCard!).getByText("1")).toBeInTheDocument();
+  });
+
+  it("applies the logged-in shift as the default task scope and allows turning it off", async () => {
+    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: "morning" };
+
+    renderPage();
+
+    await screen.findByText("Precisa de atencao agora");
+    expect(screen.getByRole("button", { name: "Meu turno: Manha" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Bruno Lima .*Enviar follow-up para Bruno/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ana Silva .*Resolver atraso da Ana/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Meu turno: Manha" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Bruno Lima .*Enviar follow-up para Bruno/i })).toBeInTheDocument();
+    });
   });
 
   it("opens the create task drawer from the page header", async () => {
     renderPage();
 
+    await screen.findByText("Precisa de atencao agora");
     fireEvent.click(screen.getByRole("button", { name: /\+ Nova Tarefa/i }));
 
     expect(await screen.findByText("Nova tarefa")).toBeInTheDocument();
@@ -365,7 +549,7 @@ describe("TasksPage", () => {
   });
 
   it("shows a standardized empty state when there are no tasks", async () => {
-    vi.mocked(taskService.listTasks).mockResolvedValueOnce({
+    vi.mocked(taskService.listAllTasks).mockResolvedValueOnce({
       items: [],
       total: 0,
       page: 1,

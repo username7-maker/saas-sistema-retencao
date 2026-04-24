@@ -6,6 +6,8 @@ saas-backend/.pytest_cache/
 saas-backend/pytest-cache-files-*/
 saas-backend/**/*.py[cod]
 saas-backend/**/__pycache__/
+__pycache__/
+*.py[cod]
 
 # --- FRONTEND (React/Node) ---
 saas-frontend/node_modules/
@@ -16,6 +18,8 @@ saas-frontend/test-results/
 saas-frontend/playwright-report/
 saas-frontend/coverage/
 saas-frontend/*.tsbuildinfo
+saas-frontend/.vercel/
+saas-frontend/tmp-ui-audit/
 
 # --- ROOT SHARED ---
 node_modules/
@@ -27,9 +31,22 @@ database.db
 _tmp_*.csv
 _tmp_*.db
 .actuar-bridge-token.json
+auth_cookies.txt
+data/
+deploy/*qr*.png
 actuar_bridge/.actuar-bridge-token.json
 saas-backend/_tmp_*.db
 saas-backend/_tmp_*.sqlite*
+saas-backend/500
+saas-backend/data/
+.planning/artifacts/
+.planning/debug/
+.planning/phases/**/evidence/
+.planning/phases/**/*PILOT-JOB-GATE*
+.planning/phases/**/*PILOT-SAMPLES*
+.planning/phases/**/*AUTOMATION-SMOKE-*
+.planning/phases/**/*WALKTHROUGH-*
+.planning/phases/04.3-piloto-controlado/04.3-GATE-REPORT.md
 
 # --- SYSTEM / IDE ---
 .DS_Store

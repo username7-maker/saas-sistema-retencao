@@ -3,8 +3,9 @@ Endpoints de gerenciamento da conexao WhatsApp por academia.
 """
 import logging
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,9 +14,15 @@ from app.core.config import settings
 from app.core.dependencies import require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
+from app.schemas.core_async_job import CoreAsyncJobStatusRead
 from app.models.gym import Gym
+from app.services.core_async_job_service import (
+    CORE_ASYNC_JOB_TYPE_WHATSAPP_WEBHOOK_SETUP,
+    enqueue_whatsapp_webhook_setup_job,
+    get_core_async_job,
+    serialize_core_async_job,
+)
 from app.services.evolution_service import (
-    configure_webhook,
     disconnect_instance,
     ensure_instance,
     get_connection_status,
@@ -38,6 +45,9 @@ class WhatsAppStatusOut(BaseModel):
 class QRCodeOut(BaseModel):
     status: str
     qrcode: str | None
+    job_id: str | None = None
+    job_status: str | None = None
+    webhook_setup_created: bool | None = None
 
 
 def _ensure_evolution_config() -> None:
@@ -90,7 +100,6 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
 def connect_whatsapp(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER)),
-    background_tasks: BackgroundTasks = None,
 ) -> QRCodeOut:
     _ensure_evolution_config()
 
@@ -99,21 +108,35 @@ def connect_whatsapp(
     gym.whatsapp_instance = instance
     gym.whatsapp_status = "connecting"
     db.add(gym)
-    db.commit()
 
-    if settings.public_backend_url and settings.whatsapp_webhook_token and background_tasks is not None:
+    job_id: str | None = None
+    job_status: str | None = None
+    webhook_setup_created: bool | None = None
+    if settings.public_backend_url and settings.whatsapp_webhook_token:
         webhook_url = f"{settings.public_backend_url.rstrip('/')}/api/v1/whatsapp/webhook"
-        background_tasks.add_task(
-            configure_webhook,
-            instance,
-            webhook_url,
-            {"X-Webhook-Token": settings.whatsapp_webhook_token},
+        job, created = enqueue_whatsapp_webhook_setup_job(
+            db,
+            gym_id=current_user.gym_id,
+            requested_by_user_id=current_user.id,
+            instance=instance,
+            webhook_url=webhook_url,
+            webhook_headers={"X-Webhook-Token": settings.whatsapp_webhook_token},
         )
+        job_id = str(job.id)
+        job_status = job.status
+        webhook_setup_created = created
     else:
         logger.warning("Webhook da Evolution nao configurado: PUBLIC_BACKEND_URL ou WHATSAPP_WEBHOOK_TOKEN ausente")
 
+    db.commit()
+
     qr_data = get_qr_code(instance)
-    return QRCodeOut(**qr_data)
+    return QRCodeOut(
+        **qr_data,
+        job_id=job_id,
+        job_status=job_status,
+        webhook_setup_created=webhook_setup_created,
+    )
 
 
 @router.get("/qr", response_model=QRCodeOut)
@@ -141,6 +164,18 @@ def get_qr(
         return QRCodeOut(status="connected", qrcode=None)
 
     return QRCodeOut(**get_qr_code(gym.whatsapp_instance))
+
+
+@router.get("/webhook-setups/{job_id}", response_model=CoreAsyncJobStatusRead)
+def get_webhook_setup_status(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER)),
+) -> CoreAsyncJobStatusRead:
+    job = get_core_async_job(db, job_id=job_id, gym_id=current_user.gym_id)
+    if job is None or job.job_type != CORE_ASYNC_JOB_TYPE_WHATSAPP_WEBHOOK_SETUP:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de webhook do WhatsApp nao encontrado")
+    return CoreAsyncJobStatusRead(**serialize_core_async_job(job))
 
 
 @router.get("/status", response_model=WhatsAppStatusOut)
@@ -176,13 +211,12 @@ def disconnect_whatsapp(
 @router.post("/webhook", status_code=status.HTTP_200_OK, include_in_schema=False)
 async def whatsapp_webhook(
     request: Request,
-    token: str | None = Query(None),
     x_webhook_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
     configured_token = (settings.whatsapp_webhook_token or "").strip()
-    provided_token = x_webhook_token or _extract_bearer_token(authorization) or token
+    provided_token = x_webhook_token or _extract_bearer_token(authorization)
     if not configured_token or provided_token != configured_token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook token")
 

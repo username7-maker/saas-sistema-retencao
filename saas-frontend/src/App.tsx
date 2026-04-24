@@ -19,6 +19,7 @@ const CommercialDashboardPage = lazy(() => import("./pages/dashboard/CommercialD
 const FinancialDashboardPage = lazy(() => import("./pages/dashboard/FinancialDashboardPage").then((m) => ({ default: m.FinancialDashboardPage })));
 const RetentionDashboardPage = lazy(() => import("./pages/dashboard/RetentionDashboardPage").then((m) => ({ default: m.RetentionDashboardPage })));
 const CrmPage = lazy(() => import("./pages/crm/CrmPage").then((m) => ({ default: m.CrmPage })));
+const AITriageInboxPage = lazy(() => import("./pages/ai/AITriageInboxPage"));
 const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage").then((m) => ({ default: m.AutomationsPage })));
@@ -26,6 +27,7 @@ const GoalsPage = lazy(() => import("./pages/goals/GoalsPage").then((m) => ({ de
 const ReportsPage = lazy(() => import("./pages/reports/ReportsPage"));
 const AssessmentsPage = lazy(() => import("./pages/assessments/AssessmentsPage").then((m) => ({ default: m.AssessmentsPage })));
 const MemberProfile360Page = lazy(() => import("./pages/assessments/MemberProfile360Page").then((m) => ({ default: m.MemberProfile360Page })));
+const BodyCompositionReportPage = lazy(() => import("./pages/assessments/BodyCompositionReportPage"));
 const NewAssessmentPage = lazy(() => import("./pages/assessments/NewAssessmentPage").then((m) => ({ default: m.NewAssessmentPage })));
 const ImportsPage = lazy(() => import("./pages/imports/ImportsPage").then((m) => ({ default: m.ImportsPage })));
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
@@ -133,6 +135,14 @@ export default function App() {
           }
         />
         <Route
+          path="/ai/triage"
+          element={
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.aiTriage]}>
+              <AITriageInboxPage />
+            </GuardedLazyRoute>
+          }
+        />
+        <Route
           path="/tasks"
           element={
             <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.tasks]}>
@@ -169,6 +179,14 @@ export default function App() {
           element={
             <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessmentContext]}>
               <MemberProfile360Page />
+            </GuardedLazyRoute>
+          }
+        />
+        <Route
+          path="/assessments/members/:memberId/body-composition/:evaluationId/report"
+          element={
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessmentContext]}>
+              <BodyCompositionReportPage />
             </GuardedLazyRoute>
           }
         />

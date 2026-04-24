@@ -43,6 +43,13 @@ const CHURN_OPTIONS = [
   { value: "unknown", label: "Padrão misto" },
 ] as const;
 
+const PLAN_CYCLE_OPTIONS = [
+  { value: "all", label: "Todos os planos" },
+  { value: "monthly", label: "Mensal" },
+  { value: "semiannual", label: "Semestral" },
+  { value: "annual", label: "Anual" },
+] as const;
+
 const CHURN_META: Record<string, { label: string; description: string }> = {
   early_dropout: {
     label: "Onboarding frágil",
@@ -265,10 +272,11 @@ function RetentionQueueDrawer({
       open={Boolean(item)}
       onClose={onClose}
       side="right"
+      widthClassName="sm:w-[30rem] sm:max-w-[92vw] lg:w-[38rem] xl:w-[44rem]"
       title={item ? `Playbook · ${item.full_name}` : "Playbook"}
     >
       {item ? (
-        <div className="space-y-6 p-4">
+        <div className="min-w-0 space-y-6 p-4">
           <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
@@ -330,6 +338,7 @@ function RetentionQueueDrawer({
 
           <AIAssistantPanel
             assistant={item.assistant}
+            compact
             title="Copiloto de retenção"
             subtitle="Explicação curta, canal sugerido e abordagem inicial para este aluno."
           />
@@ -482,6 +491,7 @@ export function RetentionDashboardPage() {
   const [search, setSearch] = useState(searchParamValue.trim());
   const [level, setLevel] = useState<QueueLevel>("all");
   const [churnType, setChurnType] = useState("all");
+  const [planCycle, setPlanCycle] = useState("all");
   const [page, setPage] = useState(1);
   const [selectedItem, setSelectedItem] = useState<RetentionQueueItem | null>(null);
 
@@ -499,10 +509,10 @@ export function RetentionDashboardPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, level, churnType]);
+  }, [search, level, churnType, planCycle]);
 
   const queueQuery = useQuery({
-    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType }],
+    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle }],
     queryFn: () =>
       dashboardService.retentionQueue({
         page,
@@ -510,9 +520,21 @@ export function RetentionDashboardPage() {
         search: search || undefined,
         level,
         churn_type: churnType === "all" ? undefined : churnType,
+        plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
       }),
     staleTime: 60_000,
-    placeholderData: (previous) => previous,
+    placeholderData: (previous, previousQuery) => {
+      const previousParams = previousQuery?.queryKey?.[3] as
+        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string }
+        | undefined;
+      if (!previousParams) return previous;
+      const filtersChanged =
+        previousParams.search !== search ||
+        previousParams.level !== level ||
+        previousParams.churnType !== churnType ||
+        previousParams.planCycle !== planCycle;
+      return filtersChanged ? undefined : previous;
+    },
   });
 
   const resolveMutation = useMutation({
@@ -527,7 +549,7 @@ export function RetentionDashboardPage() {
     onError: () => toast.error("Falha ao resolver alerta."),
   });
 
-  const activeFilterCount = [searchInput.trim().length > 0, level !== "all", churnType !== "all"].filter(Boolean).length;
+  const activeFilterCount = [searchInput.trim().length > 0, level !== "all", churnType !== "all", planCycle !== "all"].filter(Boolean).length;
   const canResolveAlerts = canResolveRetentionAlert(user?.role);
 
   const kpis = useMemo(() => {
@@ -612,6 +634,7 @@ export function RetentionDashboardPage() {
     handleSearchChange("");
     setLevel("all");
     setChurnType("all");
+    setPlanCycle("all");
     setPage(1);
   };
 
@@ -719,6 +742,13 @@ export function RetentionDashboardPage() {
               value: churnType,
               onChange: setChurnType,
               options: CHURN_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+            },
+            {
+              key: "plan_cycle",
+              label: "Plano",
+              value: planCycle,
+              onChange: setPlanCycle,
+              options: PLAN_CYCLE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
             },
           ]}
           activeCount={activeFilterCount}

@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass, field
 from urllib.request import Request, urlopen
 
+import httpx
+
 from actuar_bridge.relay import ExtensionRelayService, ExtensionRelayState
 
 
@@ -53,13 +55,16 @@ def test_relay_claims_only_when_browser_is_attached():
 
     state.poll_backend_once()
     assert state.next_job() is None
+    assert client.heartbeat_calls == 0
     assert client.claim_calls == 0
 
     state.update_browser_status(attached=True, tab_id=7, url="https://app.actuar.com/alunos")
     state.poll_backend_once()
 
+    assert client.heartbeat_calls == 1
     assert client.claim_calls == 1
     assert state.next_job()["job_id"] == "job-1"
+    assert state.next_job() is None
 
 
 def test_relay_complete_and_fail_clear_pending_jobs():
@@ -80,6 +85,25 @@ def test_relay_complete_and_fail_clear_pending_jobs():
     assert state.next_job() is None
 
 
+def test_relay_complete_404_clears_pending_job_without_redispatch():
+    @dataclass
+    class NotFoundCompleteClient(FakeClient):
+        def complete_job(self, job_id, *, external_id, action_log_json, note=None):
+            request = httpx.Request("POST", f"https://example.test/jobs/{job_id}/complete")
+            response = httpx.Response(status_code=404, request=request)
+            raise httpx.HTTPStatusError("not found", request=request, response=response)
+
+    client = NotFoundCompleteClient()
+    state = ExtensionRelayState(client=client)
+    state.update_browser_status(attached=True, tab_id=7, url="https://app.actuar.com/alunos")
+    state.pending_job = {"job_id": "job-404"}
+
+    state.complete_job("job-404", external_id="act-404", action_log_json=[{"event": "ok"}], note="saved")
+
+    assert state.next_job() is None
+    assert state.snapshot()["pending_job_id"] is None
+
+
 def test_relay_http_server_exposes_status_and_job_endpoints():
     client = FakeClient()
     state = ExtensionRelayState(client=client)
@@ -96,6 +120,9 @@ def test_relay_http_server_exposes_status_and_job_endpoints():
 
         next_job = _get_json("http://127.0.0.1:44789/v1/jobs/next")
         assert next_job["job_id"] == "job-9"
+
+        no_second_job = _get_no_content("http://127.0.0.1:44789/v1/jobs/next")
+        assert no_second_job is None
 
         _post_json(
             "http://127.0.0.1:44789/v1/jobs/job-9/complete",
@@ -117,3 +144,9 @@ def _post_json(url: str, payload: dict) -> dict:
     with urlopen(request, timeout=5) as response:  # noqa: S310 - local loopback test helper
         body = response.read().decode("utf-8")
         return json.loads(body) if body else {}
+
+
+def _get_no_content(url: str):
+    with urlopen(url, timeout=5) as response:  # noqa: S310 - local loopback test helper
+        assert response.status == 204
+        return None

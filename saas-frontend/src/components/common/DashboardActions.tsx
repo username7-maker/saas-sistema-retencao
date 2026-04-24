@@ -43,8 +43,8 @@ export function DashboardActions({ dashboard, showMonthlyDispatch = false, theme
     }
     setDispatching(true);
     try {
-      await reportService.dispatchMonthlyReports();
-      toast.success("Disparo mensal iniciado com sucesso.");
+      const result = await reportService.dispatchMonthlyReports();
+      toast.success(result.message);
     } catch {
       toast.error("Falha ao disparar relatórios mensais.");
     } finally {
@@ -81,7 +81,7 @@ export function DashboardActions({ dashboard, showMonthlyDispatch = false, theme
           }
         >
           <Mail size={14} />
-          {dispatching ? "Enviando..." : "Disparo mensal"}
+          {dispatching ? "Enfileirando..." : "Disparo mensal"}
         </button>
       ) : null}
     </div>

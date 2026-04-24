@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import NPSSentiment, NPSTrigger
+from app.schemas.core_async_job import CoreAsyncJobAcceptedResponse, CoreAsyncJobStatusRead
 
 
 class NPSResponseCreate(BaseModel):
@@ -30,3 +31,11 @@ class NPSEvolutionPoint(BaseModel):
     month: str
     average_score: float
     responses: int
+
+
+class NPSDispatchAcceptedResponse(CoreAsyncJobAcceptedResponse):
+    pass
+
+
+class NPSDispatchStatusRead(CoreAsyncJobStatusRead):
+    pass

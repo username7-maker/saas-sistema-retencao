@@ -50,6 +50,7 @@ describe("UsersPage", () => {
         email: "owner@teste.com",
         role: "owner",
         is_active: true,
+        work_shift: null,
         created_at: "2026-03-01T00:00:00Z",
       },
       {
@@ -59,6 +60,7 @@ describe("UsersPage", () => {
         email: "trainer@teste.com",
         role: "trainer",
         is_active: true,
+        work_shift: "morning",
         created_at: "2026-03-02T00:00:00Z",
       },
     ]);
@@ -69,6 +71,7 @@ describe("UsersPage", () => {
 
     expect(await screen.findByText("Trainer Teste")).toBeInTheDocument();
     expect(screen.getAllByText("Instrutor").length).toBeGreaterThan(0);
+    expect(screen.getByText("Turno Manha")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Novo usu/i })).toBeInTheDocument();
     expect(screen.getByText(/Owner pode alterar pap/i)).toBeInTheDocument();
   });
@@ -81,6 +84,7 @@ describe("UsersPage", () => {
       email: "trainer@teste.com",
       role: "trainer",
       is_active: false,
+      work_shift: "morning",
       created_at: "2026-03-02T00:00:00Z",
     });
 

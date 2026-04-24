@@ -8,6 +8,7 @@ export interface StaffUser {
   role: "owner" | "manager" | "receptionist" | "salesperson" | "trainer";
   is_active: boolean;
   job_title?: string | null;
+  work_shift?: "morning" | "afternoon" | "evening" | null;
   avatar_url?: string | null;
   created_at: string;
 }
@@ -18,6 +19,7 @@ export interface UserCreatePayload {
   password: string;
   role: StaffUser["role"];
   job_title?: string | null;
+  work_shift?: StaffUser["work_shift"];
   avatar_url?: string | null;
 }
 
@@ -26,6 +28,7 @@ export interface UserUpdatePayload {
   email?: string;
   is_active?: boolean;
   job_title?: string | null;
+  work_shift?: StaffUser["work_shift"];
   avatar_url?: string | null;
   role?: StaffUser["role"];
 }
@@ -33,6 +36,7 @@ export interface UserUpdatePayload {
 export interface UserProfileUpdatePayload {
   full_name?: string;
   job_title?: string | null;
+  work_shift?: StaffUser["work_shift"];
   avatar_url?: string | null;
 }
 

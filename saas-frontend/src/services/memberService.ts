@@ -56,6 +56,12 @@ export interface OnboardingScoreResult {
   assistant?: AIAssistantPayload | null;
 }
 
+export interface OnboardingScoreSnapshot {
+  member_id: string;
+  score: number;
+  status: 'active' | 'completed' | 'at_risk';
+}
+
 export const memberService = {
   async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
     const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members/", {
@@ -93,6 +99,13 @@ export const memberService = {
 
   async getOnboardingScore(memberId: string): Promise<OnboardingScoreResult> {
     const { data } = await api.get<OnboardingScoreResult>(`/api/v1/members/${memberId}/onboarding-score`);
+    return data;
+  },
+
+  async getOnboardingScoreboard(): Promise<OnboardingScoreSnapshot[]> {
+    const { data } = await api.get<OnboardingScoreSnapshot[]>("/api/v1/members/onboarding-scoreboard", {
+      params: { ts: Date.now() },
+    });
     return data;
   },
 

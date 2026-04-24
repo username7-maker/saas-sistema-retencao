@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 from typing import Annotated
 from uuid import UUID
 
@@ -31,6 +32,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _allowed_browser_origins() -> set[str]:
+    allowed = {origin.strip() for origin in settings.cors_origins if origin.strip()}
+    frontend_origin = settings.frontend_url.strip()
+    if frontend_origin:
+        allowed.add(frontend_origin)
+    return allowed
+
+
+def _origin_from_referer(referer: str | None) -> str | None:
+    if not referer:
+        return None
+    parsed = urlparse(referer)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _resolve_browser_origin(request: Request) -> str | None:
+    origin = (request.headers.get("origin") or "").strip()
+    if origin:
+        return origin
+    return _origin_from_referer(request.headers.get("referer"))
+
+
+def _require_allowed_browser_origin(request: Request) -> None:
+    allowed = _allowed_browser_origins()
+    resolved_origin = _resolve_browser_origin(request)
+    if not resolved_origin or resolved_origin not in allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origem nao autorizada")
+
+
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     response.set_cookie(
         key=settings.refresh_cookie_name,
@@ -57,6 +89,7 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
+    response.headers["Clear-Site-Data"] = "\"storage\""
 
 
 def _client_visible_tokens(tokens: TokenPair) -> TokenPair:
@@ -143,6 +176,7 @@ def refresh(
     db: Annotated[Session, Depends(get_db)],
     payload: RefreshTokenInput | None = None,
 ) -> TokenPair:
+    _require_allowed_browser_origin(request)
     refresh_token = _resolve_refresh_token(request, payload)
     tokens = refresh_access_token(db, refresh_token, commit=False)
     context = get_request_context(request)
@@ -174,6 +208,7 @@ def logout_session(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> APIMessage:
+    _require_allowed_browser_origin(request)
     context = get_request_context(request)
     log_audit_event(
         db,

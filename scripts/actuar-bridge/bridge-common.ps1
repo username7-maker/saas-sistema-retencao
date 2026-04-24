@@ -6,13 +6,52 @@ function Get-BridgeWorkspaceRoot {
   return (Get-BridgeRepoRoot)
 }
 
-function Get-BridgeTokenFile {
+function Get-BridgeEvidenceRoot {
   $workspaceRoot = Split-Path (Get-BridgeRepoRoot) -Parent
-  return (Join-Path $workspaceRoot "actuar-evidence\.actuar-bridge-token.json")
+  return (Join-Path $workspaceRoot "actuar-evidence")
+}
+
+function Get-BridgeTokenFile {
+  return (Join-Path (Get-BridgeEvidenceRoot) ".actuar-bridge-token.json")
 }
 
 function Get-BridgeExtensionPath {
   return (Join-Path (Get-BridgeRepoRoot) "actuar_bridge_extension")
+}
+
+function Get-BridgeBrowserProfileDir {
+  return (Join-Path (Get-BridgeEvidenceRoot) "browser-profile")
+}
+
+function Get-BridgeBrowserExecutable {
+  $candidates = @(
+    "C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+
+  throw "Chrome ou Edge nao encontrado. Instale um desses navegadores no PC da academia."
+}
+
+function Test-BridgeOnline {
+  param(
+    [string]$HealthUrl = "http://127.0.0.1:44777/health"
+  )
+
+  try {
+    $null = Invoke-RestMethod -Uri $HealthUrl -Method Get -TimeoutSec 2
+    return $true
+  }
+  catch {
+    return $false
+  }
 }
 
 function Invoke-BridgePythonModule {

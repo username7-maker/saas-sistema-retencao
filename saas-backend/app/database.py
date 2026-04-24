@@ -22,6 +22,7 @@ from app.models import (
     BodyCompositionEvaluation,
     BodyCompositionSyncAttempt,
     Checkin,
+    CoreAsyncJob,
     DiagnosisError,
     Goal,
     InAppNotification,
@@ -58,6 +59,43 @@ _current_gym_id: ContextVar[UUID | None] = ContextVar("current_gym_id", default=
 _unscoped_access: ContextVar[bool] = ContextVar("unscoped_access", default=False)
 _unscoped_access_reason: ContextVar[str | None] = ContextVar("unscoped_access_reason", default=None)
 
+ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
+    "actuar_bridge.",
+    "actuar_settings.",
+    "actuar_sync.",
+    "assessment_analytics.",
+    "auth.",
+    "core_async_jobs.",
+    "dependencies.",
+    "kommo.",
+    "kommo_settings.",
+    "member_service.",
+    "nurturing.",
+    "risk_recalculation.",
+)
+
+ALLOWED_UNSCOPED_TENANT_REASONS = frozenset(
+    {
+        "jobs.booking_reminder_job",
+        "jobs.nurturing_followup_job",
+    }
+)
+
+
+def _log_tenant_bypass_usage(*, event_name: str, reason: str) -> None:
+    gym_id = get_current_gym_id()
+    logger.info(
+        "Allowlisted tenant bypass helper used.",
+        extra={
+            "extra_fields": {
+                "event": event_name,
+                "status": "allowed",
+                "tenant_bypass_reason": reason,
+                "gym_id": str(gym_id) if gym_id else None,
+            }
+        },
+    )
+
 _DENY_GYM_ID = UUID(int=0)  # Impossible UUID — matches no real row
 TENANT_SCOPED_MODELS = (
     User,
@@ -85,6 +123,7 @@ TENANT_SCOPED_MODELS = (
     MemberRiskHistory,
     NurturingSequence,
     DiagnosisError,
+    CoreAsyncJob,
     TrainingPlan,
     BodyCompositionEvaluation,
     BodyCompositionSyncAttempt,
@@ -117,6 +156,10 @@ def set_unscoped_access_with_reason(enabled: bool, *, reason: str | None = None)
     normalized_reason = (reason or "").strip() or None
     if enabled and not normalized_reason:
         raise ValueError("Cross-tenant unscoped access requires a non-empty reason")
+    if enabled and normalized_reason not in ALLOWED_UNSCOPED_TENANT_REASONS:
+        raise ValueError(f"Cross-tenant unscoped access reason not allowlisted: {normalized_reason}")
+    if enabled and normalized_reason:
+        _log_tenant_bypass_usage(event_name="tenant_bypass_unscoped_access", reason=normalized_reason)
     _unscoped_access.set(enabled)
     _unscoped_access_reason.set(normalized_reason if enabled else None)
 
@@ -134,6 +177,9 @@ def include_all_tenants(statement, *, reason: str):
     normalized_reason = (reason or "").strip()
     if not normalized_reason:
         raise ValueError("include_all_tenants requires a non-empty reason")
+    if not normalized_reason.startswith(ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES):
+        raise ValueError(f"include_all_tenants reason not allowlisted: {normalized_reason}")
+    _log_tenant_bypass_usage(event_name="tenant_bypass_include_all_tenants", reason=normalized_reason)
     return statement.execution_options(include_all_tenants=True, tenant_bypass_reason=normalized_reason)
 
 

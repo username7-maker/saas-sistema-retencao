@@ -149,3 +149,21 @@ def test_member_response_factor_ignores_whatsapp_inbound_from_other_gym():
     result = calculate_onboarding_score(db, member)
 
     assert result["factors"]["member_response"] == 0
+
+
+def test_strong_checkins_and_consistency_lift_member_to_green_band():
+    db = _make_db(
+        checkin_count=4,
+        has_assessment=0,
+        total_tasks=1,
+        done_tasks=0,
+        has_nps=0,
+        hour_buckets=[18, 18, 19, 18],
+    )
+    member = _make_member(join_date=date.today() - timedelta(days=6))
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["factors"]["checkin_frequency"] >= 90
+    assert result["factors"]["consistency"] >= 85
+    assert result["score"] >= 70

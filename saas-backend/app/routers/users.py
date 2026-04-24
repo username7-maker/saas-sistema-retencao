@@ -12,6 +12,7 @@ from app.models import RoleEnum, User
 from app.schemas import UserOut, UserRegister
 from app.services.auth_service import create_user
 from app.services.audit_service import log_audit_event
+from app.services.preferred_shift_service import normalize_preferred_shift
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -23,6 +24,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
     job_title: str | None = Field(default=None, max_length=120)
+    work_shift: str | None = Field(default=None, pattern="^(morning|afternoon|evening)$")
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -33,6 +35,7 @@ class UserActivationUpdate(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     job_title: str | None = Field(default=None, max_length=120)
+    work_shift: str | None = Field(default=None, pattern="^(morning|afternoon|evening)$")
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -90,6 +93,8 @@ def update_my_profile_endpoint(
         current_user.full_name = payload.full_name.strip()
     if payload.job_title is not None:
         current_user.job_title = payload.job_title.strip() or None
+    if payload.work_shift is not None:
+        current_user.work_shift = normalize_preferred_shift(payload.work_shift)
     if payload.avatar_url is not None:
         current_user.avatar_url = payload.avatar_url.strip() or None
 
@@ -146,6 +151,8 @@ def update_user_endpoint(
         target.email = payload.email
     if payload.job_title is not None:
         target.job_title = payload.job_title.strip() or None
+    if payload.work_shift is not None:
+        target.work_shift = normalize_preferred_shift(payload.work_shift)
     if payload.avatar_url is not None:
         target.avatar_url = payload.avatar_url.strip() or None
 
@@ -187,6 +194,8 @@ def update_user_profile_endpoint(
         target.full_name = payload.full_name.strip()
     if payload.job_title is not None:
         target.job_title = payload.job_title.strip() or None
+    if payload.work_shift is not None:
+        target.work_shift = normalize_preferred_shift(payload.work_shift)
     if payload.avatar_url is not None:
         target.avatar_url = payload.avatar_url.strip() or None
 

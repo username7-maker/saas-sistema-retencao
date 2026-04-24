@@ -1,14 +1,22 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import NPSResponse, RoleEnum, User
-from app.schemas import APIMessage, NPSEvolutionPoint, NPSResponseCreate, NPSResponseOut
+from app.schemas import NPSEvolutionPoint, NPSDispatchAcceptedResponse, NPSDispatchStatusRead, NPSResponseCreate, NPSResponseOut
 from app.services.audit_service import log_audit_event
-from app.services.nps_service import create_response, detractors_alerts, nps_evolution, run_nps_dispatch
+from app.services.core_async_job_service import (
+    CORE_ASYNC_JOB_TYPE_NPS_DISPATCH,
+    enqueue_nps_dispatch_job,
+    get_core_async_job,
+    serialize_core_async_job,
+)
+from app.services.nps_service import create_response, detractors_alerts, nps_evolution
 
 
 router = APIRouter(prefix="/nps", tags=["nps"])
@@ -38,25 +46,47 @@ def create_response_endpoint(
     return response
 
 
-@router.post("/dispatch", response_model=dict[str, int])
+@router.post("/dispatch", response_model=NPSDispatchAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 def dispatch_nps_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
-) -> dict[str, int]:
-    result = run_nps_dispatch(db, commit=False)
+) -> NPSDispatchAcceptedResponse:
+    job, created = enqueue_nps_dispatch_job(
+        db,
+        gym_id=current_user.gym_id,
+        requested_by_user_id=current_user.id,
+    )
     context = get_request_context(request)
     log_audit_event(
         db,
-        action="nps_dispatch_run",
+        action="nps_dispatch_queued",
         entity="nps",
         user=current_user,
-        details=result,
+        entity_id=job.id,
+        details={"job_id": str(job.id), "status": job.status, "created": created},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
     db.commit()
-    return result
+    return NPSDispatchAcceptedResponse(
+        message="Disparo de NPS enfileirado.",
+        job_id=job.id,
+        job_type=job.job_type,
+        status=job.status,
+    )
+
+
+@router.get("/dispatches/{job_id}", response_model=NPSDispatchStatusRead)
+def get_nps_dispatch_status(
+    job_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> NPSDispatchStatusRead:
+    job = get_core_async_job(db, job_id=job_id, gym_id=current_user.gym_id)
+    if job is None or job.job_type != CORE_ASYNC_JOB_TYPE_NPS_DISPATCH:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Disparo de NPS nao encontrado")
+    return NPSDispatchStatusRead(**serialize_core_async_job(job))
 
 
 @router.get("/evolution", response_model=list[NPSEvolutionPoint])

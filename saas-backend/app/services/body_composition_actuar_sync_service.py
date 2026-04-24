@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
 from app.database import SessionLocal, clear_current_gym_id, include_all_tenants, set_current_gym_id
+from app.integrations.actuar.assisted_rpa_provider import ActuarAssistedRpaProvider
 from app.integrations.actuar.base import ActuarSyncOutcome
-from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
+from app.integrations.actuar.browser_client import ActuarPlaywrightProvider, _normalize_base_url
 from app.integrations.actuar.csv_export_provider import ActuarCsvExportProvider
 from app.integrations.actuar.http_api_provider import ActuarHttpApiProvider
 from app.models import (
@@ -378,19 +379,29 @@ def list_actuar_sync_queue(
         .join(Member, Member.id == BodyCompositionEvaluation.member_id)
         .outerjoin(ActuarSyncJob, ActuarSyncJob.id == BodyCompositionEvaluation.actuar_sync_job_id)
         .where(BodyCompositionEvaluation.gym_id == gym_id)
-        .where(BodyCompositionEvaluation.actuar_sync_status != "synced_to_actuar")
-        .order_by(desc(BodyCompositionEvaluation.updated_at))
+        .order_by(
+            Member.id.asc(),
+            desc(BodyCompositionEvaluation.evaluation_date),
+            desc(BodyCompositionEvaluation.created_at),
+            desc(BodyCompositionEvaluation.id),
+        )
     )
-    if sync_status:
-        stmt = stmt.where(BodyCompositionEvaluation.actuar_sync_status == sync_status)
-    if error_code:
-        stmt = stmt.where(BodyCompositionEvaluation.sync_last_error_code == error_code)
     if search:
         stmt = stmt.where(Member.full_name.ilike(f"%{search.strip()}%"))
 
     rows = db.execute(stmt).all()
     items: list[dict] = []
+    seen_members: set[UUID] = set()
     for evaluation, member, job in rows:
+        if member.id in seen_members:
+            continue
+        seen_members.add(member.id)
+        if evaluation.actuar_sync_status == "synced_to_actuar":
+            continue
+        if sync_status and evaluation.actuar_sync_status != sync_status:
+            continue
+        if error_code and evaluation.sync_last_error_code != error_code:
+            continue
         items.append(
             {
                 "evaluation_id": evaluation.id,
@@ -454,10 +465,12 @@ def claim_next_actuar_sync_job(db: Session, *, worker_id: str) -> ActuarSyncJob 
 
     current_status = candidate.status
     result = db.execute(
-        update(ActuarSyncJob)
-        .where(ActuarSyncJob.id == candidate.id, ActuarSyncJob.status == current_status)
-        .values(status="processing", locked_at=now, locked_by=worker_id)
-        .execution_options(include_all_tenants=True, tenant_bypass_reason="actuar_sync.claim_job_lock")
+        include_all_tenants(
+            update(ActuarSyncJob)
+            .where(ActuarSyncJob.id == candidate.id, ActuarSyncJob.status == current_status)
+            .values(status="processing", locked_at=now, locked_by=worker_id),
+            reason="actuar_sync.claim_job_lock",
+        )
     )
     if not result.rowcount:
         db.rollback()
@@ -551,12 +564,16 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
                     manual_fallback=True,
                 )
 
-            logger.info(
-                "Actuar body composition form opened.",
-                extra={"extra_fields": {"event": "actuar_sync_form_opened", "job_id": str(job.id), "status": "processing"}},
-            )
+            member_context = {
+                **(resolution.member_context or {}),
+                "external_id": resolution.actuar_external_id,
+                "full_name": member.full_name,
+                "email": getattr(member, "email", None),
+                "birthdate": member.birthdate.isoformat() if getattr(member, "birthdate", None) else None,
+            }
+
             result = provider.push_body_composition(
-                member_context=resolution.member_context or {"external_id": resolution.actuar_external_id},
+                member_context=member_context,
                 mapped_payload=[item for item in mapping["mapped_fields"] if item["supported"] and item["value"] is not None],
                 capture_success=settings.actuar_sync_screenshot_on_success,
                 evidence_prefix=f"gym-{job.gym_id}-job-{job.id}",
@@ -578,6 +595,19 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
         except ActuarSyncServiceError as exc:
             _finalize_sync_failure(db, job_id=job_id, worker_id=worker_id, error=exc, provider=provider)
         except Exception as exc:
+            logger.exception(
+                "Unexpected Actuar sync failure.",
+                extra={
+                    "extra_fields": {
+                        "event": "actuar_sync_unexpected_exception",
+                        "job_id": str(job_id),
+                        "worker_id": worker_id,
+                        "error_type": type(exc).__name__,
+                        "error_repr": repr(exc)[:1000],
+                        "provider_state": _provider_debug_state(provider),
+                    }
+                },
+            )
             mapped_error = _map_unexpected_error(exc)
             _finalize_sync_failure(db, job_id=job_id, worker_id=worker_id, error=mapped_error, provider=provider)
         finally:
@@ -932,7 +962,7 @@ def _mark_evaluation_synced(evaluation: BodyCompositionEvaluation, *, external_i
 
 
 def _get_actuar_credentials(gym: Gym) -> dict[str, str]:
-    base_url = (gym.actuar_base_url or settings.actuar_base_url or "").strip()
+    base_url = _normalize_base_url((gym.actuar_base_url or settings.actuar_base_url or "").strip())
     username = (gym.actuar_username or settings.actuar_username or "").strip()
     password = (gym.actuar_password_encrypted or settings.actuar_password or "").strip()
     if not base_url or not username or not password:
@@ -969,7 +999,7 @@ def _build_provider(
         return ActuarCsvExportProvider()
 
     credentials = _get_actuar_credentials(gym)
-    return ActuarPlaywrightProvider(
+    return ActuarAssistedRpaProvider(
         base_url=credentials["base_url"],
         username=credentials["username"],
         password=credentials["password"],
@@ -1011,14 +1041,102 @@ def _log_resolution(resolution: ActuarMemberResolution, *, member_id: UUID, job_
     )
 
 
+def _provider_debug_state(provider: object | None) -> dict | None:
+    if provider is None:
+        return None
+    client = getattr(provider, "client", None)
+    page = getattr(client, "page", None)
+    if client is None or page is None:
+        return {"has_page": False}
+    try:
+        page_url = page.url
+    except Exception:
+        page_url = None
+    try:
+        page_hash = client._page_hash()
+    except Exception:
+        page_hash = None
+    try:
+        visible_actions = client._visible_action_texts()
+    except Exception:
+        visible_actions = []
+    try:
+        visible_fields = client._visible_field_keys()
+    except Exception:
+        visible_fields = []
+    return {
+        "has_page": True,
+        "page_url": page_url,
+        "page_hash": page_hash,
+        "visible_actions": visible_actions,
+        "visible_fields": visible_fields,
+    }
+
+
 def _map_unexpected_error(exc: Exception) -> ActuarSyncServiceError:
     raw_code = str(exc).strip()
+    if raw_code.startswith("actuar_missing_tab:"):
+        tab_name = raw_code.split(":", 1)[1] or "unknown"
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            f"Aba obrigatoria do Actuar nao encontrada: {tab_name}.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    if raw_code.startswith("actuar_missing_action:"):
+        action_name = raw_code.split(":", 1)[1] or "unknown"
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            f"Acao obrigatoria do fluxo Actuar nao encontrada: {action_name}.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    if raw_code.startswith("actuar_missing_form:"):
+        form_name = raw_code.split(":", 1)[1] or "unknown"
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            f"Formulario obrigatorio do Actuar nao encontrado: {form_name}.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    if raw_code == "actuar_missing_save_button":
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            "Botao de salvar do formulario Actuar nao encontrado.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    if raw_code == "actuar_save_unconfirmed":
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            "O Actuar nao confirmou o salvamento da avaliacao dentro da janela esperada.",
+            retryable=False,
+            manual_fallback=True,
+        )
+    if raw_code.startswith("actuar_missing_field:"):
+        field_name = raw_code.split(":", 1)[1] or "unknown"
+        return ActuarSyncServiceError(
+            "actuar_form_changed",
+            f"Campo obrigatorio do formulario Actuar nao encontrado: {field_name}.",
+            retryable=False,
+            manual_fallback=True,
+        )
     if raw_code == "actuar_form_changed":
         return ActuarSyncServiceError("actuar_form_changed", "Formulario do Actuar mudou e requer revisao.", retryable=False, manual_fallback=True)
+    if raw_code.startswith("critical_fields_missing:"):
+        field_name = raw_code.split(":", 1)[1] or "unknown"
+        return ActuarSyncServiceError(
+            "critical_fields_missing",
+            f"Campo critico ausente para sincronizacao: {field_name}.",
+            retryable=False,
+            manual_fallback=True,
+        )
     if raw_code == "critical_fields_missing":
         return ActuarSyncServiceError("critical_fields_missing", "Campos criticos ausentes para sincronizacao.", retryable=False, manual_fallback=True)
     if raw_code == "playwright_unavailable":
         return ActuarSyncServiceError("external_unavailable", "Playwright indisponivel no worker para executar o sync.", retryable=True)
+    if "Executable doesn't exist" in raw_code:
+        return ActuarSyncServiceError("external_unavailable", "Navegador do Playwright ausente no worker para executar o sync.", retryable=True)
     return ActuarSyncServiceError("external_unavailable", f"Falha externa no sync Actuar: {type(exc).__name__}.", retryable=True)
 
 

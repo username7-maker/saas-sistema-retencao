@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,10 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
             name="bce_water_range",
         ),
         CheckConstraint("ocr_confidence IS NULL OR (ocr_confidence >= 0 AND ocr_confidence <= 1)", name="bce_ocr_confidence_range"),
+        CheckConstraint(
+            "parsing_confidence IS NULL OR (parsing_confidence >= 0 AND parsing_confidence <= 1)",
+            name="bce_parsing_confidence_range",
+        ),
         CheckConstraint(f"source IN {BODY_COMPOSITION_SOURCES}", name="bce_source_valid"),
         CheckConstraint(f"actuar_sync_mode IN {ACTUAR_SYNC_MODES}", name="bce_actuar_sync_mode_valid"),
         CheckConstraint(f"actuar_sync_status IN {ACTUAR_SYNC_STATUSES}", name="bce_actuar_sync_status_valid"),
@@ -38,6 +42,10 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True
     )
     evaluation_date: Mapped[date] = mapped_column(Date, nullable=False)
+    measured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    age_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sex: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    height_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
 
     weight_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     body_fat_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
@@ -69,13 +77,19 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     report_file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     ocr_confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    parsing_confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     ocr_warnings_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    data_quality_flags_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reviewed_manually: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reviewer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     device_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     device_profile: Mapped[str | None] = mapped_column(String(60), nullable=True)
     parsed_from_image: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ocr_source_file_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    import_batch_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     measured_ranges_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ai_coach_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_member_friendly_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

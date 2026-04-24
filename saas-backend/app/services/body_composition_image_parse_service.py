@@ -21,6 +21,7 @@ from app.schemas.body_composition import (
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
 )
+from app.services.body_composition_report_service import build_body_composition_quality_flags
 from app.utils.claude import _parse_claude_json
 
 
@@ -61,6 +62,10 @@ NUMERIC_FIELDS = (
 )
 FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
     ("evaluation_date", "data da avaliacao impressa no recibo, em YYYY-MM-DD quando visivel"),
+    ("measured_at", "data e hora da avaliacao quando estiverem explicitamente visiveis"),
+    ("age_years", "idade em anos, quando impressa"),
+    ("sex", "sexo biologico impresso no laudo: male ou female"),
+    ("height_cm", "estatura/altura em centimetros"),
     ("weight_kg", "Weight (kg) ou peso atual"),
     ("body_fat_kg", "Body fat (kg)"),
     ("body_fat_percent", "Body fat ratio (%) ou percentual de gordura"),
@@ -85,6 +90,8 @@ FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
     ("health_score", "Health score"),
 )
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
+    "age_years": (1, 119),
+    "height_cm": (100, 250),
     "weight_kg": (30, 300),
     "body_fat_kg": (1, 80),
     "body_fat_percent": (2, 75),
@@ -484,6 +491,11 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
         values=result.values,
         ranges=result.ranges,
         warnings=deduped_warnings,
+        flags=build_body_composition_quality_flags(
+            result.values,
+            parsing_confidence=confidence,
+            needs_review=needs_review,
+        ),
         confidence=confidence,
         raw_text=result.raw_text,
         needs_review=needs_review,

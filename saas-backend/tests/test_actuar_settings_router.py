@@ -40,7 +40,7 @@ def _settings_payload():
     }
 
 
-def test_get_actuar_settings_requires_owner_or_manager(app, client):
+def test_get_actuar_settings_allows_read_only_access_for_receptionist(app, client):
     db = MagicMock()
 
     def _override_db():
@@ -49,12 +49,15 @@ def test_get_actuar_settings_requires_owner_or_manager(app, client):
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[get_current_user] = lambda: _current_user(RoleEnum.RECEPTIONIST)
 
-    try:
-        response = client.get("/api/v1/settings/actuar")
-    finally:
-        app.dependency_overrides.clear()
+    with patch("app.routers.settings.get_actuar_settings", return_value=_settings_payload()) as get_mock:
+        try:
+            response = client.get("/api/v1/settings/actuar")
+        finally:
+            app.dependency_overrides.clear()
 
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["effective_sync_mode"] == "assisted_rpa"
+    get_mock.assert_called_once()
 
 
 def test_get_actuar_settings_returns_payload(app, client):

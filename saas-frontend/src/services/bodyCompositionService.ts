@@ -4,7 +4,9 @@ import type {
   BodyCompositionKommoDispatch,
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
+  BodyCompositionEvaluationReviewInput,
   BodyCompositionManualSyncSummary,
+  BodyCompositionReport,
   BodyCompositionWhatsAppDispatch,
   BodyCompositionEvaluationUpdate,
 } from "../types";
@@ -20,6 +22,7 @@ import {
 
 const NUMERIC_FIELDS = [
   "weight_kg",
+  "height_cm",
   "body_fat_kg",
   "body_fat_percent",
   "waist_hip_ratio",
@@ -41,6 +44,7 @@ const NUMERIC_FIELDS = [
   "total_energy_kcal",
   "physical_age",
   "health_score",
+  "parsing_confidence",
 ] as const;
 
 function toNullableNumber(value: unknown): number | null {
@@ -62,6 +66,25 @@ function stripLocalOcrTransportMetadata(result: BodyCompositionOcrResult): Omit<
   return payload;
 }
 
+function parseFilename(contentDisposition?: string, fallback = "bioimpedancia.pdf"): string {
+  if (!contentDisposition) return fallback;
+  const match = /filename="?([^"]+)"?/i.exec(contentDisposition);
+  return match?.[1] ?? fallback;
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export type BodyCompositionPdfKind = "summary" | "technical";
+
 export interface BodyCompositionAssistedReadResult {
   localResult: BodyCompositionOcrResult | null;
   result: BodyCompositionOcrResult;
@@ -78,6 +101,13 @@ export const bodyCompositionService = {
       { params: { limit } },
     );
     return data.map(normalizeBodyComposition);
+  },
+
+  async get(memberId: string, evaluationId: string): Promise<BodyCompositionEvaluation> {
+    const { data } = await api.get<BodyCompositionEvaluation>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}`,
+    );
+    return normalizeBodyComposition(data);
   },
 
   async create(
@@ -98,6 +128,18 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.put<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}`,
+      payload,
+    );
+    return normalizeBodyComposition(data);
+  },
+
+  async review(
+    memberId: string,
+    evaluationId: string,
+    payload: BodyCompositionEvaluationReviewInput,
+  ): Promise<BodyCompositionEvaluation> {
+    const { data } = await api.post<BodyCompositionEvaluation>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/review`,
       payload,
     );
     return normalizeBodyComposition(data);
@@ -189,6 +231,77 @@ export const bodyCompositionService = {
       formData,
     );
     return ensureOcrResultMetadata(data, data.engine ?? "local", Boolean(data.fallback_used));
+  },
+
+  async parseOcr(
+    memberId: string,
+    file: File,
+    localOcrResult?: BodyCompositionOcrResult | null,
+    deviceProfile: BodyCompositionDeviceProfile = BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE,
+  ): Promise<BodyCompositionOcrResult> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("device_profile", deviceProfile);
+    if (localOcrResult) {
+      formData.append("local_ocr_result", JSON.stringify(stripLocalOcrTransportMetadata(localOcrResult)));
+    }
+
+    const { data } = await api.post<BodyCompositionOcrResult>(
+      `/api/v1/members/${memberId}/body-composition/parse-ocr`,
+      formData,
+    );
+    return ensureOcrResultMetadata(data, data.engine ?? "local", Boolean(data.fallback_used));
+  },
+
+  async getReport(memberId: string, evaluationId: string): Promise<BodyCompositionReport> {
+    const { data } = await api.get<BodyCompositionReport>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/report`,
+    );
+    return data;
+  },
+
+  async fetchPdf(
+    memberId: string,
+    evaluationId: string,
+    kind: BodyCompositionPdfKind,
+  ): Promise<{ blob: Blob; filename: string }> {
+    const path = kind === "technical" ? "technical-pdf" : "pdf";
+    const response = await api.get<Blob>(`/api/v1/members/${memberId}/body-composition/${evaluationId}/${path}`, {
+      responseType: "blob",
+      params: { ts: Date.now() },
+    });
+
+    return {
+      blob: response.data,
+      filename: parseFilename(
+        response.headers["content-disposition"],
+        kind === "technical" ? "relatorio-tecnico-bioimpedancia.pdf" : "resumo-aluno-bioimpedancia.pdf",
+      ),
+    };
+  },
+
+  async openPdf(
+    memberId: string,
+    evaluationId: string,
+    kind: BodyCompositionPdfKind,
+    popup?: Window | null,
+  ): Promise<void> {
+    const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
+    const url = window.URL.createObjectURL(blob);
+    const targetWindow = popup ?? window.open("", "_blank");
+
+    if (targetWindow) {
+      try {
+        targetWindow.opener = null;
+      } catch {
+        // noop
+      }
+      targetWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+
+    triggerBrowserDownload(blob, filename);
   },
 
   async readWithAssistedFallback(

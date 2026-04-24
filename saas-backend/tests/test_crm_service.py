@@ -13,6 +13,7 @@ from app.models import LeadStage, TaskStatus
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 LEAD_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
+RECENT_JOIN_DATE = (datetime.now(tz=timezone.utc) - timedelta(days=10)).date()
 
 
 def _mock_lead(**overrides):
@@ -166,7 +167,7 @@ class TestUpdateLead:
             stage=LeadStage.WON,
             conversion_handoff=LeadConversionHandoff(
                 plan_name="Plano Premium",
-                join_date=date(2026, 3, 1),
+                join_date=RECENT_JOIN_DATE,
                 email_confirmed=True,
                 phone_confirmed=True,
                 notes="Aluno convertido com foco em emagrecimento.",
@@ -208,7 +209,7 @@ class TestUpdateLead:
             stage=LeadStage.WON,
             conversion_handoff=LeadConversionHandoff(
                 plan_name="Plano Premium",
-                join_date=date(2026, 3, 1),
+                join_date=RECENT_JOIN_DATE,
                 email_confirmed=True,
                 phone_confirmed=True,
                 notes="Handoff comercial confirmado.",
@@ -239,7 +240,7 @@ class TestUpdateLead:
             stage=LeadStage.WON,
             conversion_handoff=LeadConversionHandoff(
                 plan_name="Plano Premium",
-                join_date=date(2026, 3, 1),
+                join_date=RECENT_JOIN_DATE,
                 email_confirmed=True,
                 phone_confirmed=True,
             ),

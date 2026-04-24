@@ -1,3 +1,12 @@
+from app.schemas.ai_triage import (
+    AITriageApprovalUpdate,
+    AITriageMetricsSummaryRead,
+    AITriageOutcomeUpdate,
+    AITriageRecommendationRead,
+    AITriageRecommendedOwner,
+    AITriageSafeActionPrepareInput,
+    AITriageSafeActionPreparedRead,
+)
 from app.schemas.assistant import AIAssistantPayload
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
@@ -20,6 +29,7 @@ from app.schemas.assessment import (
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
 from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
+from app.schemas.core_async_job import CoreAsyncJobAcceptedResponse, CoreAsyncJobStatusRead
 from app.schemas.dashboard import (
     ChurnPoint,
     CommercialDashboard,
@@ -49,13 +59,21 @@ from app.schemas.imports import (
 )
 from app.schemas.lead import LeadConversionHandoff, LeadCreate, LeadNoteCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
-from app.schemas.member import MemberCreate, MemberOut, MemberRiskOut, MemberUpdate, OnboardingScoreOut
+from app.schemas.member import (
+    MemberCreate,
+    MemberOut,
+    MemberRiskOut,
+    MemberUpdate,
+    OnboardingScoreOut,
+    OnboardingScoreSnapshotOut,
+)
 from app.schemas.nurturing import NurturingSequenceOut
-from app.schemas.nps import NPSEvolutionPoint, NPSResponseCreate, NPSResponseOut
+from app.schemas.nps import NPSEvolutionPoint, NPSDispatchAcceptedResponse, NPSDispatchStatusRead, NPSResponseCreate, NPSResponseOut
 from app.schemas.objection import ObjectionResponseOut, ObjectionResponseUpdate
 from app.schemas.notifications import InAppNotificationOut, MarkNotificationReadInput
 from app.schemas.public_diagnosis import (
     PublicDiagnosisQueuedResponse,
+    PublicDiagnosisStatusRead,
     PublicObjectionRequest,
     PublicObjectionResponse,
     PublicProposalRequest,
@@ -69,6 +87,7 @@ from app.schemas.sales import (
     CallScriptOut,
     KnownObjectionOut,
     LeadBookingOut,
+    LeadProposalDispatchStatusRead,
     PublicBookingConfirmRequest,
     PublicBookingConfirmResponse,
     PublicWhatsappWebhookResponse,
@@ -83,6 +102,13 @@ from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 
 __all__ = [
     "APIMessage",
+    "AITriageApprovalUpdate",
+    "AITriageMetricsSummaryRead",
+    "AITriageOutcomeUpdate",
+    "AITriageRecommendationRead",
+    "AITriageRecommendedOwner",
+    "AITriageSafeActionPrepareInput",
+    "AITriageSafeActionPreparedRead",
     "AIAssistantPayload",
     "AssessmentCreate",
     "ActuarConnectionTestResult",
@@ -101,6 +127,8 @@ __all__ = [
     "AutomationRuleUpdate",
     "ChurnPoint",
     "CommercialDashboard",
+    "CoreAsyncJobAcceptedResponse",
+    "CoreAsyncJobStatusRead",
     "CheckinCreate",
     "CheckinOut",
     "ConversionBySource",
@@ -137,15 +165,19 @@ __all__ = [
     "MemberRiskOut",
     "MemberUpdate",
     "OnboardingScoreOut",
+    "OnboardingScoreSnapshotOut",
     "MarkNotificationReadInput",
     "MessageLogOut",
     "NurturingSequenceOut",
     "NPSEvolutionPoint",
+    "NPSDispatchAcceptedResponse",
+    "NPSDispatchStatusRead",
     "NPSResponseCreate",
     "NPSResponseOut",
     "ObjectionResponseOut",
     "ObjectionResponseUpdate",
     "PublicDiagnosisQueuedResponse",
+    "PublicDiagnosisStatusRead",
     "PublicObjectionRequest",
     "PublicObjectionResponse",
     "PublicProposalRequest",
@@ -169,6 +201,7 @@ __all__ = [
     "CallScriptOut",
     "KnownObjectionOut",
     "LeadBookingOut",
+    "LeadProposalDispatchStatusRead",
     "PublicBookingConfirmRequest",
     "PublicBookingConfirmResponse",
     "PublicWhatsappWebhookResponse",

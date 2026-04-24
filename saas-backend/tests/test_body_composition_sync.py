@@ -20,6 +20,7 @@ from app.services.body_composition_actuar_sync_service import (
     confirm_manual_actuar_sync,
     create_body_composition_sync_job,
     get_body_composition_sync_status,
+    list_actuar_sync_queue,
     prepare_body_composition_sync_attempt,
 )
 
@@ -29,6 +30,7 @@ MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 EVALUATION_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
 JOB_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
 ATTEMPT_ID = uuid.UUID("66666666-6666-6666-6666-666666666666")
+OTHER_MEMBER_ID = uuid.UUID("77777777-7777-7777-7777-777777777777")
 
 
 def _member() -> SimpleNamespace:
@@ -40,6 +42,15 @@ def _member() -> SimpleNamespace:
     )
 
 
+def _other_member() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=OTHER_MEMBER_ID,
+        full_name="Outro Aluno",
+        birthdate=date(1991, 2, 20),
+        cpf_encrypted=None,
+    )
+
+
 def _evaluation(sync_status: str = "saved") -> SimpleNamespace:
     return SimpleNamespace(
         id=EVALUATION_ID,
@@ -47,13 +58,18 @@ def _evaluation(sync_status: str = "saved") -> SimpleNamespace:
         member_id=MEMBER_ID,
         evaluation_date=date(2026, 3, 23),
         weight_kg=84.5,
+        body_fat_kg=19.46,
         body_fat_percent=23.0,
         fat_free_mass_kg=65.0,
         lean_mass_kg=65.0,
         skeletal_muscle_kg=35.0,
         muscle_mass_kg=35.0,
+        target_weight_kg=78.2,
         body_water_percent=51.0,
         bmi=26.1,
+        basal_metabolic_rate_kcal=1880,
+        total_energy_kcal=3008,
+        visceral_fat_level=9,
         notes="Observacoes",
         source="manual",
         device_model="Tezewa",
@@ -80,6 +96,7 @@ def _job(status: str = "pending") -> SimpleNamespace:
         gym_id=GYM_ID,
         member_id=MEMBER_ID,
         body_composition_evaluation_id=EVALUATION_ID,
+        job_type="body_composition_push",
         status=status,
         error_code=None,
         error_message=None,
@@ -89,6 +106,8 @@ def _job(status: str = "pending") -> SimpleNamespace:
         locked_at=None,
         locked_by=None,
         synced_at=None,
+        created_at=datetime(2026, 4, 9, 12, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 4, 9, 12, 5, tzinfo=timezone.utc),
     )
 
 
@@ -222,14 +241,25 @@ def test_create_sync_job_requires_online_local_bridge_for_explicit_request():
             raise AssertionError("create_body_composition_sync_job should reject explicit local bridge sync without an online station")
 
 
-def test_existing_link_external_id_short_circuits_matching():
+def test_existing_link_external_id_is_resolved_through_provider_for_person_context():
     db = MagicMock()
     link = SimpleNamespace(
         is_active=True,
-        actuar_external_id="act-123",
+        actuar_external_id="6955",
+        actuar_search_document=None,
         match_confidence=1,
     )
     provider = MagicMock()
+    provider.find_member.return_value = {
+        "status": "matched",
+        "actuar_external_id": "6955",
+        "member_context": {
+            "external_id": "6955",
+            "person_id": "c10541ca-9392-4d4c-9234-f6384b453ad1",
+            "profile_url": "https://app.actuar.com/#/avaliacoes/perfil-avaliado/c10541ca-9392-4d4c-9234-f6384b453ad1",
+        },
+        "match_confidence": 1.0,
+    }
 
     with patch("app.services.actuar_member_link_service.get_actuar_member_link", return_value=link):
         from app.services.actuar_member_link_service import resolve_actuar_member
@@ -238,8 +268,9 @@ def test_existing_link_external_id_short_circuits_matching():
 
     assert isinstance(resolution, ActuarMemberResolution)
     assert resolution.status == "matched"
-    assert resolution.actuar_external_id == "act-123"
-    provider.find_member.assert_not_called()
+    assert resolution.actuar_external_id == "6955"
+    assert resolution.member_context["person_id"] == "c10541ca-9392-4d4c-9234-f6384b453ad1"
+    provider.find_member.assert_called_once()
 
 
 def test_ambiguous_match_returns_needs_review():
@@ -364,6 +395,23 @@ def test_build_provider_uses_csv_export_without_actuar_credentials():
     assert provider.__class__.__name__ == "ActuarCsvExportProvider"
 
 
+def test_build_provider_uses_assisted_rpa_when_credentials_exist():
+    gym = SimpleNamespace(
+        actuar_base_url="https://actuar.example",
+        actuar_username="owner",
+        actuar_password_encrypted="segredo",
+    )
+
+    provider = _build_provider(
+        gym=gym,
+        sync_mode="assisted_rpa",
+        worker_id="worker-test",
+        evidence_dir="data/test-evidence",
+    )
+
+    assert provider.__class__.__name__ == "ActuarAssistedRpaProvider"
+
+
 def test_finalize_structural_failure_marks_manual_sync_required():
     db = MagicMock()
     job = _job(status="processing")
@@ -400,6 +448,65 @@ def test_worker_claim_skips_local_bridge_jobs():
     assert job is None
 
 
+def test_list_actuar_sync_queue_hides_older_failed_entries_when_member_has_newer_synced_evaluation():
+    db = MagicMock()
+    member = _member()
+    latest_synced = _evaluation(sync_status="synced_to_actuar")
+    latest_synced.id = uuid.UUID("88888888-8888-8888-8888-888888888888")
+    latest_synced.evaluation_date = date(2026, 4, 9)
+
+    older_failed = _evaluation(sync_status="manual_sync_required")
+    older_failed.id = uuid.UUID("99999999-9999-9999-9999-999999999999")
+    older_failed.evaluation_date = date(2026, 4, 9)
+    older_failed.sync_last_error_code = "critical_fields_missing"
+    older_failed.sync_last_error_message = "Campos criticos ausentes"
+
+    other_member = _other_member()
+    latest_pending = _evaluation(sync_status="manual_sync_required")
+    latest_pending.id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    latest_pending.member_id = OTHER_MEMBER_ID
+    latest_pending.evaluation_date = date(2026, 4, 10)
+    latest_pending.sync_last_error_code = "actuar_form_changed"
+    latest_pending.sync_last_error_message = "Acao obrigatoria do fluxo Actuar nao encontrada: new_assessment."
+
+    db.execute.return_value.all.return_value = [
+        (latest_synced, member, None),
+        (older_failed, member, _job(status="needs_review")),
+        (latest_pending, other_member, _job(status="needs_review")),
+    ]
+
+    items = list_actuar_sync_queue(db, gym_id=GYM_ID)
+
+    assert len(items) == 1
+    assert items[0]["member_id"] == OTHER_MEMBER_ID
+    assert items[0]["evaluation_id"] == latest_pending.id
+
+
+def test_list_actuar_sync_queue_keeps_only_latest_pending_entry_per_member():
+    db = MagicMock()
+    member = _member()
+    latest_pending = _evaluation(sync_status="manual_sync_required")
+    latest_pending.id = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    latest_pending.evaluation_date = date(2026, 4, 9)
+    latest_pending.sync_last_error_code = "actuar_form_changed"
+
+    older_pending = _evaluation(sync_status="manual_sync_required")
+    older_pending.id = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    older_pending.evaluation_date = date(2026, 1, 12)
+    older_pending.sync_last_error_code = "critical_fields_missing"
+
+    db.execute.return_value.all.return_value = [
+        (latest_pending, member, _job(status="needs_review")),
+        (older_pending, member, _job(status="needs_review")),
+    ]
+
+    items = list_actuar_sync_queue(db, gym_id=GYM_ID)
+
+    assert len(items) == 1
+    assert items[0]["evaluation_id"] == latest_pending.id
+    assert items[0]["error_code"] == "actuar_form_changed"
+
+
 def test_manual_sync_summary_lists_critical_fields():
     summary = build_manual_sync_summary(_member(), _evaluation())
 
@@ -416,6 +523,33 @@ def test_build_actuar_field_mapping_derives_height_from_weight_and_bmi():
     critical_fields = {item["field"]: item for item in mapping["critical_fields"]}
     assert critical_fields["height_cm"]["value"] == 180
     assert critical_fields["height_cm"]["actuar_field"] == "height_cm"
+
+
+def test_build_actuar_field_mapping_exposes_visible_body_composition_fields():
+    mapping = build_actuar_field_mapping(_member(), _evaluation())
+
+    mapped_fields = {item["field"]: item for item in mapping["mapped_fields"]}
+
+    assert mapped_fields["body_fat_kg"]["actuar_field"] == "fat_mass_kg"
+    assert mapped_fields["body_fat_kg"]["value"] == 19.46
+    assert mapped_fields["body_fat_kg"]["supported"] is False
+    assert mapped_fields["lean_mass_kg"]["actuar_field"] == "lean_mass_kg"
+    assert mapped_fields["lean_mass_kg"]["supported"] is False
+    assert mapped_fields["bmi"]["actuar_field"] == "bmi"
+    assert mapped_fields["bmi"]["supported"] is False
+    assert mapped_fields["body_water_pct"]["actuar_field"] == "body_water_percent"
+    assert mapped_fields["body_water_pct"]["supported"] is False
+    assert mapped_fields["bmr_kcal"]["actuar_field"] == "bmr_kcal"
+    assert mapped_fields["bmr_kcal"]["supported"] is False
+    assert mapped_fields["total_energy_kcal"]["actuar_field"] == "total_energy_kcal"
+    assert mapped_fields["total_energy_kcal"]["supported"] is True
+    assert mapped_fields["target_weight_kg"]["actuar_field"] == "target_weight_kg"
+    assert mapped_fields["target_weight_kg"]["value"] == 78.2
+    assert mapped_fields["target_weight_kg"]["supported"] is True
+    assert mapped_fields["waist_hip_ratio"]["supported"] is False
+    assert mapped_fields["notes"]["supported"] is False
+    assert mapped_fields["notes"]["actuar_field"] is None
+    assert mapped_fields["visceral_fat"]["supported"] is False
 
 
 def test_confirm_manual_actuar_sync_marks_evaluation_as_ready():

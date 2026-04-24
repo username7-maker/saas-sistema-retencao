@@ -20,6 +20,7 @@ def _current_user(role: RoleEnum, user_id: str = "22222222-2222-2222-2222-222222
         role=role,
         is_active=True,
         job_title=None,
+        work_shift=None,
         avatar_url=None,
         created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
         deleted_at=None,
@@ -35,6 +36,7 @@ def _target_user(role: RoleEnum, user_id: str) -> SimpleNamespace:
         role=role,
         is_active=True,
         job_title=None,
+        work_shift=None,
         avatar_url=None,
         deleted_at=None,
         created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
@@ -72,7 +74,7 @@ def test_owner_create_user_route_defers_commit_until_after_audit(app, client, mo
     calls = []
 
     def _create_user(_db, payload, *, gym_id, commit=True):
-        calls.append({"gym_id": gym_id, "commit": commit, "email": payload.email})
+        calls.append({"gym_id": gym_id, "commit": commit, "email": payload.email, "work_shift": payload.work_shift})
         return created
 
     monkeypatch.setattr("app.routers.users.create_user", _create_user)
@@ -85,11 +87,12 @@ def test_owner_create_user_route_defers_commit_until_after_audit(app, client, mo
                 "email": "recepcao.nova@teste.com",
                 "password": "Secret123!",
                 "role": "receptionist",
+                "work_shift": "morning",
             },
         )
 
         assert response.status_code == 201
-        assert calls == [{"gym_id": GYM_ID, "commit": False, "email": "recepcao.nova@teste.com"}]
+        assert calls == [{"gym_id": GYM_ID, "commit": False, "email": "recepcao.nova@teste.com", "work_shift": "morning"}]
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
@@ -147,6 +150,7 @@ def test_owner_can_update_team_profile_fields(app, client):
             json={
                 "full_name": "Recepcao Editada",
                 "job_title": "Atendimento",
+                "work_shift": "morning",
                 "avatar_url": "https://cdn.exemplo.com/avatar.png",
             },
         )
@@ -155,6 +159,7 @@ def test_owner_can_update_team_profile_fields(app, client):
         body = response.json()
         assert body["full_name"] == "Recepcao Editada"
         assert body["job_title"] == "Atendimento"
+        assert body["work_shift"] == "morning"
         assert body["avatar_url"] == "https://cdn.exemplo.com/avatar.png"
         mock_db.commit.assert_called_once()
     finally:
@@ -192,6 +197,7 @@ def test_user_can_update_own_profile(app, client):
             json={
                 "full_name": "Recepcao Piloto",
                 "job_title": "Front desk",
+                "work_shift": "evening",
                 "avatar_url": "https://cdn.exemplo.com/me.png",
             },
         )
@@ -200,6 +206,7 @@ def test_user_can_update_own_profile(app, client):
         body = response.json()
         assert body["full_name"] == "Recepcao Piloto"
         assert body["job_title"] == "Front desk"
+        assert body["work_shift"] == "evening"
         assert body["avatar_url"] == "https://cdn.exemplo.com/me.png"
         mock_db.commit.assert_called_once()
     finally:

@@ -47,7 +47,6 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   route: RouteAccessKey;
-  badge?: string;
 }
 
 interface NavGroup {
@@ -66,7 +65,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard, route: "dashboardExecutive" },
       { to: "/dashboard/operational", label: "Operacional", icon: Activity, route: "dashboardOperational" },
-      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, route: "dashboardCommercial", badge: "new" },
+      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, route: "dashboardCommercial" },
       { to: "/dashboard/financial", label: "Financeiro", icon: Wallet, route: "dashboardFinancial" },
       { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert, route: "dashboardRetention" },
     ],
@@ -76,7 +75,8 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
-      { to: "/crm", label: "CRM", icon: Users, route: "crm", badge: "6" },
+      { to: "/crm", label: "CRM", icon: Users, route: "crm" },
+      { to: "/ai/triage", label: "AI Inbox", icon: Sparkles, route: "aiTriage" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -205,24 +205,11 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                       }
                     >
                       <span className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72 text-lovable-ink-muted transition group-hover:text-lovable-ink">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72 text-lovable-ink-muted transition group-hover:border-lovable-border-strong/70 group-hover:bg-lovable-surface/80 group-hover:text-lovable-ink">
                           <Icon size={15} />
                         </span>
                         <span className="truncate">{item.label}</span>
                       </span>
-
-                      {item.badge ? (
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]",
-                            item.badge === "new"
-                              ? "bg-[hsl(var(--lovable-success)/0.18)] text-[hsl(var(--lovable-success))]"
-                              : "bg-lovable-surface-soft text-lovable-ink",
-                          )}
-                        >
-                          {item.badge}
-                        </span>
-                      ) : null}
                     </NavLink>
                   );
                 })}
@@ -401,8 +388,10 @@ export function LovableLayout() {
               onClick={() => navigate("/settings")}
               className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-sm font-medium text-lovable-ink-muted transition hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink"
             >
-              <Settings size={16} />
-              Settings
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72">
+                <Settings size={15} />
+              </span>
+              Configuracoes
             </button>
             {showHelpCenter ? (
               <button
@@ -410,8 +399,10 @@ export function LovableLayout() {
                 onClick={() => navigate("/reports")}
                 className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-sm font-medium text-lovable-ink-muted transition hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink"
               >
-                <HelpCircle size={16} />
-                Help Center
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72">
+                  <HelpCircle size={15} />
+                </span>
+                Central de ajuda
               </button>
             ) : null}
           </div>

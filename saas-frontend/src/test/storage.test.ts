@@ -4,14 +4,15 @@ import { tokenStorage } from "../services/storage";
 
 describe("tokenStorage", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    tokenStorage.clear();
     window.localStorage.clear();
   });
 
-  it("stores the access token in sessionStorage only", () => {
+  it("stores the access token in memory only", () => {
     tokenStorage.setAccessToken("access-token");
 
-    expect(window.sessionStorage.getItem("ai_gym_access_token")).toBe("access-token");
+    expect(tokenStorage.getAccessToken()).toBe("access-token");
+    expect(window.sessionStorage.getItem("ai_gym_access_token")).toBeNull();
     expect(window.localStorage.getItem("ai_gym_access_token")).toBeNull();
     expect(window.localStorage.getItem("ai_gym_refresh_token")).toBeNull();
   });
@@ -21,7 +22,7 @@ describe("tokenStorage", () => {
     window.localStorage.setItem("ai_gym_refresh_token", "legacy-refresh");
 
     expect(tokenStorage.getAccessToken()).toBe("legacy-access");
-    expect(window.sessionStorage.getItem("ai_gym_access_token")).toBe("legacy-access");
+    expect(window.sessionStorage.getItem("ai_gym_access_token")).toBeNull();
     expect(window.localStorage.getItem("ai_gym_access_token")).toBeNull();
     expect(window.localStorage.getItem("ai_gym_refresh_token")).toBeNull();
   });

@@ -12,7 +12,11 @@ def test_health_returns_ok(client):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
-    assert response.headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    assert response.headers["X-Permitted-Cross-Domain-Policies"] == "none"
+    assert (
+        response.headers["Content-Security-Policy"]
+        == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+    )
 
 
 def test_health_ready_returns_ok_when_db_up(client):
@@ -81,3 +85,4 @@ def test_health_ready_hides_dependency_details_in_production(client):
     assert response.status_code == 200
     data = response.json()
     assert data == {"status": "ok"}
+    assert response.headers["Strict-Transport-Security"] == "max-age=63072000; includeSubDomains; preload"

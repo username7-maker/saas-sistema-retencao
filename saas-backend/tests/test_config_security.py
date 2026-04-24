@@ -33,6 +33,21 @@ def test_production_rejects_local_cors_origin():
         Settings(**_production_kwargs(cors_origins=["http://127.0.0.1:5173"]))
 
 
+def test_production_rejects_wildcard_cors_origin():
+    with pytest.raises(ValidationError):
+        Settings(**_production_kwargs(cors_origins=["*"]))
+
+
+def test_production_requires_frontend_url_to_be_present_in_cors_origins():
+    with pytest.raises(ValidationError):
+        Settings(
+            **_production_kwargs(
+                frontend_url="https://pilot.aigymos.app",
+                cors_origins=["https://admin.aigymos.app"],
+            )
+        )
+
+
 def test_production_rejects_scheduler_in_api():
     with pytest.raises(ValidationError):
         Settings(**_production_kwargs(enable_scheduler=True, enable_scheduler_in_api=True))
@@ -74,3 +89,13 @@ def test_production_accepts_hardened_scheduler_worker_configuration():
     assert settings.enable_scheduler is True
     assert settings.enable_scheduler_in_api is False
     assert settings.redis_url == "redis://redis:6379/0"
+
+
+def test_frontend_url_and_cors_origins_are_normalized_to_origin():
+    settings = Settings(
+        frontend_url="https://pilot.aigymos.app/dashboard",
+        cors_origins=["https://pilot.aigymos.app/"],
+    )
+
+    assert settings.frontend_url == "https://pilot.aigymos.app"
+    assert settings.cors_origins == ["https://pilot.aigymos.app"]

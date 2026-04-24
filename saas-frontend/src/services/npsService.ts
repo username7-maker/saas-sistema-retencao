@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { AsyncJobAcceptedResponse, AsyncJobStatusResponse } from "./reportService";
 
 export interface NpsResponse {
   id: string;
@@ -39,8 +40,13 @@ export const npsService = {
     return data;
   },
 
-  async dispatch(): Promise<Record<string, number>> {
-    const { data } = await api.post<Record<string, number>>("/api/v1/nps/dispatch");
+  async dispatch(): Promise<AsyncJobAcceptedResponse> {
+    const { data } = await api.post<AsyncJobAcceptedResponse>("/api/v1/nps/dispatch");
+    return data;
+  },
+
+  async getDispatchStatus(jobId: string): Promise<AsyncJobStatusResponse> {
+    const { data } = await api.get<AsyncJobStatusResponse>(`/api/v1/nps/dispatches/${jobId}`);
     return data;
   },
 

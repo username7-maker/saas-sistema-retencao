@@ -67,7 +67,6 @@ class WebSocketManager:
         self._event_loop = None
 
     async def connect(self, gym_id: str, websocket: WebSocket, user_id: str | None = None) -> None:
-        await websocket.accept()
         async with self._lock:
             self._connections[gym_id][websocket] = user_id
 

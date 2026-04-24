@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.core.limiter import limiter, rate_limit_enabled
 from app.database import get_db
 from app.schemas.public_diagnosis import (
     PublicDiagnosisQueuedResponse,
+    PublicDiagnosisStatusRead,
     PublicObjectionRequest,
     PublicObjectionResponse,
     PublicProposalRequest,
@@ -23,10 +24,10 @@ from app.schemas.sales import (
 )
 from app.services.booking_service import confirm_public_booking
 from app.services.crm_service import create_public_diagnosis_lead
+from app.services.core_async_job_service import enqueue_public_diagnosis_job, get_public_diagnosis_job, serialize_core_async_job
 from app.services.diagnosis_service import (
     build_public_diagnosis_payload,
     new_diagnosis_id,
-    process_public_diagnosis_background,
     resolve_public_gym_id,
 )
 from app.services.nurturing_service import handle_incoming_whatsapp_webhook
@@ -85,7 +86,6 @@ def _require_public_shared_token(
 @limiter.limit(settings.public_diag_rate_limit)
 async def public_diagnostico(
     request: Request,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     full_name: str = Form(...),
     email: str = Form(...),
@@ -135,10 +135,11 @@ async def public_diagnostico(
         total_members=payload["total_members"],
         avg_monthly_fee=Decimal(str(payload["avg_monthly_fee"])),
         diagnosis_id=diagnosis_id,
+        commit=False,
     )
-
-    background_tasks.add_task(
-        process_public_diagnosis_background,
+    job = enqueue_public_diagnosis_job(
+        db,
+        gym_id=public_gym_id,
         diagnosis_id=diagnosis_id,
         lead_id=lead.id,
         payload=payload,
@@ -146,10 +147,41 @@ async def public_diagnostico(
         requester_ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
+    db.commit()
     return PublicDiagnosisQueuedResponse(
         message="Diagnostico recebido e em processamento.",
         diagnosis_id=diagnosis_id,
+        job_id=job.id,
         lead_id=lead.id,
+        status=job.status,
+    )
+
+
+@router.get("/diagnostico/{diagnosis_id}/status", response_model=PublicDiagnosisStatusRead)
+def public_diagnostico_status(
+    diagnosis_id: UUID,
+    lead_id: UUID,
+    db: Session = Depends(get_db),
+) -> PublicDiagnosisStatusRead:
+    try:
+        public_gym_id = resolve_public_gym_id()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    job = get_public_diagnosis_job(
+        db,
+        diagnosis_id=diagnosis_id,
+        lead_id=lead_id,
+        gym_id=public_gym_id,
+    )
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Diagnostico nao encontrado")
+
+    serialized = serialize_core_async_job(job)
+    return PublicDiagnosisStatusRead(
+        diagnosis_id=diagnosis_id,
+        lead_id=lead_id,
+        **serialized,
     )
 
 

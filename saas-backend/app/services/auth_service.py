@@ -92,6 +92,7 @@ def create_user(
         hashed_password=hash_password(payload.password),
         role=role,
         job_title=payload.job_title,
+        work_shift=payload.work_shift,
         avatar_url=payload.avatar_url,
     )
     db.add(user)

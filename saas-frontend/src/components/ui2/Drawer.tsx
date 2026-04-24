@@ -7,10 +7,11 @@ interface DrawerProps {
   onClose: () => void;
   title?: string;
   side?: "left" | "right";
+  widthClassName?: string;
   children: React.ReactNode;
 }
 
-export function Drawer({ open, onClose, title, side = "left", children }: DrawerProps) {
+export function Drawer({ open, onClose, title, side = "left", widthClassName, children }: DrawerProps) {
   return (
     <>
       <div
@@ -23,6 +24,7 @@ export function Drawer({ open, onClose, title, side = "left", children }: Drawer
       <aside
         className={cn(
           "fixed top-0 z-50 h-full w-full max-w-full border-lovable-border bg-lovable-surface/96 shadow-panel backdrop-blur-xl transition-transform sm:w-80 sm:max-w-[88vw]",
+          widthClassName,
           side === "left"
             ? "left-0 border-r " + (open ? "translate-x-0" : "-translate-x-full")
             : "right-0 border-l " + (open ? "translate-x-0" : "translate-x-full"),

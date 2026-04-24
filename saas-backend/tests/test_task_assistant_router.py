@@ -46,6 +46,10 @@ class TestTaskAssistantRoute:
                         "next_best_action": "Abrir o perfil e executar a primeira abordagem.",
                         "suggested_message": "Oi Ana, quero te ajudar a voltar ao ritmo.",
                         "evidence": ["Primeira avaliacao pendente", "Check-ins iniciais fracos"],
+                        "provider": "system",
+                        "mode": "rule_based",
+                        "fallback_used": False,
+                        "manual_required": True,
                         "confidence_label": "Alta",
                         "recommended_channel": "WhatsApp",
                         "cta_target": "/assessments/members/member-1?tab=acoes",
@@ -58,6 +62,10 @@ class TestTaskAssistantRoute:
             assert response.status_code == 200
             body = response.json()
             assert body["summary"] == "Task ligada a onboarding fragil."
+            assert body["provider"] == "system"
+            assert body["mode"] == "rule_based"
+            assert body["fallback_used"] is False
+            assert body["manual_required"] is True
             assert body["recommended_channel"] == "WhatsApp"
             assert body["cta_target"] == "/assessments/members/member-1?tab=acoes"
         finally:

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractBodyCompositionFromText, mergeBodyCompositionOcrResults, type BodyCompositionOcrResult } from "../services/bodyCompositionOcr";
+import {
+  extractBodyCompositionFromText,
+  getBodyCompositionAiFallbackReasons,
+  mergeBodyCompositionOcrResults,
+  type BodyCompositionOcrResult,
+} from "../services/bodyCompositionOcr";
 
 const CLEAN_RECEIPT = `
 Tezewa
@@ -202,6 +207,7 @@ describe("bodyCompositionOcr", () => {
     expect(result.values.body_fat_percent).toBe(23.0);
     expect(result.values.waist_hip_ratio).toBe(0.88);
     expect(result.values.fat_free_mass_kg).toBe(65.0);
+    expect(result.values.lean_mass_kg).toBe(65.0);
     expect(result.values.body_water_kg).toBe(43.3);
     expect(result.values.basal_metabolic_rate_kcal).toBe(1880);
     expect(result.values.health_score).toBe(62);
@@ -295,4 +301,40 @@ describe("bodyCompositionOcr", () => {
     expect(merged.values.body_fat_percent).toBe(23.0);
     expect(merged.raw_text).toContain("Body composition");
   });
+
+  it("escalates to assisted OCR when core composition fields are still missing", () => {
+    const result = getBodyCompositionAiFallbackReasons(
+      localResult({
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23.0,
+          waist_hip_ratio: 0.88,
+        },
+      }),
+    );
+
+    expect(result).toContain("OCR local nao cobriu toda a composicao corporal principal.");
+  });
 });
+
+function localResult(overrides?: Partial<BodyCompositionOcrResult>): BodyCompositionOcrResult {
+  return {
+    device_profile: "tezewa_receipt_v1",
+    device_model: "Tezewa",
+    values: {
+      weight_kg: 84.5,
+      body_fat_kg: 19.46,
+      body_fat_percent: 23.0,
+      waist_hip_ratio: 0.88,
+    },
+    ranges: {},
+    warnings: [],
+    confidence: 0.92,
+    raw_text: "Weight 84.5",
+    needs_review: false,
+    engine: "local",
+    fallback_used: false,
+    ...overrides,
+  };
+}

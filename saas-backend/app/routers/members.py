@@ -1,20 +1,24 @@
 import logging
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_request_context, require_roles
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_db
-from app.models import MemberStatus, RiskLevel, RoleEnum, User
+from app.models import BodyCompositionEvaluation, MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import (
     APIMessage,
     MemberCreate,
     MemberOut,
     MemberUpdate,
+    OnboardingScoreSnapshotOut,
     OnboardingScoreOut,
     PaginatedResponse,
     RiskRecalculationRequestOut,
@@ -26,10 +30,12 @@ from app.schemas.body_composition import (
     BodyCompositionActuarSyncStatusRead,
     BodyCompositionEvaluationCreate,
     BodyCompositionEvaluationRead,
+    BodyCompositionEvaluationReviewInput,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionKommoDispatchRead,
     BodyCompositionManualSyncSummaryRead,
+    BodyCompositionReportRead,
     BodyCompositionWhatsAppDispatchRead,
     BodyCompositionEvaluationUpdate,
 )
@@ -37,6 +43,7 @@ from app.services.audit_service import log_audit_event
 from app.services.body_composition_actuar_sync_service import (
     confirm_manual_actuar_sync,
     create_body_composition_sync_job,
+    get_body_composition_evaluation_or_404,
     get_body_composition_sync_status,
     get_body_composition_manual_sync_summary,
     schedule_body_composition_sync_retry,
@@ -44,12 +51,16 @@ from app.services.body_composition_actuar_sync_service import (
 )
 from app.services.body_composition_image_parse_service import parse_body_composition_image
 from app.services.body_composition_delivery_service import (
+    build_body_composition_report_payload,
+    generate_body_composition_pdf,
+    generate_body_composition_technical_pdf,
     send_body_composition_kommo_handoff,
     send_body_composition_whatsapp_summary,
 )
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     list_body_composition_evaluations,
+    review_body_composition_evaluation,
     serialize_body_composition_evaluation,
     serialize_body_composition_evaluations,
     update_body_composition_evaluation,
@@ -69,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/members", tags=["members"])
+BODY_COMPOSITION_PDF_LAYOUT_VERSION = "clinical-a4-sidebar-fit-2026-04-15b"
 
 
 @router.post("/", response_model=MemberOut, status_code=status.HTTP_201_CREATED)
@@ -148,6 +160,42 @@ def list_members_index_endpoint(
         min_days_without_checkin=min_days_without_checkin,
         provisional_only=provisional_only,
     )
+
+
+@router.get("/onboarding-scoreboard", response_model=list[OnboardingScoreSnapshotOut])
+def list_onboarding_scoreboard_endpoint(
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> list[OnboardingScoreSnapshotOut]:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    members = list_member_index(
+        db,
+        gym_id=current_user.gym_id,
+        status=MemberStatus.ACTIVE,
+    )
+    payload: list[OnboardingScoreSnapshotOut] = []
+    for member in members:
+        join_date = getattr(member, "join_date", None)
+        onboarding_status = getattr(member, "onboarding_status", None)
+        if join_date is None:
+            continue
+        days_since_join = (datetime.now().date() - join_date).days
+        if days_since_join < 0 or days_since_join > 30:
+            continue
+        if onboarding_status not in {"active", "at_risk"}:
+            continue
+        score_payload = calculate_onboarding_score(db, member)
+        payload.append(
+            OnboardingScoreSnapshotOut(
+                member_id=member.id,
+                score=int(score_payload["score"]),
+                status=str(score_payload["status"]),
+            )
+        )
+    return payload
 
 
 @router.get("/{member_id}", response_model=MemberOut)
@@ -303,6 +351,25 @@ async def parse_body_composition_image_endpoint(
     )
 
 
+@router.post("/{member_id}/body-composition/parse-ocr", response_model=BodyCompositionImageParseResultRead)
+async def parse_body_composition_ocr_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    file: UploadFile = File(...),
+    device_profile: str = Form("tezewa_receipt_v1"),
+    local_ocr_result: str | None = Form(default=None),
+) -> BodyCompositionImageParseResultRead:
+    return await parse_body_composition_image_endpoint(
+        member_id=member_id,
+        db=db,
+        current_user=current_user,
+        file=file,
+        device_profile=device_profile,
+        local_ocr_result=local_ocr_result,
+    )
+
+
 @router.post("/{member_id}/body-composition", response_model=BodyCompositionEvaluationRead, status_code=status.HTTP_201_CREATED)
 def create_body_composition_endpoint(
     member_id: UUID,
@@ -310,7 +377,13 @@ def create_body_composition_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation, _sync_job = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
+    evaluation, _sync_job = create_body_composition_evaluation(
+        db,
+        current_user.gym_id,
+        member_id,
+        payload,
+        reviewer_user_id=current_user.id,
+    )
     db.commit()
     db.refresh(evaluation)
     return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
@@ -324,10 +397,193 @@ def update_body_composition_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
-    evaluation, _sync_job = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
+    evaluation, _sync_job = update_body_composition_evaluation(
+        db,
+        current_user.gym_id,
+        member_id,
+        evaluation_id,
+        payload,
+        reviewer_user_id=current_user.id,
+    )
     db.commit()
     db.refresh(evaluation)
     return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
+
+
+@router.patch("/{member_id}/body-composition/{evaluation_id}", response_model=BodyCompositionEvaluationRead)
+def patch_body_composition_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    payload: BodyCompositionEvaluationUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> BodyCompositionEvaluationRead:
+    return update_body_composition_endpoint(
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        payload=payload,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.get("/{member_id}/body-composition/{evaluation_id}", response_model=BodyCompositionEvaluationRead)
+def get_body_composition_detail_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
+) -> BodyCompositionEvaluationRead:
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
+
+
+@router.post("/{member_id}/body-composition/{evaluation_id}/review", response_model=BodyCompositionEvaluationRead)
+def review_body_composition_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    payload: BodyCompositionEvaluationReviewInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> BodyCompositionEvaluationRead:
+    evaluation, _sync_job = review_body_composition_evaluation(
+        db,
+        current_user.gym_id,
+        member_id,
+        evaluation_id,
+        payload,
+        reviewer_user_id=current_user.id,
+    )
+    db.commit()
+    db.refresh(evaluation)
+    return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
+
+
+@router.get("/{member_id}/body-composition/{evaluation_id}/report", response_model=BodyCompositionReportRead)
+def get_body_composition_report_endpoint(
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
+) -> BodyCompositionReportRead:
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    history = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=100)
+    return build_body_composition_report_payload(member, evaluation, history=history)
+
+
+@router.get("/{member_id}/body-composition/{evaluation_id}/pdf")
+def export_body_composition_pdf_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> Response:
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    previous_evaluation = _get_previous_body_composition_evaluation(db, member_id=member_id, evaluation_id=evaluation_id)
+    pdf_bytes, filename = generate_body_composition_pdf(member, evaluation, previous_evaluation)
+    context = get_request_context(request)
+    logger.info(
+        "body_composition_pdf_export layout=%s kind=member_summary member_id=%s evaluation_id=%s bytes=%s filename=%s",
+        BODY_COMPOSITION_PDF_LAYOUT_VERSION,
+        member_id,
+        evaluation_id,
+        len(pdf_bytes),
+        filename,
+    )
+    log_audit_event(
+        db,
+        action="body_composition_summary_pdf_exported",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={"filename": filename, "kind": "member_summary"},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Report-Layout-Version": BODY_COMPOSITION_PDF_LAYOUT_VERSION,
+            "X-Report-Scope": "member_summary",
+        },
+    )
+
+
+@router.get("/{member_id}/body-composition/{evaluation_id}/technical-pdf")
+def export_body_composition_technical_pdf_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> Response:
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    previous_evaluation = _get_previous_body_composition_evaluation(db, member_id=member_id, evaluation_id=evaluation_id)
+    pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
+    context = get_request_context(request)
+    logger.info(
+        "body_composition_pdf_export layout=%s kind=technical member_id=%s evaluation_id=%s bytes=%s filename=%s",
+        BODY_COMPOSITION_PDF_LAYOUT_VERSION,
+        member_id,
+        evaluation_id,
+        len(pdf_bytes),
+        filename,
+    )
+    log_audit_event(
+        db,
+        action="body_composition_technical_pdf_exported",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={"filename": filename, "kind": "technical"},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Report-Layout-Version": BODY_COMPOSITION_PDF_LAYOUT_VERSION,
+            "X-Report-Scope": "technical",
+        },
+    )
 
 
 @router.post(
@@ -614,6 +870,23 @@ def confirm_body_composition_manual_sync_endpoint(
     )
     db.commit()
     return get_body_composition_sync_status(db, gym_id=current_user.gym_id, member_id=member_id, evaluation_id=evaluation_id)
+
+
+def _get_previous_body_composition_evaluation(
+    db: Session,
+    *,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> BodyCompositionEvaluation | None:
+    return db.scalar(
+        select(BodyCompositionEvaluation)
+        .where(
+            BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.id != evaluation_id,
+        )
+        .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        .limit(1)
+    )
 
 
 class ContactLogCreate(BaseModel):

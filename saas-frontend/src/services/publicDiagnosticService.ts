@@ -4,7 +4,27 @@ import { api } from "./api";
 export interface PublicDiagnosisQueuedResponse {
   message: string;
   diagnosis_id: string;
+  job_id: string;
   lead_id: string;
+  status: string;
+}
+
+export interface PublicDiagnosisStatusResponse {
+  diagnosis_id: string;
+  lead_id: string;
+  job_id: string;
+  job_type: string;
+  status: string;
+  attempt_count: number;
+  max_attempts: number;
+  next_retry_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  result: Record<string, unknown> | null;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
 }
 
 export interface PublicDiagnosisInput {
@@ -31,6 +51,14 @@ export const publicDiagnosticService = {
     const response = await api.post<PublicDiagnosisQueuedResponse>("/api/v1/public/diagnostico", form, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 120000,
+    });
+    return response.data;
+  },
+
+  async getDiagnosisStatus(diagnosisId: string, leadId: string): Promise<PublicDiagnosisStatusResponse> {
+    const response = await api.get<PublicDiagnosisStatusResponse>(`/api/v1/public/diagnostico/${diagnosisId}/status`, {
+      params: { lead_id: leadId },
+      timeout: 20000,
     });
     return response.data;
   },

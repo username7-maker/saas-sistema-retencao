@@ -425,8 +425,12 @@ def _result_from_member_state(member: Member, result: RiskResult) -> RiskResult:
 
 
 def _inactivity_points(days_without_checkin: int) -> int:
+    if days_without_checkin >= 45:
+        return 90
+    if days_without_checkin >= 30:
+        return 80
     if days_without_checkin >= 21:
-        return 60
+        return 70
     if days_without_checkin >= 14:
         return 45
     if days_without_checkin >= 10:

@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.exc import IntegrityError
+
 from app.services.actuar_bridge_service import (
     _persist_member_link_from_bridge_success,
     authenticate_actuar_bridge_device,
@@ -130,7 +132,12 @@ def test_claim_next_bridge_job_starts_attempt_and_returns_payload():
     )
     evaluation = SimpleNamespace(id=EVALUATION_ID, actuar_sync_mode="local_bridge")
     member = SimpleNamespace(id=MEMBER_ID, full_name="Aluno Ponte", email="aluno.ponte@example.com", birthdate=None, cpf_encrypted=None)
-    link = SimpleNamespace(actuar_search_document="12345678900", actuar_external_id="act-1")
+    link = SimpleNamespace(
+        actuar_search_name="Aluno Ponte Actuar",
+        actuar_search_document="12345678900",
+        actuar_search_birthdate=None,
+        actuar_external_id="act-1",
+    )
 
     select_result = MagicMock()
     select_result.first.return_value = (job, evaluation, member, link)
@@ -149,6 +156,8 @@ def test_claim_next_bridge_job_starts_attempt_and_returns_payload():
     assert claimed.member_name == "Aluno Ponte"
     assert claimed.member_email == "aluno.ponte@example.com"
     assert claimed.member_document == "12345678900"
+    assert claimed.actuar_search_name == "Aluno Ponte Actuar"
+    assert claimed.actuar_search_document == "12345678900"
     assert claimed.manual_summary_text == "Resumo manual"
     start_attempt.assert_called_once()
 
@@ -187,3 +196,39 @@ def test_persist_member_link_updates_existing_row_without_reinserting():
     assert current_link.match_confidence == 1.0
     db.flush.assert_called_once()
     upsert_link.assert_not_called()
+
+
+def test_persist_member_link_recovers_from_duplicate_insert_by_refreshing_existing_row():
+    db = MagicMock()
+    job = SimpleNamespace(gym_id=GYM_ID, member_id=MEMBER_ID, id=JOB_ID)
+    member = SimpleNamespace(id=MEMBER_ID, full_name="Aluno Ponte", birthdate=None, cpf_encrypted=None)
+    current_link = SimpleNamespace(
+        actuar_external_id="act-old",
+        actuar_search_name=None,
+        actuar_search_document=None,
+        actuar_search_birthdate=None,
+        linked_at=None,
+        linked_by_user_id=None,
+        match_confidence=None,
+        is_active=False,
+    )
+
+    db.scalar.side_effect = [member, current_link]
+
+    with patch("app.services.actuar_bridge_service.include_all_tenants", side_effect=lambda stmt, reason: stmt), patch(
+        "app.services.actuar_bridge_service.get_actuar_member_link",
+        return_value=None,
+    ), patch(
+        "app.services.actuar_bridge_service.resolve_member_document_for_actuar",
+        return_value="12345678900",
+    ), patch(
+        "app.services.actuar_bridge_service.upsert_actuar_member_link",
+        side_effect=IntegrityError("insert", {}, Exception("duplicate key")),
+    ):
+        _persist_member_link_from_bridge_success(db, job=job, external_id="act-new")
+
+    db.rollback.assert_called_once()
+    assert current_link.actuar_external_id == "act-new"
+    assert current_link.actuar_search_name == "Aluno Ponte"
+    assert current_link.actuar_search_document == "12345678900"
+    assert current_link.is_active is True

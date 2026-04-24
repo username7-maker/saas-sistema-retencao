@@ -92,7 +92,13 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
         + member_response_score * WEIGHT_MEMBER_RESPONSE
     ) / 100
 
-    final_score = max(0, min(100, int(round(weighted_score))))
+    final_score = _apply_engagement_floor(
+        weighted_score=weighted_score,
+        checkin_count=checkin_count,
+        expected_checkins=expected_checkins,
+        checkin_score=checkin_score,
+        consistency_score=consistency_score,
+    )
 
     if days_since_join > 30:
         status = "completed"
@@ -117,6 +123,30 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
         "total_tasks": total_onboarding_tasks,
         "nps_feedback_count": has_nps,
     }
+
+
+def _apply_engagement_floor(
+    *,
+    weighted_score: float,
+    checkin_count: int,
+    expected_checkins: float,
+    checkin_score: int,
+    consistency_score: int,
+) -> int:
+    """Evita classificar como amarelo/vermelho um onboarding com rotina já forte.
+
+    Se o aluno já demonstra presença acima do esperado e horário consistente,
+    o score mínimo sobe para refletir o comportamento real mesmo antes de
+    avaliação, tasks ou resposta formal estarem completas.
+    """
+    final_score = max(0, min(100, int(round(weighted_score))))
+    strong_checkin_volume = max(3, int(round(expected_checkins)))
+
+    if checkin_count >= strong_checkin_volume and checkin_score >= 90 and consistency_score >= 85:
+        return max(final_score, 72)
+    if checkin_count >= 3 and checkin_score >= 80 and consistency_score >= 75:
+        return max(final_score, 60)
+    return final_score
 
 
 def _has_member_response(db: Session, member: Member) -> bool:

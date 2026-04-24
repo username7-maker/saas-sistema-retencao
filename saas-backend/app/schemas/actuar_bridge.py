@@ -63,6 +63,9 @@ class ActuarBridgeClaimedJobRead(BaseModel):
     member_birthdate: date | None = None
     member_document: str | None = None
     actuar_external_id: str | None = None
+    actuar_search_name: str | None = None
+    actuar_search_document: str | None = None
+    actuar_search_birthdate: date | None = None
     payload_json: dict | None = None
     mapped_fields_json: dict | None = None
     critical_fields_json: list | None = None

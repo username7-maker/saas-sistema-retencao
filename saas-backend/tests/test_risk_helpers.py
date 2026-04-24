@@ -29,10 +29,13 @@ class TestInactivityPoints:
         assert _inactivity_points(14) == 45
 
     def test_twenty_one_days(self):
-        assert _inactivity_points(21) == 60
+        assert _inactivity_points(21) == 70
 
     def test_thirty_days(self):
-        assert _inactivity_points(30) == 60
+        assert _inactivity_points(30) == 80
+
+    def test_forty_five_days(self):
+        assert _inactivity_points(45) == 90
 
 
 class TestPrefetchOpenRiskAlerts:

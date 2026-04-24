@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import Lead, NurturingSequence
 from app.schemas.public_diagnosis import PublicProposalRequest
-from app.utils.email import send_email_with_attachment
+from app.utils.email import EmailSendResult, send_email_with_attachment, send_email_with_attachment_result
 
 SETUP_FEE = Decimal("10000")
 MONTHLY_FEE = Decimal("2500")
@@ -114,10 +114,10 @@ def generate_proposal_pdf(payload: PublicProposalRequest) -> tuple[bytes, str]:
     return buffer.getvalue(), filename
 
 
-def send_proposal_email_if_needed(payload: PublicProposalRequest, pdf_bytes: bytes, filename: str) -> bool:
+def send_proposal_email_delivery(payload: PublicProposalRequest, pdf_bytes: bytes, filename: str) -> EmailSendResult:
     if not payload.email:
-        return False
-    return send_email_with_attachment(
+        return EmailSendResult(sent=False, blocked=True, reason="lead_email_missing")
+    return send_email_with_attachment_result(
         to_email=payload.email,
         subject="Sua proposta personalizada - AI GYM OS",
         content=(
@@ -127,6 +127,10 @@ def send_proposal_email_if_needed(payload: PublicProposalRequest, pdf_bytes: byt
         filename=filename,
         attachment_bytes=pdf_bytes,
     )
+
+
+def send_proposal_email_if_needed(payload: PublicProposalRequest, pdf_bytes: bytes, filename: str) -> bool:
+    return send_proposal_email_delivery(payload, pdf_bytes, filename).sent
 
 
 def hydrate_proposal_from_lead(
@@ -196,11 +200,14 @@ def generate_and_send_for_lead(db: Session, lead_id) -> dict:
     )
     hydrated = hydrate_proposal_from_lead(db, payload, allow_lead_lookup=True)
     pdf_bytes, filename = generate_proposal_pdf(hydrated)
-    emailed = send_proposal_email_if_needed(hydrated, pdf_bytes, filename)
+    email_result = send_proposal_email_delivery(hydrated, pdf_bytes, filename)
+    emailed = email_result.sent
     return {
         "payload": hydrated,
         "filename": filename,
         "emailed": emailed,
+        "email_blocked": email_result.blocked,
+        "email_error_code": email_result.reason,
         "pdf_bytes": pdf_bytes,
     }
 

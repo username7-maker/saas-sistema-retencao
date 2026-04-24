@@ -90,6 +90,10 @@ function createQueueItem(id: string, overrides: Partial<RetentionQueueItem> = {}
       next_best_action: "Abrir o perfil e executar o primeiro playbook.",
       suggested_message: "Oi, quero te ajudar a retomar o ritmo desta semana.",
       evidence: ["10 dias sem check-in", "queda de 62% na frequencia"],
+      provider: "system",
+      mode: "rule_based",
+      fallback_used: false,
+      manual_required: true,
       confidence_label: "Alta",
       recommended_channel: "Ligacao",
       cta_target: `/assessments/members/${id}?tab=contexto`,
@@ -141,6 +145,13 @@ const yellowOnly: RetentionQueueResponse = {
 
 const searchResult: RetentionQueueResponse = {
   items: [createQueueItem("member-5", { full_name: "Erica Santos" })],
+  total: 1,
+  page: 1,
+  page_size: 50,
+};
+
+const monthlyOnly: RetentionQueueResponse = {
+  items: [createQueueItem("member-6", { full_name: "Fabio Prado", plan_name: "Plano Livre Mensal" })],
   total: 1,
   page: 1,
   page_size: 50,
@@ -203,6 +214,7 @@ describe("RetentionDashboardPage", () => {
 
     vi.mocked(dashboardService.retentionQueue).mockImplementation(async (params) => {
       if (params?.search === "Erica") return searchResult;
+      if (params?.plan_cycle === "monthly") return monthlyOnly;
       if (params?.level === "yellow") return yellowOnly;
       if (params?.page === 2) return queuePage2;
       return queuePage1;
@@ -256,6 +268,16 @@ describe("RetentionDashboardPage", () => {
     await waitFor(() => {
       expect(dashboardService.retentionQueue).toHaveBeenLastCalledWith(
         expect.objectContaining({ level: "yellow", page: 1 }),
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Plano"), {
+      target: { value: "monthly" },
+    });
+
+    await waitFor(() => {
+      expect(dashboardService.retentionQueue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ plan_cycle: "monthly", page: 1 }),
       );
     });
   }, 10000);

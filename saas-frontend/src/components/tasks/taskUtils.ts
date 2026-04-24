@@ -19,7 +19,7 @@ export type SourceFilter = "all" | "onboarding" | "plan_followup" | "automation"
 export type StatusFilter = "all" | Task["status"];
 export type PriorityFilter = "all" | Task["priority"];
 export type AssigneeFilter = "all" | "unassigned" | string;
-export type OperationalViewMode = "due" | "status";
+export type OperationalViewMode = "triage" | "status";
 export type PlanFilter = "all" | "mensal" | "semestral" | "anual";
 export type PreferredShiftFilter = "all" | "morning" | "afternoon" | "evening";
 export type OnboardingPlaybookKey = "engajado" | "atencao" | "critico";
@@ -44,6 +44,11 @@ export interface TaskGroup {
   description: string;
   tasks: Task[];
   emptyMessage: string;
+}
+
+export interface TaskSlaMeta {
+  label: string;
+  tone: "neutral" | "warning" | "danger";
 }
 
 export interface OperationStats {
@@ -205,6 +210,38 @@ function daysUntil(task: Task, todayKey: string): number | null {
   return Math.round((due - today) / 86_400_000);
 }
 
+export function getTaskSlaMeta(task: Task, todayKey: string): TaskSlaMeta {
+  if (isOverdue(task, todayKey)) {
+    const dueKey = getDateKey(task.due_date);
+    const days = dueKey ? getDaysBetween(dueKey, todayKey) : 0;
+    return {
+      label: days <= 1 ? "1 dia atrasada" : `${days} dias atrasada`,
+      tone: "danger",
+    };
+  }
+
+  if (isDueToday(task, todayKey)) {
+    return { label: "Vence hoje", tone: "warning" };
+  }
+
+  const days = daysUntil(task, todayKey);
+  if (days === null) {
+    return { label: "Sem prazo", tone: "neutral" };
+  }
+
+  if (days <= 7) {
+    return {
+      label: days === 1 ? "Vence em 1 dia" : `Vence em ${days} dias`,
+      tone: "warning",
+    };
+  }
+
+  return {
+    label: days === 1 ? "Vence em 1 dia" : `Vence em ${days} dias`,
+    tone: "neutral",
+  };
+}
+
 function memberPriorityBoost(member: Member | undefined): number {
   if (!member) return 0;
   if (member.risk_level === "red") return 38;
@@ -273,7 +310,9 @@ export function filterOperationalTasks(
       ? normalizePlanType(membersById.get(task.member_id)?.plan_name) ?? normalizePlanType(taskPlanType(task))
       : normalizePlanType(taskPlanType(task));
     if (filters.plan !== "all" && planType !== filters.plan) return false;
-    if (!matchesPreferredShift(task.preferred_shift, filters.preferredShift)) return false;
+    if (filters.preferredShift !== "all" && task.preferred_shift && !matchesPreferredShift(task.preferred_shift, filters.preferredShift)) {
+      return false;
+    }
 
     if (filters.assignee === "unassigned" && task.assigned_to_user_id) return false;
     if (filters.assignee !== "all" && filters.assignee !== "unassigned" && task.assigned_to_user_id !== filters.assignee) {
@@ -317,7 +356,7 @@ export function getAttentionNowTasks(tasks: Task[], membersById: Map<string, Mem
       );
     })
     .sort((left, right) => compareOperationalTasks(left, right, membersById, todayKey))
-    .slice(0, 6);
+    .slice(0, 8);
 }
 
 function compareOperationalTasks(left: Task, right: Task, membersById: Map<string, Member>, todayKey: string): number {
@@ -332,31 +371,82 @@ function compareOperationalTasks(left: Task, right: Task, membersById: Map<strin
   return left.title.localeCompare(right.title);
 }
 
-export function groupTasksByDue(tasks: Task[], membersById: Map<string, Member>, todayKey: string): TaskGroup[] {
-  const overdue = tasks.filter((task) => isOverdue(task, todayKey));
-  const today = tasks.filter((task) => isDueToday(task, todayKey));
-  const upcoming = tasks.filter((task) => {
-    if (isTaskClosed(task)) return false;
-    const dueKey = getDateKey(task.due_date);
-    return dueKey !== null && dueKey > todayKey;
-  });
-  const noDueDate = tasks.filter((task) => !isTaskClosed(task) && !task.due_date);
-  const recentlyDone = tasks.filter((task) => isRecentlyCompleted(task, todayKey));
-  const recentlyCancelled = tasks.filter((task) => isRecentlyCancelled(task, todayKey));
+export function groupTasksByTriage(tasks: Task[], membersById: Map<string, Member>, todayKey: string): TaskGroup[] {
+  const orderedTasks = [...tasks]
+    .filter((task) => !isTaskClosed(task))
+    .sort((left, right) => compareOperationalTasks(left, right, membersById, todayKey));
 
-  return [
-    { key: "overdue", label: "Atrasadas", description: "Exigem resposta primeiro", tasks: overdue, emptyMessage: "Nenhuma tarefa atrasada." },
-    { key: "today", label: "Hoje", description: "Janela do dia", tasks: today, emptyMessage: "Nada vence hoje." },
-    { key: "upcoming", label: "Proximas", description: "Planejamento de curto prazo", tasks: upcoming, emptyMessage: "Nenhuma tarefa futura aberta." },
-    { key: "no-due-date", label: "Sem prazo", description: "Acompanhamentos sem data definida", tasks: noDueDate, emptyMessage: "Sem tarefas abertas sem prazo." },
-    { key: "recent-done", label: "Concluidas recentemente", description: "Entrega recente da operacao", tasks: recentlyDone, emptyMessage: "Nenhuma tarefa concluida recentemente." },
-    { key: "recent-cancelled", label: "Canceladas", description: "Fechadas sem execucao", tasks: recentlyCancelled, emptyMessage: "Nenhuma tarefa cancelada recentemente." },
-  ]
-    .map((group) => ({
-      ...group,
-      tasks: [...group.tasks].sort((left, right) => compareOperationalTasks(left, right, membersById, todayKey)),
-    }))
-    .filter((group) => group.tasks.length > 0);
+  const attentionTasks = getAttentionNowTasks(orderedTasks, membersById, todayKey);
+  const consumedTaskIds = new Set(attentionTasks.map((task) => task.id));
+  const remainingTasks = orderedTasks.filter((task) => !consumedTaskIds.has(task.id));
+  const upcomingLimitKey = new Date(new Date(`${todayKey}T00:00:00Z`).getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+
+  function takeGroup(
+    key: string,
+    label: string,
+    description: string,
+    emptyMessage: string,
+    predicate: (task: Task) => boolean,
+  ): TaskGroup {
+    const groupTasks = remainingTasks.filter((task) => {
+      if (consumedTaskIds.has(task.id)) return false;
+      return predicate(task);
+    });
+
+    groupTasks.forEach((task) => consumedTaskIds.add(task.id));
+
+    return {
+      key,
+      label,
+      description,
+      tasks: groupTasks,
+      emptyMessage,
+    };
+  }
+
+  const groups = [
+    {
+      key: "attention-now",
+      label: "Precisa de atencao agora",
+      description: "Inbox priorizada sem repetir tarefas nos blocos abaixo.",
+      tasks: attentionTasks,
+      emptyMessage: "Nenhuma task critica no momento.",
+    },
+    takeGroup(
+      "unassigned",
+      "Sem responsavel",
+      "Tasks que exigem ownership antes de qualquer outra acao.",
+      "Nenhuma task sem responsavel.",
+      (task) => !task.assigned_to_user_id,
+    ),
+    takeGroup(
+      "overdue",
+      "Atrasadas",
+      "Tasks abertas fora do prazo e ja sem cobertura da inbox priorizada.",
+      "Nenhuma tarefa atrasada.",
+      (task) => isOverdue(task, todayKey),
+    ),
+    takeGroup(
+      "today",
+      "Hoje",
+      "Tasks que vencem hoje e ainda nao entraram em outra fila mais critica.",
+      "Nada vence hoje.",
+      (task) => isDueToday(task, todayKey),
+    ),
+    takeGroup(
+      "upcoming",
+      "Proximas 7 dias",
+      "Planejamento de curto prazo, incluindo itens sem prazo.",
+      "Nenhuma task prevista para os proximos 7 dias.",
+      (task) => {
+        const dueKey = getDateKey(task.due_date);
+        if (!dueKey) return true;
+        return dueKey > todayKey && dueKey <= upcomingLimitKey;
+      },
+    ),
+  ];
+
+  return groups;
 }
 
 export function groupTasksByStatus(tasks: Task[], membersById: Map<string, Member>, todayKey: string): TaskGroup[] {
@@ -429,8 +519,8 @@ export function isOnboardingActiveMember(member: Member): boolean {
   return member.onboarding_status === "active" || member.onboarding_status === "at_risk";
 }
 
-export function memberToPlaybook(member: Member): OnboardingPlaybookKey {
-  const score = member.onboarding_score ?? 0;
+export function memberToPlaybook(member: Member, resolvedScore?: number | null): OnboardingPlaybookKey {
+  const score = resolvedScore ?? member.onboarding_score ?? 0;
   if (score >= 70) return "engajado";
   if (score >= 40) return "atencao";
   return "critico";

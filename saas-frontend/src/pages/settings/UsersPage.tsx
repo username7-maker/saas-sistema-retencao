@@ -12,6 +12,7 @@ import { userService, type StaffUser } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
 import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
 import { canChangeUserRole, canCreateUsers, canEditTargetUserProfile, canEditTargetUserRole, canToggleTargetUser, getAssignableUserRoles } from "../../utils/roleAccess";
+import { getPreferredShiftLabel } from "../../utils/preferredShift";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
   owner: "Proprietário",
@@ -29,12 +30,20 @@ const ROLE_BADGE: Record<StaffUser["role"], string> = {
   trainer: "bg-lovable-surface-soft text-lovable-ink-muted",
 };
 
+const SHIFT_OPTIONS = [
+  { value: "", label: "Sem turno fixo" },
+  { value: "morning", label: "Manha" },
+  { value: "afternoon", label: "Tarde" },
+  { value: "evening", label: "Noite" },
+] as const;
+
 const createSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   email: z.string().email("E-mail inválido"),
   password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
+  work_shift: z.enum(["morning", "afternoon", "evening"]).optional().or(z.literal("")),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 
@@ -42,6 +51,7 @@ const editSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]).optional(),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
+  work_shift: z.enum(["morning", "afternoon", "evening"]).optional().or(z.literal("")),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 
@@ -74,6 +84,7 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
     defaultValues: {
       role: (options[0]?.value ?? "receptionist") as CreateFormValues["role"],
       job_title: "",
+      work_shift: "",
       avatar_url: "",
     },
   });
@@ -100,6 +111,7 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
           createMutation.mutate({
             ...values,
             job_title: values.job_title?.trim() || null,
+            work_shift: values.work_shift || null,
             avatar_url: values.avatar_url?.trim() || null,
           }),
         )}
@@ -129,6 +141,16 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
 
         <FormField label="Cargo exibido" error={errors.job_title?.message}>
           <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepção, Comercial" />
+        </FormField>
+
+        <FormField label="Turno operacional" error={errors.work_shift?.message}>
+          <Select {...register("work_shift")}>
+            {SHIFT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
         </FormField>
 
         <FormField label="URL da foto" error={errors.avatar_url?.message}>
@@ -176,6 +198,7 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
       full_name: user.full_name,
       role: user.role === "owner" ? undefined : user.role,
       job_title: user.job_title ?? "",
+      work_shift: user.work_shift ?? "",
       avatar_url: user.avatar_url ?? "",
     });
   }, [reset, user]);
@@ -186,16 +209,18 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
         throw new Error("Usuário ausente");
       }
 
-      const profilePayload = {
-        full_name: values.full_name,
-        job_title: values.job_title?.trim() || null,
-        avatar_url: values.avatar_url?.trim() || null,
-      };
+        const profilePayload = {
+          full_name: values.full_name,
+          job_title: values.job_title?.trim() || null,
+          work_shift: values.work_shift || null,
+          avatar_url: values.avatar_url?.trim() || null,
+        };
 
       if (canEditRole && values.role && values.role !== user.role) {
         await userService.updateUser(user.id, {
           full_name: values.full_name,
           job_title: values.job_title?.trim() || null,
+          work_shift: values.work_shift || null,
           avatar_url: values.avatar_url?.trim() || null,
           role: values.role,
         });
@@ -246,6 +271,16 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
 
           <FormField label="Cargo exibido" error={errors.job_title?.message}>
             <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepção, Comercial" />
+          </FormField>
+
+          <FormField label="Turno operacional" error={errors.work_shift?.message}>
+            <Select {...register("work_shift")}>
+              {SHIFT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
           </FormField>
 
           <FormField label="URL da foto" error={errors.avatar_url?.message}>
@@ -302,6 +337,7 @@ function UserRow({
               {ROLE_LABELS[user.role]}
             </span>
             {user.job_title ? <span className="text-xs text-lovable-ink-muted">{user.job_title}</span> : null}
+            {user.work_shift ? <Badge variant="neutral">Turno {getPreferredShiftLabel(user.work_shift)}</Badge> : null}
           </div>
         </div>
       </div>

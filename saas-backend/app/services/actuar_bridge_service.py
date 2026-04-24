@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import hashlib
 import secrets
 import string
@@ -7,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc, or_, select, update
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,8 @@ from app.schemas.actuar_bridge import (
 )
 from app.services.actuar_member_link_service import get_actuar_member_link, resolve_member_document_for_actuar, upsert_actuar_member_link
 from app.services.body_composition_actuar_mapping_service import build_manual_sync_summary
+
+logger = logging.getLogger(__name__)
 
 
 def list_actuar_bridge_devices(db: Session, *, gym_id: UUID) -> list[ActuarBridgeDeviceRead]:
@@ -195,10 +199,12 @@ def claim_next_actuar_bridge_job(
     current_status = job.status
     locked_by = f"bridge:{device.id}"
     result = db.execute(
-        update(ActuarSyncJob)
-        .where(ActuarSyncJob.id == job.id, ActuarSyncJob.status == current_status)
-        .values(status="processing", locked_at=now, locked_by=locked_by)
-        .execution_options(include_all_tenants=True, tenant_bypass_reason="actuar_bridge.claim_job_lock")
+        include_all_tenants(
+            update(ActuarSyncJob)
+            .where(ActuarSyncJob.id == job.id, ActuarSyncJob.status == current_status)
+            .values(status="processing", locked_at=now, locked_by=locked_by),
+            reason="actuar_bridge.claim_job_lock",
+        )
     )
     if not result.rowcount:
         db.rollback()
@@ -222,6 +228,9 @@ def claim_next_actuar_bridge_job(
         member_birthdate=member.birthdate,
         member_document=resolve_member_document_for_actuar(member, member_link),
         actuar_external_id=member_link.actuar_external_id if member_link else None,
+        actuar_search_name=(member_link.actuar_search_name if member_link else None) or member.full_name,
+        actuar_search_document=resolve_member_document_for_actuar(member, member_link),
+        actuar_search_birthdate=(member_link.actuar_search_birthdate if member_link else None) or member.birthdate,
         payload_json=job.payload_json,
         mapped_fields_json=job.mapped_fields_json,
         critical_fields_json=job.critical_fields_json,
@@ -354,31 +363,60 @@ def _persist_member_link_from_bridge_success(db: Session, *, job: ActuarSyncJob,
     if member is None:
         return
 
-    current_link = get_actuar_member_link(db, gym_id=job.gym_id, member_id=job.member_id)
-    if current_link is not None:
+    document = resolve_member_document_for_actuar(member, None)
+    try:
+        current_link = get_actuar_member_link(db, gym_id=job.gym_id, member_id=job.member_id)
+        if current_link is not None:
+            current_link.actuar_external_id = normalized_external_id
+            current_link.actuar_search_name = current_link.actuar_search_name or member.full_name
+            current_link.actuar_search_document = resolve_member_document_for_actuar(member, current_link)
+            current_link.actuar_search_birthdate = current_link.actuar_search_birthdate or member.birthdate
+            current_link.linked_at = _now()
+            current_link.linked_by_user_id = None
+            current_link.match_confidence = 1.0
+            current_link.is_active = True
+            db.add(current_link)
+            db.flush()
+            return
+
+        upsert_actuar_member_link(
+            db,
+            gym_id=job.gym_id,
+            member_id=job.member_id,
+            user_id=None,
+            actuar_external_id=normalized_external_id,
+            actuar_search_name=member.full_name,
+            actuar_search_document=document,
+            actuar_search_birthdate=member.birthdate,
+            match_confidence=1.0,
+        )
+    except IntegrityError:
+        db.rollback()
+        current_link = db.scalar(
+            include_all_tenants(
+                select(ActuarMemberLink).where(
+                    ActuarMemberLink.gym_id == job.gym_id,
+                    ActuarMemberLink.member_id == job.member_id,
+                ),
+                reason="actuar_bridge.persist_member_link.retry_existing",
+            )
+        )
+        if current_link is None:
+            logger.exception(
+                "Actuar bridge failed to reload existing member link after duplicate insert.",
+                extra={"extra_fields": {"event": "actuar_bridge_member_link_reload_failed", "job_id": str(job.id)}},
+            )
+            return
         current_link.actuar_external_id = normalized_external_id
         current_link.actuar_search_name = current_link.actuar_search_name or member.full_name
-        current_link.actuar_search_document = resolve_member_document_for_actuar(member, current_link)
-        current_link.actuar_search_birthdate = member.birthdate
+        current_link.actuar_search_document = resolve_member_document_for_actuar(member, current_link) or document
+        current_link.actuar_search_birthdate = current_link.actuar_search_birthdate or member.birthdate
         current_link.linked_at = _now()
         current_link.linked_by_user_id = None
         current_link.match_confidence = 1.0
         current_link.is_active = True
         db.add(current_link)
         db.flush()
-        return
-
-    upsert_actuar_member_link(
-        db,
-        gym_id=job.gym_id,
-        member_id=job.member_id,
-        user_id=None,
-        actuar_external_id=normalized_external_id,
-        actuar_search_name=(current_link.actuar_search_name if current_link else None) or member.full_name,
-        actuar_search_document=resolve_member_document_for_actuar(member, current_link),
-        actuar_search_birthdate=member.birthdate,
-        match_confidence=1.0,
-    )
 
 
 def _load_claimed_job_triplet(

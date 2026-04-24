@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.database import include_all_tenants
-from app.integrations.actuar.browser_client import ActuarPlaywrightProvider
+from app.integrations.actuar.assisted_rpa_provider import ActuarAssistedRpaProvider
+from app.integrations.actuar.browser_client import _normalize_base_url
 from app.models import Gym
 from app.schemas.settings import (
     ActuarConnectionTestResult,
@@ -37,7 +38,7 @@ def update_actuar_settings(
     gym = _get_gym_or_404(db, gym_id=gym_id)
     gym.actuar_enabled = payload.actuar_enabled
     gym.actuar_auto_sync_body_composition = payload.actuar_auto_sync_body_composition
-    gym.actuar_base_url = _normalize_text(payload.actuar_base_url)
+    gym.actuar_base_url = _normalize_base_url(_normalize_text(payload.actuar_base_url) or "") or None
     gym.actuar_username = _normalize_text(payload.actuar_username)
 
     if payload.clear_password:
@@ -95,16 +96,16 @@ def test_actuar_connection(db: Session, *, gym_id: UUID) -> ActuarConnectionTest
             detail="Sem credenciais validas, o piloto continua no fallback de exportacao/manual.",
         )
 
-    provider: ActuarPlaywrightProvider | None = None
+    provider: ActuarAssistedRpaProvider | None = None
     try:
-        provider = ActuarPlaywrightProvider(
-            base_url=(gym.actuar_base_url or settings.actuar_base_url).strip(),
+        provider = ActuarAssistedRpaProvider(
+            base_url=_normalize_base_url((gym.actuar_base_url or settings.actuar_base_url).strip()),
             username=(gym.actuar_username or settings.actuar_username).strip(),
             password=(gym.actuar_password_encrypted or settings.actuar_password).strip(),
             worker_id="settings:test-connection",
             evidence_dir=Path(settings.actuar_sync_evidence_dir) / str(gym.id) / "connection-test",
         )
-        provider.login()
+        provider.test_connection()
         return ActuarConnectionTestResult(
             success=True,
             provider="actuar_assisted_rpa",
@@ -199,6 +200,10 @@ def _map_connection_error(exc: Exception) -> str:
     raw = str(exc).strip() or type(exc).__name__
     if raw == "playwright_unavailable":
         return "Playwright indisponivel no ambiente. Confirme a instalacao do runtime automatico."
+    if "Executable doesn't exist" in raw:
+        return "O navegador automatico do Playwright nao esta instalado no ambiente."
+    if raw == "actuar_login_failed":
+        return "O Actuar abriu, mas o login nao concluiu. Verifique URL, usuario, senha e possivel MFA."
     if raw == "actuar_form_changed":
         return "A tela do Actuar mudou e os seletores atuais precisam ser ajustados."
     if "Timeout" in raw or "timeout" in raw:

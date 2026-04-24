@@ -59,7 +59,9 @@ def test_login_sets_refresh_cookie_and_hides_refresh_token(app, client, monkeypa
         set_cookie_header = response.headers["set-cookie"]
         assert "HttpOnly" in set_cookie_header
         assert f"samesite={settings.resolved_refresh_cookie_samesite}" in set_cookie_header.lower()
-        assert "Cache-Control" in response.headers
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
+        assert response.headers["Expires"] == "0"
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
@@ -93,6 +95,7 @@ def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
     try:
         response = client.post(
             "/api/v1/auth/refresh",
+            headers={"Origin": settings.frontend_url},
             cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
         )
 
@@ -101,6 +104,9 @@ def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
         assert response.json()["access_token"] == "new-access-token"
         assert response.json()["refresh_token"] is None
         assert response.cookies.get(settings.refresh_cookie_name) == "new-refresh-token"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
+        assert response.headers["Expires"] == "0"
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
@@ -123,7 +129,7 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
     try:
         response = client.post(
             "/api/v1/auth/logout",
-            headers={"Authorization": "Bearer fake-access-token"},
+            headers={"Authorization": "Bearer fake-access-token", "Origin": settings.frontend_url},
             cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
         )
 
@@ -132,6 +138,95 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
         set_cookie_header = response.headers["set-cookie"]
         assert f"{settings.refresh_cookie_name}=" in set_cookie_header
         assert "Max-Age=0" in set_cookie_header or "expires=" in set_cookie_header.lower()
+        assert response.headers["Clear-Site-Data"] == "\"storage\""
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
+        assert response.headers["Expires"] == "0"
         mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_accepts_allowed_referer_when_origin_missing(app, client, monkeypatch):
+    mock_db = MagicMock()
+    mock_db.get.return_value = _current_user()
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    tokens = SimpleNamespace(
+        access_token="new-access-token",
+        refresh_token="new-refresh-token",
+        token_type="bearer",
+        expires_in=900,
+    )
+
+    monkeypatch.setattr("app.routers.auth.refresh_access_token", lambda *_args, **_kwargs: tokens)
+    monkeypatch.setattr(
+        "app.routers.auth.decode_token",
+        lambda _token: {"sub": str(USER_ID), "type": "refresh", "gym_id": str(GYM_ID)},
+    )
+    monkeypatch.setattr("app.routers.auth.log_audit_event", lambda *_args, **_kwargs: None)
+
+    try:
+        response = client.post(
+            "/api/v1/auth/refresh",
+            headers={"Referer": f"{settings.frontend_url}/dashboard"},
+            cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_rejects_disallowed_origin(app, client):
+    response = client.post(
+        "/api/v1/auth/refresh",
+        headers={"Origin": "https://evil.example"},
+        cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Origem nao autorizada"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+
+
+def test_logout_rejects_disallowed_origin(app, client):
+    app.dependency_overrides[get_current_user] = _current_user
+    try:
+        response = client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": "Bearer fake-access-token", "Origin": "https://evil.example"},
+            cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Origem nao autorizada"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
+        assert response.headers["Expires"] == "0"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_logout_accepts_allowed_referer_when_origin_missing(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = _current_user
+
+    monkeypatch.setattr("app.routers.auth.logout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.routers.auth.log_audit_event", lambda *_args, **_kwargs: None)
+
+    try:
+        response = client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": "Bearer fake-access-token", "Referer": f"{settings.frontend_url}/dashboard"},
+            cookies={settings.refresh_cookie_name: "cookie-refresh-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-store"
     finally:
         app.dependency_overrides.clear()

@@ -17,6 +17,8 @@ FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libnss3 \
@@ -45,7 +47,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-RUN python -m playwright install chromium
+RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
+    && python -m playwright install chromium \
+    && chmod -R 755 ${PLAYWRIGHT_BROWSERS_PATH}
 
 # Copy source code
 COPY app/ ./app/

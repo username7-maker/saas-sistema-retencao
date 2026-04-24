@@ -2,10 +2,18 @@ from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
+from app.schemas.core_async_job import CoreAsyncJobStatusRead
 
 
 class PublicDiagnosisQueuedResponse(BaseModel):
     message: str
+    diagnosis_id: UUID
+    job_id: UUID
+    lead_id: UUID
+    status: str
+
+
+class PublicDiagnosisStatusRead(CoreAsyncJobStatusRead):
     diagnosis_id: UUID
     lead_id: UUID
 

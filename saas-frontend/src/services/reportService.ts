@@ -2,6 +2,29 @@ import { api } from "./api";
 
 export type DashboardReportType = "executive" | "operational" | "commercial" | "financial" | "retention" | "consolidated";
 
+export interface AsyncJobAcceptedResponse {
+  message: string;
+  job_id: string;
+  job_type: string;
+  status: string;
+}
+
+export interface AsyncJobStatusResponse {
+  job_id: string;
+  job_type: string;
+  status: string;
+  attempt_count: number;
+  max_attempts: number;
+  next_retry_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  result?: Record<string, unknown> | null;
+  related_entity_type?: string | null;
+  related_entity_id?: string | null;
+}
+
 function parseFilename(contentDisposition?: string): string {
   if (!contentDisposition) return "report.pdf";
   const match = /filename="?([^"]+)"?/i.exec(contentDisposition);
@@ -28,8 +51,13 @@ export const reportService = {
     triggerBrowserDownload(response.data, filename);
   },
 
-  async dispatchMonthlyReports(): Promise<{ message: string }> {
-    const { data } = await api.post<{ message: string }>("/api/v1/reports/monthly-dispatch");
+  async dispatchMonthlyReports(): Promise<AsyncJobAcceptedResponse> {
+    const { data } = await api.post<AsyncJobAcceptedResponse>("/api/v1/reports/monthly-dispatch");
+    return data;
+  },
+
+  async getMonthlyDispatchStatus(jobId: string): Promise<AsyncJobStatusResponse> {
+    const { data } = await api.get<AsyncJobStatusResponse>(`/api/v1/reports/monthly-dispatches/${jobId}`);
     return data;
   },
 };

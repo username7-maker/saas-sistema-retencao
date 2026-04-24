@@ -17,6 +17,10 @@ export interface BodyCompositionOcrWarning {
 
 export interface BodyCompositionOcrValues {
   evaluation_date?: string;
+  measured_at?: string;
+  age_years?: number;
+  sex?: "male" | "female";
+  height_cm?: number;
   weight_kg?: number;
   body_fat_kg?: number;
   body_fat_percent?: number;
@@ -64,6 +68,10 @@ const PARSERS: Record<BodyCompositionDeviceProfile, Parser> = {
 
 const OCR_FIELDS: Array<keyof BodyCompositionOcrValues> = [
   "evaluation_date",
+  "measured_at",
+  "age_years",
+  "sex",
+  "height_cm",
   "weight_kg",
   "body_fat_kg",
   "body_fat_percent",
@@ -95,7 +103,15 @@ const KEY_FIELDS: Array<keyof BodyCompositionOcrValues> = [
   "waist_hip_ratio",
 ];
 
+const CORE_COMPOSITION_FIELDS: Array<keyof BodyCompositionOcrValues> = [
+  "fat_free_mass_kg",
+  "body_water_kg",
+  "muscle_mass_kg",
+];
+
 const NUMERIC_BOUNDS: Partial<Record<keyof BodyCompositionOcrValues, { min: number; max: number }>> = {
+  age_years: { min: 1, max: 119 },
+  height_cm: { min: 100, max: 250 },
   weight_kg: { min: 30, max: 300 },
   body_fat_kg: { min: 1, max: 80 },
   body_fat_percent: { min: 2, max: 75 },
@@ -125,7 +141,7 @@ export function extractBodyCompositionFromText(
   deviceProfile: BodyCompositionDeviceProfile = BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE,
 ): BodyCompositionOcrResult {
   const parser = PARSERS[deviceProfile];
-  return ensureOcrResultMetadata(parser(rawText), "local", false);
+  return ensureOcrResultMetadata(normalizeLegacyBodyCompositionValues(parser(rawText)), "local", false);
 }
 
 export async function readBodyCompositionFromImage(
@@ -216,7 +232,7 @@ export function mergeBodyCompositionOcrResults(results: BodyCompositionOcrResult
   const uniqueWarnings = dedupeWarnings(warnings);
   const confidence = computeMergedConfidence(values, uniqueWarnings);
 
-    return {
+    return normalizeLegacyBodyCompositionValues({
       device_profile: canonical.device_profile,
       device_model: canonical.device_model ?? results.find((result) => result.device_model)?.device_model,
       values,
@@ -227,7 +243,7 @@ export function mergeBodyCompositionOcrResults(results: BodyCompositionOcrResult
       needs_review: uniqueWarnings.length > 0 || confidence < 0.85,
       engine: "local",
       fallback_used: false,
-    };
+    });
 }
 
 export function ensureOcrResultMetadata(
@@ -235,11 +251,11 @@ export function ensureOcrResultMetadata(
   engine: BodyCompositionOcrEngine = "local",
   fallbackUsed = engine !== "local",
 ): BodyCompositionOcrResult {
-  return {
+  return normalizeLegacyBodyCompositionValues({
     ...result,
     engine: result.engine ?? engine,
     fallback_used: result.fallback_used ?? fallbackUsed,
-  };
+  });
 }
 
 export function getBodyCompositionAiFallbackReasons(result: BodyCompositionOcrResult): string[] {
@@ -259,8 +275,27 @@ export function getBodyCompositionAiFallbackReasons(result: BodyCompositionOcrRe
   if (KEY_FIELDS.some((field) => normalized.values[field] == null)) {
     reasons.push("OCR local nao identificou todas as medidas principais.");
   }
+  if (CORE_COMPOSITION_FIELDS.some((field) => normalized.values[field] == null)) {
+    reasons.push("OCR local nao cobriu toda a composicao corporal principal.");
+  }
 
   return Array.from(new Set(reasons));
+}
+
+function normalizeLegacyBodyCompositionValues(result: BodyCompositionOcrResult): BodyCompositionOcrResult {
+  const values = { ...result.values };
+
+  if (values.fat_free_mass_kg == null && values.lean_mass_kg != null) {
+    values.fat_free_mass_kg = values.lean_mass_kg;
+  }
+  if (values.lean_mass_kg == null && values.fat_free_mass_kg != null) {
+    values.lean_mass_kg = values.fat_free_mass_kg;
+  }
+
+  return {
+    ...result,
+    values,
+  };
 }
 
 function scoreBodyCompositionOcrResult(result: BodyCompositionOcrResult): number {

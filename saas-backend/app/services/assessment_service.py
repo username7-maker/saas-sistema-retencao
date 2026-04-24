@@ -8,7 +8,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, Member
+from app.models import Checkin, Member, Task, TaskPriority, TaskStatus
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
 from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
@@ -29,6 +29,8 @@ _ASSESSMENT_DUE_BY_PLAN_KEYWORD = {
     "semestral": 90,
     "anual": 120,
 }
+_ASSESSMENT_FEEDBACK_TASK_SOURCE = "assessment_feedback_followup"
+_ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET = 14
 
 
 def _safe(fn, default=None):
@@ -120,6 +122,13 @@ def create_assessment(
     db.refresh(assessment)
 
     generate_ai_insights(db, assessment, commit=False)
+    _ensure_assessment_feedback_followup_task(
+        db,
+        member=member,
+        assessment=assessment,
+        evaluator_id=evaluator_id,
+        commit=False,
+    )
     sync_assessment_intelligence_tasks(db, member_id, commit=False)
 
     if commit:
@@ -128,6 +137,56 @@ def create_assessment(
         db.flush()
 
     return assessment
+
+
+def _ensure_assessment_feedback_followup_task(
+    db: Session,
+    *,
+    member: Member,
+    assessment: Assessment,
+    evaluator_id: UUID | None,
+    commit: bool = True,
+) -> Task | None:
+    existing = db.scalar(
+        select(Task).where(
+            Task.member_id == member.id,
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+            Task.extra_data["assessment_id"].astext == str(assessment.id),
+        )
+    )
+    if existing:
+        return existing
+
+    task = Task(
+        gym_id=member.gym_id,
+        member_id=member.id,
+        assigned_to_user_id=evaluator_id,
+        title=f"Follow-up D+14 da avaliacao - {member.full_name}",
+        description="Verificar com o aluno o feedback do treino, aderencia inicial e necessidade de ajuste apos 14 dias da avaliacao.",
+        priority=TaskPriority.MEDIUM,
+        status=TaskStatus.TODO,
+        kanban_column=TaskStatus.TODO.value,
+        due_date=assessment.assessment_date + timedelta(days=_ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET),
+        suggested_message=(
+            f"Oi, {member.full_name.split()[0]}! Ja se passaram 14 dias da sua avaliacao. "
+            "Quero entender como voce esta se sentindo com o treino e se precisamos ajustar alguma coisa."
+        ),
+        extra_data={
+            "source": _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+            "assessment_id": str(assessment.id),
+            "assessment_number": assessment.assessment_number,
+            "day_offset": _ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET,
+            "owner_role": "coach",
+        },
+    )
+    db.add(task)
+    invalidate_dashboard_cache("tasks")
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return task
 
 
 def update_assessment_queue_resolution(

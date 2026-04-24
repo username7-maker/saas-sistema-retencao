@@ -9,6 +9,8 @@ from time import sleep
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
+
 from actuar_bridge.bridge_client import BridgeClient
 
 
@@ -33,6 +35,7 @@ class ExtensionRelayState:
     idle_sleep_seconds: int = 3
     browser: RelayBrowserStatus = field(default_factory=RelayBrowserStatus)
     pending_job: dict[str, Any] | None = None
+    pending_job_dispatched: bool = False
     poll_interval_seconds: int = 15
     last_error: str | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock, init=False)
@@ -58,16 +61,24 @@ class ExtensionRelayState:
                 "browser_title": self.browser.title,
                 "pending_job_id": _job_id(self.pending_job),
                 "pending_job": self.pending_job,
+                "pending_job_dispatched": self.pending_job_dispatched,
                 "poll_interval_seconds": self.poll_interval_seconds,
                 "last_error": self.last_error,
             }
 
     def poll_backend_once(self) -> dict[str, Any]:
+        with self._lock:
+            if not self.browser.attached:
+                self.poll_interval_seconds = max(self.idle_sleep_seconds, 1)
+                return self.snapshot()
+            if self.pending_job is not None:
+                return self.snapshot()
+
         heartbeat = self.client.heartbeat()
         poll_interval = int(heartbeat.get("poll_interval_seconds") or self.idle_sleep_seconds)
         with self._lock:
             self.poll_interval_seconds = max(poll_interval, 1)
-            if not self.browser.attached or self.pending_job is not None:
+            if self.pending_job is not None:
                 return self.snapshot()
         try:
             job = self.client.claim_job()
@@ -79,23 +90,43 @@ class ExtensionRelayState:
         if job:
             with self._lock:
                 self.pending_job = job
+                self.pending_job_dispatched = False
                 self.last_error = None
         return self.snapshot()
 
     def next_job(self) -> dict[str, Any] | None:
         with self._lock:
-            if not self.browser.attached:
+            if not self.browser.attached or self.pending_job is None or self.pending_job_dispatched:
                 return None
-            return self.pending_job
+            self.pending_job_dispatched = True
+            return dict(self.pending_job)
 
     def complete_job(self, job_id: str, *, external_id: str | None, action_log_json: list[dict] | list | None, note: str | None = None) -> None:
         with self._lock:
             current = self.pending_job
             if _job_id(current) != str(job_id):
                 raise ValueError("pending_job_mismatch")
-        self.client.complete_job(job_id, external_id=external_id, action_log_json=action_log_json, note=note)
+        try:
+            self.client.complete_job(job_id, external_id=external_id, action_log_json=action_log_json, note=note)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            with self._lock:
+                if status_code in {HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT}:
+                    self.pending_job = None
+                    self.pending_job_dispatched = False
+                    self.last_error = None
+                    return
+                self.pending_job_dispatched = True
+                self.last_error = str(exc)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self.pending_job_dispatched = True
+                self.last_error = str(exc)
+            raise
         with self._lock:
             self.pending_job = None
+            self.pending_job_dispatched = False
             self.last_error = None
 
     def fail_job(
@@ -112,16 +143,34 @@ class ExtensionRelayState:
             current = self.pending_job
             if _job_id(current) != str(job_id):
                 raise ValueError("pending_job_mismatch")
-        self.client.fail_job(
-            job_id,
-            error_code=error_code,
-            error_message=error_message,
-            retryable=retryable,
-            manual_fallback=manual_fallback,
-            action_log_json=action_log_json,
-        )
+        try:
+            self.client.fail_job(
+                job_id,
+                error_code=error_code,
+                error_message=error_message,
+                retryable=retryable,
+                manual_fallback=manual_fallback,
+                action_log_json=action_log_json,
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            with self._lock:
+                if status_code in {HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT}:
+                    self.pending_job = None
+                    self.pending_job_dispatched = False
+                    self.last_error = error_message
+                    return
+                self.pending_job_dispatched = True
+                self.last_error = str(exc)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self.pending_job_dispatched = True
+                self.last_error = str(exc)
+            raise
         with self._lock:
             self.pending_job = None
+            self.pending_job_dispatched = False
             self.last_error = error_message
 
 
@@ -224,6 +273,9 @@ class ExtensionRelayService:
                     except ValueError:
                         self._json_response(HTTPStatus.CONFLICT, {"detail": "pending_job_mismatch"})
                         return
+                    except Exception as exc:  # noqa: BLE001
+                        self._json_response(HTTPStatus.BAD_GATEWAY, {"detail": "bridge_complete_failed", "error": str(exc)})
+                        return
                     self._json_response(HTTPStatus.OK, {"status": "ok"})
                     return
 
@@ -240,6 +292,9 @@ class ExtensionRelayService:
                         )
                     except ValueError:
                         self._json_response(HTTPStatus.CONFLICT, {"detail": "pending_job_mismatch"})
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        self._json_response(HTTPStatus.BAD_GATEWAY, {"detail": "bridge_fail_failed", "error": str(exc)})
                         return
                     self._json_response(HTTPStatus.OK, {"status": "ok"})
                     return

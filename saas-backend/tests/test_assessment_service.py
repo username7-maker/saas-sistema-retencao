@@ -1,5 +1,8 @@
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from app.services import assessment_service
 
@@ -51,3 +54,64 @@ def test_safe_delta_value_formats_sign_and_missing_cases():
     assert assessment_service._safe_delta_value(Decimal("70"), Decimal("68")) == "-2.00"
     assert assessment_service._safe_delta_value(Decimal("68"), Decimal("70")) == "+2.00"
     assert assessment_service._safe_delta_value(None, Decimal("70")) == "n/a"
+
+
+@patch("app.services.assessment_service.invalidate_dashboard_cache")
+def test_ensure_assessment_feedback_followup_task_creates_due_14_days_later(mock_cache):
+    db = MagicMock()
+    db.scalar.return_value = None
+    member = SimpleNamespace(
+        id=uuid.uuid4(),
+        gym_id=uuid.uuid4(),
+        full_name="Paulo Ricardo Doneles",
+    )
+    assessment = SimpleNamespace(
+        id=uuid.uuid4(),
+        assessment_number=2,
+        assessment_date=datetime(2026, 4, 23, 10, 0, tzinfo=timezone.utc),
+    )
+    evaluator_id = uuid.uuid4()
+
+    task = assessment_service._ensure_assessment_feedback_followup_task(
+        db,
+        member=member,
+        assessment=assessment,
+        evaluator_id=evaluator_id,
+        commit=False,
+    )
+
+    assert task is not None
+    assert task.assigned_to_user_id == evaluator_id
+    assert task.due_date == assessment.assessment_date + timedelta(days=14)
+    assert task.extra_data["source"] == "assessment_feedback_followup"
+    assert task.extra_data["assessment_id"] == str(assessment.id)
+    assert "14 dias da sua avaliacao" in task.suggested_message
+    db.add.assert_called_once_with(task)
+    db.flush.assert_called_once()
+    mock_cache.assert_called_once_with("tasks")
+
+
+@patch("app.services.assessment_service.invalidate_dashboard_cache")
+def test_ensure_assessment_feedback_followup_task_skips_duplicate(mock_cache):
+    existing = SimpleNamespace(id=uuid.uuid4())
+    db = MagicMock()
+    db.scalar.return_value = existing
+    member = SimpleNamespace(id=uuid.uuid4(), gym_id=uuid.uuid4(), full_name="Aluno Teste")
+    assessment = SimpleNamespace(
+        id=uuid.uuid4(),
+        assessment_number=1,
+        assessment_date=datetime(2026, 4, 23, 10, 0, tzinfo=timezone.utc),
+    )
+
+    result = assessment_service._ensure_assessment_feedback_followup_task(
+        db,
+        member=member,
+        assessment=assessment,
+        evaluator_id=uuid.uuid4(),
+        commit=False,
+    )
+
+    assert result is existing
+    db.add.assert_not_called()
+    db.flush.assert_not_called()
+    mock_cache.assert_not_called()

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, Download, FileUp } from "lucide-react";
 
@@ -7,6 +7,7 @@ import {
   publicDiagnosticService,
   type PublicDiagnosisInput,
   type PublicDiagnosisQueuedResponse,
+  type PublicDiagnosisStatusResponse,
 } from "../../services/publicDiagnosticService";
 
 
@@ -50,12 +51,30 @@ export function DiagnosticoPage() {
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [lastSuccess, setLastSuccess] = useState<PublicDiagnosisQueuedResponse | null>(null);
+  const [diagnosisStatus, setDiagnosisStatus] = useState<PublicDiagnosisStatusResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const mutation = useMutation({
     mutationFn: (payload: PublicDiagnosisInput) => publicDiagnosticService.submitDiagnosis(payload),
     onSuccess: (response) => {
       setLastSuccess(response);
+      setDiagnosisStatus({
+        diagnosis_id: response.diagnosis_id,
+        lead_id: response.lead_id,
+        job_id: response.job_id,
+        job_type: "public_diagnosis",
+        status: response.status,
+        attempt_count: 0,
+        max_attempts: 0,
+        next_retry_at: null,
+        started_at: null,
+        completed_at: null,
+        error_code: null,
+        error_message: null,
+        result: null,
+        related_entity_type: "lead",
+        related_entity_id: response.lead_id,
+      });
       setErrorMessage("");
       setForm({
         fullName: "",
@@ -69,9 +88,43 @@ export function DiagnosticoPage() {
     },
     onError: (error) => {
       setLastSuccess(null);
+      setDiagnosisStatus(null);
       setErrorMessage(getErrorMessage(error));
     },
   });
+
+  useEffect(() => {
+    if (!lastSuccess) {
+      return;
+    }
+
+    const terminalStatuses = new Set(["completed", "failed"]);
+    if (diagnosisStatus && terminalStatuses.has(diagnosisStatus.status)) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollStatus = async () => {
+      try {
+        const nextStatus = await publicDiagnosticService.getDiagnosisStatus(lastSuccess.diagnosis_id, lastSuccess.lead_id);
+        if (!cancelled) {
+          setDiagnosisStatus(nextStatus);
+        }
+      } catch {
+        // Keep the last known queued state; the main mutation already handled submission errors.
+      }
+    };
+
+    void pollStatus();
+    const interval = window.setInterval(() => {
+      void pollStatus();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [lastSuccess, diagnosisStatus?.status]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -221,12 +274,28 @@ export function DiagnosticoPage() {
                 </div>
               )}
 
-              {lastSuccess && (
+              {lastSuccess && diagnosisStatus?.status !== "failed" && (
                 <div className="flex items-start gap-3 rounded-2xl border border-[hsl(var(--lovable-success)/0.25)] bg-[hsl(var(--lovable-success)/0.12)] px-4 py-3 text-sm text-lovable-ink">
                   <CheckCircle2 size={18} className="mt-0.5 text-[hsl(var(--lovable-success))]" />
                   <div>
-                    <p className="font-semibold">Diagnostico enviado.</p>
-                    <p>Verifique seu email e WhatsApp em alguns minutos.</p>
+                    <p className="font-semibold">
+                      {diagnosisStatus?.status === "completed" ? "Diagnostico concluido." : "Diagnostico enviado."}
+                    </p>
+                    <p>
+                      {diagnosisStatus?.status === "completed"
+                        ? "O relatorio ja foi processado. Verifique seu email e WhatsApp."
+                        : "Status atual: " + (diagnosisStatus?.status ?? lastSuccess.status) + ". Verifique seu email e WhatsApp em alguns minutos."}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {diagnosisStatus?.status === "failed" && (
+                <div className="flex items-start gap-3 rounded-2xl border border-[hsl(var(--lovable-danger)/0.25)] bg-[hsl(var(--lovable-danger)/0.1)] px-4 py-3 text-sm text-lovable-ink">
+                  <AlertCircle size={18} className="mt-0.5 text-[hsl(var(--lovable-danger))]" />
+                  <div>
+                    <p className="font-semibold">Diagnostico com falha.</p>
+                    <p>{diagnosisStatus.error_message ?? "Nao foi possivel concluir o processamento do diagnostico."}</p>
                   </div>
                 </div>
               )}

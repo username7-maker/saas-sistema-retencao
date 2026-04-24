@@ -29,6 +29,21 @@ _CHURN_LABELS = {
 }
 
 
+def _assistant_contract(
+    *,
+    provider: str = "system",
+    mode: str = "rule_based",
+    fallback_used: bool = False,
+    manual_required: bool = True,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "mode": mode,
+        "fallback_used": fallback_used,
+        "manual_required": manual_required,
+    }
+
+
 def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]) -> AIAssistantPayload:
     factors = onboarding_result.get("factors") or {}
     weakest_key = min(factors, key=factors.get) if factors else "checkin_frequency"
@@ -92,6 +107,7 @@ def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]
         next_best_action=next_best_action,
         suggested_message=suggested_message,
         evidence=evidence,
+        **_assistant_contract(),
         confidence_label=confidence_label,
         recommended_channel=recommended_channel,
         cta_target=cta_target,
@@ -145,6 +161,7 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
                 f"Dias sem check-in: {days_without_checkin or 0}",
                 f"Churn type: {churn_label}",
             ],
+            **_assistant_contract(),
             confidence_label="Alta" if risk_level == RiskLevel.RED else "Moderada",
             recommended_channel=recommended_channel,
             cta_target=f"/assessments/members/{member.id}?tab=contexto",
@@ -163,6 +180,7 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
                 f"Status atual: {task.status.value}",
                 f"Origem: {source}",
             ],
+            **_assistant_contract(),
             confidence_label="Inicial",
             recommended_channel="Contexto do aluno",
             cta_target=f"/assessments/members/{member.id}?tab=acoes",
@@ -180,6 +198,7 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
                 f"Prioridade: {task.priority.value}",
                 f"Prazo: {task.due_date.isoformat() if task.due_date else 'sem prazo'}",
             ],
+            **_assistant_contract(),
             confidence_label="Inicial",
             recommended_channel="CRM",
             cta_target=f"/crm?leadId={task.lead_id}",
@@ -196,6 +215,7 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
             f"Prioridade: {task.priority.value}",
             f"Status atual: {task.status.value}",
         ],
+        **_assistant_contract(),
         confidence_label="Inicial",
         recommended_channel="Operacao",
         cta_target="/tasks",
@@ -233,6 +253,7 @@ def build_retention_assistant(item: Any) -> AIAssistantPayload:
             "Quero entender o que atrapalhou sua rotina e te ajudar a voltar com um plano simples."
         ),
         evidence=evidence,
+        **_assistant_contract(),
         confidence_label="Alta" if risk_level == RiskLevel.RED else "Moderada",
         recommended_channel=recommended_channel,
         cta_target=f"/assessments/members/{getattr(item, 'member_id', '')}?tab=contexto",
@@ -265,6 +286,7 @@ def build_assessment_assistant(summary: dict[str, Any]) -> AIAssistantPayload:
             f"Resumo aluno: {narratives['member_summary']}",
             f"Benchmark: {summary['benchmark']['position_label']}",
         ],
+        **_assistant_contract(),
         confidence_label=str(forecast.get("confidence") or "Moderada").capitalize(),
         recommended_channel="Avaliacao",
         cta_target=f"/assessments/members/{member.id}?tab=registro",
@@ -303,6 +325,10 @@ def build_body_composition_assistant(
             f"Seu exame mostra um bom ponto de partida. Agora vamos focar em {primary_goal} e acompanhar as proximas semanas com metas simples."
         ),
         evidence=evidence[:5],
+        **_assistant_contract(
+            mode="assisted_summary",
+            manual_required=bool(evaluation.needs_review),
+        ),
         confidence_label=_body_confidence_label(evaluation),
         recommended_channel="Explicacao guiada",
         cta_target=f"/assessments/members/{member.id}?tab=plano",

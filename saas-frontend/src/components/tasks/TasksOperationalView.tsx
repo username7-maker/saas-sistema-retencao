@@ -7,6 +7,7 @@ import { Button, Dialog, Select, Tabs, TabsList, TabsTrigger } from "../ui2";
 import type { CreateTaskPayload, UpdateTaskPayload } from "../../services/taskService";
 import type { StaffUser } from "../../services/userService";
 import type { Member, Task } from "../../types";
+import { getPreferredShiftLabel } from "../../utils/preferredShift";
 import { CreateTaskModal } from "../../pages/tasks/CreateTaskModal";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { TaskListItem } from "./TaskListItem";
@@ -17,21 +18,19 @@ import {
   type OperationalViewMode,
   type SourceFilter,
   filterOperationalTasks,
-  getAttentionNowTasks,
   getOperationStats,
   getTodayKey,
-  groupTasksByDue,
+  groupTasksByTriage,
   groupTasksByStatus,
 } from "./taskUtils";
 
 interface TasksOperationalViewProps {
   tasks: Task[];
   totalTasks: number;
-  currentPage: number;
-  pageSize: number;
   members: Member[];
   users: StaffUser[];
   currentUserId: string | null;
+  currentUserShift: "morning" | "afternoon" | "evening" | null;
   initialSearch: string;
   sourcePreset: SourceFilter | null;
   sourcePresetToken: number;
@@ -42,7 +41,6 @@ interface TasksOperationalViewProps {
   isDeleting: boolean;
   onCreateOpen: () => void;
   onCreateClose: () => void;
-  onPageChange: (page: number) => void;
   onSearchChange: (value: string) => void;
   onCreateTask: (payload: CreateTaskPayload) => void;
   onUpdateTask: (taskId: string, payload: UpdateTaskPayload) => void;
@@ -86,11 +84,10 @@ function ToggleChip({
 export function TasksOperationalView({
   tasks,
   totalTasks,
-  currentPage,
-  pageSize,
   members,
   users,
   currentUserId,
+  currentUserShift,
   initialSearch,
   sourcePreset,
   sourcePresetToken,
@@ -101,7 +98,6 @@ export function TasksOperationalView({
   isDeleting,
   onCreateOpen,
   onCreateClose,
-  onPageChange,
   onSearchChange,
   onCreateTask,
   onUpdateTask,
@@ -110,7 +106,9 @@ export function TasksOperationalView({
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<OperationalFilters>({ ...DEFAULT_OPERATIONAL_FILTERS, search: initialSearch });
-  const [viewMode, setViewMode] = useState<OperationalViewMode>("due");
+  const [useCurrentShift, setUseCurrentShift] = useState(Boolean(currentUserShift));
+  const [shiftPreferenceTouched, setShiftPreferenceTouched] = useState(false);
+  const [viewMode, setViewMode] = useState<OperationalViewMode>("triage");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -123,12 +121,17 @@ export function TasksOperationalView({
     if (!sourcePresetToken || !sourcePreset) return;
     setFilters((previous) => ({ ...previous, source: sourcePreset }));
     setAdvancedOpen(true);
-    setViewMode("due");
+    setViewMode("triage");
   }, [sourcePreset, sourcePresetToken]);
 
   useEffect(() => {
     setFilters((previous) => (previous.search === initialSearch ? previous : { ...previous, search: initialSearch }));
   }, [initialSearch]);
+
+  useEffect(() => {
+    if (shiftPreferenceTouched) return;
+    setUseCurrentShift(Boolean(currentUserShift));
+  }, [currentUserShift, shiftPreferenceTouched]);
 
   const membersById = useMemo(() => {
     const map = new Map<string, Member>();
@@ -146,8 +149,9 @@ export function TasksOperationalView({
     () => ({
       ...filters,
       search: deferredSearch,
+      preferredShift: useCurrentShift && currentUserShift ? currentUserShift : filters.preferredShift,
     }),
-    [deferredSearch, filters],
+    [currentUserShift, deferredSearch, filters, useCurrentShift],
   );
 
   const filteredTasks = useMemo(
@@ -160,13 +164,8 @@ export function TasksOperationalView({
     [currentUserId, filteredTasks, todayKey],
   );
 
-  const attentionTasks = useMemo(
-    () => getAttentionNowTasks(filteredTasks, membersById, todayKey),
-    [filteredTasks, membersById, todayKey],
-  );
-
   const groups = useMemo(
-    () => (viewMode === "due" ? groupTasksByDue(filteredTasks, membersById, todayKey) : groupTasksByStatus(filteredTasks, membersById, todayKey)),
+    () => (viewMode === "triage" ? groupTasksByTriage(filteredTasks, membersById, todayKey) : groupTasksByStatus(filteredTasks, membersById, todayKey)),
     [filteredTasks, membersById, todayKey, viewMode],
   );
 
@@ -180,12 +179,22 @@ export function TasksOperationalView({
     [pendingDeleteId, tasks],
   );
 
-  const activeFilterCount = countActiveFilters(filters);
+  const activeFilterCount = countActiveFilters({
+    ...filters,
+    preferredShift: useCurrentShift && currentUserShift ? currentUserShift : filters.preferredShift,
+  });
   const noTasksAtAll = totalTasks === 0;
-  const totalPages = Math.max(1, Math.ceil(totalTasks / pageSize));
+  const noFilteredTasks = filteredTasks.length === 0;
+  const currentShiftLabel = getPreferredShiftLabel(currentUserShift);
 
   function handleFilterChange<K extends keyof OperationalFilters>(key: K, value: OperationalFilters[K]) {
     setFilters((previous) => ({ ...previous, [key]: value }));
+  }
+
+  function handlePreferredShiftChange(value: OperationalFilters["preferredShift"]) {
+    setShiftPreferenceTouched(true);
+    setUseCurrentShift(false);
+    handleFilterChange("preferredShift", value);
   }
 
   function handleSearchChange(value: string) {
@@ -195,7 +204,10 @@ export function TasksOperationalView({
 
   function handleResetFilters() {
     setFilters(DEFAULT_OPERATIONAL_FILTERS);
+    setUseCurrentShift(Boolean(currentUserShift));
+    setShiftPreferenceTouched(false);
     setAdvancedOpen(false);
+    onSearchChange("");
   }
 
   function openTaskDetails(task: Task) {
@@ -223,6 +235,11 @@ export function TasksOperationalView({
     onUpdateTask(taskId, { status: "done" });
   }
 
+  function handleAssignToMe(taskId: string) {
+    if (!currentUserId) return;
+    onUpdateTask(taskId, { assigned_to_user_id: currentUserId });
+  }
+
   function toggleGroup(groupKey: string) {
     setExpandedGroups((previous) => ({ ...previous, [groupKey]: !previous[groupKey] }));
   }
@@ -238,12 +255,12 @@ export function TasksOperationalView({
     <div className="space-y-6">
       <KPIStrip items={kpiItems} />
 
-      <section className="space-y-3">
+      <section className="sticky top-4 z-20 space-y-3 rounded-2xl border border-lovable-border bg-lovable-bg/95 px-3 py-3 backdrop-blur">
         <FilterBar
           search={{
             value: filters.search,
             onChange: handleSearchChange,
-            placeholder: "Buscar por titulo, aluno ou lead...",
+            placeholder: "Buscar por titulo, aluno, lead ou playbook...",
           }}
           filters={[
             {
@@ -292,6 +309,16 @@ export function TasksOperationalView({
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-2">
+            {currentUserShift && currentShiftLabel ? (
+              <ToggleChip
+                active={useCurrentShift}
+                label={useCurrentShift ? `Meu turno: ${currentShiftLabel}` : `Mostrar meu turno: ${currentShiftLabel}`}
+                onClick={() => {
+                  setShiftPreferenceTouched(true);
+                  setUseCurrentShift((value) => !value);
+                }}
+              />
+            ) : null}
             <ToggleChip active={filters.onlyMine} label="So minhas" onClick={() => handleFilterChange("onlyMine", !filters.onlyMine)} />
             <ToggleChip active={filters.overdueOnly} label="Atrasadas" onClick={() => handleFilterChange("overdueOnly", !filters.overdueOnly)} />
             <ToggleChip active={filters.dueTodayOnly} label="Vence hoje" onClick={() => handleFilterChange("dueTodayOnly", !filters.dueTodayOnly)} />
@@ -310,7 +337,7 @@ export function TasksOperationalView({
 
           <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as OperationalViewMode)}>
             <TabsList>
-              <TabsTrigger value="due">Por prazo</TabsTrigger>
+              <TabsTrigger value="triage">Triage</TabsTrigger>
               <TabsTrigger value="status">Por status</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -344,14 +371,17 @@ export function TasksOperationalView({
             <div>
               <label className="mb-1 block text-xs font-medium text-lovable-ink-muted">Turno por check-in</label>
               <Select
-                value={filters.preferredShift}
-                onChange={(event) => handleFilterChange("preferredShift", event.target.value as OperationalFilters["preferredShift"])}
+                value={useCurrentShift && currentUserShift ? currentUserShift : filters.preferredShift}
+                onChange={(event) => handlePreferredShiftChange(event.target.value as OperationalFilters["preferredShift"])}
               >
                 <option value="all">Todos os turnos</option>
                 <option value="morning">Manha</option>
                 <option value="afternoon">Tarde</option>
                 <option value="evening">Noite</option>
               </Select>
+              {useCurrentShift && currentShiftLabel ? (
+                <p className="mt-1 text-[11px] text-lovable-ink-muted">O filtro do login esta ativo: {currentShiftLabel}.</p>
+              ) : null}
             </div>
 
             <div className="flex items-end">
@@ -363,16 +393,6 @@ export function TasksOperationalView({
           </div>
         ) : null}
       </section>
-
-      <TasksFocusSection
-        tasks={attentionTasks}
-        todayKey={todayKey}
-        userNameById={userNameById}
-        isUpdating={isUpdating}
-        onOpenDetails={openTaskDetails}
-        onStart={handleStart}
-        onComplete={handleComplete}
-      />
 
       {isLoading ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3">
@@ -387,7 +407,7 @@ export function TasksOperationalView({
             action={{ label: "Nova tarefa", onClick: onCreateOpen }}
           />
         </div>
-      ) : groups.length === 0 ? (
+      ) : noFilteredTasks ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface px-4">
           <EmptyState
             icon={SearchX}
@@ -398,27 +418,21 @@ export function TasksOperationalView({
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-col gap-2 rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3 text-sm text-lovable-ink-muted md:flex-row md:items-center md:justify-between">
-            <p>
-              Mostrando <span className="font-semibold text-lovable-ink">{tasks.length}</span> tarefas nesta pagina de um total de{" "}
-              <span className="font-semibold text-lovable-ink">{totalTasks}</span>.
-            </p>
-            {totalPages > 1 ? (
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
-                  Anterior
-                </Button>
-                <span className="text-xs font-medium uppercase tracking-wide text-lovable-ink-muted">
-                  Pagina {currentPage} de {totalPages}
-                </span>
-                <Button size="sm" variant="ghost" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
-                  Proxima
-                </Button>
-              </div>
-            ) : null}
-          </div>
-
-          {groups.map((group) => (
+          {groups.map((group, index) =>
+            index === 0 && viewMode === "triage" ? (
+              <TasksFocusSection
+                key={group.key}
+                tasks={group.tasks}
+                todayKey={todayKey}
+                userNameById={userNameById}
+                currentUserId={currentUserId}
+                isUpdating={isUpdating}
+                onOpenDetails={openTaskDetails}
+                onStart={handleStart}
+                onComplete={handleComplete}
+                onAssignToMe={handleAssignToMe}
+              />
+            ) : (
             <section key={group.key} className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-4">
               <SectionHeader
                 title={group.label}
@@ -433,22 +447,31 @@ export function TasksOperationalView({
                 }
               />
 
-              <div className="space-y-2">
-                {(expandedGroups[group.key] ? group.tasks : group.tasks.slice(0, 8)).map((task) => (
-                  <TaskListItem
-                    key={task.id}
-                    task={task}
-                    todayKey={todayKey}
-                    userNameById={userNameById}
-                    isUpdating={isUpdating}
-                    onOpenDetails={openTaskDetails}
-                    onStart={handleStart}
-                    onComplete={handleComplete}
-                  />
-                ))}
-              </div>
+              {group.tasks.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-lovable-border bg-lovable-surface-soft px-4 py-3 text-sm text-lovable-ink-muted">
+                  {group.emptyMessage}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(expandedGroups[group.key] ? group.tasks : group.tasks.slice(0, 8)).map((task) => (
+                    <TaskListItem
+                      key={task.id}
+                      task={task}
+                      todayKey={todayKey}
+                      userNameById={userNameById}
+                      currentUserId={currentUserId}
+                      isUpdating={isUpdating}
+                      onOpenDetails={openTaskDetails}
+                      onStart={handleStart}
+                      onComplete={handleComplete}
+                      onAssignToMe={handleAssignToMe}
+                    />
+                  ))}
+                </div>
+              )}
             </section>
-          ))}
+            ),
+          )}
         </div>
       )}
 

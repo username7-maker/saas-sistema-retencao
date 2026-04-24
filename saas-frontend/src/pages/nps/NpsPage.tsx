@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -8,6 +9,7 @@ import { LineSeriesChart } from "../../components/charts/LineSeriesChart";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui2";
 import { useAuth } from "../../hooks/useAuth";
 import { npsService, type NpsResponse } from "../../services/npsService";
+import type { AsyncJobStatusResponse } from "../../services/reportService";
 import { taskService } from "../../services/taskService";
 import { canDispatchNps } from "../../utils/roleAccess";
 
@@ -95,6 +97,7 @@ export function NpsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const canDispatch = canDispatchNps(user?.role);
+  const [dispatchStatus, setDispatchStatus] = useState<AsyncJobStatusResponse | null>(null);
 
   const evolutionQuery = useQuery({
     queryKey: ["nps", "evolution"],
@@ -111,12 +114,53 @@ export function NpsPage() {
   const dispatchMutation = useMutation({
     mutationFn: npsService.dispatch,
     onSuccess: (result) => {
-      const sent = result.sent ?? 0;
-      toast.success(`Pesquisa NPS disparada para ${sent} aluno(s).`);
-      void queryClient.invalidateQueries({ queryKey: ["nps"] });
+      setDispatchStatus({
+        job_id: result.job_id,
+        job_type: result.job_type,
+        status: result.status,
+        attempt_count: 0,
+        max_attempts: 0,
+        next_retry_at: null,
+        started_at: null,
+        completed_at: null,
+        error_code: null,
+        error_message: null,
+        result: null,
+        related_entity_type: null,
+        related_entity_id: null,
+      });
+      toast.success(result.message);
     },
     onError: () => toast.error("Erro ao disparar pesquisa NPS."),
   });
+
+  useEffect(() => {
+    if (!dispatchStatus || dispatchStatus.status === "completed" || dispatchStatus.status === "failed") {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const nextStatus = await npsService.getDispatchStatus(dispatchStatus.job_id);
+        setDispatchStatus(nextStatus);
+        if (nextStatus.status === "completed") {
+          const total =
+            Number(nextStatus.result?.after_signup_7d ?? 0) +
+            Number(nextStatus.result?.monthly ?? 0) +
+            Number(nextStatus.result?.yellow_risk ?? 0) +
+            Number(nextStatus.result?.post_cancellation ?? 0);
+          toast.success(`Pesquisa NPS concluida para ${total} aluno(s).`);
+          void queryClient.invalidateQueries({ queryKey: ["nps"] });
+        } else if (nextStatus.status === "failed") {
+          toast.error(nextStatus.error_message ?? "Falha ao processar disparo NPS.");
+        }
+      } catch {
+        toast.error("Falha ao acompanhar o status do disparo NPS.");
+      }
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [dispatchStatus, queryClient]);
 
   if (evolutionQuery.isLoading) {
     return <LoadingPanel text="Carregando dados NPS..." />;
@@ -143,7 +187,7 @@ export function NpsPage() {
         </div>
         {canDispatch ? (
           <Button type="button" variant="primary" onClick={() => dispatchMutation.mutate()} disabled={dispatchMutation.isPending}>
-            {dispatchMutation.isPending ? "Disparando..." : "Disparar pesquisa NPS"}
+            {dispatchMutation.isPending ? "Enfileirando..." : "Disparar pesquisa NPS"}
           </Button>
         ) : null}
       </header>
@@ -173,7 +217,7 @@ export function NpsPage() {
             {canDispatch ? (
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="primary" onClick={() => dispatchMutation.mutate()} disabled={dispatchMutation.isPending}>
-                  {dispatchMutation.isPending ? "Disparando..." : "Iniciar coleta NPS"}
+                  {dispatchMutation.isPending ? "Enfileirando..." : "Iniciar coleta NPS"}
                 </Button>
                 <Button type="button" variant="secondary" onClick={() => void queryClient.invalidateQueries({ queryKey: ["nps"] })}>
                   Recarregar dados

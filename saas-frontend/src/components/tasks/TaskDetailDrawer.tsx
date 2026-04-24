@@ -16,6 +16,7 @@ import {
   formatDueDate,
   getAssigneeLabel,
   getPriorityBadgeVariant,
+  getTaskSlaMeta,
   getStatusBadgeVariant,
   getTaskContextLabel,
   getTaskSourceContext,
@@ -79,6 +80,7 @@ export function TaskDetailDrawer({
   const activeTask = task;
   const normalizedPhone = normalizeWhatsAppPhone(relatedMember?.phone);
   const phoneDisplay = formatPhoneDisplay(relatedMember?.phone);
+  const slaMeta = getTaskSlaMeta(activeTask, new Date().toISOString().slice(0, 10));
   const whatsappHref = relatedMember
     ? buildWhatsAppHref(
         relatedMember.phone,
@@ -189,6 +191,7 @@ export function TaskDetailDrawer({
                 <div>
                   <p className="font-medium">Prazo</p>
                   <p className="text-lovable-ink-muted">{formatDueDate(activeTask.due_date)}</p>
+                  <p className="text-xs text-lovable-ink-muted">{slaMeta.label}</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
@@ -198,6 +201,26 @@ export function TaskDetailDrawer({
                   <p className="text-lovable-ink-muted">{getTaskSourceContext(activeTask)}</p>
                 </div>
               </div>
+              {relatedMember ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <CircleDashed size={15} className="mt-0.5 text-lovable-ink-muted" />
+                    <div>
+                      <p className="font-medium">Risco atual</p>
+                      <p className="text-lovable-ink-muted">
+                        Score {relatedMember.risk_score} · {relatedMember.risk_level}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CalendarClock size={15} className="mt-0.5 text-lovable-ink-muted" />
+                    <div>
+                      <p className="font-medium">Ultimo check-in</p>
+                      <p className="text-lovable-ink-muted">{formatDateTime(relatedMember.last_checkin_at)}</p>
+                    </div>
+                  </div>
+                </>
+              ) : null}
               {activeTask.member_id ? (
                 <div className="flex items-start gap-2">
                   <PhoneCall size={15} className="mt-0.5 text-lovable-ink-muted" />

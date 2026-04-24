@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "description": "Anexa a aba do Actuar e executa jobs locais da ponte do AI GYM OS.",
   "permissions": ["activeTab", "tabs", "storage", "alarms", "scripting"],
-  "host_permissions": ["http://127.0.0.1:44777/*", "https://app.actuar.com/*", "https://*.actuar.com/*"],
+  "host_permissions": [
+    "http://127.0.0.1:44777/*",
+    "https://app.actuar.com/*",
+    "https://*.actuar.com/*",
+    "https://*.actuar.cloud/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

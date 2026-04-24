@@ -62,13 +62,17 @@ export function CallScriptPage() {
   }
 
   async function handleInterest(nextStep: "proposal_requested" | "interest_confirmed" | "close_now") {
-    await eventMutation.mutateAsync({
+    const result = await eventMutation.mutateAsync({
       event_type: nextStep,
       label: "Interesse confirmado",
       next_step: nextStep,
     });
     setInterestOpen(false);
-    toast.success(nextStep === "proposal_requested" ? "Proposta sera enviada em background." : "Proximo passo registrado.");
+    toast.success(
+      nextStep === "proposal_requested"
+        ? `Proposta enfileirada (${result.job_status ?? "pending"}).`
+        : "Proximo passo registrado.",
+    );
   }
 
   async function handleLost() {

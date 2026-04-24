@@ -1,6 +1,6 @@
 """Wrapper para Evolution API - gerencia instancias WhatsApp por gym."""
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 
@@ -27,8 +27,45 @@ def _base() -> str:
     return settings.whatsapp_api_url.rstrip("/")
 
 
+def _fetch_instances(*, instance_name: str | None = None) -> list[dict[str, Any]]:
+    params = {"instanceName": instance_name} if instance_name else None
+    with httpx.Client(timeout=15.0) as client:
+        response = client.get(
+            f"{_base()}/instance/fetchInstances",
+            headers=_headers(),
+            params=params,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            items = data.get("instances") or data.get("data") or []
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+        return []
+
+
+def _instance_exists(instance: str) -> bool:
+    try:
+        instances = _fetch_instances(instance_name=instance)
+    except Exception:
+        logger.exception("Erro ao verificar instancia existente %s", instance)
+        return False
+    for item in instances:
+        if (
+            item.get("name") == instance
+            or item.get("instanceName") == instance
+            or item.get("instance") == instance
+        ):
+            return True
+    return False
+
+
 def ensure_instance(gym_id: str) -> str:
     instance = _instance_name(gym_id)
+    if _instance_exists(instance):
+        return instance
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.post(
@@ -43,6 +80,9 @@ def ensure_instance(gym_id: str) -> str:
             if response.status_code not in (200, 201, 409):
                 response.raise_for_status()
     except Exception:
+        if _instance_exists(instance):
+            logger.warning("Instancia %s ja existia na Evolution; reutilizando apos falha no create.", instance)
+            return instance
         logger.exception("Erro ao criar instancia %s", instance)
         raise
     return instance
@@ -118,25 +158,42 @@ def disconnect_instance(instance: str) -> bool:
 
 def configure_webhook(instance: str, webhook_url: str, webhook_headers: dict[str, str] | None = None) -> bool:
     try:
+        events = [
+            "QRCODE_UPDATED",
+            "CONNECTION_UPDATE",
+            "STATUS_INSTANCE",
+            "MESSAGES_UPSERT",
+        ]
         payload = {
+            "webhook": {
+                "enabled": True,
+                "url": webhook_url,
+                "headers": webhook_headers or {},
+                "byEvents": False,
+                "base64": False,
+                "events": events,
+            }
+        }
+        legacy_payload = {
             "url": webhook_url,
             "webhook_by_events": False,
             "webhook_base64": False,
-            "events": [
-                "QRCODE_UPDATED",
-                "CONNECTION_UPDATE",
-                "STATUS_INSTANCE",
-                "MESSAGES_UPSERT",
-            ],
+            "events": events,
         }
         if webhook_headers:
-            payload["headers"] = webhook_headers
+            legacy_payload["headers"] = webhook_headers
         with httpx.Client(timeout=10.0) as client:
             response = client.post(
                 f"{_base()}/webhook/set/{instance}",
                 headers=_headers(),
                 json=payload,
             )
+            if response.status_code == 400 and "requires property \"webhook\"" not in response.text:
+                response = client.post(
+                    f"{_base()}/webhook/set/{instance}",
+                    headers=_headers(),
+                    json=legacy_payload,
+                )
             return response.status_code in (200, 201)
     except Exception:
         logger.exception("Erro ao configurar webhook para %s", instance)

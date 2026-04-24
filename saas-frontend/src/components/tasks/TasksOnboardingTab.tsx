@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, CheckCircle2, MessageCircle, Phone, Rocket, Search } from "lucide-react";
 
@@ -7,11 +7,15 @@ import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
 import { memberService, type OnboardingScoreResult } from "../../services/memberService";
 import type { Member, Task } from "../../types";
+import { getPreferredShiftLabel, matchesPreferredShift } from "../../utils/preferredShift";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   PLAYBOOK_META,
   type OnboardingPlaybookKey,
+  getTodayKey,
   isOnboardingActiveMember,
+  isOverdue,
+  isDueToday,
   memberToPlaybook,
   taskSource,
 } from "./taskUtils";
@@ -54,12 +58,23 @@ function scoreBarClass(score: number): string {
   return "bg-rose-500";
 }
 
-function OnboardingScorePanel({ member }: { member: Member }) {
+function OnboardingScorePanel({
+  member,
+  onScoreResolved,
+}: {
+  member: Member;
+  onScoreResolved?: (memberId: string, score: number) => void;
+}) {
   const scoreQuery = useQuery({
     queryKey: ["onboarding-score", member.id],
     queryFn: () => memberService.getOnboardingScore(member.id),
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    if (!scoreQuery.data || !onScoreResolved) return;
+    onScoreResolved(member.id, scoreQuery.data.score);
+  }, [member.id, onScoreResolved, scoreQuery.data]);
 
   if (scoreQuery.isLoading) {
     return (
@@ -80,7 +95,7 @@ function OnboardingScorePanel({ member }: { member: Member }) {
   }
 
   const score = scoreQuery.data;
-  const playbookKey = memberToPlaybook(member);
+  const playbookKey = memberToPlaybook(member, score.score);
   const playbook = PLAYBOOK_META[playbookKey];
   const phoneDisplay = formatPhoneDisplay(member.phone);
   const normalizedPhone = normalizeWhatsAppPhone(member.phone);
@@ -215,28 +230,94 @@ interface TasksOnboardingTabProps {
   membersLoading: boolean;
   membersError: boolean;
   tasks: Task[];
+  currentUserShift: "morning" | "afternoon" | "evening" | null;
   onOpenOnboardingQueue: () => void;
 }
+
+const JOURNEY_BUCKETS = [
+  { key: "d0-d1", label: "D0 / D1", match: (offset: number | null) => offset === 0 || offset === 1 },
+  { key: "d3", label: "D3", match: (offset: number | null) => offset === 3 },
+  { key: "d7", label: "D7", match: (offset: number | null) => offset === 7 },
+  { key: "d15", label: "D15", match: (offset: number | null) => offset === 15 },
+  { key: "d30", label: "D30", match: (offset: number | null) => offset === 30 },
+] as const;
 
 export function TasksOnboardingTab({
   members,
   membersLoading,
   membersError,
   tasks,
+  currentUserShift,
   onOpenOnboardingQueue,
 }: TasksOnboardingTabProps) {
   const [activePlaybook, setActivePlaybook] = useState<OnboardingPlaybookKey>("atencao");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [useCurrentShift, setUseCurrentShift] = useState(Boolean(currentUserShift));
+  const [scoreOverridesByMemberId, setScoreOverridesByMemberId] = useState<Record<string, number>>({});
+  const todayKey = useMemo(() => getTodayKey(), []);
+  const membersById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+  const currentShiftLabel = getPreferredShiftLabel(currentUserShift);
 
-  const onboardingMembers = useMemo(() => members.filter((member) => isOnboardingActiveMember(member)), [members]);
+  useEffect(() => {
+    if (currentUserShift) {
+      setUseCurrentShift(true);
+    }
+  }, [currentUserShift]);
+
+  const onboardingMembers = useMemo(() => {
+    const activeMembers = members.filter((member) => isOnboardingActiveMember(member));
+    if (!useCurrentShift || !currentUserShift) return activeMembers;
+    return activeMembers.filter((member) => matchesPreferredShift(member.preferred_shift, currentUserShift));
+  }, [currentUserShift, members, useCurrentShift]);
+  const onboardingScoreboardQuery = useQuery({
+    queryKey: ["onboarding-scoreboard"],
+    queryFn: () => memberService.getOnboardingScoreboard(),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    enabled: onboardingMembers.length > 0,
+  });
+
+  useEffect(() => {
+    setScoreOverridesByMemberId((current) => {
+      const activeIds = new Set(onboardingMembers.map((member) => member.id));
+      const next = Object.fromEntries(Object.entries(current).filter(([memberId]) => activeIds.has(memberId)));
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+  }, [onboardingMembers]);
+
+  const onboardingScoreByMemberId = useMemo(() => {
+    const scoreMap = new Map<string, number>();
+    const snapshots = onboardingScoreboardQuery.data ?? [];
+    const snapshotScoreByMemberId = new Map(snapshots.map((snapshot) => [snapshot.member_id, snapshot.score]));
+    onboardingMembers.forEach((member) => {
+      scoreMap.set(
+        member.id,
+        scoreOverridesByMemberId[member.id] ?? snapshotScoreByMemberId.get(member.id) ?? member.onboarding_score ?? 0,
+      );
+    });
+    return scoreMap;
+  }, [onboardingMembers, onboardingScoreboardQuery.data, scoreOverridesByMemberId]);
+  const getResolvedOnboardingScore = useCallback(
+    (member: Member): number => onboardingScoreByMemberId.get(member.id) ?? member.onboarding_score ?? 0,
+    [onboardingScoreByMemberId],
+  );
+  const handleScoreResolved = useCallback((memberId: string, score: number) => {
+    setScoreOverridesByMemberId((current) => (current[memberId] === score ? current : { ...current, [memberId]: score }));
+    if (selectedMemberId !== memberId) return;
+    const member = membersById.get(memberId);
+    if (!member) return;
+    const nextPlaybook = memberToPlaybook(member, score);
+    setActivePlaybook((current) => (current === nextPlaybook ? current : nextPlaybook));
+  }, [membersById, selectedMemberId]);
   const playbookGroups = useMemo<Record<OnboardingPlaybookKey, Member[]>>(
     () => ({
-      engajado: onboardingMembers.filter((member) => memberToPlaybook(member) === "engajado"),
-      atencao: onboardingMembers.filter((member) => memberToPlaybook(member) === "atencao"),
-      critico: onboardingMembers.filter((member) => memberToPlaybook(member) === "critico"),
+      engajado: onboardingMembers.filter((member) => memberToPlaybook(member, getResolvedOnboardingScore(member)) === "engajado"),
+      atencao: onboardingMembers.filter((member) => memberToPlaybook(member, getResolvedOnboardingScore(member)) === "atencao"),
+      critico: onboardingMembers.filter((member) => memberToPlaybook(member, getResolvedOnboardingScore(member)) === "critico"),
     }),
-    [onboardingMembers],
+    [onboardingMembers, onboardingScoreByMemberId],
   );
 
   useEffect(() => {
@@ -254,16 +335,61 @@ export function TasksOnboardingTab({
     const groupMembers = playbookGroups[activePlaybook];
     const query = search.trim().toLowerCase();
     const sortedMembers = [...groupMembers].sort((left, right) => {
-      const scoreDiff = (left.onboarding_score ?? 0) - (right.onboarding_score ?? 0);
+      const scoreDiff = getResolvedOnboardingScore(left) - getResolvedOnboardingScore(right);
       if (scoreDiff !== 0) return scoreDiff;
       return new Date(right.join_date).getTime() - new Date(left.join_date).getTime();
     });
     if (!query) return sortedMembers;
     return sortedMembers.filter((member) => member.full_name.toLowerCase().includes(query));
-  }, [activePlaybook, playbookGroups, search]);
+  }, [activePlaybook, playbookGroups, search, onboardingScoreByMemberId]);
 
   const selectedMember = filteredMembers.find((member) => member.id === selectedMemberId) ?? filteredMembers[0] ?? null;
-  const onboardingTasks = useMemo(() => tasks.filter((task) => taskSource(task) === "onboarding" && task.status !== "done" && task.status !== "cancelled"), [tasks]);
+  const onboardingTasks = useMemo(
+    () =>
+      tasks.filter((task) => {
+        if (taskSource(task) !== "onboarding" || task.status === "done" || task.status === "cancelled") return false;
+        if (!useCurrentShift || !currentUserShift) return true;
+        return matchesPreferredShift(task.preferred_shift ?? (task.member_id ? membersById.get(task.member_id)?.preferred_shift : null), currentUserShift);
+      }),
+    [currentUserShift, membersById, tasks, useCurrentShift],
+  );
+  const onboardingStats = useMemo(
+    () => ({
+      pending: onboardingTasks.length,
+      overdue: onboardingTasks.filter((task) => isOverdue(task, todayKey)).length,
+      unassigned: onboardingTasks.filter((task) => !task.assigned_to_user_id).length,
+      dueToday: onboardingTasks.filter((task) => isDueToday(task, todayKey)).length,
+    }),
+    [onboardingTasks, todayKey],
+  );
+  const taskDayOffset = useMemo(
+    () => (task: Task) => {
+      const rawValue = task.extra_data?.day_offset;
+      if (typeof rawValue === "number" && Number.isFinite(rawValue)) return rawValue;
+      if (typeof rawValue === "string") {
+        const parsed = Number(rawValue);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+
+      if (!task.member_id || !task.due_date) return null;
+      const member = membersById.get(task.member_id);
+      if (!member?.join_date) return null;
+
+      const joinDate = new Date(`${member.join_date}T00:00:00Z`).getTime();
+      const dueDate = new Date(`${task.due_date.slice(0, 10)}T00:00:00Z`).getTime();
+      const diff = Math.round((dueDate - joinDate) / 86_400_000);
+      return Number.isFinite(diff) ? diff : null;
+    },
+    [membersById],
+  );
+  const journeyGroups = useMemo(
+    () =>
+      JOURNEY_BUCKETS.map((bucket) => ({
+        ...bucket,
+        tasks: onboardingTasks.filter((task) => bucket.match(taskDayOffset(task))),
+      })),
+    [onboardingTasks, taskDayOffset],
+  );
 
   if (membersLoading) {
     return <Card><CardContent className="p-8 text-center text-sm text-lovable-ink-muted">Carregando onboarding...</CardContent></Card>;
@@ -278,10 +404,19 @@ export function TasksOnboardingTab({
       <Card>
         <CardContent className="p-10 text-center">
           <CheckCircle2 size={28} className="mx-auto text-lovable-ink-muted/30" />
-          <h3 className="mt-4 text-base font-semibold text-lovable-ink">Sem onboarding ativo</h3>
+          <h3 className="mt-4 text-base font-semibold text-lovable-ink">
+            {useCurrentShift && currentShiftLabel ? `Sem onboarding ativo no turno ${currentShiftLabel}` : "Sem onboarding ativo"}
+          </h3>
           <p className="mt-2 text-sm text-lovable-ink-muted">
-            Nao ha alunos em onboarding ativo agora. Quando surgirem novos alunos, esta fila reaparece aqui.
+            {useCurrentShift && currentShiftLabel
+              ? "Nenhum aluno do seu turno entrou na janela ativa de onboarding. Se precisar cobrir outro turno, desligue o filtro do login."
+              : "Nao ha alunos em onboarding ativo agora. Quando surgirem novos alunos, esta fila reaparece aqui."}
           </p>
+          {useCurrentShift && currentShiftLabel ? (
+            <Button variant="secondary" size="sm" className="mt-4" onClick={() => setUseCurrentShift(false)}>
+              Ver todos os turnos
+            </Button>
+          ) : null}
         </CardContent>
       </Card>
     );
@@ -299,29 +434,61 @@ export function TasksOnboardingTab({
                 Acompanhamento completo do primeiro mes, separado da fila operacional para reduzir ruido.
               </p>
             </div>
-            <Button variant="secondary" size="sm" onClick={onOpenOnboardingQueue}>
-              Ver tasks de onboarding
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {currentUserShift && currentShiftLabel ? (
+                <Button variant={useCurrentShift ? "primary" : "secondary"} size="sm" onClick={() => setUseCurrentShift((value) => !value)}>
+                  {useCurrentShift ? `Meu turno: ${currentShiftLabel}` : `Mostrar meu turno: ${currentShiftLabel}`}
+                </Button>
+              ) : null}
+              <Button variant="secondary" size="sm" onClick={onOpenOnboardingQueue}>
+                Ver tasks de onboarding
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Ativos</p>
-              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingMembers.length}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Pendentes</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.pending}</p>
             </div>
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Em atencao</p>
-              <p className="mt-2 text-2xl font-bold text-lovable-ink">{playbookGroups.atencao.length + playbookGroups.critico.length}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Atrasadas</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.overdue}</p>
             </div>
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Tasks pendentes</p>
-              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingTasks.length}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Sem responsavel</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.unassigned}</p>
             </div>
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Playbook critico</p>
-              <p className="mt-2 text-2xl font-bold text-lovable-ink">{playbookGroups.critico.length}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Vencem hoje</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.dueToday}</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Jornada ativa do onboarding</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 pt-0 md:grid-cols-2 xl:grid-cols-5">
+          {journeyGroups.map((group) => (
+            <div key={group.key} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{group.label}</p>
+                <span className="text-sm font-bold text-lovable-ink">{group.tasks.length}</span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {group.tasks.slice(0, 3).map((task) => (
+                  <div key={task.id} className="rounded-xl border border-lovable-border/70 px-2 py-2">
+                    <p className="truncate text-xs font-semibold text-lovable-ink">{task.member_name ?? task.title}</p>
+                    <p className="mt-1 truncate text-[11px] text-lovable-ink-muted">{task.title}</p>
+                  </div>
+                ))}
+                {group.tasks.length === 0 ? <p className="text-xs text-lovable-ink-muted">Sem tasks nesta etapa.</p> : null}
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -391,7 +558,7 @@ export function TasksOnboardingTab({
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
-                          <span className="text-sm font-bold text-lovable-ink">{member.onboarding_score ?? "--"}</span>
+                          <span className="text-sm font-bold text-lovable-ink">{getResolvedOnboardingScore(member)}</span>
                         </div>
                         <p className="mt-1 text-xs text-lovable-ink-muted">{member.plan_name}</p>
                       </button>
@@ -403,7 +570,7 @@ export function TasksOnboardingTab({
 
             <div>
               {selectedMember ? (
-                <OnboardingScorePanel member={selectedMember} />
+                <OnboardingScorePanel member={selectedMember} onScoreResolved={handleScoreResolved} />
               ) : (
                 <Card>
                   <CardContent className="p-10 text-center">

@@ -20,7 +20,13 @@ vi.mock("../services/bodyCompositionOcr", () => ({
     fallback_used: result.fallback_used ?? fallbackUsed,
   })),
   getBodyCompositionAiFallbackReasons: vi.fn((result) => {
-    if (result.confidence < 0.85 || result.values.weight_kg == null || result.values.body_fat_kg == null) {
+    if (
+      result.confidence < 0.85
+      || result.values.weight_kg == null
+      || result.values.body_fat_kg == null
+      || result.values.fat_free_mass_kg == null
+      || result.values.body_water_kg == null
+    ) {
       return ["OCR local veio ambiguo em campos-chave."];
     }
     return [];
@@ -96,7 +102,18 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
   });
 
   it("keeps local OCR only when the local result is already strong", async () => {
-    vi.mocked(readBodyCompositionFromImage).mockResolvedValue(localResult());
+    vi.mocked(readBodyCompositionFromImage).mockResolvedValue(
+      localResult({
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23.0,
+          waist_hip_ratio: 0.88,
+          fat_free_mass_kg: 65,
+          body_water_kg: 43.3,
+        },
+      }),
+    );
 
     const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile());
 
@@ -105,6 +122,32 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(result.assistedUsed).toBe(false);
     expect(result.result.values.weight_kg).toBe(84.5);
     expect(result.result.engine).toBe("local");
+  });
+
+  it("calls parse-image when local OCR misses body water and fat-free mass even with strong primary fields", async () => {
+    vi.mocked(readBodyCompositionFromImage).mockResolvedValue(localResult());
+    vi.mocked(api.post).mockResolvedValue({
+      data: localResult({
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23.0,
+          waist_hip_ratio: 0.88,
+          fat_free_mass_kg: 65,
+          body_water_kg: 43.3,
+        },
+        confidence: 0.94,
+        engine: "hybrid",
+        fallback_used: true,
+      }),
+    });
+
+    const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile());
+
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(result.assistedAttempted).toBe(true);
+    expect(result.result.values.fat_free_mass_kg).toBe(65);
+    expect(result.result.values.body_water_kg).toBe(43.3);
   });
 
   it("falls back to local OCR when assisted read request fails", async () => {

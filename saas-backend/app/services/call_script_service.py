@@ -83,6 +83,7 @@ def register_call_event(
     *,
     lead_id: UUID,
     payload: CallEventCreate,
+    commit: bool = True,
 ) -> Lead:
     lead = db.scalar(select(Lead).where(Lead.id == lead_id, Lead.deleted_at.is_(None)))
     if not lead:
@@ -133,10 +134,76 @@ def register_call_event(
         entity_id=lead.id,
         details=details,
     )
-    db.commit()
-    dispatch_lead_post_commit_effects(lead)
+    if commit:
+        db.commit()
+        dispatch_lead_post_commit_effects(lead)
+    else:
+        db.flush()
     _invalidate_sales_cache(lead.id)
     return lead
+
+
+def execute_lead_proposal_dispatch_job(
+    db: Session,
+    *,
+    lead_id: UUID,
+    job_id: UUID,
+) -> dict[str, Any]:
+    from app.services.core_async_job_service import CoreAsyncJobNonRetryableError
+
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.deleted_at is not None:
+        raise CoreAsyncJobNonRetryableError("lead_not_found", "Lead nao encontrado para envio de proposta")
+    if not lead.email:
+        raise CoreAsyncJobNonRetryableError("lead_email_missing", "Lead sem email para envio de proposta")
+
+    result = generate_and_send_for_lead(db, lead_id)
+    if not result["emailed"]:
+        raise CoreAsyncJobNonRetryableError(
+            result.get("email_error_code") or "proposal_email_not_sent",
+            "Proposta nao foi enviada por email para o lead",
+        )
+    append_lead_note(
+        db,
+        lead,
+        {
+            "type": "proposal_sent_auto",
+            "job_id": str(job_id),
+            "emailed": result["emailed"],
+            "filename": result["filename"],
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        },
+    )
+    log_audit_event(
+        db,
+        action="proposal_sent_background",
+        entity="lead",
+        gym_id=lead.gym_id,
+        entity_id=lead.id,
+        details={"job_id": str(job_id), "emailed": result["emailed"], "filename": result["filename"]},
+    )
+    whatsapp_status: str | None = None
+    if lead.phone and result["emailed"]:
+        instance = get_gym_instance(db, lead.gym_id)
+        whatsapp_log = send_whatsapp_sync(
+            db,
+            phone=lead.phone,
+            message="Sua proposta foi enviada por email. Se quiser, eu tambem posso te explicar os numeros na call.",
+            instance=instance,
+            lead_id=lead.id,
+            template_name="custom",
+            direction="outbound",
+            event_type="proposal_sent_confirmation",
+        )
+        whatsapp_status = whatsapp_log.status
+    _invalidate_sales_cache(lead.id)
+    return {
+        "lead_id": str(lead.id),
+        "job_id": str(job_id),
+        "emailed": result["emailed"],
+        "filename": result["filename"],
+        "whatsapp_status": whatsapp_status,
+    }
 
 
 def send_lead_proposal_background(lead_id: UUID) -> None:
@@ -146,39 +213,8 @@ def send_lead_proposal_background(lead_id: UUID) -> None:
         if not lead or lead.deleted_at is not None:
             return
         set_current_gym_id(lead.gym_id)
-        result = generate_and_send_for_lead(db, lead_id)
-        append_lead_note(
-            db,
-            lead,
-            {
-                "type": "proposal_sent_auto",
-                "emailed": result["emailed"],
-                "filename": result["filename"],
-                "created_at": datetime.now(tz=timezone.utc).isoformat(),
-            },
-        )
-        log_audit_event(
-            db,
-            action="proposal_sent_background",
-            entity="lead",
-            gym_id=lead.gym_id,
-            entity_id=lead.id,
-            details={"emailed": result["emailed"], "filename": result["filename"]},
-        )
-        if lead.phone and result["emailed"]:
-            instance = get_gym_instance(db, lead.gym_id)
-            send_whatsapp_sync(
-                db,
-                phone=lead.phone,
-                message="Sua proposta foi enviada por email. Se quiser, eu tambem posso te explicar os numeros na call.",
-                instance=instance,
-                lead_id=lead.id,
-                template_name="custom",
-                direction="outbound",
-                event_type="proposal_sent_confirmation",
-            )
+        execute_lead_proposal_dispatch_job(db, lead_id=lead_id, job_id=UUID(int=0))
         db.commit()
-        _invalidate_sales_cache(lead.id)
     except Exception:
         logger.exception("Falha ao gerar proposta automatica para lead %s", lead_id)
         log_audit_event(

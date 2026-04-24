@@ -247,6 +247,7 @@ def create_public_diagnosis_lead(
     total_members: int,
     avg_monthly_fee: Decimal,
     diagnosis_id: UUID,
+    commit: bool = True,
 ) -> Lead:
     lead = Lead(
         gym_id=gym_id,
@@ -269,7 +270,10 @@ def create_public_diagnosis_lead(
         ],
     )
     db.add(lead)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(lead)
     invalidate_dashboard_cache("leads")
     return lead

@@ -11,8 +11,8 @@ interface SectionHeaderProps {
 
 export function SectionHeader({ title, subtitle, actions, count }: SectionHeaderProps) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div className="min-w-0">
+    <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">{title}</p>
           {typeof count === "number" ? (
@@ -24,7 +24,7 @@ export function SectionHeader({ title, subtitle, actions, count }: SectionHeader
         {subtitle ? <p className="mt-1 text-sm text-lovable-ink-muted">{subtitle}</p> : null}
       </div>
 
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div> : null}
     </div>
   );
 }

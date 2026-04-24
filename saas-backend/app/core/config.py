@@ -1,6 +1,7 @@
 import json
 from functools import lru_cache
 from typing import Annotated
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -108,7 +109,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, list):
-            return value
+            return [_normalize_origin(origin) for origin in value if _normalize_origin(origin)]
         if isinstance(value, str):
             raw = value.strip()
             if not raw:
@@ -117,17 +118,26 @@ class Settings(BaseSettings):
                 try:
                     parsed = json.loads(raw)
                     if isinstance(parsed, list):
-                        return [str(origin).strip() for origin in parsed if str(origin).strip()]
+                        return [
+                            normalized
+                            for origin in parsed
+                            if (normalized := _normalize_origin(str(origin)))
+                        ]
                 except json.JSONDecodeError:
                     trimmed = raw.removeprefix("[").removesuffix("]").strip()
                     if trimmed:
                         return [
-                            origin.strip().strip("'\"")
+                            normalized
                             for origin in trimmed.split(",")
-                            if origin.strip().strip("'\"")
+                            if (normalized := _normalize_origin(origin.strip().strip("'\"")))
                         ]
-            return [origin.strip() for origin in raw.split(",") if origin.strip()]
+            return [normalized for origin in raw.split(",") if (normalized := _normalize_origin(origin))]
         return DEFAULT_CORS_ORIGINS.copy()
+
+    @field_validator("frontend_url", mode="before")
+    @classmethod
+    def normalize_frontend_url(cls, value: str | None) -> str:
+        return _normalize_origin(value) or "http://localhost:5173"
 
     @field_validator(
         "debug",
@@ -184,8 +194,12 @@ class Settings(BaseSettings):
             raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
         if _is_local_url(self.frontend_url):
             raise ValueError("FRONTEND_URL nao pode apontar para localhost em producao")
+        if any(origin == "*" for origin in self.cors_origins):
+            raise ValueError("CORS_ORIGINS nao pode usar wildcard em producao")
         if any(_is_local_url(origin) for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS nao pode usar localhost em producao")
+        if self.frontend_url not in self.cors_origins:
+            raise ValueError("FRONTEND_URL precisa estar presente em CORS_ORIGINS em producao")
         if self.enable_scheduler_in_api:
             raise ValueError("ENABLE_SCHEDULER_IN_API deve permanecer false em producao; use worker dedicado")
         if self.enable_scheduler and not self.redis_url.strip():
@@ -227,8 +241,18 @@ def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
     return len(normalized) < 32
 
 
+def _normalize_origin(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return raw.rstrip("/")
+
+
 def _is_local_url(value: str) -> bool:
-    normalized = (value or "").strip().lower()
+    normalized = _normalize_origin(value).lower()
     return normalized.startswith("http://localhost") or normalized.startswith("http://127.0.0.1")
 
 

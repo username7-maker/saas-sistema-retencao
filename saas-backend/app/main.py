@@ -4,6 +4,7 @@ import logging
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -36,6 +37,7 @@ if settings.sentry_dsn:
 from app.models import User
 from app.routers import (
     actuar_bridge,
+    ai_triage,
     admin_objections,
     assessments,
     audit,
@@ -72,6 +74,11 @@ from app.core.limiter import (
 from app.services.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
+
+AUTH_NO_STORE_PREFIX = f"{settings.api_prefix}/auth"
+BASELINE_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+)
 
 
 ensure_rate_limiting_ready(settings.environment)
@@ -143,11 +150,13 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    )
+    response.headers.setdefault("Content-Security-Policy", BASELINE_CONTENT_SECURITY_POLICY)
+    if request.url.path.startswith(AUTH_NO_STORE_PREFIX):
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault("Pragma", "no-cache")
+        response.headers.setdefault("Expires", "0")
     if settings.environment.lower() == "production":
         response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
     return response
@@ -212,6 +221,7 @@ app.include_router(admin_objections.router, prefix=settings.api_prefix)
 app.include_router(settings_router.router, prefix=settings.api_prefix)
 app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
+app.include_router(ai_triage.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
@@ -263,8 +273,35 @@ def _extract_websocket_auth_token(message: str) -> str | None:
     return normalized or None
 
 
+def _allowed_websocket_origins() -> set[str]:
+    allowed = {origin.strip() for origin in settings.cors_origins if origin.strip()}
+    frontend_origin = settings.frontend_url.strip()
+    if frontend_origin:
+        allowed.add(frontend_origin)
+    return allowed
+
+
+def _origin_from_referer(referer: str | None) -> str | None:
+    if not referer:
+        return None
+    parsed = urlparse(referer)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _resolve_websocket_origin(websocket: WebSocket) -> str | None:
+    origin = (websocket.headers.get("origin") or "").strip()
+    if origin:
+        return origin
+    return _origin_from_referer(websocket.headers.get("referer"))
+
+
 @app.websocket("/ws/updates")
 async def updates_websocket(websocket: WebSocket) -> None:
+    if _resolve_websocket_origin(websocket) not in _allowed_websocket_origins():
+        await websocket.close(code=4403)
+        return
     await websocket.accept()
     try:
         auth_message = await asyncio.wait_for(websocket.receive_text(), timeout=5)

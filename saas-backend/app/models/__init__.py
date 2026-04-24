@@ -1,9 +1,11 @@
 from app.models.actuar_sync import ActuarBridgeDevice, ActuarMemberLink, ActuarSyncAttempt, ActuarSyncJob
+from app.models.ai_triage_recommendation import AITriageRecommendation
 from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.models.body_composition import BodyCompositionEvaluation
 from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
+from app.models.core_async_job import CoreAsyncJob
 from app.models.diagnosis_error import DiagnosisError
 from app.models.automation_rule import AutomationRule
 from app.models.base import Base
@@ -40,6 +42,7 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "AITriageRecommendation",
     "ActuarBridgeDevice",
     "ActuarMemberLink",
     "ActuarSyncAttempt",
@@ -48,6 +51,7 @@ __all__ = [
     "AutomationExecutionLog",
     "BodyCompositionEvaluation",
     "BodyCompositionSyncAttempt",
+    "CoreAsyncJob",
     "AutomationRule",
     "Base",
     "Checkin",

@@ -23,7 +23,7 @@ def export_member_data(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> StreamingResponse:
-    buffer, filename = export_member_pdf(db, member_id)
+    buffer, filename = export_member_pdf(db, member_id, current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -51,7 +51,7 @@ def anonymize_member_data(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER))],
 ) -> MemberOut:
-    member = anonymize_member(db, member_id)
+    member = anonymize_member(db, member_id, current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,

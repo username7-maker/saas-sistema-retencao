@@ -131,6 +131,7 @@ export const dashboardService = {
     search?: string;
     level?: "all" | "red" | "yellow";
     churn_type?: string;
+    plan_cycle?: "monthly" | "semiannual" | "annual";
   }): Promise<RetentionQueueResponse> {
     const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
       params,

@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from app.schemas.core_async_job import CoreAsyncJobStatusRead
 
 
 class SalesBriefProfileOut(BaseModel):
@@ -81,6 +82,8 @@ class CallEventResponse(BaseModel):
     message: str
     lead_id: UUID
     stage: str
+    job_id: UUID | None = None
+    job_status: str | None = None
 
 
 class BookingStatusOut(BaseModel):
@@ -130,3 +133,7 @@ class LeadBookingOut(BaseModel):
     confirmed_at: datetime
     created_at: datetime
     updated_at: datetime
+
+
+class LeadProposalDispatchStatusRead(CoreAsyncJobStatusRead):
+    lead_id: UUID
