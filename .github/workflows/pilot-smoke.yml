@@ -1,0 +1,36 @@
+name: Pilot Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      PILOT_API_BASE_URL: ${{ secrets.PILOT_API_BASE_URL }}
+      PILOT_FRONTEND_URL: ${{ secrets.PILOT_FRONTEND_URL }}
+      PILOT_GYM_SLUG: ${{ secrets.PILOT_GYM_SLUG }}
+      PILOT_LOGIN_EMAIL: ${{ secrets.PILOT_LOGIN_EMAIL }}
+      PILOT_LOGIN_PASSWORD: ${{ secrets.PILOT_LOGIN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate smoke secrets
+        run: |
+          missing=0
+          for name in PILOT_API_BASE_URL PILOT_GYM_SLUG PILOT_LOGIN_EMAIL PILOT_LOGIN_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required smoke secret: ${name}"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run pilot smoke
+        run: python scripts/pilot_smoke.py

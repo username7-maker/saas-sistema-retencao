@@ -173,6 +173,21 @@ cd saas-frontend
 npm run test:e2e
 ```
 
+## Smoke do piloto
+
+Depois do deploy da API e frontend, valide o ambiente real com:
+
+```bash
+PILOT_API_BASE_URL=https://sua-api-piloto \
+PILOT_FRONTEND_URL=https://seu-frontend-piloto \
+PILOT_GYM_SLUG=progym \
+PILOT_LOGIN_EMAIL=usuario@progym.com \
+PILOT_LOGIN_PASSWORD=senha-segura \
+python scripts/pilot_smoke.py
+```
+
+O mesmo smoke pode ser disparado pelo workflow manual `Pilot Smoke`, usando secrets do GitHub.
+
 ## Modulos entregues
 
 - Retencao preditiva deterministica (score 0-100).
