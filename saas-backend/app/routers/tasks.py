@@ -20,9 +20,12 @@ def create_task_endpoint(
     request: Request,
     payload: TaskCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
 ) -> TaskOut:
-    task = create_task(db, payload)
+    task = create_task(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -42,7 +45,10 @@ def create_task_endpoint(
 @router.get("/", response_model=PaginatedResponse[TaskOut])
 def list_tasks_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: TaskStatus | None = None,
@@ -57,9 +63,12 @@ def update_task_endpoint(
     task_id: UUID,
     payload: TaskUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
 ) -> TaskOut:
-    task = update_task(db, task_id, payload)
+    task = update_task(db, task_id, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(
         db,

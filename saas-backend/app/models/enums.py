@@ -6,6 +6,7 @@ class RoleEnum(str, enum.Enum):
     MANAGER = "manager"
     SALESPERSON = "salesperson"
     RECEPTIONIST = "receptionist"
+    TRAINER = "trainer"
 
 
 class MemberStatus(str, enum.Enum):

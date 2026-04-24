@@ -120,7 +120,11 @@ class TestMemberTimeline:
         bce_list = []
 
         db = MagicMock()
+        empty = MagicMock(all=MagicMock(return_value=[]))
         scalars_results = [
+            empty,  # assessments
+            empty,  # goals
+            empty,  # training plans
             MagicMock(all=MagicMock(return_value=checkins)),
             MagicMock(all=MagicMock(return_value=risk_alerts)),
             MagicMock(all=MagicMock(return_value=nps_items)),
@@ -129,6 +133,7 @@ class TestMemberTimeline:
             MagicMock(all=MagicMock(return_value=bce_list)),
         ]
         db.scalars.side_effect = scalars_results
+        db.scalar.return_value = None
 
         from app.services.member_timeline_service import get_member_timeline
         result = get_member_timeline(db, MEMBER_ID)
@@ -137,7 +142,8 @@ class TestMemberTimeline:
     def test_empty_timeline(self):
         db = MagicMock()
         empty = MagicMock(all=MagicMock(return_value=[]))
-        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty]
+        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty, empty, empty, empty]
+        db.scalar.return_value = None
 
         from app.services.member_timeline_service import get_member_timeline
         result = get_member_timeline(db, MEMBER_ID)

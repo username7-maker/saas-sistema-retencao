@@ -54,11 +54,24 @@ from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
+ASSESSMENT_READ_ROLES = (
+    RoleEnum.OWNER,
+    RoleEnum.MANAGER,
+    RoleEnum.RECEPTIONIST,
+    RoleEnum.SALESPERSON,
+    RoleEnum.TRAINER,
+)
+ASSESSMENT_WRITE_ROLES = (
+    RoleEnum.OWNER,
+    RoleEnum.MANAGER,
+    RoleEnum.TRAINER,
+)
+
 
 @router.get("/dashboard", response_model=AssessmentDashboardOut)
 def assessments_dashboard_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> AssessmentDashboardOut:
     payload = get_assessments_dashboard(db)
     return AssessmentDashboardOut(
@@ -79,7 +92,7 @@ def assessments_dashboard_endpoint(
 def member_profile_360_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> Profile360Out:
     payload = get_member_profile_360(db, member_id)
     latest_assessment = payload.get("latest_assessment")
@@ -100,7 +113,7 @@ def member_profile_360_endpoint(
 def assessment_summary_360_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> AssessmentSummary360Out:
     payload = get_assessment_summary_360(db, member_id)
     return AssessmentSummary360Out(
@@ -124,7 +137,7 @@ def assessment_summary_360_endpoint(
 def member_assessment_diagnosis_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> AssessmentDiagnosisOut:
     return AssessmentDiagnosisOut.model_validate(get_assessment_diagnosis(db, member_id))
 
@@ -133,7 +146,7 @@ def member_assessment_diagnosis_endpoint(
 def member_assessment_forecast_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> AssessmentForecastOut:
     return AssessmentForecastOut.model_validate(get_assessment_forecast(db, member_id))
 
@@ -142,7 +155,7 @@ def member_assessment_forecast_endpoint(
 def member_assessment_benchmark_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> AssessmentBenchmarkOut:
     return AssessmentBenchmarkOut.model_validate(get_assessment_benchmark(db, member_id))
 
@@ -151,7 +164,7 @@ def member_assessment_benchmark_endpoint(
 def member_assessment_actions_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> list[AssessmentActionOut]:
     return [AssessmentActionOut.model_validate(item) for item in get_assessment_actions(db, member_id)]
 
@@ -162,7 +175,7 @@ def create_assessment_endpoint(
     member_id: UUID,
     payload: AssessmentCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> AssessmentOut:
     assessment = create_assessment(db, member_id, current_user.id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)
@@ -185,7 +198,7 @@ def create_assessment_endpoint(
 def list_assessments_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> list[AssessmentOut]:
     return [AssessmentOut.model_validate(item) for item in list_assessments(db, member_id)]
 
@@ -194,7 +207,7 @@ def list_assessments_endpoint(
 def member_evolution_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> EvolutionOut:
     return EvolutionOut.model_validate(get_evolution_data(db, member_id))
 
@@ -205,7 +218,7 @@ def upsert_constraints_endpoint(
     member_id: UUID,
     payload: MemberConstraintsUpsert,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> MemberConstraintsOut:
     constraints = upsert_constraints(db, member_id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)
@@ -230,7 +243,7 @@ def create_member_goal_endpoint(
     member_id: UUID,
     payload: MemberGoalCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> MemberGoalOut:
     goal = create_goal(db, member_id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)
@@ -253,7 +266,7 @@ def create_member_goal_endpoint(
 def list_member_goals_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    _: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
 ) -> list[MemberGoalOut]:
     return [MemberGoalOut.model_validate(item) for item in list_goals(db, member_id)]
 
@@ -265,7 +278,7 @@ def update_member_goal_endpoint(
     goal_id: UUID,
     payload: MemberGoalCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> MemberGoalOut:
     goal = update_goal(db, member_id, goal_id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)
@@ -290,7 +303,7 @@ def create_training_plan_endpoint(
     member_id: UUID,
     payload: TrainingPlanCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> TrainingPlanOut:
     plan = create_training_plan(db, member_id, current_user.id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)
@@ -316,7 +329,7 @@ def update_training_plan_endpoint(
     plan_id: UUID,
     payload: TrainingPlanCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
 ) -> TrainingPlanOut:
     plan = update_training_plan(db, member_id, plan_id, current_user.id, payload.model_dump(exclude_unset=True))
     context = get_request_context(request)

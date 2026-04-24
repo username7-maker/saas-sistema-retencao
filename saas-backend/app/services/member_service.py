@@ -11,6 +11,7 @@ from app.database import get_current_gym_id
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.tenant_guard import ensure_optional_user_in_gym
 from app.utils.encryption import encrypt_cpf
 
 MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
@@ -43,6 +44,8 @@ def create_member(db: Session, payload: MemberCreate, gym_id: UUID | None = None
         existing = db.scalar(existing_stmt)
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email de membro ja cadastrado")
+
+    ensure_optional_user_in_gym(db, payload.assigned_user_id, gym_id)
 
     member = Member(
         gym_id=gym_id,
@@ -146,6 +149,8 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: U
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     data = payload.model_dump(exclude_unset=True)
     cpf = data.pop("cpf", None)
+    if "assigned_user_id" in data and data["assigned_user_id"] is not None:
+        ensure_optional_user_in_gym(db, data["assigned_user_id"], member.gym_id)
     if cpf:
         member.cpf_encrypted = encrypt_cpf(cpf)
     for key, value in data.items():

@@ -1,3 +1,4 @@
+import base64
 import json
 from functools import lru_cache
 
@@ -14,7 +15,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     environment: str = "development"
     debug: bool = False
-    enable_scheduler: bool = True
+    enable_api_docs: bool | None = None
+    enable_scheduler: bool = False
 
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/aigymos"
 
@@ -90,14 +92,30 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
-        if self.environment.lower() != "production":
+        if not _is_production(self.environment):
             return self
 
+        if self.debug:
+            raise ValueError("DEBUG nao pode estar ativo em producao")
         if _unsafe_secret(self.jwt_secret_key, {"change-me", "change-this-super-secret"}):
             raise ValueError("JWT_SECRET_KEY insegura para ambiente de producao")
         if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):
             raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
+        if not _valid_encryption_key(self.cpf_encryption_key):
+            raise ValueError("CPF_ENCRYPTION_KEY deve ser uma chave de 64 hex ou base64 de 32 bytes")
+        if any(origin.strip() == "*" for origin in self.cors_origins):
+            raise ValueError("CORS_ORIGINS nao pode usar wildcard em producao")
         return self
+
+    @property
+    def api_docs_enabled(self) -> bool:
+        if self.enable_api_docs is not None:
+            return self.enable_api_docs
+        return not _is_production(self.environment)
+
+
+def _is_production(environment: str) -> bool:
+    return (environment or "").strip().lower() in {"production", "prod"}
 
 
 def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
@@ -107,6 +125,22 @@ def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
     if normalized in blocked_values:
         return True
     return len(normalized) < 32
+
+
+def _valid_encryption_key(value: str) -> bool:
+    raw_key = (value or "").strip()
+    if len(raw_key) == 64:
+        try:
+            bytes.fromhex(raw_key)
+            return True
+        except ValueError:
+            return False
+
+    try:
+        decoded = base64.urlsafe_b64decode(raw_key.encode("utf-8"))
+    except Exception:
+        return False
+    return len(decoded) == 32
 
 
 @lru_cache

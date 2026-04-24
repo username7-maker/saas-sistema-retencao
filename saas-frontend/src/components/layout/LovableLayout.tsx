@@ -35,6 +35,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
 import { notificationService } from "../../services/notificationService";
+import type { Role } from "../../types";
 import { Button, Drawer, cn } from "../ui2";
 
 interface NavItem {
@@ -42,6 +43,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   badge?: string;
+  allowedRoles?: Role[];
 }
 
 interface NavGroup {
@@ -53,11 +55,11 @@ const navGroups: NavGroup[] = [
   {
     label: "Dashboards",
     items: [
-      { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard },
-      { to: "/dashboard/operational", label: "Operacional", icon: Activity },
-      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, badge: "new" },
-      { to: "/dashboard/financial", label: "Financeiro", icon: Wallet },
-      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert },
+      { to: "/dashboard/executive", label: "Executivo", icon: LayoutDashboard, allowedRoles: ["owner", "manager"] },
+      { to: "/dashboard/operational", label: "Operacional", icon: Activity, allowedRoles: ["owner", "manager", "receptionist"] },
+      { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, badge: "new", allowedRoles: ["owner", "manager", "salesperson"] },
+      { to: "/dashboard/financial", label: "Financeiro", icon: Wallet, allowedRoles: ["owner", "manager"] },
+      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert, allowedRoles: ["owner", "manager", "receptionist"] },
     ],
   },
   {
@@ -65,27 +67,32 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2 },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList },
-      { to: "/crm", label: "CRM", icon: Users, badge: "6" },
+      { to: "/crm", label: "CRM", icon: Users, allowedRoles: ["owner", "manager", "salesperson", "receptionist"] },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare },
     ],
   },
   {
     label: "Resultados",
     items: [
-      { to: "/goals", label: "Metas", icon: Target },
+      { to: "/goals", label: "Metas", icon: Target, allowedRoles: ["owner", "manager"] },
       { to: "/nps", label: "NPS", icon: Star },
-      { to: "/reports", label: "Relatorios", icon: FileText },
+      { to: "/reports", label: "Relatorios", icon: FileText, allowedRoles: ["owner", "manager"] },
     ],
   },
   {
     label: "Sistema",
     items: [
-      { to: "/automations", label: "Automacoes", icon: Bot },
-      { to: "/imports", label: "Importacoes", icon: Upload },
-      { to: "/audit", label: "Auditoria", icon: ScrollText },
+      { to: "/automations", label: "Automacoes", icon: Bot, allowedRoles: ["owner", "manager"] },
+      { to: "/imports", label: "Importacoes", icon: Upload, allowedRoles: ["owner", "manager"] },
+      { to: "/audit", label: "Auditoria", icon: ScrollText, allowedRoles: ["owner", "manager"] },
     ],
   },
 ];
+
+function canAccess(item: NavItem, role: Role | undefined): boolean {
+  if (!item.allowedRoles) return true;
+  return Boolean(role && item.allowedRoles.includes(role));
+}
 
 function resolveActiveGroup(pathname: string): string | null {
   for (const group of navGroups) {
@@ -108,6 +115,7 @@ function resolveCurrentSection(pathname: string): string {
 }
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth();
   const { pathname } = useLocation();
   const activeGroup = resolveActiveGroup(pathname);
   const [openGroups, setOpenGroups] = useState<string[]>(activeGroup ? [activeGroup] : ["Dashboards"]);
@@ -128,6 +136,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="space-y-2 px-3 pb-2">
       {navGroups.map((group) => {
+        const visibleItems = group.items.filter((item) => canAccess(item, user?.role));
+        if (visibleItems.length === 0) return null;
         const isOpen = openGroups.includes(group.label);
         const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
         return (
@@ -142,7 +152,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             </button>
             {isOpen ? (
               <div className="mt-1.5 space-y-1">
-                {group.items.map((item) => {
+                {visibleItems.map((item) => {
                   const Icon = item.icon;
                   return (
                     <NavLink
@@ -202,7 +212,8 @@ export function LovableLayout() {
   });
 
   const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
-  const userEmail = user?.email ?? "owner@demo.local";
+  const userEmail = user?.email ?? "";
+  const canManageUsers = user?.role === "owner" || user?.role === "manager";
 
   useEffect(() => {
     setWorkspaceMenuOpen(false);
@@ -247,7 +258,7 @@ export function LovableLayout() {
                 </div>
               </button>
 
-              {workspaceMenuOpen ? (
+              {workspaceMenuOpen && canManageUsers ? (
                 <div className="absolute left-0 right-0 z-20 mt-2 rounded-xl border border-lovable-border bg-lovable-surface/95 p-2 shadow-panel">
                   <button
                     type="button"
@@ -286,20 +297,19 @@ export function LovableLayout() {
           </div>
 
           <div className="space-y-3 px-4 pb-4">
-            <div className="rounded-xl border border-lovable-border bg-lovable-surface/75 p-3">
-              <span className="inline-flex rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                New
-              </span>
-              <p className="mt-2 text-sm font-semibold text-lovable-ink">Retencao Program</p>
-              <p className="mt-1 text-xs text-lovable-ink-muted">Automacao para recuperar alunos inativos em lotes.</p>
-              <button
-                type="button"
-                onClick={() => navigate("/automations")}
-                className="mt-3 inline-flex items-center rounded-lg border border-lovable-border-strong bg-lovable-surface-soft px-2.5 py-1.5 text-xs font-semibold text-lovable-ink transition hover:border-lovable-border-strong/90 hover:bg-lovable-surface"
-              >
-                Abrir automacoes
-              </button>
-            </div>
+            {canManageUsers ? (
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface/75 p-3">
+                <p className="text-sm font-semibold text-lovable-ink">Retencao Program</p>
+                <p className="mt-1 text-xs text-lovable-ink-muted">Automacao para recuperar alunos inativos em lotes.</p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/automations")}
+                  className="mt-3 inline-flex items-center rounded-lg border border-lovable-border-strong bg-lovable-surface-soft px-2.5 py-1.5 text-xs font-semibold text-lovable-ink transition hover:border-lovable-border-strong/90 hover:bg-lovable-surface"
+                >
+                  Abrir automacoes
+                </button>
+              </div>
+            ) : null}
 
             <div className="space-y-1 text-sm">
               <button

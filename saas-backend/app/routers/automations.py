@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -203,11 +204,30 @@ def preview_automation_rule(
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Regra nao encontrada")
     members = _find_matching_members(db, rule)
+    now = datetime.now(tz=timezone.utc)
+
+    def days_without_checkin(last_checkin: datetime | None) -> int:
+        if not last_checkin:
+            return 0
+        if last_checkin.tzinfo is None:
+            last_checkin = last_checkin.replace(tzinfo=timezone.utc)
+        return max(0, (now - last_checkin).days)
+
     return {
         "rule_id": str(rule.id),
         "matching_members": len(members),
+        "matched_count": len(members),
         "sample": [
             {"id": str(m.id), "name": m.full_name, "risk_score": m.risk_score}
+            for m in members[:10]
+        ],
+        "sample_members": [
+            {
+                "id": str(m.id),
+                "full_name": m.full_name,
+                "risk_level": m.risk_level.value,
+                "days_without_checkin": days_without_checkin(m.last_checkin_at),
+            }
             for m in members[:10]
         ],
     }
@@ -220,6 +240,9 @@ def list_automation_executions(
     _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
+    rule = get_automation_rule(db, rule_id)
+    if not rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Regra nao encontrada")
     logs = list(db.scalars(
         select(AutomationExecutionLog)
         .where(AutomationExecutionLog.rule_id == rule_id)

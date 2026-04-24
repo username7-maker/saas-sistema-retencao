@@ -9,6 +9,44 @@ import { lgpdService } from "../../services/lgpdService";
 import { memberService } from "../../services/memberService";
 import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
 
+type DrawerAssessmentLatest = {
+  assessment_date?: string | null;
+  next_assessment_due?: string | null;
+  weight_kg?: number | null;
+  body_fat_pct?: number | null;
+  lean_mass_kg?: number | null;
+};
+
+type DrawerProfile360 = {
+  assessment?: {
+    next_assessment?: {
+      overdue?: boolean;
+      days_until_due?: number | null;
+      due_date?: string | null;
+    } | null;
+    latest?: DrawerAssessmentLatest | null;
+    evolution?: {
+      deltas?: Record<string, number | null> | null;
+    } | null;
+  } | null;
+  latest_assessment?: DrawerAssessmentLatest | null;
+  behavior?: {
+    total_checkins_90d?: number | null;
+    avg_weekly?: number | null;
+    consistency_pct?: number | null;
+    preferred_shift?: string | null;
+    weekly_series?: number[] | null;
+  } | null;
+  retention?: {
+    urgency?: string | null;
+    churn_type_label?: string | null;
+    forecast_60d?: number | null;
+  } | null;
+  ai_engine?: {
+    next_best_action?: string | null;
+  } | null;
+};
+
 export function MemberDetailDrawer({
   member,
   open,
@@ -241,7 +279,7 @@ export function MemberDetailDrawer({
           {loadingProfile || profile360 === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
+            const profile = (profile360 ?? {}) as DrawerProfile360;
             const assess = profile.assessment ?? null;
             const next = assess?.next_assessment ?? null;
             const latest = assess?.latest ?? profile.latest_assessment ?? null;
@@ -319,7 +357,7 @@ export function MemberDetailDrawer({
           {loadingProfile || profile360 === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
+            const profile = (profile360 ?? {}) as DrawerProfile360;
             const beh = profile.behavior ?? null;
             const series: number[] = Array.isArray(beh?.weekly_series) ? beh.weekly_series : [];
 
@@ -371,7 +409,7 @@ export function MemberDetailDrawer({
           {loadingProfile || profile360 === undefined ? (
             <p className="text-sm text-lovable-ink-muted">Carregando...</p>
           ) : (() => {
-            const profile = (profile360 ?? {}) as Record<string, any>;
+            const profile = (profile360 ?? {}) as DrawerProfile360;
             const ret = profile.retention ?? null;
             const ai = profile.ai_engine ?? null;
             const urgency = ret?.urgency ?? null;

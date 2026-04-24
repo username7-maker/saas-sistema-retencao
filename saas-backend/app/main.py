@@ -79,6 +79,9 @@ app = FastAPI(
     title=settings.app_name,
     description="AI GYM OS - BI e Retencao para academias",
     version="3.0.0",
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
     lifespan=lifespan,
 )
 
@@ -190,7 +193,9 @@ def readiness_check() -> JSONResponse:
         db.close()
 
     cache_info = dashboard_cache.healthcheck()
-    healthy = db_status == "ok"
+    cache_required = bool(settings.redis_url)
+    cache_available = bool(cache_info.get("available"))
+    healthy = db_status == "ok" and (not cache_required or cache_available)
     payload = {
         "status": "ok" if healthy else "degraded",
         "checks": {
@@ -202,8 +207,25 @@ def readiness_check() -> JSONResponse:
     return JSONResponse(status_code=status_code, content=payload)
 
 
+def _websocket_token(websocket: WebSocket, query_token: str | None) -> tuple[str | None, str | None]:
+    if query_token:
+        return query_token, None
+    protocols = [
+        part.strip()
+        for part in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        if part.strip()
+    ]
+    if len(protocols) >= 2 and protocols[0] == "aigymos":
+        return protocols[1], "aigymos"
+    return None, None
+
+
 @app.websocket("/ws/updates")
-async def updates_websocket(websocket: WebSocket, token: str = Query(...)) -> None:
+async def updates_websocket(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
+    token, accepted_subprotocol = _websocket_token(websocket, token)
+    if not token:
+        await websocket.close(code=4401)
+        return
     try:
         payload = decode_token(token)
         if payload.get("type") != "access":
@@ -223,7 +245,7 @@ async def updates_websocket(websocket: WebSocket, token: str = Query(...)) -> No
             await websocket.close(code=4401)
             return
 
-        await websocket_manager.connect(str(gym_id), websocket)
+        await websocket_manager.connect(str(gym_id), websocket, subprotocol=accepted_subprotocol)
         await websocket.send_json({"event": "connected", "payload": {"user_id": str(user.id), "gym_id": str(gym_id)}})
         while True:
             await websocket.receive_text()

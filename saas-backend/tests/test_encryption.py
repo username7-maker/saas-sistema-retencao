@@ -1,5 +1,7 @@
 """Tests for encryption utilities and EncryptedString TypeDecorator."""
 
+from unittest.mock import patch
+
 import pytest
 
 from app.utils.encryption import decrypt_pii, encrypt_pii, EncryptedString
@@ -54,6 +56,11 @@ class TestEncryptedStringType:
         assert result is not None
         assert result != "11999887766"
         assert decrypt_pii(result) == "11999887766"
+
+    def test_bind_encrypt_failure_raises(self):
+        with patch("app.utils.encryption.encrypt_pii", side_effect=RuntimeError("missing key")):
+            with pytest.raises(RuntimeError):
+                self.type_dec.process_bind_param("11999887766", None)
 
     def test_result_none(self):
         assert self.type_dec.process_result_value(None, None) is None

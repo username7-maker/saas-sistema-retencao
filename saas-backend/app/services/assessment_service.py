@@ -44,9 +44,9 @@ def _calculate_next_assessment_due(db: Session, member_id: UUID, assessment_date
     elif "trimestral" in plan:
         return (assessment_date + timedelta(days=90)).date()
     elif "semestral" in plan:
-        return (assessment_date + timedelta(days=60)).date()
-    elif "anual" in plan:
         return (assessment_date + timedelta(days=90)).date()
+    elif "anual" in plan:
+        return (assessment_date + timedelta(days=120)).date()
     else:
         return (assessment_date + timedelta(days=90)).date()
 

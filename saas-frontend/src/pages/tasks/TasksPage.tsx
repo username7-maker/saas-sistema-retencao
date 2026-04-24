@@ -295,7 +295,7 @@ export function TasksPage() {
     return map;
   }, [usersQuery.data]);
 
-  const allTasks = tasksQuery.data?.items ?? [];
+  const allTasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data?.items]);
   const todayKey = useMemo(() => getTodayKey(), []);
   const focuoStats = useMemo(() => {
     const urgentCount = allTasks.filter(

@@ -11,8 +11,8 @@ class WebSocketManager:
         self._connections: dict[str, set[WebSocket]] = defaultdict(set)
         self._lock = asyncio.Lock()
 
-    async def connect(self, gym_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(self, gym_id: str, websocket: WebSocket, *, subprotocol: str | None = None) -> None:
+        await websocket.accept(subprotocol=subprotocol)
         async with self._lock:
             self._connections[gym_id].add(websocket)
 

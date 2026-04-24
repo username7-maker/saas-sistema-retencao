@@ -7,6 +7,7 @@ import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { LovableLayout } from "./components/layout/LovableLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { DiagnosticoPage } from "./pages/public/DiagnosticoPage";
+import type { Role } from "./types";
 
 const MembersPage = lazy(() => import("./pages/members/MembersPage").then((m) => ({ default: m.MembersPage })));
 const DashboardLovable = lazy(() => import("./pages/dashboard/DashboardLovable").then((m) => ({ default: m.DashboardLovable })));
@@ -39,6 +40,17 @@ function LazyWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+const ALL_STAFF_ROLES: Role[] = ["owner", "manager", "receptionist", "salesperson", "trainer"];
+const MANAGEMENT_ROLES: Role[] = ["owner", "manager"];
+const FRONT_DESK_ROLES: Role[] = ["owner", "manager", "receptionist"];
+const SALES_ROLES: Role[] = ["owner", "manager", "salesperson"];
+const MEMBER_READ_ROLES: Role[] = ALL_STAFF_ROLES;
+const ASSESSMENT_WRITE_ROLES: Role[] = ["owner", "manager", "trainer"];
+
+function RoleGate({ allowedRoles, children }: { allowedRoles: Role[]; children: React.ReactNode }) {
+  return <ProtectedRoute allowedRoles={allowedRoles}>{children}</ProtectedRoute>;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -55,129 +67,161 @@ export default function App() {
         <Route
           path="/members"
           element={
-            <LazyWrapper>
-              <MembersPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MEMBER_READ_ROLES}>
+              <LazyWrapper>
+                <MembersPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/dashboard/executive"
           element={
-            <LazyWrapper>
-              <DashboardLovable />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <DashboardLovable />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/dashboard/operational"
           element={
-            <LazyWrapper>
-              <OperationalDashboardPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={FRONT_DESK_ROLES}>
+              <LazyWrapper>
+                <OperationalDashboardPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/dashboard/commercial"
           element={
-            <LazyWrapper>
-              <CommercialDashboardPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={SALES_ROLES}>
+              <LazyWrapper>
+                <CommercialDashboardPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/dashboard/financial"
           element={
-            <LazyWrapper>
-              <FinancialDashboardPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <FinancialDashboardPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/dashboard/retention"
           element={
-            <LazyWrapper>
-              <RetentionDashboardPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={FRONT_DESK_ROLES}>
+              <LazyWrapper>
+                <RetentionDashboardPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/crm"
           element={
-            <LazyWrapper>
-              <CrmPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={["owner", "manager", "salesperson", "receptionist"]}>
+              <LazyWrapper>
+                <CrmPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/tasks"
           element={
-            <LazyWrapper>
-              <TasksPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={ALL_STAFF_ROLES}>
+              <LazyWrapper>
+                <TasksPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/goals"
           element={
-            <LazyWrapper>
-              <GoalsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <GoalsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/reports"
           element={
-            <LazyWrapper>
-              <ReportsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <ReportsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/assessments"
           element={
-            <LazyWrapper>
-              <AssessmentsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={ALL_STAFF_ROLES}>
+              <LazyWrapper>
+                <AssessmentsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/assessments/members/:memberId"
           element={
-            <LazyWrapper>
-              <MemberProfile360Page />
-            </LazyWrapper>
+            <RoleGate allowedRoles={ALL_STAFF_ROLES}>
+              <LazyWrapper>
+                <MemberProfile360Page />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/assessments/new/:memberId"
           element={
-            <LazyWrapper>
-              <NewAssessmentPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={ASSESSMENT_WRITE_ROLES}>
+              <LazyWrapper>
+                <NewAssessmentPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/notifications"
           element={
-            <LazyWrapper>
-              <NotificationsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={ALL_STAFF_ROLES}>
+              <LazyWrapper>
+                <NotificationsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/automations"
           element={
-            <LazyWrapper>
-              <AutomationsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <AutomationsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/imports"
           element={
-            <LazyWrapper>
-              <ImportsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <ImportsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
@@ -191,41 +235,51 @@ export default function App() {
         <Route
           path="/settings/users"
           element={
-            <LazyWrapper>
-              <UsersPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <UsersPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/nps"
           element={
-            <LazyWrapper>
-              <NpsPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={["owner", "manager", "receptionist", "salesperson"]}>
+              <LazyWrapper>
+                <NpsPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/audit"
           element={
-            <LazyWrapper>
-              <AuditPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={MANAGEMENT_ROLES}>
+              <LazyWrapper>
+                <AuditPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/vendas/briefing/:leadId"
           element={
-            <LazyWrapper>
-              <SalesBriefingPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={SALES_ROLES}>
+              <LazyWrapper>
+                <SalesBriefingPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
         <Route
           path="/vendas/script/:leadId"
           element={
-            <LazyWrapper>
-              <CallScriptPage />
-            </LazyWrapper>
+            <RoleGate allowedRoles={SALES_ROLES}>
+              <LazyWrapper>
+                <CallScriptPage />
+              </LazyWrapper>
+            </RoleGate>
           }
         />
       </Route>

@@ -16,6 +16,12 @@ from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+MANAGER_ALLOWED_CREATE_ROLES = {
+    RoleEnum.RECEPTIONIST,
+    RoleEnum.SALESPERSON,
+    RoleEnum.TRAINER,
+}
+
 
 class UserUpdate(BaseModel):
     is_active: bool | None = None
@@ -29,6 +35,11 @@ def create_user_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> User:
+    if current_user.role == RoleEnum.MANAGER and payload.role not in MANAGER_ALLOWED_CREATE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Gerentes so podem criar usuarios operacionais",
+        )
     new_user = create_user(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
     log_audit_event(

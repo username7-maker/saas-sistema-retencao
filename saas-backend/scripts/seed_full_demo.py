@@ -4,7 +4,12 @@ import os
 import random
 from sqlalchemy import select, delete, func
 
-from app.database import SessionLocal, set_current_gym_id, clear_current_gym_id
+from app.database import (
+    SessionLocal,
+    clear_current_gym_id,
+    set_current_gym_id,
+    set_unscoped_access,
+)
 from app.core.security import hash_password
 from app.core.cache import invalidate_dashboard_cache
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
@@ -39,11 +44,14 @@ def add_user(db, gid, name, email, role):
 def main():
     db = SessionLocal()
     try:
+        # Resolve the seed target before a tenant context exists.
+        set_unscoped_access(True)
         g = db.scalar(select(Gym).where(Gym.slug==SLUG, Gym.is_active.is_(True)))
         if not g: raise RuntimeError("Gym nao encontrada")
         owner = db.scalar(select(User).where(User.gym_id==g.id, User.email==OWNER_EMAIL, User.deleted_at.is_(None), User.is_active.is_(True)))
         if not owner: raise RuntimeError("Owner nao encontrado")
 
+        set_unscoped_access(False)
         set_current_gym_id(g.id)
         mng = add_user(db, g.id, "Gerente Teste", "manager.local@test.com", RoleEnum.MANAGER)
         sal = add_user(db, g.id, "Comercial Teste", "sales.local@test.com", RoleEnum.SALESPERSON)
@@ -256,6 +264,7 @@ def main():
         print("SEED_OK"); print(f"SEED_TAG={TAG}")
         for k,v in out.items(): print(f"{k}={v}")
     finally:
+        set_unscoped_access(False)
         clear_current_gym_id(); db.close()
 
 if __name__=="__main__":

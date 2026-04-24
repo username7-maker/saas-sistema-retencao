@@ -40,8 +40,8 @@ export function OperationalDashboardPage() {
 
     const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
     const wsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined) ?? apiBase.replace(/^http/, "ws");
-    const wsUrl = `${wsBase.replace(/\/$/, "")}/ws/updates?token=${encodeURIComponent(token)}`;
-    const socket = new WebSocket(wsUrl);
+    const wsUrl = `${wsBase.replace(/\/$/, "")}/ws/updates`;
+    const socket = new WebSocket(wsUrl, ["aigymos", token]);
 
     socket.onopen = () => setIsRealtimeConnected(true);
     socket.onclose = () => setIsRealtimeConnected(false);

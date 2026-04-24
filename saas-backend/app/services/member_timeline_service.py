@@ -22,12 +22,15 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
     ).all()
     for assessment in assessments:
         parts = []
-        if assessment.weight_kg is not None:
-            parts.append(f"Peso: {assessment.weight_kg} kg")
-        if assessment.body_fat_pct is not None:
-            parts.append(f"Gordura: {assessment.body_fat_pct}%")
-        if assessment.strength_score is not None:
-            parts.append(f"Forca: {assessment.strength_score}")
+        weight_kg = getattr(assessment, "weight_kg", None)
+        body_fat_pct = getattr(assessment, "body_fat_pct", None)
+        strength_score = getattr(assessment, "strength_score", None)
+        if weight_kg is not None:
+            parts.append(f"Peso: {weight_kg} kg")
+        if body_fat_pct is not None:
+            parts.append(f"Gordura: {body_fat_pct}%")
+        if strength_score is not None:
+            parts.append(f"Forca: {strength_score}")
         events.append({
             "type": "assessment",
             "timestamp": assessment.assessment_date.isoformat(),

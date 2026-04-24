@@ -528,7 +528,8 @@ def _run_inactivity_automations(
 ) -> list[dict]:
     now = datetime.now(tz=timezone.utc)
     # BLOQUEIO: nao disparar automacoes de retencao para alunos em onboarding ativo (< 14 dias)
-    join_days = (now.date() - member.join_date).days
+    join_date = getattr(member, "join_date", now.date() - timedelta(days=3650)) or (now.date() - timedelta(days=3650))
+    join_days = (now.date() - join_date).days
     if join_days < 14:
         return []
 

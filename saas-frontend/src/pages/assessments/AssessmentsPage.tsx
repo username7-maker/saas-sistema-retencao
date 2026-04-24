@@ -51,64 +51,52 @@ export function AssessmentsPage() {
     queryFn: () => assessmentService.dashboard(),
     staleTime: 5 * 60 * 1000,
   });
-
-  if (dashboardQuery.isLoading) {
-    return <LoadingPanel text="Carregando dashboard de avaliacoes..." />;
-  }
-
-  if (dashboardQuery.isError) {
-    return <LoadingPanel text="Erro ao carregar avaliacoes. Tente novamente." />;
-  }
-
-  if (!dashboardQuery.data) {
-    return <LoadingPanel text="Sem dados de avaliacoes." />;
-  }
-
   const data = dashboardQuery.data;
   const filterConfig: Record<AssessmentFilter, FilterConfig> = useMemo(
     () => ({
       total: {
         label: "Total membros",
-        count: data.total_members,
+        count: data?.total_members ?? 0,
         listTitle: "Todos os membros (prioridade por risco)",
         emptyMessage: "Nenhum membro encontrado.",
-        members: (data.total_members_items ?? []) as AssessmentListMember[],
+        members: (data?.total_members_items ?? []) as AssessmentListMember[],
       },
       assessed_90: {
         label: "Avaliados (90d)",
-        count: data.assessed_last_90_days,
+        count: data?.assessed_last_90_days ?? 0,
         listTitle: "Membros avaliados nos ultimos 90 dias",
         emptyMessage: "Nenhum membro avaliado nos ultimos 90 dias.",
-        members: (data.assessed_members ?? []) as AssessmentListMember[],
+        members: (data?.assessed_members ?? []) as AssessmentListMember[],
       },
       overdue: {
         label: "Atrasados",
-        count: data.overdue_assessments,
+        count: data?.overdue_assessments ?? 0,
         listTitle: "Membros com avaliacao atrasada",
         emptyMessage: "Nenhum membro atrasado. Otimo trabalho.",
-        members: (data.overdue_members ?? []) as AssessmentListMember[],
+        members: (data?.overdue_members ?? []) as AssessmentListMember[],
       },
       never: {
         label: "Nunca avaliados",
-        count: data.never_assessed,
+        count: data?.never_assessed ?? 0,
         listTitle: "Membros nunca avaliados",
         emptyMessage: "Nenhum membro sem avaliacao.",
-        members: (data.never_assessed_members ?? []) as AssessmentListMember[],
+        members: (data?.never_assessed_members ?? []) as AssessmentListMember[],
       },
       upcoming: {
         label: "Proximos 7 dias",
-        count: data.upcoming_7_days,
+        count: data?.upcoming_7_days ?? 0,
         listTitle: "Membros com avaliacao nos proximos 7 dias",
         emptyMessage: "Nenhum membro com avaliacao prevista para os proximos 7 dias.",
-        members: (data.upcoming_members ?? []) as AssessmentListMember[],
+        members: (data?.upcoming_members ?? []) as AssessmentListMember[],
       },
     }),
     [data],
   );
   const selectedFilter = filterConfig[activeFilter];
-  const coverageRatio = data.total_members > 0 ? Math.round((data.assessed_last_90_days / data.total_members) * 100) : 0;
-  const overduePressure = data.total_members > 0 ? Math.round((data.overdue_assessments / data.total_members) * 100) : 0;
-  const firstAssessmentGap = data.total_members > 0 ? Math.round((data.never_assessed / data.total_members) * 100) : 0;
+  const totalMembers = data?.total_members ?? 0;
+  const coverageRatio = totalMembers > 0 ? Math.round(((data?.assessed_last_90_days ?? 0) / totalMembers) * 100) : 0;
+  const overduePressure = totalMembers > 0 ? Math.round(((data?.overdue_assessments ?? 0) / totalMembers) * 100) : 0;
+  const firstAssessmentGap = totalMembers > 0 ? Math.round(((data?.never_assessed ?? 0) / totalMembers) * 100) : 0;
 
   const filteredMembers = useMemo(() => {
     const normalized = normalizeText(searchQuery);
@@ -127,6 +115,18 @@ export function AssessmentsPage() {
 
     return result;
   }, [searchQuery, selectedFilter.members, activeFilter]);
+
+  if (dashboardQuery.isLoading) {
+    return <LoadingPanel text="Carregando dashboard de avaliacoes..." />;
+  }
+
+  if (dashboardQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar avaliacoes. Tente novamente." />;
+  }
+
+  if (!data) {
+    return <LoadingPanel text="Sem dados de avaliacoes." />;
+  }
 
   return (
     <section className="space-y-6">

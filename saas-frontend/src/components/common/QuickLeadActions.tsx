@@ -16,6 +16,10 @@ const OUTCOME_LABELS: Record<CallOutcome, string> = {
   invalid_number: "Nº inválido",
 };
 
+function defaultWhatsAppMessage(fullName: string): string {
+  return `Olá ${fullName}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`;
+}
+
 interface QuickLeadActionsProps {
   lead: Lead;
   onActionComplete?: () => void;
@@ -27,18 +31,14 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
   const [showCallLog, setShowCallLog] = useState(false);
   const [callOutcome, setCallOutcome] = useState<CallOutcome | null>(null);
   const [callNote, setCallNote] = useState("");
-  const [whatsAppMessage, setWhatsAppMessage] = useState(
-    `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
-  );
+  const [whatsAppMessage, setWhatsAppMessage] = useState(defaultWhatsAppMessage(lead.full_name));
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset message template when lead changes
   useEffect(() => {
-    setWhatsAppMessage(
-      `Olá ${lead.full_name}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`
-    );
-  }, [lead.id]);
+    setWhatsAppMessage(defaultWhatsAppMessage(lead.full_name));
+  }, [lead.id, lead.full_name]);
 
   // Auto-dismiss feedback after 3 seconds
   useEffect(() => {

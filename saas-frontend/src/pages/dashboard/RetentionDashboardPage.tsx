@@ -26,6 +26,8 @@ const CHURN_LABELS: Record<string, { label: string; tone: "danger" | "warning" |
 };
 
 const CHURN_ORDER = ["frequencia", "frustracao", "lifestyle", "financeiro"];
+const EMPTY_RETENTION_ITEMS: RetentionMember[] = [];
+const EMPTY_LAST_CONTACT_MAP: Record<string, string> = {};
 
 function daysInactive(lastCheckinAt: string | null): number | null {
   if (!lastCheckinAt) return null;
@@ -251,20 +253,17 @@ export function RetentionDashboardPage() {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
   };
 
-  if (query.isLoading) return <LoadingPanel text="Carregando dashboard de retencao..." />;
-  if (query.isError) return <LoadingPanel text="Erro ao carregar dados de retencao." />;
-  if (!query.data) return <LoadingPanel text="Sem dados de retencao." />;
-
-  const red = query.data.red ?? { total: 0, items: [] };
-  const yellow = query.data.yellow ?? { total: 0, items: [] };
-  const nps_trend = query.data.nps_trend ?? [];
-  const mrr_at_risk = Number(query.data.mrr_at_risk ?? 0);
-  const avg_red_score = Number(query.data.avg_red_score ?? 0);
-  const avg_yellow_score = Number(query.data.avg_yellow_score ?? 0);
-  const last_contact_map = query.data.last_contact_map ?? {};
+  const data = query.data;
+  const redItems = (data?.red?.items ?? EMPTY_RETENTION_ITEMS) as RetentionMember[];
+  const yellowItems = (data?.yellow?.items ?? EMPTY_RETENTION_ITEMS) as RetentionMember[];
+  const red = data?.red ?? { total: redItems.length, items: redItems };
+  const yellow = data?.yellow ?? { total: yellowItems.length, items: yellowItems };
+  const nps_trend = data?.nps_trend ?? [];
+  const mrr_at_risk = Number(data?.mrr_at_risk ?? 0);
+  const avg_red_score = Number(data?.avg_red_score ?? 0);
+  const avg_yellow_score = Number(data?.avg_yellow_score ?? 0);
+  const last_contact_map = data?.last_contact_map ?? EMPTY_LAST_CONTACT_MAP;
   const totalRisk = red.total + yellow.total;
-  const redItems = red.items as RetentionMember[];
-  const yellowItems = yellow.items as RetentionMember[];
 
   const churnCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -294,6 +293,10 @@ export function RetentionDashboardPage() {
   for (const m of [...redItems, ...yellowItems]) {
     memberById[m.id] = m.full_name;
   }
+
+  if (query.isLoading) return <LoadingPanel text="Carregando dashboard de retencao..." />;
+  if (query.isError) return <LoadingPanel text="Erro ao carregar dados de retencao." />;
+  if (!data) return <LoadingPanel text="Sem dados de retencao." />;
 
   return (
     <section className="space-y-6">

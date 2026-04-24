@@ -77,6 +77,17 @@ class TestExportMembersCsv:
         rows = _parse_csv_bytes(buffer)
         assert len(rows) == 0
 
+    def test_escapes_spreadsheet_formulas(self):
+        member = _mock_member(full_name="=HYPERLINK(\"http://evil.test\")")
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [member]
+        db = MagicMock()
+        db.scalars.return_value = mock_scalars
+
+        buffer, _filename = export_members_csv(db)
+        rows = _parse_csv_bytes(buffer)
+        assert rows[0]["full_name"].startswith("'=")
+
 
 class TestExportCheckinsCsv:
     def test_generates_csv_with_dates(self):

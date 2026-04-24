@@ -47,9 +47,10 @@ interface CreateUserDrawerProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  roleOptions: Array<{ value: StaffUser["role"]; label: string }>;
 }
 
-function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
+function CreateUserDrawer({ open, onClose, onSaved, roleOptions }: CreateUserDrawerProps) {
   const {
     register,
     handleSubmit,
@@ -93,7 +94,7 @@ function CreateUserDrawer({ open, onClose, onSaved }: CreateUserDrawerProps) {
 
         <FormField label="Função" required error={errors.role?.message}>
           <Select {...register("role")}>
-            {ROLE_OPTIONS.map((option) => (
+            {roleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -120,12 +121,14 @@ function UserRow({
   onDeactivate,
   onActivate,
   isPending,
+  canChangeStatus,
 }: {
   user: StaffUser;
   currentUserId: string;
   onDeactivate: (user: StaffUser) => void;
   onActivate: (user: StaffUser) => void;
   isPending: boolean;
+  canChangeStatus: boolean;
 }) {
   const isSelf = user.id === currentUserId;
 
@@ -145,7 +148,7 @@ function UserRow({
         </span>
       </div>
 
-      {isSelf ? null : (
+      {isSelf || !canChangeStatus ? null : (
         <div className="flex items-center gap-2">
           {user.is_active ? (
             <Button
@@ -210,6 +213,14 @@ export function UsersPage() {
 
   const allUsers = usersQuery.data ?? [];
   const users = roleFilter === "all" ? allUsers : allUsers.filter((u) => u.role === roleFilter);
+  const canChangeStatus = currentUser?.role === "owner";
+  const createRoleOptions = currentUser?.role === "owner"
+    ? ROLE_OPTIONS
+    : ROLE_OPTIONS.filter((option) => !["manager", "owner"].includes(option.value));
+
+  if (usersQuery.isError) {
+    return <LoadingPanel text="Erro ao carregar usuarios. Verifique suas permissoes." />;
+  }
 
   return (
     <section className="space-y-6">
@@ -253,6 +264,7 @@ export function UsersPage() {
               user={staff}
               currentUserId={currentUser?.id ?? ""}
               isPending={toggleMutation.isPending}
+              canChangeStatus={canChangeStatus}
               onDeactivate={(targetUser) => setUserToDeactivate(targetUser)}
               onActivate={(targetUser) => toggleMutation.mutate({ userId: targetUser.id, is_active: true })}
             />
@@ -264,6 +276,7 @@ export function UsersPage() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
+        roleOptions={createRoleOptions}
       />
 
       <Dialog

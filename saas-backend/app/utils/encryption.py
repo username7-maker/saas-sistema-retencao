@@ -76,9 +76,9 @@ class EncryptedString(TypeDecorator):
             return value
         try:
             return encrypt_pii(value)
-        except Exception:
-            logger.warning("Failed to encrypt PII value, storing as-is")
-            return value
+        except Exception as exc:
+            logger.exception("Failed to encrypt PII value; refusing to store plaintext")
+            raise RuntimeError("Falha ao criptografar dado sensivel") from exc
 
     def process_result_value(self, value: str | None, dialect) -> str | None:
         if value is None or value == "":

@@ -178,6 +178,18 @@ def _dict_rows_to_csv(headers: list[str], rows: list[dict[str, str]]) -> BytesIO
     stream = StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=headers)
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows(
+        {
+            header: _escape_csv_cell(str(row.get(header, "")))
+            for header in headers
+        }
+        for row in rows
+    )
     payload = stream.getvalue().encode("utf-8-sig")
     return BytesIO(payload)
+
+
+def _escape_csv_cell(value: str) -> str:
+    if value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return f"'{value}"
+    return value

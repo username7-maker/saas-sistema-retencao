@@ -36,7 +36,7 @@ def create_member_endpoint(
     request: Request,
     payload: MemberCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> MemberOut:
     member = create_member(db, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
@@ -58,7 +58,10 @@ def create_member_endpoint(
 @router.get("/", response_model=PaginatedResponse[MemberOut])
 def list_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
@@ -86,7 +89,10 @@ def list_members_endpoint(
 def get_member_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
 ) -> MemberOut:
     return get_member_or_404(db, member_id, gym_id=current_user.gym_id)
 
@@ -97,7 +103,7 @@ def update_member_endpoint(
     member_id: UUID,
     payload: MemberUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> MemberOut:
     member = update_member(db, member_id, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
@@ -195,7 +201,7 @@ def _run_risk_recalculation_background(gym_id: UUID) -> None:
 def get_onboarding_score_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> dict:
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     return calculate_onboarding_score(db, member)
@@ -205,7 +211,7 @@ def get_onboarding_score_endpoint(
 def member_timeline_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
@@ -216,7 +222,10 @@ def member_timeline_endpoint(
 def list_body_composition_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
     limit: int = Query(20, ge=1, le=100),
 ) -> list[BodyCompositionEvaluationRead]:
     return list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=limit)
@@ -227,7 +236,7 @@ def create_body_composition_endpoint(
     member_id: UUID,
     payload: BodyCompositionEvaluationCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
     evaluation = create_body_composition_evaluation(db, current_user.gym_id, member_id, payload)
     db.commit()
@@ -240,7 +249,7 @@ def update_body_composition_endpoint(
     evaluation_id: UUID,
     payload: BodyCompositionEvaluationCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionEvaluationRead:
     evaluation = update_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation_id, payload)
     db.commit()
@@ -258,7 +267,10 @@ def create_contact_log_endpoint(
     member_id: UUID,
     payload: ContactLogCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
 ) -> dict:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     context = get_request_context(request)

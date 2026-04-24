@@ -1,8 +1,9 @@
 """Redis-based distributed lock for background scheduler jobs.
 
 Prevents duplicate job execution when multiple backend instances are running
-(e.g. Railway auto-scaling). If Redis is unavailable, jobs run without
-locking (prefer occasional duplicate over silent skip).
+(e.g. Railway auto-scaling). When REDIS_URL is configured, Redis is treated as
+mandatory for scheduler safety: lock acquisition failures skip the job instead
+of running duplicate side effects.
 """
 
 import functools
@@ -30,11 +31,11 @@ _redis_checked = False
 
 def _get_redis() -> "Redis | None":
     global _redis_client, _redis_checked
-    if _redis_checked:
+    if _redis_checked and (_redis_client is not None or not settings.redis_url):
         return _redis_client
     _redis_checked = True
     if not settings.redis_url or Redis is None:
-        logger.info("Distributed lock: Redis indisponivel, jobs rodarao sem lock.")
+        logger.info("Distributed lock: Redis nao configurado; jobs rodarao sem lock.")
         return None
     try:
         client = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -42,9 +43,13 @@ def _get_redis() -> "Redis | None":
         _redis_client = client
         logger.info("Distributed lock: Redis conectado.")
     except Exception:
-        logger.exception("Distributed lock: falha ao conectar Redis. Jobs rodarao sem lock.")
+        logger.exception("Distributed lock: falha ao conectar Redis. Jobs serao pulados enquanto o lock estiver indisponivel.")
         _redis_client = None
     return _redis_client
+
+
+def _redis_lock_required() -> bool:
+    return bool(settings.redis_url)
 
 
 def with_distributed_lock(
@@ -64,6 +69,12 @@ def with_distributed_lock(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             redis = _get_redis()
             if redis is None:
+                if _redis_lock_required():
+                    logger.error(
+                        "Distributed lock: Redis configurado mas indisponivel; pulando job '%s' para evitar duplicidade.",
+                        lock_name,
+                    )
+                    return None
                 return func(*args, **kwargs)
 
             lock_key = f"{_KEY_PREFIX}:{lock_name}"
@@ -71,9 +82,9 @@ def with_distributed_lock(
 
             try:
                 acquired = redis.set(lock_key, lock_value, nx=True, ex=ttl_seconds)
-            except RedisError:
-                logger.warning("Distributed lock: Redis error acquiring lock %s. Running job anyway.", lock_name)
-                return func(*args, **kwargs)
+            except Exception:
+                logger.exception("Distributed lock: erro ao adquirir lock %s. Pulando job.", lock_name)
+                return None
 
             if not acquired:
                 logger.info("Distributed lock: job '%s' already running on another instance. Skipping.", lock_name)
@@ -92,7 +103,7 @@ def with_distributed_lock(
                     end
                     """
                     redis.eval(_release_script, 1, lock_key, lock_value)
-                except RedisError:
+                except Exception:
                     logger.warning("Distributed lock: failed to release lock %s (will auto-expire).", lock_name)
 
         return wrapper

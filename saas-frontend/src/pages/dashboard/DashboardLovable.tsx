@@ -452,28 +452,28 @@ export function DashboardLovable() {
                 value={currency(viewModel.cards.revenue)}
                 helper="Crescimento consolidado dos ultimos ciclos."
                 icon={Wallet}
-                badge="+12.5%"
+                badge="MRR"
               />
               <MetricCard
                 label="Leads no Pipeline"
                 value={compactNumber(viewModel.cards.leads)}
                 helper="Acompanhe oportunidades para conversao."
                 icon={Users}
-                badge="-3.1%"
+                badge="CRM"
               />
               <MetricCard
                 label="Check-ins em Tempo Real"
                 value={compactNumber(viewModel.cards.checkins)}
                 helper="Fluxo operacional em monitoramento continuo."
                 icon={Zap}
-                badge="+8.4%"
+                badge="Ao vivo"
               />
               <MetricCard
                 label="Risco Alto"
                 value={compactNumber(viewModel.cards.highRiskMembers)}
                 helper="Casos criticos que exigem acao imediata."
                 icon={AlertTriangle}
-                badge="ALERTA"
+                badge={viewModel.cards.highRiskMembers > 0 ? "Acao" : "OK"}
               />
             </>
           )}
