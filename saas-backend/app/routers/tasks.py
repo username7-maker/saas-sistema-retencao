@@ -23,7 +23,7 @@ def create_task_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
 ) -> TaskOut:
-    task = create_task(db, payload, commit=False)
+    task = create_task(db, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,

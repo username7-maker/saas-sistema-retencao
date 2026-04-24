@@ -6,8 +6,14 @@ from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.cache import invalidate_dashboard_cache
+from app.database import get_current_gym_id
 from app.models import RoleEnum, Task, TaskStatus, User
 from app.schemas import PaginatedResponse, TaskCreate, TaskOut, TaskUpdate
+from app.services.tenant_guard import (
+    ensure_optional_lead_in_gym,
+    ensure_optional_member_in_gym,
+    ensure_optional_user_in_gym,
+)
 
 
 def _load_with_relations(db: Session, task_id: UUID) -> Task:
@@ -93,8 +99,25 @@ def _ensure_task_access(task: Task, current_user: User | None) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task nao encontrada")
 
 
-def create_task(db: Session, payload: TaskCreate, *, commit: bool = True) -> TaskOut:
+def _resolve_gym_id(gym_id: UUID | None = None) -> UUID | None:
+    return gym_id or get_current_gym_id()
+
+
+def _validate_task_links(db: Session, payload: TaskCreate | TaskUpdate, gym_id: UUID | None) -> None:
+    if gym_id is None:
+        return
+    data = payload.model_dump(exclude_unset=True)
+    ensure_optional_member_in_gym(db, data.get("member_id"), gym_id)
+    ensure_optional_lead_in_gym(db, data.get("lead_id"), gym_id)
+    ensure_optional_user_in_gym(db, data.get("assigned_to_user_id"), gym_id)
+
+
+def create_task(db: Session, payload: TaskCreate, *, gym_id: UUID | None = None, commit: bool = True) -> TaskOut:
+    resolved_gym_id = _resolve_gym_id(gym_id)
+    _validate_task_links(db, payload, resolved_gym_id)
     task = Task(**payload.model_dump())
+    if resolved_gym_id is not None:
+        task.gym_id = resolved_gym_id
     if task.kanban_column is None:
         task.kanban_column = task.status.value
     if task.status == TaskStatus.DONE:
@@ -157,6 +180,8 @@ def update_task(
     if not task or task.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task nao encontrada")
     _ensure_task_access(task, current_user)
+    resolved_gym_id = current_user.gym_id if current_user else task.gym_id
+    _validate_task_links(db, payload, resolved_gym_id)
 
     data = payload.model_dump(exclude_unset=True)
     if current_user and current_user.role == RoleEnum.TRAINER:

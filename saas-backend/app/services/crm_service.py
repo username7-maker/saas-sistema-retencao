@@ -8,9 +8,11 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
+from app.database import get_current_gym_id
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadNoteCreate, LeadUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.tenant_guard import ensure_optional_member_in_gym, ensure_optional_user_in_gym
 from app.utils.email import send_email
 
 logger = logging.getLogger(__name__)
@@ -43,8 +45,13 @@ def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
     invalidate_dashboard_cache("leads")
 
 
-def create_lead(db: Session, payload: LeadCreate, *, commit: bool = True) -> Lead:
-    lead = Lead(**payload.model_dump())
+def create_lead(db: Session, payload: LeadCreate, *, gym_id: UUID | None = None, commit: bool = True) -> Lead:
+    data = payload.model_dump()
+    resolved_gym_id = gym_id or get_current_gym_id()
+    if resolved_gym_id is not None:
+        ensure_optional_user_in_gym(db, data.get("owner_id"), resolved_gym_id)
+        data["gym_id"] = resolved_gym_id
+    lead = Lead(**data)
     db.add(lead)
     if commit:
         db.commit()
@@ -73,7 +80,14 @@ def list_leads(
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool = True) -> Lead:
+def update_lead(
+    db: Session,
+    lead_id: UUID,
+    payload: LeadUpdate,
+    *,
+    gym_id: UUID | None = None,
+    commit: bool = True,
+) -> Lead:
     lead = db.get(Lead, lead_id)
     if not lead or lead.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
@@ -81,6 +95,9 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
     previous_stage = lead.stage
     data = payload.model_dump(exclude_unset=True)
     data.pop("conversion_handoff", None)
+    resolved_gym_id = gym_id or lead.gym_id
+    ensure_optional_user_in_gym(db, data.get("owner_id"), resolved_gym_id)
+    ensure_optional_member_in_gym(db, data.get("converted_member_id"), resolved_gym_id)
     for key, value in data.items():
         setattr(lead, key, value)
     if payload.stage and payload.stage != previous_stage:
@@ -106,6 +123,7 @@ def update_lead(db: Session, lead_id: UUID, payload: LeadUpdate, *, commit: bool
             }
         }
         member = Member(
+            gym_id=lead.gym_id,
             full_name=lead.full_name,
             email=lead.email,
             phone=lead.phone,

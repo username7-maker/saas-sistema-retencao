@@ -9,9 +9,16 @@ from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import AutomationRule, RoleEnum, User
 from app.models.automation_execution_log import AutomationExecutionLog
-from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut, WhatsAppSendRequest
+from app.schemas.automation import (
+    AutomationExecutionResult,
+    AutomationRuleCreate,
+    AutomationRuleOut,
+    AutomationRuleUpdate,
+    MessageLogOut,
+    WhatsAppSendRequest,
+)
 from app.services.audit_service import log_audit_event
-from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync, suggest_whatsapp_template
+from app.services.tenant_guard import ensure_member_in_gym
 from app.services.automation_engine import (
     _find_matching_members,
     create_automation_rule,
@@ -21,6 +28,12 @@ from app.services.automation_engine import (
     run_automation_rules,
     seed_default_rules,
     update_automation_rule,
+)
+from app.services.whatsapp_service import (
+    get_gym_instance,
+    render_template,
+    send_whatsapp_sync,
+    suggest_whatsapp_template,
 )
 
 
@@ -168,6 +181,8 @@ def send_whatsapp_endpoint(
     message = payload.message
     if payload.template_name:
         message = render_template(payload.template_name, {"mensagem": message})
+    if payload.member_id:
+        ensure_member_in_gym(db, payload.member_id, current_user.gym_id)
 
     instance = get_gym_instance(db, current_user.gym_id)
     log = send_whatsapp_sync(
@@ -259,4 +274,5 @@ def suggest_whatsapp_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST)),
 ) -> dict:
+    ensure_member_in_gym(db, member_id, current_user.gym_id)
     return suggest_whatsapp_template(db, member_id)

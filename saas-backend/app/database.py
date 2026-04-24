@@ -35,6 +35,7 @@ from app.models import (
     MessageLog,
     NPSResponse,
     NurturingSequence,
+    ObjectionResponse,
     RiskAlert,
     RiskRecalculationRequest,
     Task,
@@ -72,6 +73,7 @@ ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
     "member_service.",
     "nurturing.",
     "risk_recalculation.",
+    "tenant_guard.",
 )
 
 ALLOWED_UNSCOPED_TENANT_REASONS = frozenset(
@@ -127,6 +129,7 @@ TENANT_SCOPED_MODELS = (
     TrainingPlan,
     BodyCompositionEvaluation,
     BodyCompositionSyncAttempt,
+    ObjectionResponse,
 )
 _TENANT_SCOPED_TABLE_NAMES = frozenset(m.__tablename__ for m in TENANT_SCOPED_MODELS)
 

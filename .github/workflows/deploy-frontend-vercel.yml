@@ -19,15 +19,16 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate secrets
         run: |
-          if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
+          if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ] || [ -z "${VITE_API_BASE_URL}" ]; then
             echo "Missing required Vercel secrets."
-            echo "Required: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID"
+            echo "Required: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, VITE_API_BASE_URL"
             exit 1
           fi
 

@@ -30,7 +30,7 @@ def create_lead_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
 ) -> LeadOut:
-    lead = create_lead(db, payload, commit=False)
+    lead = create_lead(db, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
@@ -66,7 +66,7 @@ def update_lead_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.SALESPERSON))],
 ) -> LeadOut:
-    lead = update_lead(db, lead_id, payload, commit=False)
+    lead = update_lead(db, lead_id, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
     log_audit_event(
         db,
