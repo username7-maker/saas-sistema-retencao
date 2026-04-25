@@ -495,16 +495,20 @@ export default function AITriageInboxPage() {
   });
 
   const items = listQuery.data?.items ?? [];
-  const filteredItems = useMemo(() => {
+  const scopedItems = useMemo(() => {
+    if (!currentUserShift || !shiftScopeEnabled) {
+      return items;
+    }
     return items.filter((item) => {
+      const preferredShift = String(item.metadata?.preferred_shift ?? "");
+      return !preferredShift || matchesPreferredShift(preferredShift, currentUserShift);
+    });
+  }, [currentUserShift, items, shiftScopeEnabled]);
+
+  const filteredItems = useMemo(() => {
+    return scopedItems.filter((item) => {
       if (!matchesWorkflowFilter(item, workflowFilter)) {
         return false;
-      }
-      if (currentUserShift && shiftScopeEnabled) {
-        const preferredShift = String(item.metadata?.preferred_shift ?? "");
-        if (preferredShift && !matchesPreferredShift(preferredShift, currentUserShift)) {
-          return false;
-        }
       }
       if (!deferredQuery) {
         return true;
@@ -520,7 +524,7 @@ export default function AITriageInboxPage() {
         .toLowerCase();
       return haystack.includes(deferredQuery);
     });
-  }, [currentUserShift, deferredQuery, items, shiftScopeEnabled, workflowFilter]);
+  }, [deferredQuery, scopedItems, workflowFilter]);
 
   useEffect(() => {
     if (!filteredItems.length) {
@@ -648,8 +652,8 @@ export default function AITriageInboxPage() {
   const isMutating = rejectMutation.isPending || prepareActionMutation.isPending || outcomeMutation.isPending;
   const metrics = metricsQuery.data;
 
-  const doNowCount = items.filter((item) => matchesWorkflowFilter(item, "do_now")).length;
-  const awaitingOutcomeCount = items.filter((item) => matchesWorkflowFilter(item, "awaiting_outcome")).length;
+  const doNowCount = scopedItems.filter((item) => matchesWorkflowFilter(item, "do_now")).length;
+  const awaitingOutcomeCount = scopedItems.filter((item) => matchesWorkflowFilter(item, "awaiting_outcome")).length;
 
   return (
     <div className="space-y-6">
@@ -688,7 +692,7 @@ export default function AITriageInboxPage() {
             {([
               ["do_now", `Fazer agora (${doNowCount})`],
               ["awaiting_outcome", `Aguardando resultado (${awaitingOutcomeCount})`],
-              ["all", `Todos (${items.length})`],
+              ["all", `Todos (${scopedItems.length})`],
             ] as const).map(([value, label]) => (
               <Button
                 key={value}

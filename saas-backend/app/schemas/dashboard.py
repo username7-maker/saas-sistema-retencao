@@ -122,6 +122,7 @@ class RetentionQueueItem(BaseModel):
     email: str | None = None
     phone: str | None = None
     plan_name: str
+    preferred_shift: str | None = None
     risk_level: RiskLevel
     risk_score: int
     nps_last_score: int = 0

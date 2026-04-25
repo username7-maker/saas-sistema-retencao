@@ -19,6 +19,7 @@ import toast from "react-hot-toast";
 import { AIAssistantPanel } from "../../components/common/AIAssistantPanel";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
+import { PreferredShiftBadge } from "../../components/common/PreferredShiftBadge";
 import { QuickActions } from "../../components/common/QuickActions";
 import { useAuth } from "../../hooks/useAuth";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
@@ -27,10 +28,12 @@ import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
+import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
 import { canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
+type QueuePreferredShift = "all" | "morning" | "afternoon" | "evening";
 
 const CHURN_OPTIONS = [
   { value: "all", label: "Todos os churns" },
@@ -48,6 +51,13 @@ const PLAN_CYCLE_OPTIONS = [
   { value: "monthly", label: "Mensal" },
   { value: "semiannual", label: "Semestral" },
   { value: "annual", label: "Anual" },
+] as const;
+
+const PREFERRED_SHIFT_OPTIONS = [
+  { value: "all", label: "Todos os turnos" },
+  { value: "morning", label: "Manha" },
+  { value: "afternoon", label: "Tarde" },
+  { value: "evening", label: "Noite" },
 ] as const;
 
 const CHURN_META: Record<string, { label: string; description: string }> = {
@@ -286,6 +296,7 @@ function RetentionQueueDrawer({
                   {item.email ? ` · ${item.email}` : ""}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <PreferredShiftBadge preferredShift={item.preferred_shift} prefix />
                   {normalizedPhone && phoneDisplay ? (
                     <a
                       href={`tel:${normalizedPhone}`}
@@ -492,8 +503,21 @@ export function RetentionDashboardPage() {
   const [level, setLevel] = useState<QueueLevel>("all");
   const [churnType, setChurnType] = useState("all");
   const [planCycle, setPlanCycle] = useState("all");
+  const [preferredShift, setPreferredShift] = useState<QueuePreferredShift>("all");
+  const [useCurrentShift, setUseCurrentShift] = useState(false);
+  const [shiftPreferenceTouched, setShiftPreferenceTouched] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedItem, setSelectedItem] = useState<RetentionQueueItem | null>(null);
+  const currentUserShift = getPreferredShiftKey(user?.work_shift);
+  const currentShiftLabel = getPreferredShiftLabel(currentUserShift);
+  const effectivePreferredShift =
+    useCurrentShift && currentUserShift ? currentUserShift : preferredShift === "all" ? undefined : preferredShift;
+
+  useEffect(() => {
+    if (shiftPreferenceTouched) return;
+    setUseCurrentShift(Boolean(currentUserShift));
+    setPreferredShift("all");
+  }, [currentUserShift, shiftPreferenceTouched]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -509,10 +533,10 @@ export function RetentionDashboardPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, level, churnType, planCycle]);
+  }, [search, level, churnType, planCycle, effectivePreferredShift]);
 
   const queueQuery = useQuery({
-    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle }],
+    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle, effectivePreferredShift }],
     queryFn: () =>
       dashboardService.retentionQueue({
         page,
@@ -521,18 +545,20 @@ export function RetentionDashboardPage() {
         level,
         churn_type: churnType === "all" ? undefined : churnType,
         plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
+        preferred_shift: effectivePreferredShift,
       }),
     staleTime: 60_000,
     placeholderData: (previous, previousQuery) => {
       const previousParams = previousQuery?.queryKey?.[3] as
-        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string }
+        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string; effectivePreferredShift?: string }
         | undefined;
       if (!previousParams) return previous;
       const filtersChanged =
         previousParams.search !== search ||
         previousParams.level !== level ||
         previousParams.churnType !== churnType ||
-        previousParams.planCycle !== planCycle;
+        previousParams.planCycle !== planCycle ||
+        previousParams.effectivePreferredShift !== effectivePreferredShift;
       return filtersChanged ? undefined : previous;
     },
   });
@@ -549,7 +575,13 @@ export function RetentionDashboardPage() {
     onError: () => toast.error("Falha ao resolver alerta."),
   });
 
-  const activeFilterCount = [searchInput.trim().length > 0, level !== "all", churnType !== "all", planCycle !== "all"].filter(Boolean).length;
+  const activeFilterCount = [
+    searchInput.trim().length > 0,
+    level !== "all",
+    churnType !== "all",
+    planCycle !== "all",
+    preferredShift !== "all",
+  ].filter(Boolean).length;
   const canResolveAlerts = canResolveRetentionAlert(user?.role);
 
   const kpis = useMemo(() => {
@@ -635,6 +667,9 @@ export function RetentionDashboardPage() {
     setLevel("all");
     setChurnType("all");
     setPlanCycle("all");
+    setPreferredShift("all");
+    setShiftPreferenceTouched(false);
+    setUseCurrentShift(Boolean(currentUserShift));
     setPage(1);
   };
 
@@ -750,10 +785,39 @@ export function RetentionDashboardPage() {
               onChange: setPlanCycle,
               options: PLAN_CYCLE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
             },
+            {
+              key: "preferred_shift",
+              label: "Turno",
+              value: useCurrentShift && currentUserShift ? currentUserShift : preferredShift,
+              onChange: (value) => {
+                setShiftPreferenceTouched(true);
+                setUseCurrentShift(false);
+                setPreferredShift((value || "all") as QueuePreferredShift);
+              },
+              options: PREFERRED_SHIFT_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+            },
           ]}
           activeCount={activeFilterCount}
           onClear={handleClearFilters}
         />
+        {currentUserShift && currentShiftLabel ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 px-1">
+            <Button
+              size="sm"
+              variant={useCurrentShift ? "primary" : "secondary"}
+              onClick={() => {
+                setShiftPreferenceTouched(true);
+                setUseCurrentShift((value) => !value);
+                setPreferredShift("all");
+              }}
+            >
+              {useCurrentShift ? `Meu turno: ${currentShiftLabel}` : "Todos os turnos"}
+            </Button>
+            <span className="text-xs text-lovable-ink-muted">
+              A fila usa o turno preferido do aluno calculado pelos check-ins.
+            </span>
+          </div>
+        ) : null}
 
         <div className="mt-4">
           {queueQuery.isLoading ? (
@@ -822,6 +886,9 @@ export function RetentionDashboardPage() {
                             {item.plan_name}
                             {item.email ? ` · ${item.email}` : ""}
                           </p>
+                          <div className="mt-2">
+                            <PreferredShiftBadge preferredShift={item.preferred_shift} prefix />
+                          </div>
                           <p className="mt-1 text-xs text-lovable-ink-muted">{item.signals_summary}</p>
                         </div>
                       </div>

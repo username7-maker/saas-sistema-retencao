@@ -602,6 +602,18 @@ def _retention_plan_cycle_filter(plan_cycle: str):
     )
 
 
+def _retention_preferred_shift_filter(preferred_shift: str):
+    normalized = (preferred_shift or "").strip().lower()
+    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
+    if normalized == "morning":
+        return preferred_shift_col.in_(("morning", "manha", "matutino"))
+    if normalized == "afternoon":
+        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
+    if normalized == "evening":
+        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
+    return None
+
+
 def get_retention_queue(
     db: Session,
     *,
@@ -611,6 +623,7 @@ def get_retention_queue(
     level: str = "all",
     churn_type: str | None = None,
     plan_cycle: str | None = None,
+    preferred_shift: str | None = None,
     gym_id=None,
 ) -> PaginatedResponse[RetentionQueueItem]:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
@@ -630,6 +643,9 @@ def get_retention_queue(
         filters.append(Member.churn_type == churn_type)
     if plan_cycle:
         filters.append(_retention_plan_cycle_filter(plan_cycle))
+    preferred_shift_filter = _retention_preferred_shift_filter(preferred_shift or "")
+    if preferred_shift_filter is not None:
+        filters.append(preferred_shift_filter)
     if search and search.strip():
         search_value = f"%{search.strip()}%"
         filters.append(
@@ -695,6 +711,7 @@ def get_retention_queue(
             email=member.email,
             phone=member.phone,
             plan_name=member.plan_name,
+            preferred_shift=getattr(member, "preferred_shift", None),
             risk_level=effective_risk_level,
             risk_score=effective_risk_score,
             nps_last_score=int(member.nps_last_score or 0),

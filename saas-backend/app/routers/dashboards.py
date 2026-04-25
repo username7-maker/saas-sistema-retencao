@@ -138,6 +138,7 @@ def retention_queue(
     level: Literal["all", "red", "yellow"] = Query("all"),
     churn_type: str | None = Query(None),
     plan_cycle: Literal["monthly", "semiannual", "annual"] | None = Query(None),
+    preferred_shift: Literal["morning", "afternoon", "evening"] | None = Query(None),
 ) -> PaginatedResponse[RetentionQueueItem]:
     return get_retention_queue(
         db,
@@ -147,6 +148,7 @@ def retention_queue(
         level=level,
         churn_type=churn_type,
         plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
     )
 
 

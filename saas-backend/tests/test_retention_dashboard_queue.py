@@ -290,6 +290,7 @@ class TestRetentionQueueService:
             level="red",
             churn_type="voluntary_dissatisfaction",
             plan_cycle="annual",
+            preferred_shift="morning",
         )
 
         stmt = db.execute.call_args.args[0]
@@ -300,8 +301,10 @@ class TestRetentionQueueService:
         assert "members.plan_name" in compiled
         assert "risk_alerts.gym_id" in compiled
         assert "members.churn_type" in compiled
+        assert "members.preferred_shift" in compiled
         assert "annual" in params.values()
         assert "%anual%" in params.values()
+        assert any(value == "morning" or (isinstance(value, list) and "morning" in value) for value in params.values())
         assert stmt._limit_clause.value == 50
         assert stmt._offset_clause.value == 50
 
@@ -436,5 +439,24 @@ class TestRetentionQueueRoute:
 
             assert response.status_code == 200
             assert mock_get_retention_queue.call_args.kwargs["plan_cycle"] == "semiannual"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_forwards_preferred_shift_filter(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.dashboards.get_retention_queue",
+                return_value=PaginatedResponse(items=[], total=0, page=1, page_size=50),
+            ) as mock_get_retention_queue:
+                response = client.get("/api/v1/dashboards/retention/queue?preferred_shift=evening")
+
+            assert response.status_code == 200
+            assert mock_get_retention_queue.call_args.kwargs["preferred_shift"] == "evening"
         finally:
             app.dependency_overrides.clear()

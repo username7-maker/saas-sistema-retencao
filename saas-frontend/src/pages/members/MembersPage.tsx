@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Edit2, Eye, Trash2, Users } from "lucide-react";
+import { Edit2, Eye, RefreshCw, Trash2, Users } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 
@@ -88,6 +88,18 @@ export function MembersPage() {
     onError: () => toast.error("Erro ao remover membro"),
   });
 
+  const syncPreferredShiftsMutation = useMutation({
+    mutationFn: memberService.syncPreferredShifts,
+    onSuccess: (result) => {
+      toast.success(result.message || "Turnos preferidos recalculados.");
+      void queryClient.invalidateQueries({ queryKey: ["members"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
+    },
+    onError: () => toast.error("Erro ao recalcular turnos preferidos."),
+  });
+
   const handleFilterChange = <K extends keyof MemberQueryFilters>(key: K, value: MemberQueryFilters[K] | undefined) => {
     setPage(1);
     setFilters((prev) => ({ ...prev, [key]: value === "" ? undefined : value }));
@@ -153,13 +165,35 @@ export function MembersPage() {
   ].filter((value) => value !== undefined && value !== "").length;
   const canManageDirectory = canManageMemberDirectory(user?.role);
   const canRemoveMember = canDeleteMember(user?.role);
+  const canSyncPreferredShifts = user?.role === "owner" || user?.role === "manager";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Membros"
         subtitle="Gestão e acompanhamento da base de alunos"
-        actions={canManageDirectory ? <Button variant="primary" onClick={() => setAddOpen(true)}>+ Adicionar Membro</Button> : undefined}
+        actions={
+          canManageDirectory || canSyncPreferredShifts ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {canSyncPreferredShifts ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => syncPreferredShiftsMutation.mutate()}
+                  disabled={syncPreferredShiftsMutation.isPending}
+                  title="Recalcula o turno preferido usando os horarios recentes de check-in."
+                >
+                  <RefreshCw size={15} className={syncPreferredShiftsMutation.isPending ? "animate-spin" : undefined} />
+                  Recalcular turnos
+                </Button>
+              ) : null}
+              {canManageDirectory ? (
+                <Button variant="primary" onClick={() => setAddOpen(true)}>
+                  + Adicionar Membro
+                </Button>
+              ) : null}
+            </div>
+          ) : undefined
+        }
       />
 
       <KPIStrip items={kpiItems} />

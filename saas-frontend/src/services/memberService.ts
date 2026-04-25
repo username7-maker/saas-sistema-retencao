@@ -62,6 +62,11 @@ export interface OnboardingScoreSnapshot {
   status: 'active' | 'completed' | 'at_risk';
 }
 
+export interface PreferredShiftSyncResult {
+  updated_count: number;
+  message: string;
+}
+
 export const memberService = {
   async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
     const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members/", {
@@ -95,6 +100,11 @@ export const memberService = {
 
   async deleteMember(memberId: string): Promise<void> {
     await api.delete(`/api/v1/members/${memberId}`);
+  },
+
+  async syncPreferredShifts(): Promise<PreferredShiftSyncResult> {
+    const { data } = await api.post<PreferredShiftSyncResult>("/api/v1/members/preferred-shifts/sync");
+    return data;
   },
 
   async getOnboardingScore(memberId: string): Promise<OnboardingScoreResult> {

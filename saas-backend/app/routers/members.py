@@ -70,6 +70,7 @@ from app.services.kommo_service import KommoServiceError
 from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
+from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
 from app.services.risk_recalculation_service import (
     enqueue_risk_recalculation_request,
     get_risk_recalculation_request,
@@ -81,6 +82,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/members", tags=["members"])
 BODY_COMPOSITION_PDF_LAYOUT_VERSION = "clinical-a4-sidebar-fit-2026-04-15b"
+
+
+class PreferredShiftSyncResult(BaseModel):
+    updated_count: int
+    message: str
 
 
 @router.post("/", response_model=MemberOut, status_code=status.HTTP_201_CREATED)
@@ -159,6 +165,36 @@ def list_members_index_endpoint(
         preferred_shift=preferred_shift,
         min_days_without_checkin=min_days_without_checkin,
         provisional_only=provisional_only,
+    )
+
+
+@router.post("/preferred-shifts/sync", response_model=PreferredShiftSyncResult)
+def sync_preferred_shifts_endpoint(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> PreferredShiftSyncResult:
+    updated_count = sync_preferred_shifts_from_checkins(
+        db,
+        gym_id=current_user.gym_id,
+        commit=False,
+        flush=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="preferred_shift_sync_requested",
+        entity="member",
+        user=current_user,
+        details={"updated_count": updated_count},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    invalidate_dashboard_cache("members", "dashboard_retention", "dashboard_operational")
+    return PreferredShiftSyncResult(
+        updated_count=updated_count,
+        message=f"{updated_count} turno(s) recalculados por check-in.",
     )
 
 

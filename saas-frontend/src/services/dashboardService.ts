@@ -33,6 +33,7 @@ export interface RetentionQueueItem {
   email: string | null;
   phone: string | null;
   plan_name: string;
+  preferred_shift?: string | null;
   risk_level: RiskLevel;
   risk_score: number;
   nps_last_score: number;
@@ -132,6 +133,7 @@ export const dashboardService = {
     level?: "all" | "red" | "yellow";
     churn_type?: string;
     plan_cycle?: "monthly" | "semiannual" | "annual";
+    preferred_shift?: "morning" | "afternoon" | "evening";
   }): Promise<RetentionQueueResponse> {
     const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
       params,
