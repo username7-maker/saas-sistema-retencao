@@ -310,6 +310,9 @@ export function DashboardLovable() {
     () => getChartSeriesState(chartData, ["churn_rate", "nps_avg"]),
     [chartData],
   );
+  const hasMemberBase = (executive.data?.total_members ?? 0) > 0;
+  const hasFinancialBase = (executive.data?.mrr ?? 0) > 0;
+  const hasChurnBase = chartData.some((point) => point.churn_rate !== null);
 
   const kpiItems = [
     {
@@ -324,13 +327,13 @@ export function DashboardLovable() {
     },
     {
       label: "Churn",
-      value: percent(executive.data?.churn_rate ?? 0),
-      tone: (executive.data?.churn_rate ?? 0) > 5 ? "danger" as const : "warning" as const,
+      value: hasChurnBase || hasMemberBase ? percent(executive.data?.churn_rate ?? 0) : "Sem base",
+      tone: hasChurnBase || hasMemberBase ? ((executive.data?.churn_rate ?? 0) > 5 ? "danger" as const : "warning" as const) : "neutral" as const,
     },
     {
       label: "Receita",
-      value: currency(executive.data?.mrr ?? 0),
-      tone: "success" as const,
+      value: hasFinancialBase ? currency(executive.data?.mrr ?? 0) : "Sem base",
+      tone: hasFinancialBase ? "success" as const : "neutral" as const,
     },
   ];
 

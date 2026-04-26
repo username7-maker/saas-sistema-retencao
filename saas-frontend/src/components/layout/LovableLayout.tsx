@@ -246,7 +246,7 @@ export function LovableLayout() {
   });
 
   const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
-  const userEmail = user?.email ?? "owner@demo.local";
+  const userEmail = user?.email ?? "usuario@academia";
   const userRoleLabel = user?.job_title?.trim() || user?.role || "owner";
 
   useEffect(() => {

@@ -42,6 +42,7 @@ export function RoiSummaryCard() {
   }
 
   const hasData = data && data.total_automated > 0;
+  const periodDays = data?.period_days ?? 30;
 
   return (
     <Card className="border border-lovable-border bg-[linear-gradient(135deg,hsl(var(--lovable-surface)),hsl(var(--lovable-surface-soft)))]">
@@ -51,7 +52,7 @@ export function RoiSummaryCard() {
           ROI das Automacoes
         </CardTitle>
         <CardDescription>
-          Receita preservada por acoes automaticas nos ultimos 30 dias
+          Receita preservada por acoes automaticas nos ultimos {periodDays} dias
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -86,9 +87,8 @@ export function RoiSummaryCard() {
           </div>
         ) : (
           <p className="text-sm text-lovable-ink-muted">
-            As automacoes estao ativas! Em breve os primeiros resultados
-            aparecerao aqui. O tempo medio para o primeiro reengajamento e de 7
-            dias.
+            Sem resultados reais de automacao registrados neste periodo. Quando uma acao automatica gerar retorno confirmado,
+            a receita preservada e a taxa de retorno aparecem aqui.
           </p>
         )}
       </CardContent>

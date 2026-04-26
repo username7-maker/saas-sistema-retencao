@@ -3,7 +3,7 @@
 ## Milestones
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
-- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 5, 6
+- In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
 - Planned **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Future phases 7.0, 7.1, 7.2, 7.3, followed by [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md) to cover the expanded `ai_first_os_academia_v2.html` program
 
 ## Active Milestone - v3.2.0 Operacao de Base
@@ -400,6 +400,23 @@ Status:
 - [x] plan
 - [x] execute (payload operador-first, CTA unico para itens normais, confirmacao curta para itens criticos e filtros operacionais implementados, publicados no piloto e estabilizados por hotfixes de CTA/approval)
 - [x] verify/validate (fase validada com testes focados, build verde, feedback operacional real do piloto e hotfixes consolidados em `04.43.1-VALIDATION.md`)
+
+### Phase 4.43.2: Piloto seguro - sinais operacionais reais (INSERTED)
+
+**Goal:** Remover sinais demo/hardcoded das superficies executivas do piloto e evitar que KPI, badge ou card induza decisao operacional sem base real.
+**Requirements**: `PILOT-TRUTH-01`, `PILOT-TRUTH-02`
+**Depends on:** Phase 4.43.1
+**Plans:** 1 plan
+
+Plans:
+- [x] 04.43.2-PLAN.md - higienizar dashboard/layout contra dados cenograficos e adicionar regressao para empty states honestos
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute (fallback demo removido, KPI executivo rebaixado para `Sem base` quando nao ha serie/dado real e card de ROI deixou de afirmar automacao ativa sem resultado confirmado)
+- [x] verify/validate (testes focados de dashboard/ROI e build do frontend verdes)
 
 ### Phase 5: Bulk update dedicado de membros
 

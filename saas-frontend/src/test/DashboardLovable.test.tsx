@@ -240,4 +240,28 @@ describe("DashboardLovable", () => {
     ).toBeInTheDocument();
     expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();
   });
+
+  it("does not present financial or churn KPIs as real when the dashboard has no base", () => {
+    dashboardHooks.useExecutiveDashboard.mockReturnValue(
+      queryResult({
+        ...executiveData,
+        total_members: 0,
+        active_members: 0,
+        mrr: 0,
+        churn_rate: 0,
+      }),
+    );
+    dashboardHooks.useRetentionDashboard.mockReturnValue(
+      queryResult({
+        ...retentionData,
+        red: { total: 0, items: [] },
+        nps_trend: [],
+      }),
+    );
+    dashboardHooks.useChurnDashboard.mockReturnValue(queryResult([]));
+
+    renderPage();
+
+    expect(screen.getAllByText("Sem base").length).toBeGreaterThanOrEqual(2);
+  });
 });

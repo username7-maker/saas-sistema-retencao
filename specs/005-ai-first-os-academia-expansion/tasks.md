@@ -6,6 +6,7 @@
 - [x] T002 Liberar gate de entrada do `v3.3.0`
 - [x] T003 Congelar oficialmente o programa do HTML original como milestone futuro
 - [x] T004 Reavaliar `ai_first_os_academia_v2.html` e atualizar o programa para incluir pre-lead, compliance, financeiro, equipe, estoque, comunidade, multiunidade e app white label
+- [x] T005 Higienizar sinais demo/hardcoded do piloto antes de abrir novos modulos AI-first
 
 ## Wave 1 - Release A / v3.3.0 AI Lead-to-Member Intelligence Foundation
 
