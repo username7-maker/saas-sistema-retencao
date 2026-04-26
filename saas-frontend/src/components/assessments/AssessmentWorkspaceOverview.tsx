@@ -3,8 +3,10 @@ import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { SectionHeader } from "../ui";
 import { Badge, Button, Card, CardContent } from "../ui2";
 import type { Assessment, AssessmentSummary360, Profile360 } from "../../services/assessmentService";
-import type { BodyCompositionEvaluation } from "../../types";
+import type { BodyCompositionEvaluation, LeadToMemberIntelligenceContext } from "../../types";
 import type { AssessmentWorkspaceTab } from "./assessmentWorkspaceUtils";
+import { CoachWorkspacePanel } from "./CoachWorkspacePanel";
+import { MemberIntelligenceContextPanel } from "./MemberIntelligenceContextPanel";
 import {
   daysSince,
   formatDate,
@@ -42,6 +44,9 @@ interface AssessmentWorkspaceOverviewProps {
   latestNote: NoteSummary | null;
   notesCount: number;
   conversionHandoff: ConversionHandoffSummary | null;
+  intelligenceContext: LeadToMemberIntelligenceContext | null;
+  isIntelligenceLoading: boolean;
+  isIntelligenceError: boolean;
   canCreateAssessment: boolean;
   canViewContextTab: boolean;
   canManageInternalNotes: boolean;
@@ -49,6 +54,7 @@ interface AssessmentWorkspaceOverviewProps {
   onAddNote: () => void;
   onOpenHistory: () => void;
   onOpenTab: (tab: AssessmentWorkspaceTab) => void;
+  onRetryIntelligence: () => void;
 }
 
 interface OverviewSummaryCardProps {
@@ -111,6 +117,9 @@ export function AssessmentWorkspaceOverview({
   latestNote,
   notesCount,
   conversionHandoff,
+  intelligenceContext,
+  isIntelligenceLoading,
+  isIntelligenceError,
   canCreateAssessment,
   canViewContextTab,
   canManageInternalNotes,
@@ -118,6 +127,7 @@ export function AssessmentWorkspaceOverview({
   onAddNote,
   onOpenHistory,
   onOpenTab,
+  onRetryIntelligence,
 }: AssessmentWorkspaceOverviewProps) {
   const latestAssessmentSummary = summarizeLatestAssessment(profile.latest_assessment);
   const highlightedActions = summary.actions.slice(0, 2);
@@ -225,6 +235,24 @@ export function AssessmentWorkspaceOverview({
         assistant={summary.assistant}
         title="IA operacional"
         subtitle="O que mudou, por que importa e qual deve ser a proxima acao para este aluno."
+      />
+
+      <CoachWorkspacePanel
+        summary={summary}
+        intelligenceContext={intelligenceContext}
+        latestBodyComposition={latestBodyComposition}
+        canCreateAssessment={canCreateAssessment}
+        canManageInternalNotes={canManageInternalNotes}
+        visibleTabs={visibleTabs}
+        onOpenTab={onOpenTab}
+        onAddNote={onAddNote}
+      />
+
+      <MemberIntelligenceContextPanel
+        context={intelligenceContext}
+        isLoading={isIntelligenceLoading}
+        isError={isIntelligenceError}
+        onRetry={onRetryIntelligence}
       />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

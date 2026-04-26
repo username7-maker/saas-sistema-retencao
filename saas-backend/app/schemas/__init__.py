@@ -31,6 +31,9 @@ from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
 from app.schemas.core_async_job import CoreAsyncJobAcceptedResponse, CoreAsyncJobStatusRead
 from app.schemas.dashboard import (
+    BICohortPoint,
+    BIFollowUpImpact,
+    BIFoundationDashboard,
     ChurnPoint,
     CommercialDashboard,
     ConversionBySource,
@@ -67,6 +70,7 @@ from app.schemas.member import (
     OnboardingScoreOut,
     OnboardingScoreSnapshotOut,
 )
+from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.schemas.nurturing import NurturingSequenceOut
 from app.schemas.nps import NPSEvolutionPoint, NPSDispatchAcceptedResponse, NPSDispatchStatusRead, NPSResponseCreate, NPSResponseOut
 from app.schemas.objection import ObjectionResponseOut, ObjectionResponseUpdate
@@ -125,6 +129,9 @@ __all__ = [
     "AutomationRuleCreate",
     "AutomationRuleOut",
     "AutomationRuleUpdate",
+    "BICohortPoint",
+    "BIFollowUpImpact",
+    "BIFoundationDashboard",
     "ChurnPoint",
     "CommercialDashboard",
     "CoreAsyncJobAcceptedResponse",
@@ -153,6 +160,7 @@ __all__ = [
     "LeadNoteCreate",
     "LeadOut",
     "LeadUpdate",
+    "LeadToMemberIntelligenceContextOut",
     "LTVPoint",
     "MemberCreate",
     "MemberConstraintsOut",

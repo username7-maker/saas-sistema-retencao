@@ -4,7 +4,7 @@
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
 - In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
-- Planned **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Future phases 7.0, 7.1, 7.2, 7.3, followed by [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md) to cover the expanded `ai_first_os_academia_v2.html` program
+- In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 aberta com payload canonico `lead -> member`; fases 7.1, 7.2 e 7.3 seguem como proximos cortes, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
 
 ## Active Milestone - v3.2.0 Operacao de Base
 

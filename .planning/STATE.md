@@ -1,9 +1,9 @@
 ---
-milestone: v3.2.0
-phase: 4.43.1
-plan: "Simplificacao operacional do AI Inbox"
-status: A `4.43.1` foi validada e o gate de entrada do milestone `v3.3.0` foi liberado; o HTML `ai_first_os_academia_v2.html` foi absorvido no programa futuro e o proximo passo correto agora e abrir `7.0 Lead-to-member intelligence graph e payload canonico`.
-last_activity: 2026-04-23 - `4.43.1` promovida para `PASS` com `04.43.1-VALIDATION.md`
+milestone: v3.3.0
+phase: 7.0
+plan: "Lead-to-member intelligence graph e payload canonico"
+status: A `7.0` foi aberta com payload canonico read-only `lead -> member`, preservando origem comercial, etapa, consentimentos, check-ins, avaliacoes, bioimpedancia, tasks e risco sem criar cadastro paralelo.
+last_activity: 2026-04-26 - `lead-member-context-v1` implementado e validado localmente
 ---
 
 # STATE
@@ -13,18 +13,18 @@ last_activity: 2026-04-23 - `4.43.1` promovida para `PASS` com `04.43.1-VALIDATI
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Abrir o primeiro corte executavel do milestone `v3.3.0 AI Lead-to-Member Intelligence Foundation`.
+**Current focus:** Consumir o payload canonico `lead-member-context-v1` nas superficies operacionais.
 
 ## Current Position
 
-**Phase:** 7.0 (next)
+**Phase:** 7.0
 **Plan:** `Lead-to-member intelligence graph e payload canonico`
-**Status:** `v3.2.0` permanece como milestone ativo para documentacao, mas o ultimo gate de entrada foi fechado, a v2 do HTML foi incorporada e a proxima execucao recomendada ja e a abertura de `7.0`
-**Last activity:** 2026-04-23 - `4.43.1` fechada em `verify/validate`
+**Status:** primeiro corte implementado como service/endpoint read-only e contrato frontend.
+**Last activity:** 2026-04-26 - `GET /members/{member_id}/intelligence-context` validado com testes focados
 
 ## Progress Snapshot
 
-**Active milestone:** v3.2.0
+**Active milestone:** v3.3.0
 **Phases planned:** 23
 **Plans planned:** 23
 **Plans completed:** 3

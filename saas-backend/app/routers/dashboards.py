@@ -8,6 +8,7 @@ from app.core.dependencies import require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import (
+    BIFoundationDashboard,
     ChurnPoint,
     CommercialDashboard,
     ExecutiveDashboard,
@@ -31,6 +32,7 @@ from app.services.ai_insight_service import (
 )
 from app.services.dashboard_service import (
     get_churn_dashboard,
+    get_bi_foundation_dashboard,
     get_commercial_dashboard,
     get_executive_dashboard,
     get_financial_dashboard,
@@ -115,6 +117,15 @@ def financial_dashboard(
     _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> FinancialDashboard:
     return get_financial_dashboard(db)
+
+
+@router.get("/bi-foundation", response_model=BIFoundationDashboard)
+def bi_foundation_dashboard(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    months: int = Query(6, ge=3, le=12),
+) -> BIFoundationDashboard:
+    return get_bi_foundation_dashboard(db, months=months)
 
 
 @router.get("/retention", response_model=RetentionDashboard)

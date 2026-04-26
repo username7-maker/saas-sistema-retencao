@@ -23,6 +23,7 @@ from app.schemas import (
     PaginatedResponse,
     RiskRecalculationRequestOut,
 )
+from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.schemas.body_composition import (
     ActuarManualSyncConfirmInput,
     ActuarMemberLinkRead,
@@ -68,6 +69,7 @@ from app.services.body_composition_service import (
 from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.kommo_service import KommoServiceError
 from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
+from app.services.member_intelligence_service import get_member_intelligence_context
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
 from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
@@ -343,6 +345,18 @@ def get_onboarding_score_endpoint(
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     payload = calculate_onboarding_score(db, member)
     return OnboardingScoreOut(**payload, assistant=build_onboarding_assistant(member, payload))
+
+
+@router.get("/{member_id}/intelligence-context", response_model=LeadToMemberIntelligenceContextOut)
+def get_member_intelligence_context_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> LeadToMemberIntelligenceContextOut:
+    return get_member_intelligence_context(db, member_id, gym_id=current_user.gym_id)
 
 
 @router.get("/{member_id}/timeline")

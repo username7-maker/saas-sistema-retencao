@@ -519,6 +519,13 @@ export function MemberProfile360Page() {
     staleTime: 60 * 1000,
   });
 
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", memberId],
+    queryFn: () => memberService.getIntelligenceContext(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const timelineQuery = useQuery({
     queryKey: ["member-timeline", memberId],
     queryFn: () => memberTimelineService.list(memberId ?? ""),
@@ -659,6 +666,7 @@ export function MemberProfile360Page() {
       assessmentsQuery.refetch(),
       evolutionQuery.refetch(),
       summary360Query.refetch(),
+      intelligenceContextQuery.refetch(),
     ]);
   }
 
@@ -957,6 +965,9 @@ export function MemberProfile360Page() {
             latestNote={latestNote}
             notesCount={notes.length}
             conversionHandoff={conversionHandoff}
+            intelligenceContext={intelligenceContextQuery.data ?? null}
+            isIntelligenceLoading={intelligenceContextQuery.isLoading}
+            isIntelligenceError={intelligenceContextQuery.isError}
             canCreateAssessment={canCreateAssessmentRecord && visibleTabs.includes("registro")}
             canViewContextTab={visibleTabs.includes("contexto")}
             canManageInternalNotes={canManageNotes}
@@ -964,6 +975,7 @@ export function MemberProfile360Page() {
             onAddNote={() => setIsAddNoteOpen(true)}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenTab={openTab}
+            onRetryIntelligence={() => void intelligenceContextQuery.refetch()}
           />
         </TabsContent>
 

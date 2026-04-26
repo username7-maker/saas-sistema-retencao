@@ -5,14 +5,17 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList } from "../../components/ui";
+import { MemberIntelligenceMiniCard } from "../../components/common/MemberIntelligenceMiniCard";
 import { Badge, Button, Input, Textarea, cn } from "../../components/ui2";
 import { useAuth } from "../../hooks/useAuth";
 import { aiTriageService } from "../../services/aiTriageService";
+import { memberService } from "../../services/memberService";
 import type {
   AITriageOutcomeState,
   AITriageRecommendation,
   AITriageSafeActionResult,
   AITriageSafeActionType,
+  LeadToMemberIntelligenceContext,
 } from "../../types";
 import { getPreferredShiftLabel, matchesPreferredShift } from "../../utils/preferredShift";
 
@@ -222,7 +225,11 @@ function RecommendationListItem({
 
 function RecommendationInspector({
   item,
+  intelligenceContext,
+  isIntelligenceLoading,
+  isIntelligenceError,
   operatorNote,
+  onRetryIntelligence,
   onOperatorNoteChange,
   onReject,
   onPreparePrimaryAction,
@@ -232,7 +239,11 @@ function RecommendationInspector({
   lastActionResult,
 }: {
   item: AITriageRecommendation;
+  intelligenceContext: LeadToMemberIntelligenceContext | null;
+  isIntelligenceLoading: boolean;
+  isIntelligenceError: boolean;
   operatorNote: string;
+  onRetryIntelligence: () => void;
   onOperatorNoteChange: (value: string) => void;
   onReject: () => void;
   onPreparePrimaryAction: () => void;
@@ -294,6 +305,16 @@ function RecommendationInspector({
               {item.suggested_message ?? item.expected_impact}
             </p>
           </div>
+
+          {item.member_id ? (
+            <MemberIntelligenceMiniCard
+              context={intelligenceContext}
+              isLoading={isIntelligenceLoading}
+              isError={isIntelligenceError}
+              onRetry={onRetryIntelligence}
+              title="Contexto canonico para executar"
+            />
+          ) : null}
         </section>
 
         <section className="space-y-3">
@@ -649,6 +670,19 @@ export default function AITriageInboxPage() {
     filteredItems.find((item) => item.id === selectedId) ??
     filteredItems[0] ??
     null;
+
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", selectedItem?.member_id],
+    queryFn: async () => {
+      if (!selectedItem?.member_id) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      return memberService.getIntelligenceContext(selectedItem.member_id);
+    },
+    enabled: Boolean(selectedItem?.member_id),
+    staleTime: 60_000,
+  });
+
   const isMutating = rejectMutation.isPending || prepareActionMutation.isPending || outcomeMutation.isPending;
   const metrics = metricsQuery.data;
 
@@ -784,7 +818,11 @@ export default function AITriageInboxPage() {
             ) : selectedItem ? (
               <RecommendationInspector
                 item={selectedItem}
+                intelligenceContext={intelligenceContextQuery.data ?? null}
+                isIntelligenceLoading={intelligenceContextQuery.isLoading}
+                isIntelligenceError={intelligenceContextQuery.isError}
                 operatorNote={operatorNote}
+                onRetryIntelligence={() => void intelligenceContextQuery.refetch()}
                 onOperatorNoteChange={setOperatorNote}
                 onReject={() => rejectMutation.mutate({ recommendationId: selectedItem.id })}
                 onPreparePrimaryAction={() =>

@@ -10,11 +10,11 @@
 
 ## Wave 1 - Release A / v3.3.0 AI Lead-to-Member Intelligence Foundation
 
-- [ ] T101 Definir `lead-to-member intelligence graph` e payload canonico compartilhado
-- [ ] T102 Incluir origem de lead, etapa comercial e consentimentos no contexto canonico
-- [ ] T103 Expandir lifecycle orchestration de Members/CRM/Assessments/Retention/Tasks
-- [ ] T104 Implementar assessment + coach workspace foundation staff-first
-- [ ] T105 Expandir dashboards e reports para cohort, LTV, forecast, receita em risco e impacto de follow-up
+- [x] T101 Definir `lead-to-member intelligence graph` e payload canonico compartilhado
+- [x] T102 Incluir origem de lead, etapa comercial e consentimentos no contexto canonico
+- [x] T103 Expandir lifecycle orchestration de Members/CRM/Assessments/Retention/Tasks
+- [x] T104 Implementar assessment + coach workspace foundation staff-first
+- [x] T105 Expandir dashboards e reports para cohort, LTV, forecast, receita em risco e impacto de follow-up
 
 ## Wave 2 - Release B / v3.4.0 Acquisition, Compliance and Revenue OS
 

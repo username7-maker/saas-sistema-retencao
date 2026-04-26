@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 
 import { reportService, type AsyncJobStatusResponse, type DashboardReportType } from "../../services/reportService";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog } from "../../components/ui2";
+import { useBIFoundationDashboard } from "../../hooks/useDashboard";
 
 interface ReportCardConfig {
   type: DashboardReportType;
@@ -69,7 +70,7 @@ const REPORT_CARDS: ReportCardConfig[] = [
     icon: FileText,
     cadence: "Mensal",
     audience: "Lideranca",
-    highlights: ["Board pack", "Resumo executivo", "Acoes recomendadas"],
+    highlights: ["Board pack", "Cohort/LTV", "Impacto follow-up"],
   },
 ];
 
@@ -134,11 +135,26 @@ function dispatchStatusLabel(status?: string | null): string {
   }
 }
 
+function currency(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 export default function ReportsPage() {
   const [loadingByType, setLoadingByType] = useState<Record<DashboardReportType, boolean>>(initialLoadingMap);
   const [dispatching, setDispatching] = useState(false);
   const [confirmDispatch, setConfirmDispatch] = useState(false);
   const [dispatchStatus, setDispatchStatus] = useState<AsyncJobStatusResponse | null>(null);
+  const biFoundation = useBIFoundationDashboard();
+
+  const latestCohort = biFoundation.data?.cohort
+    ? [...biFoundation.data.cohort].reverse().find((point) => point.joined > 0)
+    : undefined;
+  const latestLtv = biFoundation.data?.ltv?.[biFoundation.data.ltv.length - 1];
+  const forecast3m = biFoundation.data?.forecast?.find((point) => point.horizon_months === 3);
 
   const handleDownload = async (type: DashboardReportType) => {
     setLoadingByType((prev) => ({ ...prev, [type]: true }));
@@ -266,6 +282,74 @@ export default function ReportsPage() {
         </Card>
 
         <div className="space-y-4">
+          <Card className="border-white/10 bg-white/[0.03]">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <BarChart3 size={18} className="text-lovable-primary" />
+                Base de BI
+              </CardTitle>
+              <CardDescription>
+                Leitura rapida para validar se o board pack ja tem cohort, LTV, forecast e impacto operacional com base suficiente.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {biFoundation.isLoading ? (
+                <p className="text-lovable-ink-muted">Carregando base de BI...</p>
+              ) : biFoundation.data ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Cohort</p>
+                      <p className="mt-1 font-semibold text-lovable-ink">
+                        {latestCohort ? `${latestCohort.retained_rate.toFixed(1)}%` : "Sem base"}
+                      </p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">
+                        {latestCohort ? `${latestCohort.active}/${latestCohort.joined} ativos` : "Sem cohort recente"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">LTV</p>
+                      <p className="mt-1 font-semibold text-lovable-ink">
+                        {latestLtv && latestLtv.ltv > 0 ? currency(latestLtv.ltv) : "Sem base"}
+                      </p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">Estimativa mensal</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Forecast 3m</p>
+                      <p className="mt-1 font-semibold text-lovable-ink">
+                        {forecast3m ? currency(forecast3m.projected_revenue) : "Sem base"}
+                      </p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">Projecao de receita</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Follow-up</p>
+                      <p className="mt-1 font-semibold text-lovable-ink">
+                        {biFoundation.data.follow_up_impact.acceptance_rate !== null
+                          ? `${biFoundation.data.follow_up_impact.acceptance_rate.toFixed(1)}%`
+                          : `${biFoundation.data.follow_up_impact.completed_followups_30d}`}
+                      </p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">Impacto em 30 dias</p>
+                    </div>
+                  </div>
+                  {biFoundation.data.data_quality_flags.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {biFoundation.data.data_quality_flags.map((flag) => (
+                        <span
+                          key={flag}
+                          className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200"
+                        >
+                          {flag.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-lovable-ink-muted">Base de BI indisponivel para esta academia.</p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="border-white/10 bg-white/[0.03]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">

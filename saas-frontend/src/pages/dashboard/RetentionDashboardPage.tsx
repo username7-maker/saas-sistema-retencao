@@ -19,11 +19,13 @@ import toast from "react-hot-toast";
 import { AIAssistantPanel } from "../../components/common/AIAssistantPanel";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
+import { MemberIntelligenceMiniCard } from "../../components/common/MemberIntelligenceMiniCard";
 import { PreferredShiftBadge } from "../../components/common/PreferredShiftBadge";
 import { QuickActions } from "../../components/common/QuickActions";
 import { useAuth } from "../../hooks/useAuth";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
 import { dashboardService, type RetentionQueueItem } from "../../services/dashboardService";
+import { memberService } from "../../services/memberService";
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
@@ -276,6 +278,17 @@ function RetentionQueueDrawer({
   const normalizedPhone = normalizeWhatsAppPhone(item?.phone);
   const phoneDisplay = formatPhoneDisplay(item?.phone);
   const whatsappHref = item ? buildWhatsAppHref(item.phone, item.assistant?.suggested_message, item.full_name) : null;
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", item?.member_id],
+    queryFn: async () => {
+      if (!item?.member_id) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      return memberService.getIntelligenceContext(item.member_id);
+    },
+    enabled: Boolean(item?.member_id),
+    staleTime: 60_000,
+  });
 
   return (
     <Drawer
@@ -346,6 +359,14 @@ function RetentionQueueDrawer({
               </div>
             </div>
           </section>
+
+          <MemberIntelligenceMiniCard
+            context={intelligenceContextQuery.data ?? null}
+            isLoading={intelligenceContextQuery.isLoading}
+            isError={intelligenceContextQuery.isError}
+            onRetry={() => void intelligenceContextQuery.refetch()}
+            title="Contexto canonico para retencao"
+          />
 
           <AIAssistantPanel
             assistant={item.assistant}

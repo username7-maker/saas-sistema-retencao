@@ -68,6 +68,14 @@ export function useFinancialDashboard() {
   });
 }
 
+export function useBIFoundationDashboard() {
+  return useQuery({
+    queryKey: ["dashboard", "bi-foundation"],
+    queryFn: dashboardService.biFoundation,
+    staleTime: FIVE_MINUTES,
+  });
+}
+
 export function useRetentionDashboard() {
   return useQuery({
     queryKey: ["dashboard", "retention"],

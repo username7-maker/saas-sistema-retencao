@@ -8,9 +8,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { useAuth } from "../../hooks/useAuth";
+import { MemberIntelligenceMiniCard } from "../../components/common/MemberIntelligenceMiniCard";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { crmService, normalizeLeadNotes } from "../../services/crmService";
+import { memberService } from "../../services/memberService";
 import type { Lead, LeadNoteEntry } from "../../types";
 import { canDeleteLead, canMutateCrm } from "../../utils/roleAccess";
 
@@ -285,6 +287,18 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
 
   const watchedStage = watch("stage");
 
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", lead?.converted_member_id],
+    queryFn: async () => {
+      if (!lead?.converted_member_id) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      return memberService.getIntelligenceContext(lead.converted_member_id);
+    },
+    enabled: open && Boolean(lead?.converted_member_id),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     reset(buildLeadDefaults(lead));
     setNoteDraft("");
@@ -447,6 +461,16 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
               </FormField>
             </div>
           </div>
+
+          {isEditing && lead?.converted_member_id ? (
+            <MemberIntelligenceMiniCard
+              context={intelligenceContextQuery.data ?? null}
+              isLoading={intelligenceContextQuery.isLoading}
+              isError={intelligenceContextQuery.isError}
+              onRetry={() => void intelligenceContextQuery.refetch()}
+              title="Contexto canonico do membro convertido"
+            />
+          ) : null}
 
           <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft/35 p-4">
             <SectionHeader title="Pipeline" subtitle="Estagio atual e valor estimado da oportunidade." />

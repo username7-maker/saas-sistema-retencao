@@ -1,6 +1,7 @@
 import { api } from "./api";
 import type {
   AIAssistantPayload,
+  BIFoundationDashboard,
   ChurnPoint,
   ConversionBySource,
   ExecutiveDashboard,
@@ -109,6 +110,11 @@ export const dashboardService = {
     projections: ProjectionPoint[];
   }> {
     const { data } = await api.get("/api/v1/dashboards/financial");
+    return data;
+  },
+
+  async biFoundation(): Promise<BIFoundationDashboard> {
+    const { data } = await api.get<BIFoundationDashboard>("/api/v1/dashboards/bi-foundation");
     return data;
   },
 

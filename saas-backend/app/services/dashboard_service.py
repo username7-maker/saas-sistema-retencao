@@ -8,9 +8,26 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
 from app.database import get_current_gym_id
-from app.models import Assessment, AuditLog, Checkin, Lead, LeadStage, Member, MemberStatus, NPSResponse, RiskAlert, RiskLevel
+from app.models import (
+    AITriageRecommendation,
+    Assessment,
+    AuditLog,
+    Checkin,
+    Lead,
+    LeadStage,
+    Member,
+    MemberStatus,
+    NPSResponse,
+    RiskAlert,
+    RiskLevel,
+    Task,
+    TaskStatus,
+)
 from app.models.enums import ChurnType
 from app.schemas import (
+    BICohortPoint,
+    BIFollowUpImpact,
+    BIFoundationDashboard,
     ChurnPoint,
     ConversionBySource,
     CommercialDashboard,
@@ -348,6 +365,167 @@ def get_financial_dashboard(db: Session) -> dict:
     }
     _cache_dashboard_payload(cache_key, FinancialDashboard, payload)
     return payload
+
+
+def get_bi_foundation_dashboard(db: Session, months: int = 6) -> BIFoundationDashboard:
+    cache_key = make_cache_key("dashboard_bi_foundation", months)
+    cached = dashboard_cache.get(cache_key)
+    if cached is not None:
+        return BIFoundationDashboard.model_validate(cached)
+
+    months = max(3, min(months, 12))
+    resolved_gym_id = _resolve_dashboard_gym_id()
+    cohort = _cohort_points(db, months, gym_id=resolved_gym_id)
+    ltv = get_ltv_dashboard(db, months=months)
+    financial = FinancialDashboard.model_validate(get_financial_dashboard(db))
+    retention = RetentionDashboard.model_validate(get_retention_dashboard(db))
+    follow_up_impact = _follow_up_impact(db, since=_utcnow() - timedelta(days=30), gym_id=resolved_gym_id)
+
+    red_total = int(retention.red.total or 0)
+    yellow_total = int(retention.yellow.total or 0)
+    data_quality_flags: list[str] = []
+
+    if not any(point.joined > 0 for point in cohort):
+        data_quality_flags.append("missing_cohort_history")
+    if not any(point.ltv > 0 for point in ltv):
+        data_quality_flags.append("missing_ltv_history")
+    if follow_up_impact.data_quality != "ready":
+        data_quality_flags.append("missing_follow_up_outcomes")
+    if (red_total + yellow_total) > 0 and retention.mrr_at_risk <= 0:
+        data_quality_flags.append("revenue_at_risk_without_fee_base")
+
+    payload = BIFoundationDashboard(
+        generated_at=_utcnow(),
+        cohort=cohort,
+        ltv=ltv,
+        forecast=financial.projections,
+        revenue_at_risk=round(float(retention.mrr_at_risk or 0), 2),
+        revenue_at_risk_members=red_total + yellow_total,
+        follow_up_impact=follow_up_impact,
+        data_quality_flags=data_quality_flags,
+    )
+    _cache_dashboard_payload(cache_key, BIFoundationDashboard, payload)
+    return payload
+
+
+def _cohort_points(db: Session, months: int, *, gym_id=None) -> list[BICohortPoint]:
+    points: list[BICohortPoint] = []
+    for label in _month_labels(months):
+        month_start, month_end = _month_window(label)
+        joined_filters = [
+            Member.deleted_at.is_(None),
+            Member.join_date >= month_start.date(),
+            Member.join_date <= month_end.date(),
+        ]
+        if gym_id is not None:
+            joined_filters.append(Member.gym_id == gym_id)
+        joined = int(db.scalar(select(func.count()).select_from(Member).where(*joined_filters)) or 0)
+        active = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Member)
+                .where(
+                    *joined_filters,
+                    Member.status == MemberStatus.ACTIVE,
+                    or_(Member.cancellation_date.is_(None), Member.cancellation_date > month_end.date()),
+                )
+            )
+            or 0
+        )
+        mrr = db.scalar(
+            select(func.coalesce(func.sum(Member.monthly_fee), Decimal("0")))
+            .where(
+                *joined_filters,
+                Member.status == MemberStatus.ACTIVE,
+                or_(Member.cancellation_date.is_(None), Member.cancellation_date > month_end.date()),
+            )
+        ) or Decimal("0")
+        retained_rate = round((active / joined) * 100, 1) if joined else 0.0
+        points.append(
+            BICohortPoint(
+                month=label,
+                joined=joined,
+                active=active,
+                retained_rate=retained_rate,
+                mrr=float(mrr),
+            )
+        )
+    return points
+
+
+def _follow_up_impact(db: Session, *, since: datetime, gym_id=None) -> BIFollowUpImpact:
+    triage_filters = [AITriageRecommendation.updated_at >= since]
+    task_filters = [
+        Task.deleted_at.is_(None),
+        Task.status == TaskStatus.DONE,
+        Task.completed_at >= since,
+        Task.extra_data["source"].astext.in_(
+            [
+                "ai_triage",
+                "onboarding",
+                "plan_followup",
+                "retention_automation",
+                "retention_intelligence",
+            ]
+        ),
+    ]
+    audit_filters = [
+        AuditLog.created_at >= since,
+        AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+    ]
+    if gym_id is not None:
+        triage_filters.append(AITriageRecommendation.gym_id == gym_id)
+        task_filters.append(Task.gym_id == gym_id)
+        audit_filters.append(AuditLog.gym_id == gym_id)
+
+    prepared_actions = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AITriageRecommendation)
+            .where(
+                *triage_filters,
+                AITriageRecommendation.execution_state.in_(["prepared", "queued", "running", "completed"]),
+            )
+        )
+        or 0
+    )
+    positive_outcomes = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AITriageRecommendation)
+            .where(
+                *triage_filters,
+                AITriageRecommendation.outcome_state == "positive",
+            )
+        )
+        or 0
+    )
+    completed_followups = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(*task_filters)
+        )
+        or 0
+    )
+    retention_contacts = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(*audit_filters)
+        )
+        or 0
+    )
+    acceptance_rate = round((positive_outcomes / prepared_actions) * 100, 1) if prepared_actions else None
+    data_quality = "ready" if prepared_actions or completed_followups or retention_contacts else "no_base"
+    return BIFollowUpImpact(
+        prepared_actions_30d=prepared_actions,
+        positive_outcomes_30d=positive_outcomes,
+        completed_followups_30d=completed_followups,
+        retention_contacts_30d=retention_contacts,
+        acceptance_rate=acceptance_rate,
+        data_quality=data_quality,
+    )
 
 
 def _resolve_dashboard_gym_id(gym_id=None):

@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { assessmentService, type AssessmentSummary360, type Profile360 } from "./assessmentService";
-import type { AIAssistantPayload, Member, PaginatedResponse, RiskLevel } from "../types";
+import type { AIAssistantPayload, LeadToMemberIntelligenceContext, Member, PaginatedResponse, RiskLevel } from "../types";
 
 export type MemberPlanCycle = "monthly" | "semiannual" | "annual";
 
@@ -116,6 +116,11 @@ export const memberService = {
     const { data } = await api.get<OnboardingScoreSnapshot[]>("/api/v1/members/onboarding-scoreboard", {
       params: { ts: Date.now() },
     });
+    return data;
+  },
+
+  async getIntelligenceContext(memberId: string): Promise<LeadToMemberIntelligenceContext> {
+    const { data } = await api.get<LeadToMemberIntelligenceContext>(`/api/v1/members/${memberId}/intelligence-context`);
     return data;
   },
 

@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, MessageCircle, PhoneCall, UserRound } from "lucide-react";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
+import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard";
 import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
+import { memberService } from "../../services/memberService";
 import { taskService, type UpdateTaskPayload } from "../../services/taskService";
 import type { Member, Task } from "../../types";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
@@ -73,6 +75,17 @@ export function TaskDetailDrawer({
     queryKey: ["task-assistant", task?.id],
     queryFn: () => taskService.getAssistant(task!.id),
     enabled: open && Boolean(task?.id),
+    staleTime: 60_000,
+  });
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", task?.member_id],
+    queryFn: async () => {
+      if (!task?.member_id) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      return memberService.getIntelligenceContext(task.member_id);
+    },
+    enabled: open && Boolean(task?.member_id),
     staleTime: 60_000,
   });
 
@@ -174,6 +187,16 @@ export function TaskDetailDrawer({
             ) : null}
           </div>
         </section>
+
+        {activeTask.member_id ? (
+          <MemberIntelligenceMiniCard
+            context={intelligenceContextQuery.data ?? null}
+            isLoading={intelligenceContextQuery.isLoading}
+            isError={intelligenceContextQuery.isError}
+            onRetry={() => void intelligenceContextQuery.refetch()}
+            title="Contexto canonico para esta tarefa"
+          />
+        ) : null}
 
         <section className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-lovable-border p-4">

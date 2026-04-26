@@ -157,6 +157,91 @@ export interface Member {
   updated_at: string;
 }
 
+export type MemberIntelligenceSignalSeverity = "neutral" | "info" | "success" | "warning" | "danger";
+
+export interface MemberIntelligenceSignal {
+  key: string;
+  label: string;
+  value: string | number | boolean | null;
+  severity: MemberIntelligenceSignalSeverity;
+  source: string;
+  observed_at: string | null;
+}
+
+export interface LeadToMemberIntelligenceContext {
+  version: "lead-member-context-v1" | string;
+  generated_at: string;
+  member: {
+    member_id: string;
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+    status: string;
+    plan_name: string | null;
+    monthly_fee: number | null;
+    join_date: string | null;
+    preferred_shift: string | null;
+    assigned_user_id: string | null;
+    is_vip: boolean;
+  };
+  lead: {
+    lead_id: string | null;
+    source: string | null;
+    stage: string | null;
+    owner_id: string | null;
+    last_contact_at: string | null;
+    estimated_value: number | null;
+    acquisition_cost: number | null;
+    converted: boolean;
+    notes_count: number;
+  } | null;
+  consent: {
+    lgpd: boolean | null;
+    communication: boolean | null;
+    image: boolean | null;
+    contract: boolean | null;
+    source: string;
+    missing: string[];
+  };
+  lifecycle: {
+    onboarding_status: string | null;
+    onboarding_score: number | null;
+    retention_stage: string | null;
+    churn_type: string | null;
+    loyalty_months: number | null;
+  };
+  activity: {
+    last_checkin_at: string | null;
+    days_without_checkin: number | null;
+    checkins_30d: number;
+    checkins_90d: number;
+    preferred_shift: string | null;
+  };
+  assessment: {
+    assessments_total: number;
+    latest_assessment_at: string | null;
+    body_composition_total: number;
+    latest_body_composition_at: string | null;
+    latest_body_fat_percent: number | null;
+    latest_muscle_mass_kg: number | null;
+    latest_weight_kg: number | null;
+  };
+  operations: {
+    open_tasks_total: number;
+    overdue_tasks_total: number;
+    next_task_due_at: string | null;
+    latest_completed_task_at: string | null;
+  };
+  risk: {
+    risk_level: string | null;
+    risk_score: number | null;
+    open_alerts_total: number;
+    nps_last_score: number | null;
+  };
+  signals: MemberIntelligenceSignal[];
+  data_quality_flags: string[];
+}
+
 export interface Lead {
   id: string;
   full_name: string;
@@ -262,6 +347,34 @@ export interface ConversionBySource {
 export interface ProjectionPoint {
   horizon_months: number;
   projected_revenue: number;
+}
+
+export interface BICohortPoint {
+  month: string;
+  joined: number;
+  active: number;
+  retained_rate: number;
+  mrr: number;
+}
+
+export interface BIFollowUpImpact {
+  prepared_actions_30d: number;
+  positive_outcomes_30d: number;
+  completed_followups_30d: number;
+  retention_contacts_30d: number;
+  acceptance_rate: number | null;
+  data_quality: string;
+}
+
+export interface BIFoundationDashboard {
+  generated_at: string;
+  cohort: BICohortPoint[];
+  ltv: LTVPoint[];
+  forecast: ProjectionPoint[];
+  revenue_at_risk: number;
+  revenue_at_risk_members: number;
+  follow_up_impact: BIFollowUpImpact;
+  data_quality_flags: string[];
 }
 
 export interface NPSEvolutionPoint {

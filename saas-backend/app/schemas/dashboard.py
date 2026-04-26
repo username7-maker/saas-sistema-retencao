@@ -80,6 +80,34 @@ class FinancialDashboard(BaseModel):
     projections: list[ProjectionPoint]
 
 
+class BICohortPoint(BaseModel):
+    month: str
+    joined: int
+    active: int
+    retained_rate: float
+    mrr: float
+
+
+class BIFollowUpImpact(BaseModel):
+    prepared_actions_30d: int
+    positive_outcomes_30d: int
+    completed_followups_30d: int
+    retention_contacts_30d: int
+    acceptance_rate: float | None = None
+    data_quality: str
+
+
+class BIFoundationDashboard(BaseModel):
+    generated_at: datetime
+    cohort: list[BICohortPoint]
+    ltv: list[LTVPoint]
+    forecast: list[ProjectionPoint]
+    revenue_at_risk: float
+    revenue_at_risk_members: int
+    follow_up_impact: BIFollowUpImpact
+    data_quality_flags: list[str]
+
+
 class WeeklySummary(BaseModel):
     checkins_this_week: int
     checkins_last_week: int

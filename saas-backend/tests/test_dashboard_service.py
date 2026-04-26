@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models import MemberStatus, RiskLevel
+from app.schemas import BICohortPoint, BIFollowUpImpact, LTVPoint, ProjectionPoint
 from app.schemas.member import MemberOut
 
 
@@ -307,3 +308,112 @@ class TestGetFinancialDashboard:
         assert "monthly_revenue" in result
         assert "delinquency_rate" in result
         assert "projections" in result
+
+
+class TestGetBIFoundationDashboard:
+    @patch("app.services.dashboard_service.dashboard_cache")
+    @patch("app.services.dashboard_service._resolve_dashboard_gym_id", return_value=GYM_ID)
+    @patch("app.services.dashboard_service._follow_up_impact")
+    @patch("app.services.dashboard_service.get_retention_dashboard")
+    @patch("app.services.dashboard_service.get_financial_dashboard")
+    @patch("app.services.dashboard_service.get_ltv_dashboard")
+    @patch("app.services.dashboard_service._cohort_points")
+    def test_composes_bi_foundation_payload(
+        self,
+        mock_cohort,
+        mock_ltv,
+        mock_financial,
+        mock_retention,
+        mock_impact,
+        mock_gym,
+        mock_cache,
+    ):
+        mock_cache.get.return_value = None
+        mock_cohort.return_value = [
+            BICohortPoint(month="2026-02", joined=10, active=8, retained_rate=80.0, mrr=1200.0)
+        ]
+        mock_ltv.return_value = [LTVPoint(month="2026-02", ltv=900.0)]
+        mock_financial.return_value = {
+            "monthly_revenue": [],
+            "delinquency_rate": 0.0,
+            "projections": [ProjectionPoint(horizon_months=3, projected_revenue=15000.0)],
+        }
+        mock_retention.return_value = {
+            "red": {"total": 2, "items": []},
+            "yellow": {"total": 3, "items": []},
+            "nps_trend": [],
+            "mrr_at_risk": 2500.0,
+            "avg_red_score": 80.0,
+            "avg_yellow_score": 55.0,
+            "churn_distribution": {},
+            "last_contact_map": {},
+        }
+        mock_impact.return_value = BIFollowUpImpact(
+            prepared_actions_30d=4,
+            positive_outcomes_30d=2,
+            completed_followups_30d=3,
+            retention_contacts_30d=5,
+            acceptance_rate=50.0,
+            data_quality="ready",
+        )
+
+        from app.services.dashboard_service import get_bi_foundation_dashboard
+
+        result = get_bi_foundation_dashboard(MagicMock(), months=6)
+
+        assert result.cohort[0].retained_rate == 80.0
+        assert result.ltv[0].ltv == 900.0
+        assert result.forecast[0].projected_revenue == 15000.0
+        assert result.revenue_at_risk == 2500.0
+        assert result.revenue_at_risk_members == 5
+        assert result.follow_up_impact.acceptance_rate == 50.0
+        assert result.data_quality_flags == []
+        mock_cohort.assert_called_once_with(mock_cohort.call_args.args[0], 6, gym_id=GYM_ID)
+        mock_cache.set.assert_called_once()
+
+    @patch("app.services.dashboard_service.dashboard_cache")
+    @patch("app.services.dashboard_service._resolve_dashboard_gym_id", return_value=None)
+    @patch("app.services.dashboard_service._follow_up_impact")
+    @patch("app.services.dashboard_service.get_retention_dashboard")
+    @patch("app.services.dashboard_service.get_financial_dashboard")
+    @patch("app.services.dashboard_service.get_ltv_dashboard", return_value=[])
+    @patch("app.services.dashboard_service._cohort_points", return_value=[])
+    def test_flags_missing_operational_base(
+        self,
+        mock_cohort,
+        mock_ltv,
+        mock_financial,
+        mock_retention,
+        mock_impact,
+        mock_gym,
+        mock_cache,
+    ):
+        mock_cache.get.return_value = None
+        mock_financial.return_value = {"monthly_revenue": [], "delinquency_rate": 0.0, "projections": []}
+        mock_retention.return_value = {
+            "red": {"total": 1, "items": []},
+            "yellow": {"total": 0, "items": []},
+            "nps_trend": [],
+            "mrr_at_risk": 0.0,
+            "avg_red_score": 0.0,
+            "avg_yellow_score": 0.0,
+            "churn_distribution": {},
+            "last_contact_map": {},
+        }
+        mock_impact.return_value = BIFollowUpImpact(
+            prepared_actions_30d=0,
+            positive_outcomes_30d=0,
+            completed_followups_30d=0,
+            retention_contacts_30d=0,
+            acceptance_rate=None,
+            data_quality="no_base",
+        )
+
+        from app.services.dashboard_service import get_bi_foundation_dashboard
+
+        result = get_bi_foundation_dashboard(MagicMock(), months=6)
+
+        assert "missing_cohort_history" in result.data_quality_flags
+        assert "missing_ltv_history" in result.data_quality_flags
+        assert "missing_follow_up_outcomes" in result.data_quality_flags
+        assert "revenue_at_risk_without_fee_base" in result.data_quality_flags

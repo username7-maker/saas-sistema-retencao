@@ -22,6 +22,7 @@ import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBa
 import { Button, Skeleton, cn } from "../../components/ui2";
 import {
   useChurnDashboard,
+  useBIFoundationDashboard,
   useCommercialDashboard,
   useExecutiveDashboard,
   useOperationalDashboard,
@@ -234,6 +235,116 @@ function WeeklySummaryMini() {
   );
 }
 
+function BIFoundationMini() {
+  const biFoundation = useBIFoundationDashboard();
+
+  if (biFoundation.isLoading) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
+            <Skeleton className="h-3 w-24 rounded" />
+            <Skeleton className="mt-3 h-6 w-20 rounded" />
+            <Skeleton className="mt-2 h-3 w-28 rounded" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (!biFoundation.data) {
+    return (
+      <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/75 px-4 py-3 text-sm text-lovable-ink-muted">
+        Base de BI indisponivel no momento.
+      </div>
+    );
+  }
+
+  const data = biFoundation.data;
+  const latestCohort = [...data.cohort].reverse().find((point) => point.joined > 0) ?? data.cohort[data.cohort.length - 1];
+  const latestLtv = data.ltv[data.ltv.length - 1];
+  const forecast3m = data.forecast.find((point) => point.horizon_months === 3) ?? data.forecast[0];
+  const impact = data.follow_up_impact;
+  const hasOutcomeBase = impact.acceptance_rate !== null;
+  const flags = data.data_quality_flags;
+
+  const items = [
+    {
+      label: latestCohort ? `Cohort ${formatDateLabel(latestCohort.month)}` : "Cohort",
+      value: latestCohort ? percent(latestCohort.retained_rate) : "Sem base",
+      helper: latestCohort ? `${latestCohort.active}/${latestCohort.joined} ativos no cohort` : "Aguardando historico de entrada",
+      icon: UserPlus,
+      tone: latestCohort && latestCohort.retained_rate >= 75 ? "text-emerald-400" : "text-amber-400",
+    },
+    {
+      label: "LTV estimado",
+      value: latestLtv && latestLtv.ltv > 0 ? currency(latestLtv.ltv) : "Sem base",
+      helper: latestLtv ? `Ultimo mes: ${formatDateLabel(latestLtv.month)}` : "Depende de receita e churn",
+      icon: Wallet,
+      tone: latestLtv && latestLtv.ltv > 0 ? "text-cyan-300" : "text-lovable-ink-muted",
+    },
+    {
+      label: "Forecast",
+      value: forecast3m ? currency(forecast3m.projected_revenue) : "Sem base",
+      helper: forecast3m ? `${forecast3m.horizon_months} meses com dados atuais` : "Aguardando serie financeira",
+      icon: TrendingUp,
+      tone: forecast3m ? "text-lovable-primary-light" : "text-lovable-ink-muted",
+    },
+    {
+      label: "Receita em risco",
+      value: data.revenue_at_risk > 0 ? currency(data.revenue_at_risk) : "R$ 0",
+      helper: `${data.revenue_at_risk_members} alunos em risco amarelo/vermelho`,
+      icon: ShieldAlert,
+      tone: data.revenue_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
+    },
+    {
+      label: "Impacto follow-up",
+      value: hasOutcomeBase ? percent(impact.acceptance_rate ?? 0) : `${impact.completed_followups_30d}`,
+      helper: hasOutcomeBase
+        ? `${impact.positive_outcomes_30d}/${impact.prepared_actions_30d} outcomes positivos`
+        : "follow-ups concluidos nos ultimos 30d",
+      icon: Activity,
+      tone: hasOutcomeBase ? "text-emerald-400" : "text-amber-300",
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <SectionHeader
+        title="BI foundation"
+        subtitle="Cohort, LTV, forecast e impacto operacional usando a mesma base de gestao."
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
+              <div className="flex items-center gap-2">
+                <Icon size={14} className={item.tone} />
+                <p className="text-[11px] uppercase tracking-[0.22em] text-lovable-ink-muted">{item.label}</p>
+              </div>
+              <p className="mt-3 font-display text-xl font-bold tracking-tight text-lovable-ink">{item.value}</p>
+              <p className="mt-1 text-xs text-lovable-ink-muted">{item.helper}</p>
+            </div>
+          );
+        })}
+      </div>
+      {flags.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {flags.map((flag) => (
+            <span
+              key={flag}
+              className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200"
+            >
+              {flag.replace(/_/g, " ")}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DashboardLovable() {
   const navigate = useNavigate();
   const [chartRange, setChartRange] = useState<ChartRange>("6m");
@@ -356,6 +467,7 @@ export function DashboardLovable() {
           <div className="space-y-4">
             {kpiLoading ? <KpiStripSkeleton /> : <KPIStrip items={kpiItems} />}
             <WeeklySummaryMini />
+            <BIFoundationMini />
           </div>
         </DashboardZone>
 
