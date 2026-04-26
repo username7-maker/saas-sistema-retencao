@@ -14,6 +14,7 @@ from app.models import (
     Checkin,
     Lead,
     Member,
+    MemberConsentRecord,
     MemberConstraints,
     MemberStatus,
     MessageLog,
@@ -77,6 +78,12 @@ def export_member_pdf(db: Session, member_id: UUID, gym_id: UUID) -> tuple[Bytes
             MemberConstraints.deleted_at.is_(None),
         )
     )
+    consent_records = db.scalars(
+        select(MemberConsentRecord)
+        .where(MemberConsentRecord.member_id == member_id, MemberConsentRecord.gym_id == gym_id)
+        .order_by(MemberConsentRecord.created_at.desc())
+        .limit(100)
+    ).all()
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -117,6 +124,15 @@ def export_member_pdf(db: Session, member_id: UUID, gym_id: UUID) -> tuple[Bytes
         write_line(f"Contraindicacoes: {member_constraints.contraindications or '-'}")
         write_line(f"Notas: {member_constraints.notes or '-'}")
         write_line("")
+    write_line(f"Total de consentimentos/termos exportados: {len(consent_records)}")
+    for idx, consent in enumerate(consent_records[:30], start=1):
+        write_line(
+            f"{idx}. {consent.created_at.isoformat()} | tipo={consent.consent_type} | status={consent.status} | fonte={consent.source}"
+        )
+        write_line(
+            f"   documento={consent.document_title or '-'} | versao={consent.document_version or '-'} | expira={consent.expires_at.isoformat() if consent.expires_at else '-'}"
+        )
+    write_line("")
     write_line(f"Total de check-ins exportados: {len(checkins)}")
     for idx, checkin in enumerate(checkins[:30], start=1):
         write_line(f"{idx}. {checkin.checkin_at.isoformat()} - origem: {checkin.source.value}")
@@ -175,6 +191,7 @@ def anonymize_member(db: Session, member_id: UUID, gym_id: UUID) -> Member:
     _anonymize_converted_lead(db, member_id, gym_id, member_tag, stamp)
     _redact_message_logs(db, member_id, member_tag, stamp)
     _redact_member_constraints(db, member_id, gym_id, stamp)
+    _redact_consent_records(db, member_id, gym_id, stamp)
     _redact_body_composition_records(db, member_id, stamp)
     _redact_nps_free_text(db, member_id, stamp)
 
@@ -204,6 +221,20 @@ def _anonymize_converted_lead(db: Session, member_id: UUID, gym_id: UUID, member
         lead.notes = []
         lead.lost_reason = None
         db.add(lead)
+
+
+def _redact_consent_records(db: Session, member_id: UUID, gym_id: UUID, stamp: str) -> None:
+    records = db.scalars(
+        select(MemberConsentRecord).where(
+            MemberConsentRecord.member_id == member_id,
+            MemberConsentRecord.gym_id == gym_id,
+        )
+    ).all()
+    for record in records:
+        record.evidence_ref = None
+        record.notes = _LGPD_REDACTED_TEXT if record.notes else None
+        record.extra_data = {"anonymized_at": stamp, "redacted": True}
+        db.add(record)
 
 
 def _redact_message_logs(db: Session, member_id: UUID, member_tag: str, stamp: str) -> None:

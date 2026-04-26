@@ -84,6 +84,12 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
         cascade="all, delete-orphan",
         order_by="BodyCompositionEvaluation.evaluation_date.desc()",
     )
+    consent_records = relationship(
+        "MemberConsentRecord",
+        back_populates="member",
+        cascade="all, delete-orphan",
+        order_by="MemberConsentRecord.created_at.desc()",
+    )
     actuar_link = relationship(
         "ActuarMemberLink",
         back_populates="member",

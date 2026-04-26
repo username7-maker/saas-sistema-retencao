@@ -50,6 +50,7 @@ from app.services.ai_assistant_service import build_retention_assistant
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
+from app.services.finance_service import get_finance_foundation_summary, get_monthly_financial_entry_revenue
 from app.services.nps_service import nps_evolution
 from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY, _determine_level, _inactivity_points
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
@@ -336,18 +337,9 @@ def get_financial_dashboard(db: Session) -> dict:
     if cached is not None:
         return cached
 
-    revenue = _revenue_series(db, 12)
-    delinquent = db.scalar(
-        select(func.count()).select_from(Member).where(
-            Member.deleted_at.is_(None),
-            Member.status == MemberStatus.ACTIVE,
-            Member.extra_data["delinquent"].astext == "true",
-        )
-    ) or 0
-    active = db.scalar(
-        select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.status == MemberStatus.ACTIVE)
-    ) or 0
-    delinquency_rate = (delinquent / max(active, 1)) * 100
+    resolved_gym_id = _resolve_dashboard_gym_id()
+    revenue = _revenue_series(db, 12, gym_id=resolved_gym_id)
+    summary = get_finance_foundation_summary(db, gym_id=resolved_gym_id)
 
     growth_last = get_growth_mom_dashboard(db, months=6)
     avg_growth = sum(point.growth_mom for point in growth_last) / max(len(growth_last), 1)
@@ -360,8 +352,18 @@ def get_financial_dashboard(db: Session) -> dict:
 
     payload = {
         "monthly_revenue": revenue,
-        "delinquency_rate": round(delinquency_rate, 2),
+        "delinquency_rate": summary.delinquency_rate,
         "projections": projections,
+        "daily_cash_in": summary.daily_cash_in,
+        "daily_cash_out": summary.daily_cash_out,
+        "daily_net_cash": summary.daily_net_cash,
+        "open_receivables": summary.open_receivables,
+        "open_payables": summary.open_payables,
+        "overdue_receivables": summary.overdue_receivables,
+        "overdue_payables": summary.overdue_payables,
+        "revenue_at_risk": summary.revenue_at_risk,
+        "dre_basic": summary.dre_basic.model_dump(),
+        "data_quality_flags": summary.data_quality_flags,
     }
     _cache_dashboard_payload(cache_key, FinancialDashboard, payload)
     return payload
@@ -1098,14 +1100,22 @@ def _month_labels(months: int) -> list[str]:
     return labels
 
 
-def _revenue_series(db: Session, months: int) -> list[RevenuePoint]:
+def _revenue_series(db: Session, months: int, *, gym_id=None) -> list[RevenuePoint]:
     materialized = _monthly_member_kpis_rows(db, months)
     if materialized:
-        return [RevenuePoint(month=row["month"], value=float(row["mrr"])) for row in materialized]
+        points: list[RevenuePoint] = []
+        for row in materialized:
+            entry_revenue = get_monthly_financial_entry_revenue(db, gym_id=gym_id or _resolve_dashboard_gym_id(), month_label=str(row["month"]))
+            points.append(RevenuePoint(month=str(row["month"]), value=float(entry_revenue) if entry_revenue is not None else float(row["mrr"])))
+        return points
 
     labels = _month_labels(months)
     points: list[RevenuePoint] = []
     for label in labels:
+        entry_revenue = get_monthly_financial_entry_revenue(db, gym_id=gym_id or _resolve_dashboard_gym_id(), month_label=label)
+        if entry_revenue is not None:
+            points.append(RevenuePoint(month=label, value=float(entry_revenue)))
+            continue
         month_start, month_end = _month_window(label)
         total = db.scalar(
             select(func.coalesce(func.sum(Member.monthly_fee), Decimal("0"))).where(

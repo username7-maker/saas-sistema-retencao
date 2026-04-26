@@ -77,11 +77,17 @@ class TestAnonymizeMember:
             notes="nao expor",
             restrictions={"injury": True},
         )
+        consent = SimpleNamespace(
+            evidence_ref="s3://consent/ref",
+            notes="assinatura presencial",
+            extra_data={"actor_user_id": "user-1"},
+        )
         db = MagicMock()
         db.scalar.side_effect = [member, constraints]
         db.scalars.side_effect = [
             _scalars_result([converted_lead]),
             _scalars_result([message_log]),
+            _scalars_result([consent]),
             _scalars_result([evaluation]),
             _scalars_result([nps]),
         ]
@@ -118,6 +124,9 @@ class TestAnonymizeMember:
         assert constraints.injuries is None
         assert constraints.notes is None
         assert constraints.restrictions["redacted"] is True
+        assert consent.evidence_ref is None
+        assert consent.notes == "[redacted-by-lgpd]"
+        assert consent.extra_data["redacted"] is True
 
     def test_member_not_found_raises(self):
         db = MagicMock()
@@ -136,6 +145,7 @@ class TestExportMemberPdf:
         db = MagicMock()
         db.scalar.side_effect = [member, None, None]
         db.scalars.side_effect = [
+            _scalars_result([]),
             _scalars_result([]),
             _scalars_result([]),
             _scalars_result([]),

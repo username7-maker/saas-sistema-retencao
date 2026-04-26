@@ -23,6 +23,7 @@ from app.models.enums import (
     TaskPriority,
     TaskStatus,
 )
+from app.models.financial_entry import FinancialEntry
 from app.models.goal import Goal
 from app.models.gym import Gym
 from app.models.in_app_notification import InAppNotification
@@ -30,6 +31,7 @@ from app.models.kommo_link import KommoMemberLink
 from app.models.lead_booking import LeadBooking
 from app.models.lead import Lead
 from app.models.member import Member
+from app.models.member_consent_record import MemberConsentRecord
 from app.models.member_risk_history import MemberRiskHistory
 from app.models.message_log import MessageLog
 from app.models.nps_response import NPSResponse
@@ -58,6 +60,7 @@ __all__ = [
     "CheckinSource",
     "ChurnType",
     "DiagnosisError",
+    "FinancialEntry",
     "Goal",
     "Gym",
     "InAppNotification",
@@ -66,6 +69,7 @@ __all__ = [
     "LeadBooking",
     "LeadStage",
     "Member",
+    "MemberConsentRecord",
     "MemberConstraints",
     "MemberGoal",
     "MemberRiskHistory",

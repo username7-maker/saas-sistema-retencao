@@ -178,6 +178,10 @@ export function canAnonymizeLgpd(role: Role | null | undefined): boolean {
   return role === "owner";
 }
 
+export function canManageMemberConsents(role: Role | null | undefined): boolean {
+  return role === "owner" || role === "manager" || role === "receptionist";
+}
+
 export function canAccessCrm(role: Role | null | undefined): boolean {
   return hasRole(role, ROUTE_ACCESS.crm);
 }

@@ -260,6 +260,146 @@ export interface Lead {
   updated_at: string;
 }
 
+export interface AcquisitionQualification {
+  score: number;
+  label: "hot" | "warm" | "cold" | string;
+  next_action: string;
+  recommended_stage: Lead["stage"] | string;
+  reasons: string[];
+  missing_fields: string[];
+}
+
+export interface AcquisitionLeadSummary {
+  lead_id: string;
+  full_name: string;
+  source: string | null;
+  channel: string | null;
+  campaign: string | null;
+  desired_goal: string | null;
+  preferred_shift: string | null;
+  qualification_score: number | null;
+  qualification_label: string | null;
+  next_action: string | null;
+  has_trial_booking: boolean;
+  next_booking_at: string | null;
+  consent_lgpd: boolean | null;
+  consent_communication: boolean | null;
+  reasons: string[];
+  missing_fields: string[];
+}
+
+export interface AcquisitionCaptureResponse {
+  lead: Lead;
+  booking: unknown | null;
+  qualification: AcquisitionQualification;
+  summary: AcquisitionLeadSummary;
+}
+
+export type GrowthAudienceId =
+  | "conversion_hot_leads"
+  | "conversion_stale_leads"
+  | "reactivation_inactive_members"
+  | "renewal_attention"
+  | "upsell_promoters"
+  | "nps_recovery";
+
+export type GrowthChannel = "whatsapp" | "email" | "task" | "crm_note" | "kommo";
+
+export interface GrowthOpportunity {
+  id: string;
+  audience_id: GrowthAudienceId;
+  subject_type: "lead" | "member";
+  subject_id: string;
+  display_name: string;
+  contact: string | null;
+  preferred_shift: string | null;
+  stage_or_status: string | null;
+  score: number;
+  priority: "low" | "medium" | "high" | "urgent";
+  channel: GrowthChannel;
+  action_label: string;
+  reason: string;
+  suggested_message: string;
+  next_step: string;
+  consent_required: boolean;
+  consent_ok: boolean;
+  source_tags: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface GrowthAudience {
+  id: GrowthAudienceId;
+  label: string;
+  objective: string;
+  count: number;
+  priority: "low" | "medium" | "high" | "urgent";
+  recommended_channel: GrowthChannel;
+  cta_label: string;
+  summary: string;
+  experiment_hint: string;
+  items: GrowthOpportunity[];
+}
+
+export interface GrowthOpportunityPrepared {
+  opportunity_id: string;
+  prepared_action: string;
+  action_label: string;
+  channel: GrowthChannel;
+  target_name: string;
+  message: string;
+  whatsapp_url: string | null;
+  task_id: string | null;
+  crm_note_created: boolean;
+  kommo_status: string | null;
+  warnings: string[];
+}
+
+export type ConsentType = "lgpd" | "communication" | "image" | "contract" | "terms";
+export type ConsentStatus = "accepted" | "revoked" | "expired" | "missing";
+
+export interface MemberConsentCurrent {
+  consent_type: ConsentType | string;
+  status: ConsentStatus | string;
+  accepted: boolean;
+  source: string | null;
+  document_title: string | null;
+  document_version: string | null;
+  signed_at: string | null;
+  revoked_at: string | null;
+  expires_at: string | null;
+  record_id: string | null;
+  missing: boolean;
+  expired: boolean;
+}
+
+export interface MemberConsentRecord {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  consent_type: ConsentType | string;
+  status: ConsentStatus | string;
+  source: string;
+  document_title: string | null;
+  document_version: string | null;
+  evidence_ref: string | null;
+  notes: string | null;
+  signed_at: string | null;
+  revoked_at: string | null;
+  expires_at: string | null;
+  extra_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemberConsentSummary {
+  member_id: string;
+  current: MemberConsentCurrent[];
+  records: MemberConsentRecord[];
+  missing: string[];
+  expired: string[];
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -347,6 +487,71 @@ export interface ConversionBySource {
 export interface ProjectionPoint {
   horizon_months: number;
   projected_revenue: number;
+}
+
+export type FinancialEntryType = "receivable" | "payable" | "cash_in" | "cash_out";
+export type FinancialEntryStatus = "open" | "paid" | "overdue" | "cancelled";
+
+export interface FinancialEntry {
+  id: string;
+  gym_id: string;
+  member_id: string | null;
+  lead_id: string | null;
+  created_by_user_id: string | null;
+  entry_type: FinancialEntryType | string;
+  status: FinancialEntryStatus | string;
+  category: string;
+  description: string | null;
+  amount: number;
+  due_date: string | null;
+  occurred_at: string | null;
+  paid_at: string | null;
+  source: string;
+  external_ref: string | null;
+  notes: string | null;
+  extra_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinancialEntryPayload {
+  entry_type: FinancialEntryType;
+  status?: FinancialEntryStatus;
+  category: string;
+  description?: string;
+  amount: number;
+  due_date?: string;
+  occurred_at?: string;
+  paid_at?: string;
+  member_id?: string;
+  lead_id?: string;
+  source?: string;
+  external_ref?: string;
+  notes?: string;
+  extra_data?: Record<string, unknown>;
+}
+
+export interface DREBasic {
+  revenue: number;
+  expenses: number;
+  net_result: number;
+  margin_pct: number | null;
+}
+
+export interface FinancialDashboard {
+  monthly_revenue: RevenuePoint[];
+  delinquency_rate: number;
+  projections: ProjectionPoint[];
+  daily_cash_in: number;
+  daily_cash_out: number;
+  daily_net_cash: number;
+  open_receivables: number;
+  open_payables: number;
+  overdue_receivables: number;
+  overdue_payables: number;
+  revenue_at_risk: number;
+  dre_basic: DREBasic;
+  data_quality_flags: string[];
 }
 
 export interface BICohortPoint {

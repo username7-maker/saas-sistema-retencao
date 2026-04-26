@@ -47,6 +47,7 @@ from app.routers import (
     crm,
     dashboards,
     exports,
+    finance,
     goals,
     imports,
     lgpd,
@@ -205,6 +206,7 @@ app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(crm.router, prefix=settings.api_prefix)
 app.include_router(nps.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
+app.include_router(finance.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)
 app.include_router(exports.router, prefix=settings.api_prefix)

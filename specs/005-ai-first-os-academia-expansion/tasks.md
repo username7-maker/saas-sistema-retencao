@@ -18,10 +18,10 @@
 
 ## Wave 2 - Release B / v3.4.0 Acquisition, Compliance and Revenue OS
 
-- [ ] T201 Implementar Acquisition OS com captura, aula experimental, origem/canal e chatbot qualificador
-- [ ] T202 Implementar Compliance OS com contratos, termos, consentimentos e historico auditavel
-- [ ] T203 Expandir Growth / Marketing OS sobre CRM, WhatsApp, Kommo, NPS e automations
-- [ ] T204 Implementar Finance Foundation com caixa, contas, inadimplencia, DRE basico e receita em risco
+- [x] T201 Implementar Acquisition OS com captura, aula experimental, origem/canal e chatbot qualificador
+- [x] T202 Implementar Compliance OS com contratos, termos, consentimentos e historico auditavel
+- [x] T203 Expandir Growth / Marketing OS sobre CRM, WhatsApp, Kommo, NPS e automations
+- [x] T204 Implementar Finance Foundation com caixa, contas, inadimplencia, DRE basico e receita em risco
 
 ## Wave 3 - Release C / v3.5.0 Adherence, Scheduling and Staff Operations
 

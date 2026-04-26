@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import RiskLevel
 from app.schemas.assistant import AIAssistantPayload
@@ -78,6 +78,16 @@ class FinancialDashboard(BaseModel):
     monthly_revenue: list[RevenuePoint]
     delinquency_rate: float
     projections: list[ProjectionPoint]
+    daily_cash_in: float = 0.0
+    daily_cash_out: float = 0.0
+    daily_net_cash: float = 0.0
+    open_receivables: float = 0.0
+    open_payables: float = 0.0
+    overdue_receivables: float = 0.0
+    overdue_payables: float = 0.0
+    revenue_at_risk: float = 0.0
+    dre_basic: dict = Field(default_factory=dict)
+    data_quality_flags: list[str] = Field(default_factory=list)
 
 
 class BICohortPoint(BaseModel):

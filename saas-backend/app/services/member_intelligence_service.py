@@ -32,6 +32,7 @@ from app.schemas.member_intelligence import (
     RiskIntelligenceContextOut,
 )
 from app.services.member_service import get_member_or_404
+from app.services.compliance_service import current_consent_status_map
 
 
 def _tenant_scoped(statement):
@@ -109,26 +110,37 @@ def _coerce_optional_bool(value: Any) -> bool | None:
     return None
 
 
-def _build_consent_context(member: Member) -> ConsentIntelligenceContextOut:
+def _build_consent_context(
+    member: Member,
+    consent_status_map: dict[str, bool | None] | None = None,
+) -> ConsentIntelligenceContextOut:
     extra_data = _as_dict(getattr(member, "extra_data", None))
     consent_data = _as_dict(extra_data.get("consents"))
 
-    lgpd = _coerce_optional_bool(
-        _first_present(consent_data, extra_data, ("lgpd", "lgpd_consent", "data_consent", "privacy_consent"))
-    )
-    communication = _coerce_optional_bool(
-        _first_present(
-            consent_data,
-            extra_data,
-            ("communication", "communication_consent", "marketing", "marketing_consent", "whatsapp_consent"),
+    lgpd = consent_status_map.get("lgpd") if consent_status_map else None
+    if lgpd is None:
+        lgpd = _coerce_optional_bool(
+            _first_present(consent_data, extra_data, ("lgpd", "lgpd_consent", "data_consent", "privacy_consent"))
         )
-    )
-    image = _coerce_optional_bool(
-        _first_present(consent_data, extra_data, ("image", "image_consent", "photo_consent"))
-    )
-    contract = _coerce_optional_bool(
-        _first_present(consent_data, extra_data, ("contract", "contract_consent", "terms", "terms_acceptance"))
-    )
+    communication = consent_status_map.get("communication") if consent_status_map else None
+    if communication is None:
+        communication = _coerce_optional_bool(
+            _first_present(
+                consent_data,
+                extra_data,
+                ("communication", "communication_consent", "marketing", "marketing_consent", "whatsapp_consent"),
+            )
+        )
+    image = consent_status_map.get("image") if consent_status_map else None
+    if image is None:
+        image = _coerce_optional_bool(
+            _first_present(consent_data, extra_data, ("image", "image_consent", "photo_consent"))
+        )
+    contract = consent_status_map.get("contract") if consent_status_map else None
+    if contract is None:
+        contract = _coerce_optional_bool(
+            _first_present(consent_data, extra_data, ("contract", "contract_consent", "terms", "terms_acceptance"))
+        )
 
     missing = [
         key
@@ -177,11 +189,12 @@ def build_lead_to_member_intelligence_context(
     next_task_due_at: datetime | None,
     latest_completed_task_at: datetime | None,
     open_alerts_total: int,
+    consent_status_map: dict[str, bool | None] | None = None,
     generated_at: datetime | None = None,
 ) -> LeadToMemberIntelligenceContextOut:
     now = generated_at or datetime.now(tz=timezone.utc)
     extra_data = _as_dict(getattr(member, "extra_data", None))
-    consent = _build_consent_context(member)
+    consent = _build_consent_context(member, consent_status_map)
     preferred_shift = getattr(member, "preferred_shift", None) or extra_data.get("preferred_shift")
     days_without_checkin = _days_without_checkin(
         latest_checkin_at or getattr(member, "last_checkin_at", None),
@@ -463,6 +476,7 @@ def get_member_intelligence_context(
         RiskAlert.member_id == member.id,
         RiskAlert.resolved.is_(False),
     )
+    consent_status = current_consent_status_map(db, member.id, gym_id=gym_id)
 
     return build_lead_to_member_intelligence_context(
         member=member,
@@ -479,5 +493,6 @@ def get_member_intelligence_context(
         next_task_due_at=next_task_due_at,
         latest_completed_task_at=latest_completed_task_at,
         open_alerts_total=open_alerts_total,
+        consent_status_map=consent_status,
         generated_at=now,
     )

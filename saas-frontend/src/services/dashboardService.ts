@@ -5,6 +5,7 @@ import type {
   ChurnPoint,
   ConversionBySource,
   ExecutiveDashboard,
+  FinancialDashboard,
   GrowthPoint,
   HeatmapPoint,
   LTVPoint,
@@ -12,7 +13,6 @@ import type {
   Member,
   NPSEvolutionPoint,
   PaginatedResponse,
-  ProjectionPoint,
   RiskLevel,
   RevenuePoint,
   WeeklySummary,
@@ -104,12 +104,8 @@ export const dashboardService = {
     return data;
   },
 
-  async financial(): Promise<{
-    monthly_revenue: RevenuePoint[];
-    delinquency_rate: number;
-    projections: ProjectionPoint[];
-  }> {
-    const { data } = await api.get("/api/v1/dashboards/financial");
+  async financial(): Promise<FinancialDashboard> {
+    const { data } = await api.get<FinancialDashboard>("/api/v1/dashboards/financial");
     return data;
   },
 

@@ -1,5 +1,14 @@
 import { api } from "./api";
-import type { Lead, LeadNoteEntry, PaginatedResponse } from "../types";
+import type {
+  AcquisitionCaptureResponse,
+  AcquisitionLeadSummary,
+  GrowthAudience,
+  GrowthChannel,
+  GrowthOpportunityPrepared,
+  Lead,
+  LeadNoteEntry,
+  PaginatedResponse,
+} from "../types";
 
 export interface LeadCreatePayload {
   full_name: string;
@@ -36,6 +45,32 @@ export interface LeadNotePayload {
   channel?: string;
   outcome?: string;
   occurred_at?: string;
+}
+
+export interface AcquisitionCapturePayload {
+  full_name: string;
+  email?: string;
+  phone?: string;
+  source?: string;
+  channel?: string;
+  campaign?: string;
+  desired_goal?: string;
+  preferred_shift?: string;
+  trial_interest?: boolean;
+  scheduled_for?: string;
+  consent_lgpd?: boolean;
+  consent_communication?: boolean;
+  operator_note?: string;
+  qualification_answers?: Record<string, unknown>;
+  estimated_value?: number;
+  acquisition_cost?: number;
+  owner_id?: string;
+}
+
+export interface GrowthOpportunityPreparePayload {
+  channel?: GrowthChannel;
+  operator_note?: string;
+  create_task?: boolean;
 }
 
 function hasIsoDate(value: unknown): value is string {
@@ -119,6 +154,34 @@ export const crmService = {
 
   async createLead(payload: LeadCreatePayload): Promise<Lead> {
     const { data } = await api.post<Lead>("/api/v1/crm/leads", payload);
+    return data;
+  },
+
+  async captureAcquisitionLead(payload: AcquisitionCapturePayload): Promise<AcquisitionCaptureResponse> {
+    const { data } = await api.post<AcquisitionCaptureResponse>("/api/v1/crm/acquisition/capture", payload);
+    return data;
+  },
+
+  async listAcquisitionSummaries(): Promise<AcquisitionLeadSummary[]> {
+    const { data } = await api.get<AcquisitionLeadSummary[]>("/api/v1/crm/acquisition/summary");
+    return data;
+  },
+
+  async listGrowthAudiences(): Promise<GrowthAudience[]> {
+    const { data } = await api.get<GrowthAudience[]>("/api/v1/crm/growth/audiences", {
+      params: { limit_per_audience: 30 },
+    });
+    return data;
+  },
+
+  async prepareGrowthOpportunity(
+    opportunityId: string,
+    payload: GrowthOpportunityPreparePayload,
+  ): Promise<GrowthOpportunityPrepared> {
+    const { data } = await api.post<GrowthOpportunityPrepared>(
+      `/api/v1/crm/growth/opportunities/${encodeURIComponent(opportunityId)}/prepare`,
+      payload,
+    );
     return data;
   },
 

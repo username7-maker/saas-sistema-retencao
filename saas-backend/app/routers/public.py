@@ -17,12 +17,14 @@ from app.schemas.public_diagnosis import (
     PublicObjectionResponse,
     PublicProposalRequest,
 )
+from app.schemas.acquisition import AcquisitionCaptureInput, AcquisitionCaptureResponse
 from app.schemas.sales import (
     PublicBookingConfirmRequest,
     PublicBookingConfirmResponse,
     PublicWhatsappWebhookResponse,
 )
 from app.services.booking_service import confirm_public_booking
+from app.services.acquisition_service import capture_acquisition_lead
 from app.services.crm_service import create_public_diagnosis_lead
 from app.services.core_async_job_service import enqueue_public_diagnosis_job, get_public_diagnosis_job, serialize_core_async_job
 from app.services.diagnosis_service import (
@@ -263,6 +265,29 @@ def public_booking_confirm(
         lead_id=lead.id,
         booking_id=booking.id,
     )
+
+
+@router.post("/acquisition/capture", response_model=AcquisitionCaptureResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.public_booking_rate_limit)
+def public_acquisition_capture(
+    request: Request,
+    payload: AcquisitionCaptureInput,
+    db: Session = Depends(get_db),
+    x_public_booking_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> AcquisitionCaptureResponse:
+    _ensure_public_endpoint_enabled(settings.public_booking_confirm_enabled, "acquisition/capture")
+    _require_public_shared_token(
+        configured_token=settings.public_booking_confirm_token,
+        provided_token=x_public_booking_token or _extract_bearer_token(authorization),
+        endpoint_name="acquisition/capture",
+    )
+    try:
+        public_gym_id = resolve_public_gym_id()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    return capture_acquisition_lead(db, payload, gym_id=public_gym_id, commit=True)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:

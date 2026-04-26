@@ -1,16 +1,39 @@
 ﻿import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import toast from "react-hot-toast";
-import type { Member } from "../../types";
+import type { ConsentType, Member, MemberConsentCurrent } from "../../types";
 import { QuickActions } from "../../components/common/QuickActions";
 import { Badge, Drawer } from "../../components/ui2";
 import { useAuth } from "../../hooks/useAuth";
 import { lgpdService } from "../../services/lgpdService";
 import { memberService } from "../../services/memberService";
-import { canAnonymizeLgpd, canExportLgpd } from "../../utils/roleAccess";
+import { canAnonymizeLgpd, canExportLgpd, canManageMemberConsents } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
+
+const CONSENT_LABELS: Record<string, string> = {
+  lgpd: "LGPD / dados",
+  communication: "Comunicacao",
+  image: "Imagem",
+  contract: "Contrato",
+};
+
+const CONSENT_ORDER: ConsentType[] = ["lgpd", "communication", "image", "contract"];
+
+function consentBadgeVariant(item: MemberConsentCurrent): "success" | "warning" | "danger" | "neutral" {
+  if (item.accepted) return "success";
+  if (item.expired) return "warning";
+  if (item.status === "revoked") return "danger";
+  return "neutral";
+}
+
+function consentStatusLabel(item: MemberConsentCurrent): string {
+  if (item.accepted) return "Aceito";
+  if (item.expired) return "Vencido";
+  if (item.status === "revoked") return "Revogado";
+  return "Pendente";
+}
 
 export function MemberDetailDrawer({
   member,
@@ -22,6 +45,7 @@ export function MemberDetailDrawer({
   onClose: () => void;
 }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [confirmAnonymize, setConfirmAnonymize] = useState(false);
   const [lgpdLoading, setLgpdLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "assessment" | "behavior" | "retention">("overview");
@@ -46,6 +70,30 @@ export function MemberDetailDrawer({
     staleTime: 2 * 60 * 1000,
   });
 
+  const consentsQuery = useQuery({
+    queryKey: ["lgpd", "member-consents", member?.id],
+    queryFn: () => lgpdService.getMemberConsents(member!.id),
+    enabled: !!member?.id,
+    staleTime: 60 * 1000,
+  });
+
+  const recordConsentMutation = useMutation({
+    mutationFn: ({ consentType, status }: { consentType: ConsentType; status: "accepted" | "revoked" }) =>
+      lgpdService.recordMemberConsent(member!.id, {
+        consent_type: consentType,
+        status,
+        source: "frontdesk",
+        document_title: CONSENT_LABELS[consentType],
+        document_version: "manual-v1",
+      }),
+    onSuccess: () => {
+      toast.success("Consentimento registrado.");
+      void queryClient.invalidateQueries({ queryKey: ["lgpd", "member-consents", member?.id] });
+      void queryClient.invalidateQueries({ queryKey: ["members", "intelligence-context", member?.id] });
+    },
+    onError: () => toast.error("Erro ao registrar consentimento."),
+  });
+
   if (!member) {
     return null;
   }
@@ -63,6 +111,8 @@ export function MemberDetailDrawer({
   const whatsappHref = buildWhatsAppHref(member.phone, undefined, member.full_name);
   const canExport = canExportLgpd(user?.role);
   const canAnonymize = canAnonymizeLgpd(user?.role);
+  const canManageConsents = canManageMemberConsents(user?.role);
+  const currentConsents = consentsQuery.data?.current ?? [];
 
   const handleExportLgpd = async () => {
     setLgpdLoading(true);
@@ -231,9 +281,72 @@ export function MemberDetailDrawer({
             </div>
           )}
 
-          {canExport || canAnonymize ? (
+          {canExport || canAnonymize || canManageConsents || consentsQuery.data ? (
             <div className="border-t border-lovable-border pt-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">LGPD</p>
+              <div className="mb-3 grid gap-2">
+                {consentsQuery.isLoading ? (
+                  <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-xs text-lovable-ink-muted">
+                    Carregando consentimentos...
+                  </div>
+                ) : (
+                  CONSENT_ORDER.map((type) => {
+                    const item =
+                      currentConsents.find((consent) => consent.consent_type === type) ??
+                      ({
+                        consent_type: type,
+                        status: "missing",
+                        accepted: false,
+                        source: null,
+                        document_title: null,
+                        document_version: null,
+                        signed_at: null,
+                        revoked_at: null,
+                        expires_at: null,
+                        record_id: null,
+                        missing: true,
+                        expired: false,
+                      } satisfies MemberConsentCurrent);
+                    const busy = recordConsentMutation.isPending && recordConsentMutation.variables?.consentType === type;
+                    return (
+                      <div key={type} className="rounded-xl border border-lovable-border bg-lovable-surface-soft/50 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-lovable-ink">{CONSENT_LABELS[type]}</p>
+                            <p className="text-xs text-lovable-ink-muted">
+                              {item.document_version ? `Versao ${item.document_version}` : "Sem versao registrada"}
+                              {item.expires_at ? ` - vence em ${new Date(item.expires_at).toLocaleDateString("pt-BR")}` : ""}
+                            </p>
+                          </div>
+                          <Badge variant={consentBadgeVariant(item)}>{consentStatusLabel(item)}</Badge>
+                        </div>
+                        {canManageConsents ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => recordConsentMutation.mutate({ consentType: type, status: "accepted" })}
+                              disabled={busy}
+                              className="rounded-full border border-lovable-border px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted hover:bg-lovable-surface disabled:opacity-50"
+                            >
+                              {busy ? "..." : "Marcar aceite"}
+                            </button>
+                            {item.accepted ? (
+                              <button
+                                type="button"
+                                onClick={() => recordConsentMutation.mutate({ consentType: type, status: "revoked" })}
+                                disabled={busy}
+                                className="rounded-full border border-lovable-danger/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-lovable-danger hover:bg-lovable-danger/5 disabled:opacity-50"
+                              >
+                                Revogar
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
               <div className="flex flex-wrap gap-2">
                 {canExport ? (
                   <button

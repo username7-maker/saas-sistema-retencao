@@ -7,6 +7,12 @@ from app.schemas.ai_triage import (
     AITriageSafeActionPrepareInput,
     AITriageSafeActionPreparedRead,
 )
+from app.schemas.acquisition import (
+    AcquisitionCaptureInput,
+    AcquisitionCaptureResponse,
+    AcquisitionLeadSummaryOut,
+    AcquisitionQualificationOut,
+)
 from app.schemas.assistant import AIAssistantPayload
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
@@ -29,6 +35,12 @@ from app.schemas.assessment import (
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
 from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
+from app.schemas.compliance import (
+    MemberConsentCurrentOut,
+    MemberConsentRecordCreate,
+    MemberConsentRecordOut,
+    MemberConsentSummaryOut,
+)
 from app.schemas.core_async_job import CoreAsyncJobAcceptedResponse, CoreAsyncJobStatusRead
 from app.schemas.dashboard import (
     BICohortPoint,
@@ -51,7 +63,20 @@ from app.schemas.dashboard import (
     RevenuePoint,
     WeeklySummary,
 )
+from app.schemas.finance import (
+    DREBasicOut,
+    FinanceFoundationSummaryOut,
+    FinancialEntryCreate,
+    FinancialEntryOut,
+    FinancialEntryUpdate,
+)
 from app.schemas.goal import GoalCreate, GoalOut, GoalProgressOut, GoalUpdate
+from app.schemas.growth import (
+    GrowthAudienceOut,
+    GrowthOpportunityOut,
+    GrowthOpportunityPrepareInput,
+    GrowthOpportunityPreparedOut,
+)
 from app.schemas.imports import (
     ImportErrorEntry,
     ImportPreview,
@@ -113,6 +138,10 @@ __all__ = [
     "AITriageRecommendedOwner",
     "AITriageSafeActionPrepareInput",
     "AITriageSafeActionPreparedRead",
+    "AcquisitionCaptureInput",
+    "AcquisitionCaptureResponse",
+    "AcquisitionLeadSummaryOut",
+    "AcquisitionQualificationOut",
     "AIAssistantPayload",
     "AssessmentCreate",
     "ActuarConnectionTestResult",
@@ -139,10 +168,19 @@ __all__ = [
     "CheckinCreate",
     "CheckinOut",
     "ConversionBySource",
+    "DREBasicOut",
     "ExecutiveDashboard",
     "EvolutionOut",
+    "FinanceFoundationSummaryOut",
     "FinancialDashboard",
+    "FinancialEntryCreate",
+    "FinancialEntryOut",
+    "FinancialEntryUpdate",
     "GrowthPoint",
+    "GrowthAudienceOut",
+    "GrowthOpportunityOut",
+    "GrowthOpportunityPrepareInput",
+    "GrowthOpportunityPreparedOut",
     "GoalCreate",
     "GoalOut",
     "GoalProgressOut",
@@ -163,6 +201,10 @@ __all__ = [
     "LeadToMemberIntelligenceContextOut",
     "LTVPoint",
     "MemberCreate",
+    "MemberConsentCurrentOut",
+    "MemberConsentRecordCreate",
+    "MemberConsentRecordOut",
+    "MemberConsentSummaryOut",
     "MemberConstraintsOut",
     "MemberConstraintsUpsert",
     "MemberGoalCreate",

@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Clock3, MessageSquareText, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, Clock3, Megaphone, MessageSquareText, Target, Users } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -13,7 +13,7 @@ import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonLis
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { crmService, normalizeLeadNotes } from "../../services/crmService";
 import { memberService } from "../../services/memberService";
-import type { Lead, LeadNoteEntry } from "../../types";
+import type { AcquisitionLeadSummary, GrowthAudience, GrowthAudienceId, GrowthOpportunity, Lead, LeadNoteEntry } from "../../types";
 import { canDeleteLead, canMutateCrm } from "../../utils/roleAccess";
 
 const LEAD_SOURCES = [
@@ -25,6 +25,12 @@ const LEAD_SOURCES = [
   "Telefone",
   "Presencial",
   "Outro",
+] as const;
+
+const PREFERRED_SHIFT_OPTIONS = [
+  { value: "manha", label: "Manha" },
+  { value: "tarde", label: "Tarde" },
+  { value: "noite", label: "Noite" },
 ] as const;
 
 const LEAD_STAGE_VALUES = [
@@ -87,13 +93,41 @@ const CONTACT_FILTER_OPTIONS: { value: ContactFilter; label: string }[] = [
   { value: "recent_3", label: "Contato recente" },
 ];
 
-const NEGOTIATION_STAGES = new Set<Lead["stage"]>(["trial", "proposal", "meeting_scheduled", "proposal_sent"]);
+const GROWTH_PRIORITY_BADGE: Record<GrowthOpportunity["priority"], { label: string; variant: "neutral" | "success" | "warning" | "danger" }> = {
+  low: { label: "Baixa", variant: "neutral" },
+  medium: { label: "Media", variant: "warning" },
+  high: { label: "Alta", variant: "warning" },
+  urgent: { label: "Urgente", variant: "danger" },
+};
+
+const GROWTH_CHANNEL_LABEL: Record<GrowthOpportunity["channel"], string> = {
+  whatsapp: "WhatsApp",
+  email: "E-mail",
+  task: "Tarefa",
+  crm_note: "Nota CRM",
+  kommo: "Kommo",
+};
+
+const QUALIFICATION_BADGE_MAP: Record<string, { label: string; variant: "success" | "warning" | "neutral" }> = {
+  hot: { label: "Quente", variant: "success" },
+  warm: { label: "Morno", variant: "warning" },
+  cold: { label: "Frio", variant: "neutral" },
+};
 
 const leadSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   email: z.string().email("E-mail invalido").optional().or(z.literal("")),
   phone: z.string().optional(),
   source: z.string().optional(),
+  channel: z.string().optional(),
+  campaign: z.string().optional(),
+  desired_goal: z.string().optional(),
+  preferred_shift: z.string().optional(),
+  trial_interest: z.boolean().default(false),
+  scheduled_for: z.string().optional(),
+  consent_lgpd: z.boolean().default(false),
+  consent_communication: z.boolean().default(false),
+  qualification_urgency: z.string().optional(),
   stage: z.enum(LEAD_STAGE_VALUES),
   estimated_value: z.coerce.number().min(0, "Valor nao pode ser negativo").optional(),
   notes: z.string().optional(),
@@ -163,6 +197,8 @@ function leadNoteTypeLabel(note: LeadNoteEntry): string {
   if (note.type === "contact_log") return "Contato";
   if (note.type === "public_booking") return "Booking";
   if (note.type === "public_diagnosis_requested") return "Diagnostico";
+  if (note.type === "acquisition_capture") return "Captura";
+  if (note.type === "acquisition_qualification") return "Qualificacao";
   return "Observacao";
 }
 
@@ -174,6 +210,70 @@ function leadNoteMeta(note: LeadNoteEntry): string {
   return parts.join(" · ");
 }
 
+function latestRawNoteByType(lead: Lead, type: string): Record<string, unknown> | null {
+  if (!Array.isArray(lead.notes)) return null;
+  for (const note of [...lead.notes].reverse()) {
+    if (typeof note === "object" && note !== null && !Array.isArray(note) && note.type === type) {
+      return note;
+    }
+  }
+  return null;
+}
+
+function stringField(note: Record<string, unknown> | null, key: string): string | null {
+  const value = note?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function booleanField(note: Record<string, unknown> | null, key: string): boolean | null {
+  const value = note?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function numberField(note: Record<string, unknown> | null, key: string): number | null {
+  const value = note?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && !Number.isNaN(Number(value))) return Number(value);
+  return null;
+}
+
+function stringArrayField(note: Record<string, unknown> | null, key: string): string[] {
+  const value = note?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function getAcquisitionSummaryFromLead(lead: Lead): AcquisitionLeadSummary | null {
+  const capture = latestRawNoteByType(lead, "acquisition_capture");
+  const qualification = latestRawNoteByType(lead, "acquisition_qualification");
+  if (!capture && !qualification) return null;
+  const scheduledFor = stringField(capture, "scheduled_for");
+
+  return {
+    lead_id: lead.id,
+    full_name: lead.full_name,
+    source: stringField(capture, "source") ?? lead.source ?? null,
+    channel: stringField(capture, "channel"),
+    campaign: stringField(capture, "campaign"),
+    desired_goal: stringField(capture, "desired_goal"),
+    preferred_shift: stringField(capture, "preferred_shift"),
+    qualification_score: numberField(qualification, "score"),
+    qualification_label: stringField(qualification, "label"),
+    next_action: stringField(qualification, "next_action"),
+    has_trial_booking: Boolean(scheduledFor),
+    next_booking_at: scheduledFor,
+    consent_lgpd: booleanField(capture, "consent_lgpd"),
+    consent_communication: booleanField(capture, "consent_communication"),
+    reasons: stringArrayField(qualification, "reasons"),
+    missing_fields: stringArrayField(qualification, "missing_fields"),
+  };
+}
+
+function qualificationBadge(summary: AcquisitionLeadSummary | null) {
+  if (!summary?.qualification_label) return null;
+  return QUALIFICATION_BADGE_MAP[summary.qualification_label] ?? { label: summary.qualification_label, variant: "neutral" as const };
+}
+
 function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
   return lead
     ? {
@@ -181,6 +281,15 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         email: lead.email ?? "",
         phone: lead.phone ?? "",
         source: lead.source ?? "",
+        channel: "",
+        campaign: "",
+        desired_goal: "",
+        preferred_shift: "",
+        trial_interest: false,
+        scheduled_for: "",
+        consent_lgpd: false,
+        consent_communication: false,
+        qualification_urgency: "",
         stage: lead.stage,
         estimated_value: lead.estimated_value,
         notes: "",
@@ -196,6 +305,15 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         email: "",
         phone: "",
         source: "",
+        channel: "",
+        campaign: "",
+        desired_goal: "",
+        preferred_shift: "",
+        trial_interest: false,
+        scheduled_for: "",
+        consent_lgpd: false,
+        consent_communication: false,
+        qualification_urgency: "",
         stage: "new",
         estimated_value: 0,
         notes: "",
@@ -206,14 +324,6 @@ function buildLeadDefaults(lead?: Lead | null): LeadFormValues {
         handoff_email_confirmed: false,
         handoff_phone_confirmed: false,
       };
-}
-
-function isInCurrentMonth(isoDate: string | null): boolean {
-  if (!isoDate) return false;
-  const parsed = new Date(isoDate);
-  if (Number.isNaN(parsed.getTime())) return false;
-  const now = new Date();
-  return parsed.getMonth() === now.getMonth() && parsed.getFullYear() === now.getFullYear();
 }
 
 function getContactAlert(lead: Lead): { label: string; variant: "warning" | "danger" } | null {
@@ -265,6 +375,184 @@ interface LeadFormDrawerProps {
   onSaved: () => void;
 }
 
+function AcquisitionSummaryCard({ lead }: { lead: Lead }) {
+  const summary = getAcquisitionSummaryFromLead(lead);
+  const badge = qualificationBadge(summary);
+  if (!summary) return null;
+
+  return (
+    <div className="rounded-2xl border border-lovable-primary/25 bg-lovable-primary-soft/20 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader
+          title="Acquisition OS"
+          subtitle="Origem, qualificacao e proxima acao capturadas antes do CRM."
+        />
+        {badge ? <Badge variant={badge.variant}>Lead {badge.label}</Badge> : null}
+      </div>
+      <div className="grid gap-3 text-sm text-lovable-ink md:grid-cols-2">
+        <div className="rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">Origem / campanha</p>
+          <p className="mt-1 font-semibold">{[summary.channel, summary.campaign].filter(Boolean).join(" / ") || summary.source || "Sem rastreio"}</p>
+        </div>
+        <div className="rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">Score de propensao</p>
+          <p className="mt-1 font-semibold">{summary.qualification_score ?? "--"} pts</p>
+        </div>
+        <div className="rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">Turno preferido</p>
+          <p className="mt-1 font-semibold">{summary.preferred_shift || "Nao informado"}</p>
+        </div>
+        <div className="rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">Aula experimental</p>
+          <p className="mt-1 font-semibold">{summary.next_booking_at ? formatDateTime(summary.next_booking_at) : "Nao agendada"}</p>
+        </div>
+      </div>
+      {summary.next_action ? (
+        <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2 text-sm text-lovable-ink">
+          <p className="text-[11px] uppercase tracking-widest text-lovable-ink-muted">Proxima melhor acao</p>
+          <p className="mt-1 font-semibold">{summary.next_action}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface GrowthOsPanelProps {
+  audiences: GrowthAudience[];
+  selectedAudienceId: GrowthAudienceId | "all";
+  onSelectAudience: (audienceId: GrowthAudienceId | "all") => void;
+  onPrepare: (opportunity: GrowthOpportunity) => void;
+  preparingOpportunityId: string | null;
+  canPrepare: boolean;
+}
+
+function GrowthOsPanel({
+  audiences,
+  selectedAudienceId,
+  onSelectAudience,
+  onPrepare,
+  preparingOpportunityId,
+  canPrepare,
+}: GrowthOsPanelProps) {
+  const total = audiences.reduce((sum, audience) => sum + audience.count, 0);
+  const selectedAudiences =
+    selectedAudienceId === "all"
+      ? audiences
+      : audiences.filter((audience) => audience.id === selectedAudienceId);
+  const visibleItems = selectedAudiences.flatMap((audience) => audience.items).slice(0, 8);
+
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <SectionHeader
+            title="Growth OS"
+            subtitle="Audiencias acionaveis para conversao, reativacao, renovacao, NPS e indicacao."
+            count={total}
+          />
+          <Badge variant={total > 0 ? "warning" : "neutral"}>{total} oportunidade(s)</Badge>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={selectedAudienceId === "all" ? "primary" : "secondary"}
+            onClick={() => onSelectAudience("all")}
+          >
+            Todas
+          </Button>
+          {audiences.map((audience) => (
+            <Button
+              key={audience.id}
+              type="button"
+              size="sm"
+              variant={selectedAudienceId === audience.id ? "primary" : "secondary"}
+              onClick={() => onSelectAudience(audience.id)}
+            >
+              {audience.label}
+              <span className="rounded-full bg-lovable-surface px-2 py-0.5 text-[11px]">{audience.count}</span>
+            </Button>
+          ))}
+        </div>
+
+        {selectedAudiences.length > 0 ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {selectedAudiences.slice(0, 3).map((audience) => (
+              <div key={audience.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft/35 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-lovable-ink">{audience.label}</p>
+                  <Badge variant={GROWTH_PRIORITY_BADGE[audience.priority].variant}>
+                    {GROWTH_PRIORITY_BADGE[audience.priority].label}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-lovable-ink-muted">{audience.summary}</p>
+                <p className="mt-3 text-[11px] uppercase tracking-widest text-lovable-ink-muted">Teste sugerido</p>
+                <p className="mt-1 text-xs text-lovable-ink">{audience.experiment_hint}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-5 space-y-2">
+          {visibleItems.length === 0 ? (
+            <EmptyState
+              icon={Megaphone}
+              title="Nenhuma oportunidade de growth agora"
+              description="Quando houver leads quentes, alunos inativos, NPS baixo ou promotores, eles aparecem aqui com a proxima acao."
+            />
+          ) : (
+            visibleItems.map((item) => {
+              const priority = GROWTH_PRIORITY_BADGE[item.priority];
+              const isPreparing = preparingOpportunityId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="grid gap-3 rounded-xl border border-lovable-border bg-lovable-surface-soft/30 px-4 py-3 lg:grid-cols-[minmax(0,2fr)_1fr_auto]"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-lovable-ink">{item.display_name}</p>
+                      <Badge variant={priority.variant}>{priority.label}</Badge>
+                      <Badge variant={item.consent_ok || !item.consent_required ? "success" : "warning"}>
+                        {item.consent_ok || !item.consent_required ? "Contato liberado" : "Revisar consentimento"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-lovable-ink">{item.action_label}</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">{item.reason}</p>
+                  </div>
+                  <div className="text-xs text-lovable-ink-muted">
+                    <p>
+                      <span className="font-semibold text-lovable-ink">Canal:</span> {GROWTH_CHANNEL_LABEL[item.channel]}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-lovable-ink">Turno:</span> {item.preferred_shift || "Nao informado"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-lovable-ink">Score:</span> {item.score}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-start lg:justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="primary"
+                      disabled={!canPrepare || isPreparing}
+                      onClick={() => onPrepare(item)}
+                    >
+                      {isPreparing ? "Preparando..." : item.channel === "whatsapp" ? "Preparar WhatsApp" : "Criar tarefa"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDrawerProps) {
   const isEditing = Boolean(lead);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -306,9 +594,9 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
   }, [lead, reset]);
 
   const createMutation = useMutation({
-    mutationFn: crmService.createLead,
+    mutationFn: crmService.captureAcquisitionLead,
     onSuccess: () => {
-      toast.success("Lead criado com sucesso!");
+      toast.success("Lead capturado e qualificado com sucesso!");
       reset(buildLeadDefaults(null));
       onSaved();
       onClose();
@@ -381,15 +669,19 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
       full_name: values.full_name,
       email: values.email || undefined,
       phone: values.phone || undefined,
-      source: values.source || undefined,
+      source: values.source || "landing_page",
+      channel: values.channel || undefined,
+      campaign: values.campaign || undefined,
+      desired_goal: values.desired_goal || undefined,
+      preferred_shift: values.preferred_shift || undefined,
+      trial_interest: values.trial_interest,
+      scheduled_for: values.scheduled_for ? new Date(values.scheduled_for).toISOString() : undefined,
+      consent_lgpd: values.consent_lgpd,
+      consent_communication: values.consent_communication,
+      operator_note: values.notes || undefined,
+      qualification_answers: values.qualification_urgency ? { urgency: values.qualification_urgency } : undefined,
       estimated_value: values.estimated_value,
-      notes: values.notes
-        ? values.notes
-            .split(/\r?\n/)
-            .map((note) => note.trim())
-            .filter(Boolean)
-            .map((note) => ({ note }))
-        : undefined,
+      acquisition_cost: 0,
     });
   }
 
@@ -461,6 +753,72 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
               </FormField>
             </div>
           </div>
+
+          {isEditing && lead ? <AcquisitionSummaryCard lead={lead} /> : null}
+
+          {!isEditing ? (
+            <div className="rounded-2xl border border-lovable-primary/25 bg-lovable-primary-soft/20 p-4">
+              <SectionHeader
+                title="Captura AI-first"
+                subtitle="Dados que ajudam a direcionar o lead certo para o responsavel certo."
+              />
+              <div className="grid gap-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormField label="Canal">
+                    <Input {...register("channel")} placeholder="Ex: Instagram Ads, Google, recepcao" readOnly={readOnly} disabled={readOnly} />
+                  </FormField>
+                  <FormField label="Campanha">
+                    <Input {...register("campaign")} placeholder="Ex: Desafio Verao, Indicacao, Aula gratis" readOnly={readOnly} disabled={readOnly} />
+                  </FormField>
+                </div>
+
+                <FormField label="Objetivo declarado">
+                  <Textarea
+                    {...register("desired_goal")}
+                    placeholder="Ex: emagrecer, ganhar massa, voltar a treinar, melhorar dor nas costas."
+                    rows={2}
+                    readOnly={readOnly}
+                    disabled={readOnly}
+                  />
+                </FormField>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormField label="Turno preferido">
+                    <Select {...register("preferred_shift")} disabled={readOnly}>
+                      <option value="">Nao informado</option>
+                      {PREFERRED_SHIFT_OPTIONS.map((shift) => (
+                        <option key={shift.value} value={shift.value}>
+                          {shift.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <FormField label="Aula experimental">
+                    <Input {...register("scheduled_for")} type="datetime-local" readOnly={readOnly} disabled={readOnly} />
+                  </FormField>
+                </div>
+
+                <FormField label="Urgencia / prazo">
+                  <Input {...register("qualification_urgency")} placeholder="Ex: quer comecar essa semana" readOnly={readOnly} disabled={readOnly} />
+                </FormField>
+
+                <div className="grid gap-3 text-sm text-lovable-ink md:grid-cols-3">
+                  <label className="flex items-center gap-2 rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+                    <input type="checkbox" {...register("trial_interest")} className="h-4 w-4 rounded border-lovable-border" disabled={readOnly} />
+                    Quer aula experimental
+                  </label>
+                  <label className="flex items-center gap-2 rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+                    <input type="checkbox" {...register("consent_lgpd")} className="h-4 w-4 rounded border-lovable-border" disabled={readOnly} />
+                    Consentiu LGPD
+                  </label>
+                  <label className="flex items-center gap-2 rounded-xl border border-lovable-border bg-lovable-surface/60 px-3 py-2">
+                    <input type="checkbox" {...register("consent_communication")} className="h-4 w-4 rounded border-lovable-border" disabled={readOnly} />
+                    Pode receber contato
+                  </label>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {isEditing && lead?.converted_member_id ? (
             <MemberIntelligenceMiniCard
@@ -601,7 +959,7 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
           <div className="flex gap-2 pt-2">
             {!readOnly ? (
               <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-                {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Criar Lead"}
+                {isPending ? "Salvando..." : isEditing ? "Salvar alteracoes" : "Capturar e qualificar lead"}
               </Button>
             ) : null}
             <Button type="button" variant="ghost" onClick={onClose} className={readOnly ? "flex-1" : undefined}>
@@ -664,6 +1022,7 @@ export function CrmPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | Lead["stage"]>("all");
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
+  const [selectedGrowthAudienceId, setSelectedGrowthAudienceId] = useState<GrowthAudienceId | "all">("all");
   const { user } = useAuth();
   const canMutate = canMutateCrm(user?.role);
 
@@ -673,6 +1032,12 @@ export function CrmPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const growthAudiencesQuery = useQuery({
+    queryKey: ["crm", "growth", "audiences"],
+    queryFn: crmService.listGrowthAudiences,
+    staleTime: 2 * 60 * 1000,
+  });
+
   const moveMutation = useMutation({
     mutationFn: ({ leadId, stage }: { leadId: string; stage: Lead["stage"] }) => crmService.updateLeadStage(leadId, stage),
     onSuccess: () => {
@@ -680,6 +1045,28 @@ export function CrmPage() {
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "commercial"] });
     },
     onError: () => toast.error("Nao foi possivel mover o lead."),
+  });
+
+  const prepareGrowthMutation = useMutation({
+    mutationFn: (opportunity: GrowthOpportunity) =>
+      crmService.prepareGrowthOpportunity(opportunity.id, {
+        channel: opportunity.channel,
+        create_task: opportunity.channel !== "whatsapp",
+      }),
+    onSuccess: (prepared) => {
+      if (prepared.warnings.length > 0) {
+        toast.error(prepared.warnings[0]);
+      } else {
+        toast.success(prepared.task_id ? "Tarefa criada para execucao." : "Acao preparada com sucesso.");
+      }
+      if (prepared.whatsapp_url) {
+        window.open(prepared.whatsapp_url, "_blank", "noopener,noreferrer");
+      }
+      void queryClient.invalidateQueries({ queryKey: ["crm", "growth", "audiences"] });
+      void queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: () => toast.error("Nao foi possivel preparar esta oportunidade."),
   });
 
   useEffect(() => {
@@ -702,7 +1089,17 @@ export function CrmPage() {
 
     return allLeads.filter((lead) => {
       if (normalizedQuery) {
-        const haystack = normalizeText([lead.full_name, lead.email ?? "", lead.phone ?? "", lead.source ?? ""].join(" "));
+        const acquisition = getAcquisitionSummaryFromLead(lead);
+        const haystack = normalizeText([
+          lead.full_name,
+          lead.email ?? "",
+          lead.phone ?? "",
+          lead.source ?? "",
+          acquisition?.channel ?? "",
+          acquisition?.campaign ?? "",
+          acquisition?.desired_goal ?? "",
+          acquisition?.preferred_shift ?? "",
+        ].join(" "));
         if (!haystack.includes(normalizedQuery)) {
           return false;
         }
@@ -744,14 +1141,15 @@ export function CrmPage() {
   const kpiItems = useMemo(() => {
     const total = allLeads.length;
     const totalActive = allLeads.filter((lead) => lead.stage !== "won" && lead.stage !== "lost").length;
-    const negotiation = allLeads.filter((lead) => NEGOTIATION_STAGES.has(lead.stage)).length;
-    const wonThisMonth = allLeads.filter((lead) => lead.stage === "won" && isInCurrentMonth(lead.updated_at)).length;
     const conversionRate = total > 0 ? (allLeads.filter((lead) => lead.stage === "won").length / total) * 100 : 0;
+    const acquisitionSummaries = allLeads.map(getAcquisitionSummaryFromLead).filter((summary): summary is AcquisitionLeadSummary => summary !== null);
+    const hotLeads = acquisitionSummaries.filter((summary) => summary.qualification_label === "hot").length;
+    const trialScheduled = acquisitionSummaries.filter((summary) => summary.has_trial_booking).length;
 
     return [
       { label: "Total ativos", value: totalActive, tone: "neutral" as const },
-      { label: "Em negociacao", value: negotiation, tone: "warning" as const },
-      { label: "Fechados no mes", value: wonThisMonth, tone: "success" as const },
+      { label: "Leads quentes", value: hotLeads, tone: "success" as const },
+      { label: "Aulas agendadas", value: trialScheduled, tone: "warning" as const },
       { label: "Taxa de conversao", value: `${conversionRate.toFixed(1)}%`, tone: "success" as const },
     ];
   }, [allLeads]);
@@ -841,12 +1239,39 @@ export function CrmPage() {
         subtitle="Pipeline de conversao e gestao de leads"
         actions={canMutate ? (
           <Button variant="primary" onClick={handleNewLead}>
-            Novo Lead
+            Nova captura
           </Button>
         ) : undefined}
       />
 
       <KPIStrip items={kpiItems} />
+
+      {growthAudiencesQuery.isError ? (
+        <Card>
+          <CardContent className="pt-5">
+            <EmptyState
+              icon={AlertTriangle}
+              title="Growth OS indisponivel"
+              description="O CRM continua funcionando, mas as audiencias de campanha nao carregaram agora."
+            />
+          </CardContent>
+        </Card>
+      ) : growthAudiencesQuery.isLoading ? (
+        <Card>
+          <CardContent className="pt-5">
+            <SkeletonList rows={3} cols={3} />
+          </CardContent>
+        </Card>
+      ) : (
+        <GrowthOsPanel
+          audiences={growthAudiencesQuery.data ?? []}
+          selectedAudienceId={selectedGrowthAudienceId}
+          onSelectAudience={setSelectedGrowthAudienceId}
+          onPrepare={(opportunity) => prepareGrowthMutation.mutate(opportunity)}
+          preparingOpportunityId={prepareGrowthMutation.variables?.id ?? null}
+          canPrepare={canMutate}
+        />
+      )}
 
       <div className="space-y-4">
         <FilterBar
@@ -925,13 +1350,15 @@ export function CrmPage() {
               icon={Users}
               title="Nenhum lead encontrado"
               description={canMutate ? "Tente ajustar os filtros ou adicione um novo lead" : "Tente ajustar os filtros para localizar um lead."}
-              action={canMutate ? { label: "Novo Lead", onClick: handleNewLead } : undefined}
+              action={canMutate ? { label: "Nova captura", onClick: handleNewLead } : undefined}
             />
           ) : (
             <div className="space-y-2">
               {filteredLeads.map((lead) => {
                 const nextStage = NEXT_STAGE[lead.stage];
                 const contactAlert = getContactAlert(lead);
+                const acquisition = getAcquisitionSummaryFromLead(lead);
+                const acquisitionBadge = qualificationBadge(acquisition);
                 const advancingThisLead = moveMutation.isPending && moveMutation.variables?.leadId === lead.id;
 
                 return (
@@ -950,8 +1377,34 @@ export function CrmPage() {
                           {lead.source || "Sem origem"}
                         </Badge>
                         <StatusBadge status={lead.stage} map={STAGE_BADGE_MAP} />
+                        {acquisitionBadge ? (
+                          <Badge variant={acquisitionBadge.variant} className="px-2 py-0.5 text-[11px] normal-case tracking-normal">
+                            {acquisition?.qualification_score ?? "--"} pts
+                          </Badge>
+                        ) : null}
                       </div>
                       <p className="mt-1 truncate text-xs text-lovable-ink-muted">{lead.email ?? lead.phone ?? "Sem contato principal"}</p>
+                      {acquisition ? (
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-lovable-ink-muted">
+                          {acquisition.channel ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-lovable-surface px-2 py-1">
+                              <Target size={12} />
+                              {acquisition.channel}
+                            </span>
+                          ) : null}
+                          {acquisition.preferred_shift ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-lovable-surface px-2 py-1">
+                              Turno {acquisition.preferred_shift}
+                            </span>
+                          ) : null}
+                          {acquisition.next_booking_at ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-lovable-surface px-2 py-1">
+                              <CalendarDays size={12} />
+                              Experimental agendada
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="space-y-1">
