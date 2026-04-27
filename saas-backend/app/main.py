@@ -62,6 +62,7 @@ from app.routers import (
     settings as settings_router,
     tasks,
     users,
+    work_queue,
     whatsapp,
 )
 from app.core.limiter import (
@@ -227,6 +228,7 @@ app.include_router(settings_router.router, prefix=settings.api_prefix)
 app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
 app.include_router(ai_triage.router, prefix=settings.api_prefix)
+app.include_router(work_queue.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

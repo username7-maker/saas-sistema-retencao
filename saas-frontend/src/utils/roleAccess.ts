@@ -9,7 +9,7 @@ export const ROUTE_ACCESS = {
   dashboardRetention: ["owner", "manager", "receptionist"],
   crm: ["owner", "manager", "salesperson", "receptionist"],
   aiTriage: ["owner", "manager", "receptionist"],
-  tasks: ["owner", "manager", "receptionist", "salesperson"],
+  tasks: ["owner", "manager", "receptionist", "salesperson", "trainer"],
   goals: ["owner", "manager"],
   reports: ["owner", "manager"],
   assessments: ["owner", "manager", "receptionist", "trainer"],

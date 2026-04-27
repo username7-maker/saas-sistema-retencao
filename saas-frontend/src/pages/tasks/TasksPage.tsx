@@ -13,9 +13,10 @@ import type { Member } from "../../types";
 import { TasksOnboardingTab } from "../../components/tasks/TasksOnboardingTab";
 import { TasksOperationalView } from "../../components/tasks/TasksOperationalView";
 import { isOnboardingActiveMember, type SourceFilter } from "../../components/tasks/taskUtils";
+import { WorkExecutionView } from "../../components/workQueue/WorkExecutionView";
 import { matchesPreferredShift } from "../../utils/preferredShift";
 
-type WorkspaceTab = "operations" | "onboarding";
+type WorkspaceTab = "execution" | "operations" | "onboarding";
 
 async function listAllMembers(): Promise<Member[]> {
   return memberService.listMemberIndex();
@@ -27,7 +28,7 @@ export function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamValue = searchParams.get("search") ?? "";
 
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("operations");
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("execution");
   const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
@@ -118,8 +119,11 @@ export function TasksPage() {
       <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="execution" className="flex-1 sm:min-w-[150px]">
+              Modo execucao
+            </TabsTrigger>
             <TabsTrigger value="operations" className="flex-1 sm:min-w-[150px]">
-              Operacao
+              Lista completa
             </TabsTrigger>
             <TabsTrigger value="onboarding" className="flex-1 sm:min-w-[150px]">
               Onboarding
@@ -131,6 +135,14 @@ export function TasksPage() {
             <Badge variant="warning">Onboarding ativo: {onboardingCount}</Badge>
           </div>
         </div>
+
+        <TabsContent value="execution">
+          <WorkExecutionView
+            source="all"
+            title="Modo execucao operacional"
+            subtitle="Fila unica de tasks e AI Inbox por turno. Comece a execucao, registre o resultado e avance sem abrir varias telas."
+          />
+        </TabsContent>
 
         <TabsContent value="operations">
           {tasksQuery.isLoading ? (

@@ -133,6 +133,49 @@ export interface AITriageMetricsSummary {
   same_day_prepared_total: number;
 }
 
+export type WorkQueueSourceType = "task" | "ai_triage";
+export type WorkQueueState = "do_now" | "awaiting_outcome" | "done";
+export type WorkQueueOutcome =
+  | "responded"
+  | "no_response"
+  | "scheduled_assessment"
+  | "will_return"
+  | "not_interested"
+  | "invalid_number"
+  | "postponed"
+  | "forwarded_to_trainer"
+  | "forwarded_to_reception"
+  | "completed";
+
+export interface WorkQueueItem {
+  source_type: WorkQueueSourceType;
+  source_id: string;
+  subject_name: string;
+  member_id: string | null;
+  lead_id: string | null;
+  domain: "retention" | "onboarding" | "assessment" | "commercial" | "manual" | string;
+  severity: "critical" | "high" | "medium" | "low" | "info" | string;
+  preferred_shift: "morning" | "afternoon" | "evening" | "unassigned" | string | null;
+  reason: string;
+  primary_action_label: string;
+  primary_action_type: string;
+  suggested_message: string | null;
+  requires_confirmation: boolean;
+  state: WorkQueueState;
+  due_at: string | null;
+  assigned_to_user_id: string | null;
+  context_path: string | null;
+  outcome_state: string | null;
+}
+
+export interface WorkQueueActionResult {
+  item: WorkQueueItem;
+  detail: string;
+  prepared_message: string | null;
+  context_path: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface Member {
   id: string;
   full_name: string;

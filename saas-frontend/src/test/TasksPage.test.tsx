@@ -7,6 +7,7 @@ import { TasksPage } from "../pages/tasks/TasksPage";
 import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
+import { workQueueService } from "../services/workQueueService";
 import type { Member, Task } from "../types";
 
 let currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null as "morning" | "afternoon" | "evening" | null };
@@ -42,6 +43,15 @@ vi.mock("../services/userService", () => ({
   },
 }));
 
+vi.mock("../services/workQueueService", () => ({
+  workQueueService: {
+    listItems: vi.fn(),
+    getItem: vi.fn(),
+    executeItem: vi.fn(),
+    updateOutcome: vi.fn(),
+  },
+}));
+
 let members: Member[] = [];
 let tasks: Task[] = [];
 
@@ -60,6 +70,11 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+async function openCompleteList() {
+  fireEvent.click(await screen.findByRole("button", { name: "Lista completa" }));
+  return screen.findByText("Precisa de atencao agora");
 }
 
 describe("TasksPage", () => {
@@ -356,6 +371,13 @@ describe("TasksPage", () => {
         created_at: "2026-03-01T00:00:00Z",
       },
     ]);
+
+    vi.mocked(workQueueService.listItems).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 25,
+    });
   });
 
   it("renders triage as the default operational view with fixed sections", async () => {
@@ -363,8 +385,18 @@ describe("TasksPage", () => {
 
     expect(screen.getByText("Tarefas")).toBeInTheDocument();
     expect(screen.getByText("Acompanhamento de acoes e follow-ups pendentes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Modo execucao" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lista completa" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
+    expect(await screen.findByText("Modo execucao operacional")).toBeInTheDocument();
+    expect(screen.getByText("Fila unica de tasks e AI Inbox por turno. Comece a execucao, registre o resultado e avance sem abrir varias telas.")).toBeInTheDocument();
+    expect(await screen.findByText("Nenhuma acao nessa fila")).toBeInTheDocument();
+  });
+
+  it("keeps the full operational list behind the advanced tab", async () => {
+    renderPage();
+    await openCompleteList();
+
     expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Triage" })).toBeInTheDocument();
     expect(screen.getByText("Total visiveis")).toBeInTheDocument();
@@ -380,7 +412,7 @@ describe("TasksPage", () => {
   it("does not duplicate triage tasks across sections and allows quick assign inline", async () => {
     renderPage();
 
-    expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
+    await openCompleteList();
     expect(screen.getByText("Lead: Lead Carlos")).toBeInTheDocument();
     expect(screen.getAllByText("Lead: Lead Carlos")).toHaveLength(1);
     expect(screen.getByText("Nenhuma task sem responsavel.")).toBeInTheDocument();
@@ -395,7 +427,7 @@ describe("TasksPage", () => {
   it("filters by only mine and clears filters", async () => {
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
+    await openCompleteList();
 
     fireEvent.click(screen.getByRole("button", { name: "So minhas" }));
 
@@ -417,7 +449,7 @@ describe("TasksPage", () => {
   it("supports quick action and an enriched detail drawer", async () => {
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
+    await openCompleteList();
 
     fireEvent.click(screen.getByRole("button", { name: /Editar Resolver atraso da Ana/i }));
 
@@ -450,7 +482,6 @@ describe("TasksPage", () => {
   it("keeps onboarding in a dedicated tab with journey buckets and the queue CTA", async () => {
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
     fireEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
@@ -459,7 +490,7 @@ describe("TasksPage", () => {
     expect(screen.getByText("Pendentes")).toBeInTheDocument();
     expect(screen.getAllByText("Sem responsavel").length).toBeGreaterThan(0);
     expect(screen.getByText("D0 / D1")).toBeInTheDocument();
-    expect(screen.getByText("D7")).toBeInTheDocument();
+    expect(screen.getAllByText("D7").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Ver tasks de onboarding" }));
 
@@ -504,7 +535,6 @@ describe("TasksPage", () => {
 
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
     fireEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     await screen.findByText("Intelligence de onboarding");
     fireEvent.click(screen.getByRole("button", { name: /Bruno Lima .*61/i }));
@@ -526,7 +556,7 @@ describe("TasksPage", () => {
 
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
+    await openCompleteList();
     expect(screen.getByRole("button", { name: "Meu turno: Manha" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Bruno Lima .*Enviar follow-up para Bruno/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ana Silva .*Resolver atraso da Ana/i })).toBeInTheDocument();
@@ -541,7 +571,7 @@ describe("TasksPage", () => {
   it("opens the create task drawer from the page header", async () => {
     renderPage();
 
-    await screen.findByText("Precisa de atencao agora");
+    await screen.findByText("Modo execucao operacional");
     fireEvent.click(screen.getByRole("button", { name: /\+ Nova Tarefa/i }));
 
     expect(await screen.findByText("Nova tarefa")).toBeInTheDocument();
@@ -557,6 +587,7 @@ describe("TasksPage", () => {
     });
 
     renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Lista completa" }));
 
     expect(await screen.findByText("Nenhuma tarefa cadastrada")).toBeInTheDocument();
     expect(screen.getByText("Crie a primeira task para comecar a organizar os follow-ups do time.")).toBeInTheDocument();

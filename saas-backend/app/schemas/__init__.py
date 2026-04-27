@@ -128,6 +128,12 @@ from app.schemas.sales import (
 )
 from app.schemas.settings import ActuarConnectionTestResult, ActuarSettingsRead, ActuarSettingsUpdate
 from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
+from app.schemas.work_queue import (
+    WorkQueueActionResultOut,
+    WorkQueueExecuteInput,
+    WorkQueueItemOut,
+    WorkQueueOutcomeInput,
+)
 
 __all__ = [
     "APIMessage",
@@ -269,4 +275,8 @@ __all__ = [
     "UserLogin",
     "UserOut",
     "UserRegister",
+    "WorkQueueActionResultOut",
+    "WorkQueueExecuteInput",
+    "WorkQueueItemOut",
+    "WorkQueueOutcomeInput",
 ]

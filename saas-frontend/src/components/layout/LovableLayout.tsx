@@ -101,7 +101,10 @@ const navGroups: NavGroup[] = [
 const trainerNavGroups: NavGroup[] = [
   {
     label: "Treino",
-    items: [{ to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" }],
+    items: [
+      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
+      { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
+    ],
   },
 ];
 
