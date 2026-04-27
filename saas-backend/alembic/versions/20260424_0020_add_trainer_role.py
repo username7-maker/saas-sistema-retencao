@@ -14,8 +14,8 @@ branch_labels = None
 depends_on = None
 
 
-ROLE_VALUES = "'owner', 'manager', 'salesperson', 'receptionist', 'trainer'"
-DOWN_ROLE_VALUES = "'owner', 'manager', 'salesperson', 'receptionist'"
+ROLE_VALUES = "'OWNER', 'MANAGER', 'SALESPERSON', 'RECEPTIONIST', 'TRAINER'"
+DOWN_ROLE_VALUES = "'OWNER', 'MANAGER', 'SALESPERSON', 'RECEPTIONIST'"
 
 
 def upgrade() -> None:
@@ -52,7 +52,7 @@ def downgrade() -> None:
     if bind.dialect.name != "postgresql":
         return
 
-    op.execute("UPDATE users SET role = 'receptionist' WHERE role = 'trainer'")
+    op.execute("UPDATE users SET role = 'RECEPTIONIST' WHERE role = 'TRAINER'")
     op.execute(
         f"""
         DO $$
