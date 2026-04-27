@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +20,23 @@ vi.mock("react-hot-toast", () => ({
     error: vi.fn(),
   },
 }));
+
+function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ReportsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
 
 describe("ReportsPage", () => {
   beforeEach(() => {
@@ -52,11 +70,7 @@ describe("ReportsPage", () => {
   });
 
   it("renders the premium catalog and downloads a management report", async () => {
-    render(
-      <MemoryRouter>
-        <ReportsPage />
-      </MemoryRouter>,
-    );
+    renderPage();
 
     expect(screen.getByRole("heading", { name: "Relatorios" })).toBeInTheDocument();
     expect(screen.getByText("Board packs de gestao")).toBeInTheDocument();
@@ -86,11 +100,7 @@ describe("ReportsPage", () => {
     }) as typeof window.setTimeout);
     const clearTimeoutSpy = vi.spyOn(window, "clearTimeout").mockImplementation(() => {});
 
-    render(
-      <MemoryRouter>
-        <ReportsPage />
-      </MemoryRouter>,
-    );
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Disparar relatorio mensal" }));
     await act(async () => {

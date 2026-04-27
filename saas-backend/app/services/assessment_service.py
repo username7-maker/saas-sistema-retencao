@@ -86,7 +86,9 @@ def create_assessment(
     if bmi_value is None:
         bmi_value = _to_decimal(data.get("bmi"))
 
+    member_gym_id = getattr(member, "gym_id", None)
     assessment = Assessment(
+        gym_id=member_gym_id,
         member_id=member_id,
         evaluator_id=evaluator_id,
         assessment_number=int(previous_count) + 1,
@@ -158,18 +160,24 @@ def _ensure_assessment_feedback_followup_task(
     if existing:
         return existing
 
+    gym_id = getattr(member, "gym_id", None) or getattr(assessment, "gym_id", None)
+    if gym_id is None:
+        return None
+
+    member_name = getattr(member, "full_name", "Aluno")
+    member_first_name = member_name.split()[0] if member_name else "Aluno"
     task = Task(
-        gym_id=member.gym_id,
+        gym_id=gym_id,
         member_id=member.id,
         assigned_to_user_id=evaluator_id,
-        title=f"Follow-up D+14 da avaliacao - {member.full_name}",
+        title=f"Follow-up D+14 da avaliacao - {member_name}",
         description="Verificar com o aluno o feedback do treino, aderencia inicial e necessidade de ajuste apos 14 dias da avaliacao.",
         priority=TaskPriority.MEDIUM,
         status=TaskStatus.TODO,
         kanban_column=TaskStatus.TODO.value,
         due_date=assessment.assessment_date + timedelta(days=_ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET),
         suggested_message=(
-            f"Oi, {member.full_name.split()[0]}! Ja se passaram 14 dias da sua avaliacao. "
+            f"Oi, {member_first_name}! Ja se passaram 14 dias da sua avaliacao. "
             "Quero entender como voce esta se sentindo com o treino e se precisamos ajustar alguma coisa."
         ),
         extra_data={

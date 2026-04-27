@@ -29,6 +29,7 @@ vi.mock("../services/crmService", async () => {
       ...actual.crmService,
       listLeads: vi.fn(),
       createLead: vi.fn(),
+      captureAcquisitionLead: vi.fn(),
       updateLead: vi.fn(),
       appendLeadNote: vi.fn(),
       updateLeadStage: vi.fn(),
@@ -131,6 +132,36 @@ describe("CrmPage", () => {
     authState.user = { id: "owner-1", full_name: "Owner Teste", role: "owner" };
     vi.mocked(crmService.listLeads).mockResolvedValue(response);
     vi.mocked(crmService.createLead).mockResolvedValue(leads[0]);
+    vi.mocked(crmService.captureAcquisitionLead).mockResolvedValue({
+      lead: leads[0],
+      booking: null,
+      qualification: {
+        score: 80,
+        label: "hot",
+        next_action: "Contatar lead",
+        recommended_stage: "contact",
+        reasons: [],
+        missing_fields: [],
+      },
+      summary: {
+        lead_id: "lead-1",
+        full_name: "Ana Silva",
+        source: "Instagram",
+        channel: null,
+        campaign: null,
+        desired_goal: null,
+        preferred_shift: null,
+        qualification_score: 80,
+        qualification_label: "hot",
+        next_action: "Contatar lead",
+        has_trial_booking: false,
+        next_booking_at: null,
+        consent_lgpd: null,
+        consent_communication: null,
+        reasons: [],
+        missing_fields: [],
+      },
+    });
     vi.mocked(crmService.updateLead).mockResolvedValue(leads[1]);
     vi.mocked(crmService.appendLeadNote).mockResolvedValue({
       ...leads[1],
@@ -156,8 +187,8 @@ describe("CrmPage", () => {
     expect(screen.getByText("CRM")).toBeInTheDocument();
     expect(screen.getByText("Pipeline de conversao e gestao de leads")).toBeInTheDocument();
     expect(screen.getByText("Total ativos")).toBeInTheDocument();
-    expect(screen.getByText("Em negociacao")).toBeInTheDocument();
-    expect(screen.getByText("Fechados no mes")).toBeInTheDocument();
+    expect(screen.getByText("Leads quentes")).toBeInTheDocument();
+    expect(screen.getByText("Aulas agendadas")).toBeInTheDocument();
     expect(screen.getByText("Taxa de conversao")).toBeInTheDocument();
     expect(screen.getByText("Resumo por estagio")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Estagio" })).toBeInTheDocument();
@@ -257,19 +288,19 @@ describe("CrmPage", () => {
 
     await screen.findByText("Ana Silva");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Novo Lead" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova captura" })[0]);
     fireEvent.change(screen.getByPlaceholderText("Nome completo"), {
       target: { value: "Diego Costa" },
     });
     fireEvent.change(screen.getByPlaceholderText("email@exemplo.com"), {
       target: { value: "diego@teste.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Criar Lead" }));
+    fireEvent.click(screen.getByRole("button", { name: "Capturar e qualificar lead" }));
 
     await waitFor(() => {
-      expect(crmService.createLead).toHaveBeenCalled();
+      expect(crmService.captureAcquisitionLead).toHaveBeenCalled();
     });
-    expect(vi.mocked(crmService.createLead).mock.calls[0]?.[0]).toEqual(
+    expect(vi.mocked(crmService.captureAcquisitionLead).mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         full_name: "Diego Costa",
         email: "diego@teste.com",
@@ -297,7 +328,7 @@ describe("CrmPage", () => {
 
     expect(await screen.findByText("Nenhum lead encontrado")).toBeInTheDocument();
     expect(screen.getByText("Tente ajustar os filtros ou adicione um novo lead")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Novo Lead" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Nova captura" }).length).toBeGreaterThan(0);
   });
 
   it("renders CRM in read-only mode for receptionist without mutation CTAs", async () => {
@@ -311,7 +342,7 @@ describe("CrmPage", () => {
     expect(screen.queryByRole("button", { name: "Salvar alteracoes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Adicionar ao historico/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Avancar estagio/i })).not.toBeInTheDocument();
-    expect(screen.queryAllByRole("button", { name: "Novo Lead" })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: "Nova captura" })).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Fechar" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remover Lead" })).not.toBeInTheDocument();
   });

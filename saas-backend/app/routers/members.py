@@ -369,6 +369,8 @@ def member_timeline_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
+    if current_user.role == RoleEnum.TRAINER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissao insuficiente")
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     return get_member_timeline(db, member_id, limit=limit)
 

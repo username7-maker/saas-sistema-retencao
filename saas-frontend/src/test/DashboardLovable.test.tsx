@@ -30,6 +30,7 @@ const dashboardHooks = vi.hoisted(() => ({
   useRetentionDashboard: vi.fn(),
   useChurnDashboard: vi.fn(),
   useWeeklySummary: vi.fn(),
+  useBIFoundationDashboard: vi.fn(),
 }));
 
 vi.mock("../hooks/useDashboard", () => dashboardHooks);
@@ -131,6 +132,24 @@ const churnData = [
   { month: "2026-03", churn_rate: 3.8 },
 ];
 
+const biFoundationData = {
+  generated_at: "2026-03-20T10:00:00Z",
+  cohort: [{ month: "2026-03", joined: 10, active: 8, retained_rate: 80, mrr: 12000 }],
+  ltv: [{ month: "2026-03", ltv: 900 }],
+  forecast: [{ horizon_months: 3, projected_revenue: 55000 }],
+  revenue_at_risk: 6200,
+  revenue_at_risk_members: 6,
+  follow_up_impact: {
+    prepared_actions_30d: 12,
+    positive_outcomes_30d: 7,
+    completed_followups_30d: 9,
+    retention_contacts_30d: 11,
+    acceptance_rate: 58.3,
+    data_quality: "ready",
+  },
+  data_quality_flags: [],
+};
+
 const weeklySummaryData = {
   checkins_this_week: 342,
   checkins_last_week: 320,
@@ -159,6 +178,7 @@ describe("DashboardLovable", () => {
     dashboardHooks.useRetentionDashboard.mockReturnValue(queryResult(retentionData));
     dashboardHooks.useChurnDashboard.mockReturnValue(queryResult(churnData));
     dashboardHooks.useWeeklySummary.mockReturnValue(queryResult(weeklySummaryData));
+    dashboardHooks.useBIFoundationDashboard.mockReturnValue(queryResult(biFoundationData));
   });
 
   it("renders the reorganized dashboard with header, KPIs, weekly summary, chart toggle, AI and ROI", async () => {

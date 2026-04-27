@@ -339,7 +339,7 @@ def get_financial_dashboard(db: Session) -> dict:
 
     resolved_gym_id = _resolve_dashboard_gym_id()
     revenue = _revenue_series(db, 12, gym_id=resolved_gym_id)
-    summary = get_finance_foundation_summary(db, gym_id=resolved_gym_id)
+    summary = get_finance_foundation_summary(db, gym_id=resolved_gym_id) if resolved_gym_id is not None else None
 
     growth_last = get_growth_mom_dashboard(db, months=6)
     avg_growth = sum(point.growth_mom for point in growth_last) / max(len(growth_last), 1)
@@ -349,6 +349,32 @@ def get_financial_dashboard(db: Session) -> dict:
         ProjectionPoint(horizon_months=6, projected_revenue=round(current_mrr * (1 + avg_growth / 100) ** 6, 2)),
         ProjectionPoint(horizon_months=12, projected_revenue=round(current_mrr * (1 + avg_growth / 100) ** 12, 2)),
     ]
+    if summary is None:
+        delinquent = db.scalar(
+            select(func.count())
+            .select_from(Member)
+            .where(Member.deleted_at.is_(None), Member.status == MemberStatus.ACTIVE, Member.risk_level == RiskLevel.RED)
+        ) or 0
+        active = db.scalar(
+            select(func.count()).select_from(Member).where(Member.deleted_at.is_(None), Member.status == MemberStatus.ACTIVE)
+        ) or 0
+        payload = {
+            "monthly_revenue": revenue,
+            "delinquency_rate": round((float(delinquent) / max(float(active), 1.0)) * 100, 2),
+            "projections": projections,
+            "daily_cash_in": 0.0,
+            "daily_cash_out": 0.0,
+            "daily_net_cash": 0.0,
+            "open_receivables": 0.0,
+            "open_payables": 0.0,
+            "overdue_receivables": 0.0,
+            "overdue_payables": 0.0,
+            "revenue_at_risk": 0.0,
+            "dre_basic": {"revenue": 0.0, "expenses": 0.0, "net_result": 0.0, "margin_pct": None},
+            "data_quality_flags": ["missing_financial_entry_base"],
+        }
+        _cache_dashboard_payload(cache_key, FinancialDashboard, payload)
+        return payload
 
     payload = {
         "monthly_revenue": revenue,
@@ -1105,14 +1131,18 @@ def _revenue_series(db: Session, months: int, *, gym_id=None) -> list[RevenuePoi
     if materialized:
         points: list[RevenuePoint] = []
         for row in materialized:
-            entry_revenue = get_monthly_financial_entry_revenue(db, gym_id=gym_id or _resolve_dashboard_gym_id(), month_label=str(row["month"]))
+            entry_revenue = (
+                get_monthly_financial_entry_revenue(db, gym_id=gym_id, month_label=str(row["month"]))
+                if gym_id is not None
+                else None
+            )
             points.append(RevenuePoint(month=str(row["month"]), value=float(entry_revenue) if entry_revenue is not None else float(row["mrr"])))
         return points
 
     labels = _month_labels(months)
     points: list[RevenuePoint] = []
     for label in labels:
-        entry_revenue = get_monthly_financial_entry_revenue(db, gym_id=gym_id or _resolve_dashboard_gym_id(), month_label=label)
+        entry_revenue = get_monthly_financial_entry_revenue(db, gym_id=gym_id, month_label=label) if gym_id is not None else None
         if entry_revenue is not None:
             points.append(RevenuePoint(month=label, value=float(entry_revenue)))
             continue
