@@ -1,8 +1,9 @@
 """Redis-based distributed lock for background scheduler jobs.
 
 Prevents duplicate job execution when multiple backend instances are running
-(e.g. Railway auto-scaling). If Redis is unavailable, jobs run without
-locking (prefer occasional duplicate over silent skip).
+(e.g. Railway auto-scaling). When REDIS_URL is configured, Redis is treated as
+mandatory for scheduler safety: lock acquisition failures skip the job instead
+of running duplicate side effects.
 """
 
 import functools
@@ -52,7 +53,7 @@ def _log_lock_event(
 
 def _get_redis() -> "Redis | None":
     global _redis_client, _redis_checked
-    if _redis_checked:
+    if _redis_checked and (_redis_client is not None or not settings.redis_url):
         return _redis_client
     _redis_checked = True
     if not settings.redis_url or Redis is None:
@@ -66,6 +67,10 @@ def _get_redis() -> "Redis | None":
         logger.exception("Distributed lock: failed connecting to Redis. Jobs will run without lock.")
         _redis_client = None
     return _redis_client
+
+
+def _redis_lock_required() -> bool:
+    return bool(settings.redis_url)
 
 
 def with_distributed_lock(

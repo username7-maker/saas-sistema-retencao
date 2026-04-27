@@ -26,6 +26,7 @@ def list_notifications_endpoint(
                 RoleEnum.MANAGER,
                 RoleEnum.RECEPTIONIST,
                 RoleEnum.SALESPERSON,
+                RoleEnum.TRAINER,
             )
         ),
     ],

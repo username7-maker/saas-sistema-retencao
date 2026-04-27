@@ -1,7 +1,25 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.automation_rule import AutomationAction, AutomationTrigger
+
+
+VALID_TRIGGERS = {
+    AutomationTrigger.RISK_LEVEL_CHANGE,
+    AutomationTrigger.INACTIVITY_DAYS,
+    AutomationTrigger.NPS_SCORE,
+    AutomationTrigger.LEAD_STALE,
+    AutomationTrigger.BIRTHDAY,
+    AutomationTrigger.CHECKIN_STREAK,
+}
+VALID_ACTIONS = {
+    AutomationAction.CREATE_TASK,
+    AutomationAction.SEND_WHATSAPP,
+    AutomationAction.SEND_EMAIL,
+    AutomationAction.NOTIFY,
+}
 
 
 class AutomationRuleCreate(BaseModel):
@@ -12,6 +30,20 @@ class AutomationRuleCreate(BaseModel):
     action_type: str = Field(min_length=2, max_length=40)
     action_config: dict = Field(default_factory=dict)
     is_active: bool = True
+
+    @field_validator("trigger_type")
+    @classmethod
+    def validate_trigger_type(cls, value: str) -> str:
+        if value not in VALID_TRIGGERS:
+            raise ValueError("Gatilho de automacao invalido")
+        return value
+
+    @field_validator("action_type")
+    @classmethod
+    def validate_action_type(cls, value: str) -> str:
+        if value not in VALID_ACTIONS:
+            raise ValueError("Acao de automacao invalida")
+        return value
 
 
 class AutomationRuleUpdate(BaseModel):

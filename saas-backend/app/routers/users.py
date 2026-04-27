@@ -17,6 +17,12 @@ from app.services.preferred_shift_service import normalize_preferred_shift
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+MANAGER_ALLOWED_CREATE_ROLES = {
+    RoleEnum.RECEPTIONIST,
+    RoleEnum.SALESPERSON,
+    RoleEnum.TRAINER,
+}
+
 
 class UserUpdate(BaseModel):
     is_active: bool | None = None

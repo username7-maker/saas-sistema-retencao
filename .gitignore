@@ -25,6 +25,9 @@ saas-frontend/tmp-ui-audit/
 node_modules/
 dist/
 .env
+__pycache__/
+**/__pycache__/
+*.py[cod]
 .docker-tmp/
 *.log
 database.db

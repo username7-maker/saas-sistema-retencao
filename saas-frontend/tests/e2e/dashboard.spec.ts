@@ -1,7 +1,7 @@
 ﻿import { test, expect } from "@playwright/test";
 
 async function mockDashboard(page: import("@playwright/test").Page) {
-  await page.route("**/api/v1/auth/me", (route) =>
+  await page.route("**/api/v1/users/me", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -43,7 +43,7 @@ test("operational dashboard renders key cards", async ({ page }) => {
 
   await page.goto("/dashboard/operational");
 
-  await expect(page.getByText("Dashboard Operacional")).toBeVisible();
-  await expect(page.getByText("Check-ins ultima hora")).toBeVisible();
-  await expect(page.getByText("14")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Dashboard Operacional/i })).toBeVisible();
+  await expect(page.getByText(/Check-ins .ltima hora/i)).toBeVisible();
+  await expect(page.getByText("14", { exact: true })).toBeVisible();
 });

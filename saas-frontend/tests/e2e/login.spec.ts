@@ -14,7 +14,7 @@ async function mockAuthAndExecutive(page: import("@playwright/test").Page) {
     });
   });
 
-  await page.route("**/api/v1/auth/me", async (route) => {
+  await page.route("**/api/v1/users/me", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -66,5 +66,5 @@ test("login flow redirects to executive dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Entrar" }).click();
 
   await expect(page).toHaveURL(/dashboard\/executive/);
-  await expect(page.getByRole("heading", { name: "Visao Executiva Integrada" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executivo" })).toBeVisible();
 });

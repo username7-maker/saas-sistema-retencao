@@ -18,6 +18,9 @@ Para producao, mantenha `ENABLE_SCHEDULER=false` na API e rode o worker dedicado
 python -m app.worker
 ```
 
+Em Railway, o `railway.toml` usa `python -m app.entrypoint`. Configure `PROCESS_TYPE=api` no servico da API e
+`PROCESS_TYPE=worker` no servico dedicado do scheduler.
+
 ## Rotas principais
 
 - `/api/v1/auth/*`
@@ -59,7 +62,7 @@ python -m app.worker
 
 ## OpenAPI
 
-- Swagger: `/docs`
+- Swagger: `/docs` fora de producao; em producao fica desligado por padrao
 - ReDoc: `/redoc`
 - Health liveness: `/health`
 - Health readiness: `/health/ready`
@@ -75,3 +78,6 @@ python -m app.worker
 - Secrets opcionais:
   - `RAILWAY_WORKER_SERVICE_ID` (deploy do worker)
   - `SUPABASE_DATABASE_URL` (executa `alembic upgrade head` antes do deploy)
+- Variaveis por servico:
+  - API: `PROCESS_TYPE=api`, `ENABLE_SCHEDULER=false`
+  - Worker: `PROCESS_TYPE=worker`, `ENABLE_SCHEDULER=true`

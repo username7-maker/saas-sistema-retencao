@@ -20,7 +20,8 @@ function downloadCsv(filename: string, rows: string[][]): void {
     .map((row) =>
       row
         .map((cell) => {
-          const escaped = cell.replace(/"/g, '""');
+          const safeCell = escapeCsvFormula(cell);
+          const escaped = safeCell.replace(/"/g, '""');
           return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
         })
         .join(","),
@@ -36,6 +37,10 @@ function downloadCsv(filename: string, rows: string[][]): void {
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+}
+
+function escapeCsvFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
 function exportMissingMembers(summary: ImportSummary): void {

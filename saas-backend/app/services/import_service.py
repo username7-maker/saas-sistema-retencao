@@ -8,9 +8,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from difflib import get_close_matches
 
 from dateutil.relativedelta import relativedelta
+from defusedxml import ElementTree as ET
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
-from xml.etree import ElementTree as ET
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
@@ -1218,7 +1218,7 @@ def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     return values
 
 
-def _xlsx_row_values(row: ET.Element, shared_strings: list[str], ns: dict[str, str]) -> list[object | None]:
+def _xlsx_row_values(row, shared_strings: list[str], ns: dict[str, str]) -> list[object | None]:
     values: list[object | None] = []
     for cell in row.findall("x:c", ns):
         ref = cell.attrib.get("r", "")
@@ -1239,7 +1239,7 @@ def _xlsx_col_index(cell_ref: str) -> int:
     return index - 1
 
 
-def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str], ns: dict[str, str]) -> object | None:
+def _xlsx_cell_value(cell, shared_strings: list[str], ns: dict[str, str]) -> object | None:
     cell_type = cell.attrib.get("t", "")
     if cell_type == "inlineStr":
         node = cell.find("x:is/x:t", ns)

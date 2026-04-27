@@ -3,7 +3,7 @@
 async function mockCrm(page: import("@playwright/test").Page) {
   let patchCalled = false;
 
-  await page.route("**/api/v1/auth/me", (route) =>
+  await page.route("**/api/v1/users/me", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -19,8 +19,9 @@ async function mockCrm(page: import("@playwright/test").Page) {
     }),
   );
 
-  await page.route("**/api/v1/crm/leads**", (route) =>
-    route.fulfill({
+  await page.route("**/api/v1/crm/leads**", (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -47,8 +48,8 @@ async function mockCrm(page: import("@playwright/test").Page) {
         page: 1,
         page_size: 200,
       }),
-    }),
-  );
+    });
+  });
 
   await page.route("**/api/v1/crm/leads/lead-1", (route) =>
     route.fulfill(
@@ -92,7 +93,7 @@ test("crm kanban renders and advances lead", async ({ page }) => {
   });
 
   await page.goto("/crm");
-  await expect(page.getByText("CRM - Pipeline Kanban")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /CRM - Pipeline/i })).toBeVisible();
   await expect(page.getByText("Lead Teste")).toBeVisible();
 
   await page.getByRole("button", { name: "Avancar" }).click();

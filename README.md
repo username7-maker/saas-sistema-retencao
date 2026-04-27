@@ -54,7 +54,7 @@ uvicorn app.main:app --reload
 python -m app.worker
 ```
 
-Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
+Swagger/OpenAPI em desenvolvimento: `http://127.0.0.1:8000/docs`
 Health readiness: `http://127.0.0.1:8000/health/ready`
 
 ### Multi-tenant bootstrap
@@ -121,9 +121,10 @@ Templates de variaveis:
 1. Crie servico Python.
 2. Defina variaveis de ambiente do backend.
 3. Build command: `pip install -r requirements.txt`.
-4. Start command (API): `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-5. Crie um segundo servico worker com start command: `python -m app.worker`.
-6. No servico da API use `ENABLE_SCHEDULER=false` para evitar job duplicado em multiplas replicas.
+4. Start command Railway: `python -m app.entrypoint`.
+5. No servico da API use `PROCESS_TYPE=api` e `ENABLE_SCHEDULER=false`.
+6. No servico worker use `PROCESS_TYPE=worker`, `ENABLE_SCHEDULER=true` e o mesmo deploy do backend.
+7. Em producao, deixe `ENABLE_API_DOCS` vazio ou `false` para nao publicar Swagger/OpenAPI.
 
 ### Vercel (Frontend)
 
@@ -163,7 +164,9 @@ Secrets para deploy frontend:
 Backend:
 
 - `DATABASE_URL`
+- `PROCESS_TYPE` (`api` ou `worker`)
 - `ENABLE_SCHEDULER`
+- `ENABLE_API_DOCS` (padrao: ligado fora de producao, desligado em producao)
 - `JWT_SECRET_KEY`
 - `ACCESS_TOKEN_EXPIRE_MINUTES=15`
 - `REFRESH_TOKEN_EXPIRE_DAYS=7`
@@ -202,6 +205,21 @@ Frontend E2E:
 cd saas-frontend
 npm run test:e2e
 ```
+
+## Smoke do piloto
+
+Depois do deploy da API e frontend, valide o ambiente real com:
+
+```bash
+PILOT_API_BASE_URL=https://sua-api-piloto \
+PILOT_FRONTEND_URL=https://seu-frontend-piloto \
+PILOT_GYM_SLUG=progym \
+PILOT_LOGIN_EMAIL=usuario@progym.com \
+PILOT_LOGIN_PASSWORD=senha-segura \
+python scripts/pilot_smoke.py
+```
+
+O mesmo smoke pode ser disparado pelo workflow manual `Pilot Smoke`, usando secrets do GitHub.
 
 ## Modulos entregues
 

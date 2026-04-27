@@ -183,6 +183,9 @@ def update_task(
     resolved_gym_id = current_user.gym_id if current_user else task.gym_id
     _validate_task_links(db, payload, resolved_gym_id)
 
+    resolved_gym_id = _resolve_gym_id(gym_id) or task.gym_id
+    _validate_task_links(db, payload, resolved_gym_id)
+
     data = payload.model_dump(exclude_unset=True)
     if current_user and current_user.role == RoleEnum.TRAINER:
         disallowed_fields = set(data) - {"status", "kanban_column"}

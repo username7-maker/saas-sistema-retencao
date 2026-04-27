@@ -309,6 +309,7 @@ function UserRow({
   onActivate,
   onEdit,
   isPending,
+  canChangeStatus,
 }: {
   user: StaffUser;
   currentUserId: string;
@@ -317,6 +318,7 @@ function UserRow({
   onActivate: (user: StaffUser) => void;
   onEdit: (user: StaffUser) => void;
   isPending: boolean;
+  canChangeStatus: boolean;
 }) {
   const isSelf = user.id === currentUserId;
   const canToggle = canToggleTargetUser(currentUserRole, user.role, isSelf);
@@ -448,6 +450,7 @@ export function UsersPage() {
               currentUserId={currentUser?.id ?? ""}
               currentUserRole={currentUser?.role ?? "owner"}
               isPending={toggleMutation.isPending}
+              canChangeStatus={canChangeStatus}
               onDeactivate={(targetUser) => setUserToDeactivate(targetUser)}
               onActivate={(targetUser) => toggleMutation.mutate({ userId: targetUser.id, is_active: true })}
               onEdit={setEditingUser}

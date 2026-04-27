@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import {
   Zap, Play, Plus, ToggleLeft, ToggleRight, Trash2, Pencil,
-  ChevronRight, Sparkles, Clock, CheckCircle2, XCircle,
+  ChevronRight, Clock, CheckCircle2, XCircle,
   AlertTriangle, ArrowRight, Activity, LayoutTemplate,
   ChevronDown, ChevronUp, MessageSquare, Bell, ListTodo, Mail,
   Timer, Eye,
@@ -29,7 +29,6 @@ const TRIGGER_META: Record<string, { label: string; icon: string; color: string;
   lead_stale:        { label: "Lead Parado",         icon: "🧊", color: "#5E5B52", bg: "#EDEBE3" },
   birthday:          { label: "Aniversário",         icon: "🎂", color: "#7C3DB3", bg: "#F3ECFC" },
   checkin_streak:    { label: "Sequência",           icon: "🔥", color: "#0F7553", bg: "#E1F5EE" },
-  ai_evaluate:       { label: "IA Avalia",           icon: "✦", color: "#0F6E56", bg: "#D7F2E8" },
 };
 
 const ACTION_META: Record<string, { label: string; Icon: React.ElementType; color: string; bg: string }> = {
@@ -57,10 +56,6 @@ const TEMPLATES = [
     desc: "Mensagem especial no dia do aniversário",
     trigger_type: "birthday", trigger_config: {},
     action_type: "send_whatsapp", action_config: { template: "birthday", message: "" } },
-  { id: "ai_vip", name: "IA — VIP em Risco", emoji: "✦",
-    desc: "Claude avalia se aluno VIP (6+ meses) precisa de atenção",
-    trigger_type: "ai_evaluate", trigger_config: { min_loyalty_months: 6 },
-    action_type: "create_task", action_config: { title: "✦ Atenção VIP — {nome}", priority: "urgent", description: "Identificado por IA como VIP em risco de churn." } },
   { id: "checkin_celebrate", name: "Celebrar Sequência 10x", emoji: "🔥",
     desc: "Mensagem motivacional ao atingir 10 treinos seguidos",
     trigger_type: "checkin_streak", trigger_config: { streak_days: 10 },
@@ -129,7 +124,6 @@ function ruleWhen(rule: AutomationRule): string {
     case "lead_stale":        return `lead ${tc.stale_days ?? "?"} dias parado`;
     case "birthday":          return "no aniversário";
     case "checkin_streak":    return `${tc.streak_days ?? "?"} check-ins seguidos`;
-    case "ai_evaluate":       return "Claude avalia o aluno";
     default:                  return rule.trigger_type;
   }
 }
@@ -155,7 +149,6 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
   const tm = TRIGGER_META[rule.trigger_type];
   const am = ACTION_META[rule.action_type];
   const ActionIcon = am?.Icon ?? Zap;
-  const isAI = rule.trigger_type === "ai_evaluate";
   const lastRun = formatDate(rule.last_executed_at);
 
   return (
@@ -164,7 +157,6 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
       rule.is_active
         ? "border-lovable-border hover:border-lovable-ink/20 hover:shadow-sm"
         : "border-lovable-border/40 opacity-55",
-      isAI && rule.is_active && "shadow-[inset_0_0_0_1.5px_#1D9E7522]"
     )}>
       <div className="flex items-center gap-3 p-4">
         {/* Trigger chip */}
@@ -173,7 +165,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
           <span className="text-base leading-none">{tm?.icon ?? "◆"}</span>
           <div className="hidden sm:block">
             <p className="text-[9px] font-semibold uppercase tracking-wider opacity-60 leading-none mb-0.5">
-              {isAI ? "IA" : "Quando"}
+              Quando
             </p>
             <p className="text-[11px] font-semibold leading-none whitespace-nowrap">{ruleWhen(rule)}</p>
           </div>
@@ -192,12 +184,6 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
         <div className="flex-1 min-w-0 ml-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-lovable-ink truncate">{rule.name}</h3>
-            {isAI && (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-                style={{ background: "#D7F2E8", color: "#0F6E56" }}>
-                <Sparkles size={8} />IA
-              </span>
-            )}
             {!rule.is_active && (
               <span className="rounded-full bg-lovable-surface-soft px-2 py-0.5 text-[9px] font-bold uppercase text-lovable-ink-muted">INATIVA</span>
             )}
@@ -262,7 +248,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
 function StatsStrip({ rules }: { rules: AutomationRule[] }) {
   const active    = rules.filter(r => r.is_active).length;
   const execTotal = rules.reduce((s, r) => s + r.executions_count, 0);
-  const aiRules   = rules.filter(r => r.trigger_type === "ai_evaluate").length;
+  const inactive  = rules.filter(r => !r.is_active).length;
   const lastExec  = rules
     .filter(r => r.last_executed_at)
     .sort((a, b) => new Date(b.last_executed_at!).getTime() - new Date(a.last_executed_at!).getTime())[0];
@@ -272,7 +258,7 @@ function StatsStrip({ rules }: { rules: AutomationRule[] }) {
       {[
         { label: "Regras ativas", value: `${active}/${rules.length}`, icon: Zap, accent: "#1D9E75" },
         { label: "Total execuções", value: execTotal.toLocaleString("pt-BR"), icon: Activity, accent: "#185FA5" },
-        { label: "Regras com IA", value: String(aiRules), icon: Sparkles, accent: "#0F6E56" },
+        { label: "Regras inativas", value: String(inactive), icon: ToggleLeft, accent: "#5E5B52" },
         { label: "Última execução", value: lastExec ? formatDate(lastExec.last_executed_at) ?? "—" : "—", icon: Clock, accent: "#BA7517" },
       ].map(s => (
         <div key={s.label} className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3 flex items-center gap-3">
@@ -298,22 +284,14 @@ function TemplateGallery({ onSelect }: { onSelect: (t: typeof TEMPLATES[0]) => v
         const tm = TRIGGER_META[t.trigger_type];
         const am = ACTION_META[t.action_type];
         const ActionIcon = am?.Icon ?? Zap;
-        const isAI = t.trigger_type === "ai_evaluate";
         return (
           <button key={t.id} type="button" onClick={() => onSelect(t)}
             className={clsx(
               "group text-left rounded-2xl border p-4 transition-all duration-150",
               "border-lovable-border bg-lovable-surface hover:border-lovable-ink/30 hover:shadow-sm",
-              isAI && "border-[#1D9E7530] bg-[#F7FEF9]"
             )}>
             <div className="flex items-start justify-between mb-3">
               <span className="text-2xl">{t.emoji}</span>
-              {isAI && (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-                  style={{ background: "#D7F2E8", color: "#0F6E56" }}>
-                  <Sparkles size={8} />IA
-                </span>
-              )}
             </div>
             <p className="text-sm font-semibold text-lovable-ink mb-1">{t.name}</p>
             <p className="text-xs text-lovable-ink-muted mb-3 leading-relaxed">{t.desc}</p>
@@ -462,7 +440,6 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
 
   const needsThreshold = ["inactivity_days","nps_score","lead_stale","checkin_streak"].includes(triggerType);
   const needsRiskLevel = triggerType === "risk_level_change";
-  const isAITrigger    = triggerType === "ai_evaluate";
 
   const createMutation = useMutation({
     mutationFn: (v: RuleFormValues) => automationService.createRule({
@@ -851,7 +828,7 @@ export function AutomationsPage() {
             { icon: Timer,        text: "Execução automática diária às 2h UTC, após o processamento de risco." },
             { icon: Activity,     text: "Cada regra filtra alunos pelo gatilho e executa a ação configurada." },
             { icon: CheckCircle2, text: "Tasks duplicadas não são criadas — verificação automática por título." },
-            { icon: Sparkles,     text: "Gatilho ✦ IA: Claude analisa o contexto do aluno antes de disparar, eliminando falsos positivos." },
+            { icon: Bell,         text: "Notificações e tarefas seguem as permissões e responsáveis configurados na academia." },
           ].map((item, i) => (
             <div key={i} className="flex items-start gap-2">
               <item.icon size={12} className="text-lovable-ink-muted mt-0.5 shrink-0" />

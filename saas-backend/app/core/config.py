@@ -1,3 +1,4 @@
+import base64
 import json
 from functools import lru_cache
 from typing import Annotated
@@ -185,9 +186,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
-        if self.environment.lower() != "production":
+        if not _is_production(self.environment):
             return self
 
+        if self.debug:
+            raise ValueError("DEBUG nao pode estar ativo em producao")
         if _unsafe_secret(self.jwt_secret_key, {"change-me", "change-this-super-secret"}):
             raise ValueError("JWT_SECRET_KEY insegura para ambiente de producao")
         if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):

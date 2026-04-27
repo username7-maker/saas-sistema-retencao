@@ -16,6 +16,10 @@ const OUTCOME_LABELS: Record<CallOutcome, string> = {
   invalid_number: "Numero invalido",
 };
 
+function defaultWhatsAppMessage(fullName: string): string {
+  return `Olá ${fullName}, tudo bem? Passando para saber se você ainda tem interesse em conhecer nossos planos da academia.`;
+}
+
 interface QuickLeadActionsProps {
   lead: Lead;
   onActionComplete?: () => void;

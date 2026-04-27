@@ -62,6 +62,19 @@ from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
+ASSESSMENT_READ_ROLES = (
+    RoleEnum.OWNER,
+    RoleEnum.MANAGER,
+    RoleEnum.RECEPTIONIST,
+    RoleEnum.SALESPERSON,
+    RoleEnum.TRAINER,
+)
+ASSESSMENT_WRITE_ROLES = (
+    RoleEnum.OWNER,
+    RoleEnum.MANAGER,
+    RoleEnum.TRAINER,
+)
+
 
 @router.get("/actuar-sync-queue", response_model=list[ActuarSyncQueueItemRead])
 def actuar_sync_queue_endpoint(

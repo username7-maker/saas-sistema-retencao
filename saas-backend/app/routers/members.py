@@ -96,7 +96,7 @@ def create_member_endpoint(
     request: Request,
     payload: MemberCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> MemberOut:
     member = create_member(db, payload, gym_id=current_user.gym_id, commit=False)
     context = get_request_context(request)
@@ -119,7 +119,10 @@ def create_member_endpoint(
 @router.get("/", response_model=PaginatedResponse[MemberOut])
 def list_members_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
@@ -251,7 +254,7 @@ def update_member_endpoint(
     member_id: UUID,
     payload: MemberUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> MemberOut:
     member = update_member(db, member_id, payload, gym_id=current_user.gym_id)
     context = get_request_context(request)
@@ -363,7 +366,7 @@ def get_member_intelligence_context_endpoint(
 def member_timeline_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
@@ -950,7 +953,10 @@ def create_contact_log_endpoint(
     member_id: UUID,
     payload: ContactLogCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
 ) -> dict:
     get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     context = get_request_context(request)
