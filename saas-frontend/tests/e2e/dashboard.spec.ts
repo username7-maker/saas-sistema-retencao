@@ -29,6 +29,8 @@ async function mockDashboard(page: import("@playwright/test").Page) {
         ],
         inactive_7d_total: 8,
         inactive_7d_items: [],
+        birthday_today_total: 0,
+        birthday_today_items: [],
       }),
     }),
   );

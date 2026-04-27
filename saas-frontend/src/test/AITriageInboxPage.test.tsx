@@ -142,9 +142,11 @@ describe("AITriageInboxPage", () => {
 
     expect(await screen.findByText("Fila de execucao")).toBeInTheDocument();
     expect((await screen.findAllByText("Ana Silva")).length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByPlaceholderText("Observacao opcional para esta acao"), {
+    const operatorNoteInput = screen.getByPlaceholderText("Observacao opcional para esta acao");
+    fireEvent.change(operatorNoteInput, {
       target: { value: "Pode seguir agora." },
     });
+    await waitFor(() => expect(operatorNoteInput).toHaveValue("Pode seguir agora."));
     fireEvent.click(screen.getAllByRole("button", { name: /preparar whatsapp/i })[1]);
 
     await waitFor(() => {

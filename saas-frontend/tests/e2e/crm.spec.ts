@@ -93,9 +93,9 @@ test("crm kanban renders and advances lead", async ({ page }) => {
   });
 
   await page.goto("/crm");
-  await expect(page.getByRole("heading", { name: /CRM - Pipeline/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^CRM$/i })).toBeVisible();
   await expect(page.getByText("Lead Teste")).toBeVisible();
 
-  await page.getByRole("button", { name: "Avancar" }).click();
+  await page.getByRole("button", { name: "Avancar estagio", exact: true }).click();
   await expect.poll(() => controls.wasPatchCalled()).toBeTruthy();
 });

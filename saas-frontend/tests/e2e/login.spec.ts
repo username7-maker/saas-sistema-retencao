@@ -1,6 +1,19 @@
 ﻿import { test, expect } from "@playwright/test";
 
 async function mockAuthAndExecutive(page: import("@playwright/test").Page) {
+  await page.route("**/api/v1/auth/refresh", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        access_token: "token",
+        refresh_token: null,
+        token_type: "bearer",
+        expires_in: 900,
+      }),
+    });
+  });
+
   await page.route("**/api/v1/auth/login", async (route) => {
     await route.fulfill({
       status: 200,
@@ -66,5 +79,5 @@ test("login flow redirects to executive dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Entrar" }).click();
 
   await expect(page).toHaveURL(/dashboard\/executive/);
-  await expect(page.getByRole("heading", { name: "Executivo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 });
