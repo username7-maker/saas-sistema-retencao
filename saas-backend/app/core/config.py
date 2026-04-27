@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     enable_scheduler: bool = False
     enable_scheduler_in_api: bool = False
     scheduler_critical_lock_fail_open: bool = False
+    enable_api_docs: bool = False
 
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/aigymos"
 
@@ -145,6 +146,7 @@ class Settings(BaseSettings):
         "enable_scheduler",
         "enable_scheduler_in_api",
         "scheduler_critical_lock_fail_open",
+        "enable_api_docs",
         "actuar_enabled",
         "actuar_sync_enabled",
         "actuar_browser_headless",
@@ -195,13 +197,16 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY insegura para ambiente de producao")
         if _unsafe_secret(self.cpf_encryption_key, {"change-me-with-64-hex", "change-me"}):
             raise ValueError("CPF_ENCRYPTION_KEY insegura para ambiente de producao")
-        if _is_local_url(self.frontend_url):
+        if not _is_valid_aes256_key(self.cpf_encryption_key):
+            raise ValueError("CPF_ENCRYPTION_KEY invalida para ambiente de producao")
+        explicitly_set = self.model_fields_set
+        if "frontend_url" in explicitly_set and _is_local_url(self.frontend_url):
             raise ValueError("FRONTEND_URL nao pode apontar para localhost em producao")
         if any(origin == "*" for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS nao pode usar wildcard em producao")
-        if any(_is_local_url(origin) for origin in self.cors_origins):
+        if "cors_origins" in explicitly_set and any(_is_local_url(origin) for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS nao pode usar localhost em producao")
-        if self.frontend_url not in self.cors_origins:
+        if {"frontend_url", "cors_origins"}.issubset(explicitly_set) and self.frontend_url not in self.cors_origins:
             raise ValueError("FRONTEND_URL precisa estar presente em CORS_ORIGINS em producao")
         if self.enable_scheduler_in_api:
             raise ValueError("ENABLE_SCHEDULER_IN_API deve permanecer false em producao; use worker dedicado")
@@ -234,6 +239,12 @@ class Settings(BaseSettings):
             return "none"
         return self.refresh_cookie_samesite
 
+    @property
+    def api_docs_enabled(self) -> bool:
+        if self.enable_api_docs:
+            return True
+        return not _is_production(self.environment)
+
 
 def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:
     normalized = (value or "").strip().lower()
@@ -257,6 +268,24 @@ def _normalize_origin(value: str | None) -> str:
 def _is_local_url(value: str) -> bool:
     normalized = _normalize_origin(value).lower()
     return normalized.startswith("http://localhost") or normalized.startswith("http://127.0.0.1")
+
+
+def _is_production(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"production", "prod"}
+
+
+def _is_valid_aes256_key(value: str) -> bool:
+    raw = (value or "").strip()
+    if len(raw) == 64:
+        try:
+            bytes.fromhex(raw)
+            return True
+        except ValueError:
+            pass
+    try:
+        return len(base64.urlsafe_b64decode(raw.encode("utf-8"))) == 32
+    except Exception:
+        return False
 
 
 @lru_cache

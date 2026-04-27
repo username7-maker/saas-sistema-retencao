@@ -321,7 +321,7 @@ function UserRow({
   canChangeStatus: boolean;
 }) {
   const isSelf = user.id === currentUserId;
-  const canToggle = canToggleTargetUser(currentUserRole, user.role, isSelf);
+  const canToggle = canChangeStatus && canToggleTargetUser(currentUserRole, user.role, isSelf);
   const canEdit = canEditTargetUserProfile(currentUserRole, user.role, isSelf);
 
   return (
@@ -403,6 +403,7 @@ export function UsersPage() {
   const assignableRoles = getAssignableUserRoles(currentUser?.role);
   const canCreateTeamUsers = canCreateUsers(currentUser?.role);
   const canEditRoles = canChangeUserRole(currentUser?.role);
+  const canChangeStatus = canCreateTeamUsers;
 
   return (
     <section className="space-y-6">

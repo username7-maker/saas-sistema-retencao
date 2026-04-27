@@ -712,10 +712,6 @@ export function RetentionDashboardPage() {
     );
   }
 
-  if (query.isLoading) return <LoadingPanel text="Carregando dashboard de retencao..." />;
-  if (query.isError) return <LoadingPanel text="Erro ao carregar dados de retencao." />;
-  if (!data) return <LoadingPanel text="Sem dados de retencao." />;
-
   return (
     <section className="space-y-6">
       <PageHeader

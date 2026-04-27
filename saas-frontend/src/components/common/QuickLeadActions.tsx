@@ -31,16 +31,12 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
   const [showCallLog, setShowCallLog] = useState(false);
   const [callOutcome, setCallOutcome] = useState<CallOutcome | null>(null);
   const [callNote, setCallNote] = useState("");
-  const [whatsAppMessage, setWhatsAppMessage] = useState(
-    `Ola ${lead.full_name}, tudo bem? Passando para saber se voce ainda tem interesse em conhecer nossos planos da academia.`,
-  );
+  const [whatsAppMessage, setWhatsAppMessage] = useState(defaultWhatsAppMessage(lead.full_name));
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setWhatsAppMessage(
-      `Ola ${lead.full_name}, tudo bem? Passando para saber se voce ainda tem interesse em conhecer nossos planos da academia.`,
-    );
+    setWhatsAppMessage(defaultWhatsAppMessage(lead.full_name));
   }, [lead.full_name, lead.id]);
 
   useEffect(() => {

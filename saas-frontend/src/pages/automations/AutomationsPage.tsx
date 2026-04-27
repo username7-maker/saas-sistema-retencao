@@ -9,7 +9,7 @@ import {
   ChevronRight, Clock, CheckCircle2, XCircle,
   AlertTriangle, ArrowRight, Activity, LayoutTemplate,
   ChevronDown, ChevronUp, MessageSquare, Bell, ListTodo, Mail,
-  Timer, Eye,
+  Timer, Eye, Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import clsx from "clsx";
@@ -440,6 +440,7 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
 
   const needsThreshold = ["inactivity_days","nps_score","lead_stale","checkin_streak"].includes(triggerType);
   const needsRiskLevel = triggerType === "risk_level_change";
+  const isAITrigger = triggerType === "ai_evaluate";
 
   const createMutation = useMutation({
     mutationFn: (v: RuleFormValues) => automationService.createRule({

@@ -247,7 +247,7 @@ def create_onboarding_tasks_for_member(db: Session, member: object, *, commit: b
             Task.deleted_at.is_(None),
             Task.extra_data["source"].astext == "onboarding",
         )
-    ))
+    )
     if existing_count > 0:
         return
 
