@@ -72,6 +72,7 @@ ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
     "dependencies.",
     "kommo.",
     "kommo_settings.",
+    "member_intelligence.",
     "member_service.",
     "nurturing.",
     "risk_recalculation.",
