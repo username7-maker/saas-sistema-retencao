@@ -124,6 +124,7 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
     member_name = task.member.full_name if task.member else None
     lead_name = task.lead.full_name if task.lead else None
     subject_name = member_name or lead_name or task.title
+    subject_phone = (task.member.phone if task.member else None) or (task.lead.phone if task.lead else None)
     reason = task.description or task.title
     preferred_shift = getattr(task.member, "preferred_shift", None) if task.member else None
     return WorkQueueItemOut(
@@ -132,6 +133,7 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         subject_name=subject_name,
         member_id=task.member_id,
         lead_id=task.lead_id,
+        subject_phone=subject_phone,
         domain=_task_domain(task),
         severity=_task_severity(task),
         preferred_shift=preferred_shift,
@@ -167,12 +169,14 @@ def _ai_context_path(item) -> str:
 def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     item = serialize_ai_triage_recommendation(recommendation)
     preferred_shift = item.metadata.get("preferred_shift")
+    subject_phone = item.metadata.get("subject_phone")
     return WorkQueueItemOut(
         source_type="ai_triage",
         source_id=item.id,
         subject_name=item.subject_name,
         member_id=item.member_id,
         lead_id=item.lead_id,
+        subject_phone=str(subject_phone) if subject_phone else None,
         domain=item.source_domain,
         severity=item.priority_bucket,
         preferred_shift=str(preferred_shift) if preferred_shift else None,

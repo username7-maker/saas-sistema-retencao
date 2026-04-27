@@ -153,6 +153,7 @@ export interface WorkQueueItem {
   subject_name: string;
   member_id: string | null;
   lead_id: string | null;
+  subject_phone: string | null;
   domain: "retention" | "onboarding" | "assessment" | "commercial" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
   preferred_shift: "morning" | "afternoon" | "evening" | "unassigned" | string | null;

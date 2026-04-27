@@ -27,6 +27,7 @@ class WorkQueueItemOut(BaseModel):
     subject_name: str
     member_id: UUID | None = None
     lead_id: UUID | None = None
+    subject_phone: str | None = None
     domain: str
     severity: str
     preferred_shift: str | None = None

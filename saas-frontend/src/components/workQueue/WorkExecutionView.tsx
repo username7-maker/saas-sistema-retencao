@@ -70,6 +70,26 @@ function getShiftLabel(shift: string | null): string {
   return getPreferredShiftLabel(shift) || shift;
 }
 
+function normalizePhoneForAction(phone: string | null): string | null {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (digits.length < 8) return null;
+  if (digits.startsWith("55")) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
+}
+
+function buildWhatsAppUrl(item: WorkQueueItem): string | null {
+  const phone = normalizePhoneForAction(item.subject_phone);
+  if (!phone) return null;
+  const message = item.suggested_message || item.primary_action_label || "";
+  return `https://wa.me/${phone}${message ? `?text=${encodeURIComponent(message)}` : ""}`;
+}
+
+function buildTelUrl(item: WorkQueueItem): string | null {
+  const phone = normalizePhoneForAction(item.subject_phone);
+  return phone ? `tel:+${phone}` : null;
+}
+
 function getHttpDetail(error: unknown): string {
   if (typeof error === "object" && error !== null && "response" in error) {
     const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
@@ -246,6 +266,41 @@ export function WorkExecutionView({
   const isError = activeQuery.isError || doNowQuery.isError || awaitingQuery.isError;
   const isMutating = executeMutation.isPending || outcomeMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
+  const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
+  const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
+
+  function markExecutionStartedForAction(item: WorkQueueItem) {
+    if (item.state !== "do_now") return;
+    if (item.requires_confirmation) {
+      setConfirmingKey(itemKey(item));
+      return;
+    }
+    executeMutation.mutate({ item, confirmed: false });
+  }
+
+  async function copySuggestedMessage(item: WorkQueueItem) {
+    const message = item.suggested_message || item.primary_action_label;
+    if (!message) {
+      toast.error("Nao ha mensagem pronta para copiar.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Mensagem copiada.");
+    } catch {
+      toast.error("Nao foi possivel copiar a mensagem.");
+    }
+  }
+
+  function openWhatsAppAction(item: WorkQueueItem) {
+    const url = buildWhatsAppUrl(item);
+    if (!url) {
+      toast.error("Este aluno nao tem telefone valido para WhatsApp.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+    markExecutionStartedForAction(item);
+  }
 
   return (
     <section className={cn("space-y-5", compact ? "pt-1" : "")}>
@@ -368,8 +423,46 @@ export function WorkExecutionView({
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Acao operacional</p>
 
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Button
+                      size="sm"
+                      className="justify-start"
+                      onClick={() => openWhatsAppAction(selectedItem)}
+                      disabled={isMutating || !selectedWhatsAppUrl}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Abrir WhatsApp
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => copySuggestedMessage(selectedItem)}
+                      disabled={isMutating || !selectedItem.suggested_message}
+                    >
+                      <ClipboardCheck className="h-4 w-4" />
+                      Copiar mensagem
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => selectedTelUrl && window.open(selectedTelUrl, "_self")}
+                      disabled={isMutating || !selectedTelUrl}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Ligar agora
+                    </Button>
+                    {selectedItem.context_path ? (
+                      <Button size="sm" variant="secondary" className="justify-start" onClick={() => navigate(selectedItem.context_path || "/tasks")}>
+                        <ExternalLink className="h-4 w-4" />
+                        Abrir contexto
+                      </Button>
+                    ) : null}
+                  </div>
+
                   {selectedRequiresConfirmation ? (
-                    <div className="mt-3 rounded-2xl border border-[hsl(var(--lovable-warning)/0.35)] bg-[hsl(var(--lovable-warning)/0.08)] p-4">
+                    <div className="mt-4 rounded-2xl border border-[hsl(var(--lovable-warning)/0.35)] bg-[hsl(var(--lovable-warning)/0.08)] p-4">
                       <p className="text-sm font-bold text-lovable-ink">Confirmar preparacao?</p>
                       <p className="mt-1 text-sm text-lovable-ink-muted">
                         Este item e critico ou degradado. A preparacao exige confirmacao humana curta.
@@ -385,11 +478,11 @@ export function WorkExecutionView({
                       </div>
                     </div>
                   ) : selectedItem.state === "awaiting_outcome" ? (
-                    <p className="mt-3 text-sm text-lovable-ink-muted">
+                    <p className="mt-4 text-sm text-lovable-ink-muted">
                       Acao ja preparada. Registre o resultado assim que houver retorno.
                     </p>
                   ) : (
-                    <Button className="mt-3" onClick={executeSelected} disabled={isMutating}>
+                    <Button className="mt-4" onClick={executeSelected} disabled={isMutating}>
                       <ArrowRight className="h-4 w-4" />
                       Comecar execucao
                     </Button>
@@ -402,15 +495,36 @@ export function WorkExecutionView({
                     className="mt-4"
                   />
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {selectedItem.context_path ? (
-                      <Button size="sm" variant="secondary" onClick={() => navigate(selectedItem.context_path || "/tasks")}>
-                        <ExternalLink className="h-4 w-4" />
-                        Abrir contexto
-                      </Button>
-                    ) : null}
-                    <Button size="sm" variant="danger" onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "not_interested" })} disabled={isMutating}>
-                      Rejeitar
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "completed" })}
+                      disabled={isMutating}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Concluir
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "no_response" })}
+                      disabled={isMutating}
+                    >
+                      <Clock3 className="h-4 w-4" />
+                      Sem resposta
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "postponed" })}
+                      disabled={isMutating}
+                    >
+                      <CalendarClock className="h-4 w-4" />
+                      Adiar 2 dias
                     </Button>
                   </div>
                 </div>

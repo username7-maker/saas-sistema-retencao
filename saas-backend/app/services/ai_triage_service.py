@@ -166,6 +166,7 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
             "days_without_checkin": item.days_without_checkin,
             "next_action": item.next_action,
             "preferred_shift": getattr(member, "preferred_shift", None) if member else None,
+            "subject_phone": getattr(member, "phone", None) if member else None,
         },
     }
 
@@ -267,6 +268,7 @@ def _build_onboarding_snapshot(
             "total_onboarding_tasks": total_tasks,
             "completed_onboarding_tasks": completed_tasks,
             "preferred_shift": getattr(member, "preferred_shift", None),
+            "subject_phone": member.phone,
         },
     }
 

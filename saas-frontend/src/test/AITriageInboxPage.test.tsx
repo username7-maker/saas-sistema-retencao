@@ -41,6 +41,7 @@ function makeItem(overrides?: Partial<WorkQueueItem>): WorkQueueItem {
     subject_name: "Ana Silva",
     member_id: "member-1",
     lead_id: null,
+    subject_phone: "+5554999990000",
     domain: "retention",
     severity: "medium",
     preferred_shift: "morning",
