@@ -280,13 +280,13 @@ def create_plan_followup_tasks_for_member(db: Session, member: object, *, commit
     if not steps:
         return
 
-    existing_count = _safe_count(db.scalar(
+    existing_count = db.scalar(
         select(func.count(Task.id)).where(
             Task.member_id == member.id,  # type: ignore[attr-defined]
             Task.deleted_at.is_(None),
             Task.extra_data["source"].astext == "plan_followup",
         )
-    ))
+    ) or 0
     if existing_count > 0:
         return
 
