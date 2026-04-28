@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import { ArrowRight, CalendarClock, CheckCheck, CircleDashed, ExternalLink, MessageCircle, PhoneCall, UserRound } from "lucide-react";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
@@ -8,7 +9,7 @@ import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
 import { memberService } from "../../services/memberService";
 import { taskService, type UpdateTaskPayload } from "../../services/taskService";
-import type { Member, Task } from "../../types";
+import type { Member, Task, TaskEvent } from "../../types";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import type { StaffUser } from "../../services/userService";
 import {
@@ -53,12 +54,14 @@ export function TaskDetailDrawer({
   onStatusChange,
   onOpenContext,
 }: TaskDetailDrawerProps) {
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Task["priority"]>("medium");
   const [status, setStatus] = useState<Task["status"]>("todo");
   const [assignedToUserId, setAssignedToUserId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [eventNote, setEventNote] = useState("");
 
   useEffect(() => {
     if (!task) return;
@@ -68,6 +71,7 @@ export function TaskDetailDrawer({
     setStatus(task.status);
     setAssignedToUserId(task.assigned_to_user_id ?? "");
     setDueDate(task.due_date ? task.due_date.slice(0, 10) : "");
+    setEventNote("");
   }, [task]);
 
   const suggestedMessage = useMemo(() => task?.suggested_message?.trim() ?? "", [task]);
@@ -76,6 +80,22 @@ export function TaskDetailDrawer({
     queryFn: () => taskService.getAssistant(task!.id),
     enabled: open && Boolean(task?.id),
     staleTime: 60_000,
+  });
+  const eventsQuery = useQuery({
+    queryKey: ["tasks", task?.id, "events"],
+    queryFn: () => taskService.listEvents(task!.id),
+    enabled: open && Boolean(task?.id),
+    staleTime: 30_000,
+  });
+  const createEventMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof taskService.createEvent>[1]) => taskService.createEvent(task!.id, payload),
+    onSuccess: () => {
+      setEventNote("");
+      void queryClient.invalidateQueries({ queryKey: ["tasks", task?.id, "events"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success("Historico atualizado.");
+    },
+    onError: () => toast.error("Erro ao registrar historico da tarefa."),
   });
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", task?.member_id],
@@ -110,6 +130,29 @@ export function TaskDetailDrawer({
       status,
       due_date: dueDate ? `${dueDate}T00:00:00Z` : null,
       assigned_to_user_id: assignedToUserId || null,
+    });
+  }
+
+  function eventLabel(event: TaskEvent): string {
+    const labels: Record<string, string> = {
+      comment: "Comentario",
+      execution_started: "Execucao iniciada",
+      contact_attempt: "Tentativa de contato",
+      outcome_recorded: "Resultado registrado",
+      snoozed: "Adiada",
+      status_changed: "Status alterado",
+      reassigned: "Responsavel alterado",
+      forwarded: "Encaminhada",
+    };
+    return labels[event.event_type] ?? event.event_type;
+  }
+
+  function quickEvent(label: string, contactChannel: "whatsapp" | "call" | "in_person" | "other") {
+    createEventMutation.mutate({
+      event_type: "contact_attempt",
+      contact_channel: contactChannel,
+      note: label,
+      metadata_json: { source: "task_detail_drawer" },
     });
   }
 
@@ -291,11 +334,99 @@ export function TaskDetailDrawer({
           </div>
 
           <div className="rounded-2xl border border-lovable-border p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Historico</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Linha do tempo operacional</p>
             <div className="mt-3 space-y-3 text-sm text-lovable-ink-muted">
               <p>Criada em {formatDateTime(activeTask.created_at)}</p>
               <p>Atualizada em {formatDateTime(activeTask.updated_at)}</p>
               <p>Ultima conclusao: {formatDateTime(activeTask.completed_at)}</p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" disabled={createEventMutation.isPending} onClick={() => quickEvent("WhatsApp enviado.", "whatsapp")}>
+                WhatsApp enviado
+              </Button>
+              <Button size="sm" variant="secondary" disabled={createEventMutation.isPending} onClick={() => quickEvent("Ligacao feita.", "call")}>
+                Ligacao feita
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={createEventMutation.isPending}
+                onClick={() =>
+                  createEventMutation.mutate({
+                    event_type: "contact_attempt",
+                    outcome: "no_response",
+                    contact_channel: "call",
+                    note: "Nao atendeu.",
+                    metadata_json: { source: "task_detail_drawer" },
+                  })
+                }
+              >
+                Nao atendeu
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={createEventMutation.isPending}
+                onClick={() =>
+                  createEventMutation.mutate({
+                    event_type: "outcome_recorded",
+                    outcome: "responded",
+                    note: "Aluno respondeu.",
+                    metadata_json: { source: "task_detail_drawer" },
+                  })
+                }
+              >
+                Respondeu
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <Textarea
+                rows={3}
+                value={eventNote}
+                onChange={(event) => setEventNote(event.target.value)}
+                placeholder="Comentario rapido sobre esta tarefa..."
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={createEventMutation.isPending || !eventNote.trim()}
+                onClick={() =>
+                  createEventMutation.mutate({
+                    event_type: "comment",
+                    note: eventNote.trim(),
+                    metadata_json: { source: "task_detail_drawer" },
+                  })
+                }
+              >
+                Registrar comentario
+              </Button>
+            </div>
+
+            <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+              {eventsQuery.isLoading ? (
+                <p className="text-sm text-lovable-ink-muted">Carregando historico operacional...</p>
+              ) : eventsQuery.isError ? (
+                <p className="text-sm text-lovable-danger">Erro ao carregar historico.</p>
+              ) : (eventsQuery.data ?? []).length === 0 ? (
+                <p className="text-sm text-lovable-ink-muted">Sem historico detalhado desta task.</p>
+              ) : (
+                (eventsQuery.data ?? []).map((event) => (
+                  <div key={event.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-lovable-ink">{eventLabel(event)}</p>
+                      <span className="text-xs text-lovable-ink-muted">{formatDateTime(event.created_at)}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-lovable-ink-muted">
+                      {[event.contact_channel, event.outcome, event.scheduled_for ? `para ${formatDateTime(event.scheduled_for)}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    {event.note ? <p className="mt-2 text-sm text-lovable-ink">{event.note}</p> : null}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </section>

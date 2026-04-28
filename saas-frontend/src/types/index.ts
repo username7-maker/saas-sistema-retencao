@@ -145,6 +145,11 @@ export type WorkQueueOutcome =
   | "postponed"
   | "forwarded_to_trainer"
   | "forwarded_to_reception"
+  | "forwarded_to_manager"
+  | "payment_confirmed"
+  | "payment_promised"
+  | "payment_link_sent"
+  | "charge_disputed"
   | "completed";
 
 export interface WorkQueueItem {
@@ -154,7 +159,7 @@ export interface WorkQueueItem {
   member_id: string | null;
   lead_id: string | null;
   subject_phone: string | null;
-  domain: "retention" | "onboarding" | "assessment" | "commercial" | "manual" | string;
+  domain: "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
   preferred_shift: "morning" | "afternoon" | "evening" | "unassigned" | string | null;
   reason: string;
@@ -174,6 +179,7 @@ export interface WorkQueueActionResult {
   detail: string;
   prepared_message: string | null;
   context_path: string | null;
+  task_id?: string | null;
   metadata: Record<string, unknown>;
 }
 
@@ -558,6 +564,62 @@ export interface FinancialEntry {
   updated_at: string;
 }
 
+export type TaskEventType =
+  | "comment"
+  | "execution_started"
+  | "contact_attempt"
+  | "outcome_recorded"
+  | "snoozed"
+  | "status_changed"
+  | "reassigned"
+  | "forwarded"
+  | "delinquency_stage_updated";
+
+export type TaskContactChannel = "whatsapp" | "call" | "in_person" | "other";
+
+export interface TaskEvent {
+  id: string;
+  gym_id: string;
+  task_id: string;
+  member_id: string | null;
+  lead_id: string | null;
+  user_id: string | null;
+  event_type: TaskEventType | string;
+  outcome: WorkQueueOutcome | string | null;
+  contact_channel: TaskContactChannel | string | null;
+  note: string | null;
+  scheduled_for: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TaskMetricsOwner {
+  user_id: string | null;
+  owner_name: string;
+  open_total: number;
+  overdue_total: number;
+  completed_7d_total: number;
+}
+
+export interface TaskMetricsBreakdown {
+  key: string;
+  label: string;
+  total: number;
+}
+
+export interface TaskMetrics {
+  open_total: number;
+  overdue_total: number;
+  due_today_total: number;
+  completed_today_total: number;
+  completed_7d_total: number;
+  avg_completion_hours: number | null;
+  on_time_rate_pct: number | null;
+  by_owner: TaskMetricsOwner[];
+  by_source: TaskMetricsBreakdown[];
+  by_outcome: TaskMetricsBreakdown[];
+}
+
 export interface FinancialEntryPayload {
   entry_type: FinancialEntryType;
   status?: FinancialEntryStatus;
@@ -573,6 +635,50 @@ export interface FinancialEntryPayload {
   external_ref?: string;
   notes?: string;
   extra_data?: Record<string, unknown>;
+}
+
+export type DelinquencyStage = "d1" | "d3" | "d7" | "d15" | "d30";
+
+export interface DelinquencyItem {
+  member_id: string;
+  member_name: string;
+  member_phone: string | null;
+  member_email: string | null;
+  plan_name: string | null;
+  preferred_shift: string | null;
+  overdue_amount: number;
+  overdue_entries_count: number;
+  oldest_due_date: string;
+  days_overdue: number;
+  stage: DelinquencyStage;
+  severity: string;
+  primary_action_label: string;
+  suggested_message: string;
+  open_task_id: string | null;
+}
+
+export interface DelinquencyStageSummary {
+  stage: DelinquencyStage;
+  label: string;
+  members_count: number;
+  overdue_amount: number;
+}
+
+export interface DelinquencySummary {
+  overdue_amount: number;
+  delinquent_members_count: number;
+  open_task_count: number;
+  recovered_30d: number;
+  by_stage: DelinquencyStageSummary[];
+  generated_at: string;
+}
+
+export interface DelinquencyMaterializeResult {
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  normalized_entries_count: number;
+  items_count: number;
 }
 
 export interface DREBasic {

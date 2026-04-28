@@ -50,6 +50,12 @@ export function TasksPage() {
     queryFn: userService.listUsers,
     staleTime: 15 * 60 * 1000,
   });
+  const metricsQuery = useQuery({
+    queryKey: ["tasks", "metrics"],
+    queryFn: () => taskService.getMetrics(),
+    enabled: (user?.role === "owner" || user?.role === "manager") && typeof taskService.getMetrics === "function",
+    staleTime: 2 * 60 * 1000,
+  });
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateTaskPayload) => taskService.createTask(payload),
@@ -135,6 +141,76 @@ export function TasksPage() {
             <Badge variant="warning">Onboarding ativo: {onboardingCount}</Badge>
           </div>
         </div>
+
+        {user?.role === "owner" || user?.role === "manager" ? (
+          <details className="rounded-[26px] border border-lovable-border bg-lovable-surface/72 p-4 shadow-panel">
+            <summary className="cursor-pointer text-sm font-semibold text-lovable-ink">Produtividade das tarefas</summary>
+            {metricsQuery.isLoading ? (
+              <p className="mt-3 text-sm text-lovable-ink-muted">Carregando metricas...</p>
+            ) : metricsQuery.isError || !metricsQuery.data ? (
+              <p className="mt-3 text-sm text-lovable-danger">Erro ao carregar produtividade.</p>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">Abertas</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-ink">{metricsQuery.data.open_total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">Vencidas</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-danger">{metricsQuery.data.overdue_total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">Vencem hoje</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-warning">{metricsQuery.data.due_today_total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">Concluidas hoje</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-success">{metricsQuery.data.completed_today_total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">7 dias</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-ink">{metricsQuery.data.completed_7d_total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3">
+                    <p className="text-xs text-lovable-ink-muted">No prazo</p>
+                    <p className="mt-1 text-2xl font-bold text-lovable-ink">{metricsQuery.data.on_time_rate_pct ?? "-"}%</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className="rounded-2xl border border-lovable-border p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Por responsavel</p>
+                    <div className="mt-3 space-y-2">
+                      {metricsQuery.data.by_owner.slice(0, 6).map((owner) => (
+                        <div key={owner.user_id ?? "unassigned"} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="truncate text-lovable-ink">{owner.owner_name}</span>
+                          <span className="text-lovable-ink-muted">{owner.open_total} abertas · {owner.overdue_total} vencidas</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Por origem</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {metricsQuery.data.by_source.slice(0, 8).map((item) => (
+                        <Badge key={item.key} variant="neutral">{item.label}: {item.total}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Por resultado</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {metricsQuery.data.by_outcome.slice(0, 8).map((item) => (
+                        <Badge key={item.key} variant="neutral">{item.label}: {item.total}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </details>
+        ) : null}
 
         <TabsContent value="execution">
           <WorkExecutionView

@@ -64,6 +64,10 @@ from app.schemas.dashboard import (
     WeeklySummary,
 )
 from app.schemas.finance import (
+    DelinquencyItemOut,
+    DelinquencyMaterializeResultOut,
+    DelinquencyStageSummaryOut,
+    DelinquencySummaryOut,
     DREBasicOut,
     FinanceFoundationSummaryOut,
     FinancialEntryCreate,
@@ -127,7 +131,16 @@ from app.schemas.sales import (
     SalesHistoryItemOut,
 )
 from app.schemas.settings import ActuarConnectionTestResult, ActuarSettingsRead, ActuarSettingsUpdate
-from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
+from app.schemas.task import (
+    TaskCreate,
+    TaskEventCreate,
+    TaskEventOut,
+    TaskMetricsBreakdownOut,
+    TaskMetricsOut,
+    TaskMetricsOwnerOut,
+    TaskOut,
+    TaskUpdate,
+)
 from app.schemas.work_queue import (
     WorkQueueActionResultOut,
     WorkQueueExecuteInput,
@@ -174,6 +187,10 @@ __all__ = [
     "CheckinCreate",
     "CheckinOut",
     "ConversionBySource",
+    "DelinquencyItemOut",
+    "DelinquencyMaterializeResultOut",
+    "DelinquencyStageSummaryOut",
+    "DelinquencySummaryOut",
     "DREBasicOut",
     "ExecutiveDashboard",
     "EvolutionOut",
@@ -267,6 +284,11 @@ __all__ = [
     "SalesBriefProfileOut",
     "SalesHistoryItemOut",
     "TaskCreate",
+    "TaskEventCreate",
+    "TaskEventOut",
+    "TaskMetricsBreakdownOut",
+    "TaskMetricsOut",
+    "TaskMetricsOwnerOut",
     "TaskOut",
     "TaskUpdate",
     "TokenPair",

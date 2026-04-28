@@ -16,7 +16,7 @@ SourceType = Literal["task", "ai_triage"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
 ShiftFilter = Literal["my_shift", "all", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
-DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "manual"]
+DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage"]
 
 

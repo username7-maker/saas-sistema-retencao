@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AIAssistantPayload, PaginatedResponse, Task } from "../types";
+import type { AIAssistantPayload, PaginatedResponse, Task, TaskContactChannel, TaskEvent, TaskEventType, TaskMetrics, WorkQueueOutcome } from "../types";
 
 export interface CreateTaskPayload {
   member_id?: string;
@@ -25,14 +25,39 @@ export interface UpdateTaskPayload {
   extra_data?: Record<string, unknown>;
 }
 
+export interface CreateTaskEventPayload {
+  event_type: TaskEventType;
+  outcome?: WorkQueueOutcome | null;
+  contact_channel?: TaskContactChannel | null;
+  note?: string | null;
+  scheduled_for?: string | null;
+  metadata_json?: Record<string, unknown>;
+}
+
 const PAGE_SIZE = 50;
-type ListTaskParams = { page?: number; page_size?: number; include_retention?: boolean };
+type ListTaskParams = {
+  page?: number;
+  page_size?: number;
+  include_retention?: boolean;
+  q?: string;
+  priority?: Task["priority"];
+  status?: Task["status"];
+  source?: string;
+  due?: "overdue" | "today" | "upcoming";
+  unassigned?: boolean;
+  member_id?: string;
+  lead_id?: string;
+  preferred_shift?: string;
+  plan_name?: string;
+  date_from?: string;
+  date_to?: string;
+};
 
 export const taskService = {
   async listTasks(params?: ListTaskParams): Promise<PaginatedResponse<Task>> {
-    const { page = 1, page_size = PAGE_SIZE, include_retention = false } = params ?? {};
+    const { page = 1, page_size = PAGE_SIZE, include_retention = false, ...filters } = params ?? {};
     const { data } = await api.get<PaginatedResponse<Task>>("/api/v1/tasks/", {
-      params: { page, page_size, include_retention },
+      params: { page, page_size, include_retention, ...filters },
     });
     return data;
   },
@@ -65,6 +90,21 @@ export const taskService = {
 
   async getAssistant(taskId: string): Promise<AIAssistantPayload> {
     const { data } = await api.get<AIAssistantPayload>(`/api/v1/tasks/${taskId}/assistant`);
+    return data;
+  },
+
+  async listEvents(taskId: string): Promise<TaskEvent[]> {
+    const { data } = await api.get<TaskEvent[]>(`/api/v1/tasks/${taskId}/events`);
+    return data;
+  },
+
+  async createEvent(taskId: string, payload: CreateTaskEventPayload): Promise<TaskEvent> {
+    const { data } = await api.post<TaskEvent>(`/api/v1/tasks/${taskId}/events`, payload);
+    return data;
+  },
+
+  async getMetrics(): Promise<TaskMetrics> {
+    const { data } = await api.get<TaskMetrics>("/api/v1/tasks/metrics");
     return data;
   },
 

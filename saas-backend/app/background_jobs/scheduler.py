@@ -12,6 +12,7 @@ from app.background_jobs.jobs import (
     core_async_jobs_queue_job,
     daily_automations_job,
     daily_crm_followup_job,
+    daily_delinquency_ladder_job,
     daily_loyalty_update_job,
     daily_nps_dispatch_job,
     daily_onboarding_score_job,
@@ -176,6 +177,14 @@ def build_scheduler() -> BackgroundScheduler:
         hour=3,
         minute=20,
         id="preferred_shift_sync_daily",
+        **_CRON_DEFAULTS,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("daily_delinquency_ladder", daily_delinquency_ladder_job),
+        trigger="cron",
+        hour=7,
+        minute=30,
+        id="delinquency_ladder_daily",
         **_CRON_DEFAULTS,
     )
     scheduler.add_job(

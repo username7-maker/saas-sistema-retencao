@@ -65,3 +65,4 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     member = relationship("Member", back_populates="tasks")
     lead = relationship("Lead", back_populates="tasks")
     assigned_user = relationship("User", back_populates="tasks_assigned")
+    events = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan")

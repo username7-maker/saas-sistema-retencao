@@ -53,6 +53,12 @@ export function FinancialDashboardPage() {
     staleTime: 60_000,
   });
 
+  const delinquencySummaryQuery = useQuery({
+    queryKey: ["finance", "delinquency", "summary"],
+    queryFn: financeService.getDelinquencySummary,
+    staleTime: 60_000,
+  });
+
   const createEntryMutation = useMutation({
     mutationFn: financeService.createEntry,
     onSuccess: () => {
@@ -70,6 +76,17 @@ export function FinancialDashboardPage() {
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "financial"] });
     },
     onError: () => toast.error("Nao foi possivel registrar o lancamento financeiro."),
+  });
+
+  const materializeDelinquencyMutation = useMutation({
+    mutationFn: financeService.materializeDelinquencyTasks,
+    onSuccess: (result) => {
+      toast.success(`Regua atualizada: ${result.created_count} criada(s), ${result.updated_count} atualizada(s).`);
+      void queryClient.invalidateQueries({ queryKey: ["finance", "delinquency"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: () => toast.error("Nao foi possivel atualizar a regua de inadimplencia."),
   });
 
   function updateForm<K extends keyof FinancialEntryPayload>(key: K, value: FinancialEntryPayload[K]) {
@@ -171,6 +188,55 @@ export function FinancialDashboardPage() {
           tone="success"
         />
       </div>
+
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <SectionHeader
+              title="Regua de inadimplencia"
+              subtitle="Rotina operacional para transformar recebiveis vencidos em tasks de cobranca assistida."
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => materializeDelinquencyMutation.mutate()}
+              disabled={materializeDelinquencyMutation.isPending}
+            >
+              {materializeDelinquencyMutation.isPending ? "Atualizando..." : "Atualizar regua"}
+            </Button>
+          </div>
+          {delinquencySummaryQuery.isLoading ? (
+            <div className="mt-4"><SkeletonList rows={2} cols={4} /></div>
+          ) : delinquencySummaryQuery.isError ? (
+            <div className="mt-4 rounded-xl border border-lovable-danger/40 bg-lovable-danger/10 p-4 text-sm text-lovable-danger">
+              Erro ao carregar a regua. Isso nao significa ausencia de inadimplencia.
+            </div>
+          ) : delinquencySummaryQuery.data ? (
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <StatCard label="Valor vencido" value={BRL(delinquencySummaryQuery.data.overdue_amount)} tone="danger" />
+                <StatCard label="Alunos inadimplentes" value={String(delinquencySummaryQuery.data.delinquent_members_count)} tone="warning" />
+                <StatCard label="Tasks abertas" value={String(delinquencySummaryQuery.data.open_task_count)} tone="neutral" />
+                <StatCard label="Recuperado 30 dias" value={BRL(delinquencySummaryQuery.data.recovered_30d)} tone="success" />
+              </div>
+              <div className="grid gap-2 md:grid-cols-5">
+                {delinquencySummaryQuery.data.by_stage.map((stage) => (
+                  <article key={stage.stage} className="rounded-xl border border-lovable-border bg-lovable-surface-soft/45 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-lovable-ink-muted">{stage.label}</p>
+                    <p className="mt-2 text-lg font-bold text-lovable-ink">{stage.members_count}</p>
+                    <p className="text-xs text-lovable-ink-muted">{BRL(stage.overdue_amount)}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              title="Sem dados de inadimplencia"
+              description="Quando houver recebiveis vencidos de alunos ativos, a regua mostrara estagios e tasks abertas."
+            />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="pt-5">

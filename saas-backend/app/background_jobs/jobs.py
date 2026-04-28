@@ -22,6 +22,7 @@ from app.services.core_async_job_service import (
     process_pending_core_async_jobs,
 )
 from app.services.crm_service import run_followup_automation
+from app.services.delinquency_service import materialize_delinquency_tasks_for_gym
 from app.services.nurturing_service import run_nurturing_followup
 from app.services.onboarding_score_service import run_daily_onboarding_score
 from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
@@ -272,6 +273,33 @@ def daily_preferred_shift_sync_job() -> None:
                 updated_count = sync_preferred_shifts_from_checkins(db, gym_id=gym.id, commit=False, flush=False)
                 db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, updated_count=updated_count)
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("daily_delinquency_ladder", ttl_seconds=1800, fail_open=_critical_lock_fail_open)
+def daily_delinquency_ladder_job() -> None:
+    """Materializa recebiveis vencidos como tasks operacionais de inadimplencia."""
+    job_name = "daily_delinquency_ladder"
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                result = materialize_delinquency_tasks_for_gym(db, gym_id=gym.id, commit=True)
+                _log_job_metrics(
+                    job_name,
+                    gym_id=gym.id,
+                    created_count=result.created_count,
+                    updated_count=result.updated_count,
+                    skipped_count=result.skipped_count,
+                    normalized_entries_count=result.normalized_entries_count,
+                    items_count=result.items_count,
+                )
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()

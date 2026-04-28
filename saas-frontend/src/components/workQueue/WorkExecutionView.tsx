@@ -13,6 +13,7 @@ import {
   type WorkQueueShiftFilter,
   type WorkQueueSourceFilter,
 } from "../../services/workQueueService";
+import { taskService } from "../../services/taskService";
 import type { WorkQueueItem, WorkQueueOutcome } from "../../types";
 import { getPreferredShiftLabel } from "../../utils/preferredShift";
 
@@ -26,12 +27,8 @@ interface WorkExecutionViewProps {
 }
 
 const outcomeOptions: Array<{ value: WorkQueueOutcome; label: string; icon: typeof CheckCircle2 }> = [
-  { value: "responded", label: "Respondeu", icon: MessageCircle },
-  { value: "scheduled_assessment", label: "Agendou avaliacao", icon: CalendarClock },
   { value: "will_return", label: "Vai retornar", icon: CheckCircle2 },
-  { value: "no_response", label: "Sem resposta", icon: Clock3 },
-  { value: "postponed", label: "Adiar", icon: Clock3 },
-  { value: "forwarded_to_trainer", label: "Encaminhar professor", icon: Forward },
+  { value: "scheduled_assessment", label: "Agendou avaliacao", icon: CalendarClock },
   { value: "forwarded_to_reception", label: "Encaminhar recepcao", icon: Forward },
   { value: "not_interested", label: "Sem interesse", icon: XCircle },
   { value: "invalid_number", label: "Numero invalido", icon: XCircle },
@@ -54,6 +51,7 @@ function formatDomain(domain: string): string {
   if (domain === "onboarding") return "Onboarding";
   if (domain === "assessment") return "Avaliacao";
   if (domain === "commercial") return "Comercial";
+  if (domain === "finance") return "Financeiro";
   if (domain === "manual") return "Manual";
   return domain;
 }
@@ -171,6 +169,7 @@ export function WorkExecutionView({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [operatorNote, setOperatorNote] = useState("");
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const [customSnoozeDate, setCustomSnoozeDate] = useState("");
 
   const deferredSearch = useDeferredValue(search);
   const canSeeAllShifts = user?.role === "owner" || user?.role === "manager";
@@ -231,13 +230,31 @@ export function WorkExecutionView({
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: ({ item, outcome }: { item: WorkQueueItem; outcome: WorkQueueOutcome }) =>
+    mutationFn: ({
+      item,
+      outcome,
+      contact_channel,
+      snooze_preset,
+      scheduled_for,
+      noteOverride,
+    }: {
+      item: WorkQueueItem;
+      outcome: WorkQueueOutcome;
+      contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
+      snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
+      scheduled_for?: string | null;
+      noteOverride?: string | null;
+    }) =>
       workQueueService.updateOutcome(item.source_type, item.source_id, {
         outcome,
-        note: operatorNote.trim() || null,
+        note: (noteOverride ?? operatorNote.trim()) || null,
+        contact_channel,
+        snooze_preset,
+        scheduled_for,
       }),
     onSuccess: (result) => {
       setOperatorNote("");
+      setCustomSnoozeDate("");
       setSelectedKey(itemKey(result.item));
       void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -247,10 +264,26 @@ export function WorkExecutionView({
     onError: (error) => toast.error(getHttpDetail(error)),
   });
 
+  const commentMutation = useMutation({
+    mutationFn: ({ item, note }: { item: WorkQueueItem; note: string }) =>
+      taskService.createEvent(item.source_id, {
+        event_type: "comment",
+        note,
+        metadata_json: { source: "work_execution_view" },
+      }),
+    onSuccess: () => {
+      setOperatorNote("");
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success("Comentario registrado.");
+    },
+    onError: (error) => toast.error(getHttpDetail(error)),
+  });
+
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
     setConfirmingKey(null);
     setOperatorNote("");
+    setCustomSnoozeDate("");
   }
 
   function executeSelected() {
@@ -264,10 +297,11 @@ export function WorkExecutionView({
 
   const isLoading = activeQuery.isLoading || doNowQuery.isLoading || awaitingQuery.isLoading;
   const isError = activeQuery.isError || doNowQuery.isError || awaitingQuery.isError;
-  const isMutating = executeMutation.isPending || outcomeMutation.isPending;
+  const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
+  const isFinanceItem = selectedItem?.domain === "finance";
 
   function markExecutionStartedForAction(item: WorkQueueItem) {
     if (item.state !== "do_now") return;
@@ -300,6 +334,33 @@ export function WorkExecutionView({
     }
     window.open(url, "_blank", "noopener,noreferrer");
     markExecutionStartedForAction(item);
+  }
+
+  function recordOutcome(
+    outcome: WorkQueueOutcome,
+    options?: {
+      contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
+      snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
+      scheduled_for?: string | null;
+      noteOverride?: string | null;
+    },
+  ) {
+    if (!selectedItem) return;
+    outcomeMutation.mutate({ item: selectedItem, outcome, ...options });
+  }
+
+  function saveOperationalComment() {
+    if (!selectedItem) return;
+    const note = operatorNote.trim();
+    if (!note) {
+      toast.error("Escreva uma observacao curta antes de salvar.");
+      return;
+    }
+    if (selectedItem.source_type !== "task") {
+      toast.error("Comentario direto esta disponivel para tasks. Na AI Inbox, registre junto do resultado.");
+      return;
+    }
+    commentMutation.mutate({ item: selectedItem, note });
   }
 
   return (
@@ -500,7 +561,7 @@ export function WorkExecutionView({
                       size="sm"
                       variant="secondary"
                       className="justify-start"
-                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "completed" })}
+                      onClick={() => recordOutcome("completed")}
                       disabled={isMutating}
                     >
                       <CheckCircle2 className="h-4 w-4" />
@@ -510,28 +571,120 @@ export function WorkExecutionView({
                       size="sm"
                       variant="secondary"
                       className="justify-start"
-                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "no_response" })}
+                      onClick={() => recordOutcome("no_response", { contact_channel: "call", snooze_preset: "tomorrow" })}
                       disabled={isMutating}
                     >
                       <Clock3 className="h-4 w-4" />
-                      Sem resposta
+                      Nao atendeu
                     </Button>
                     <Button
                       size="sm"
                       variant="secondary"
                       className="justify-start"
-                      onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: "postponed" })}
-                      disabled={isMutating}
+                      onClick={saveOperationalComment}
+                      disabled={isMutating || selectedItem.source_type !== "task"}
                     >
-                      <CalendarClock className="h-4 w-4" />
-                      Adiar 2 dias
+                      <ClipboardCheck className="h-4 w-4" />
+                      Comentario
                     </Button>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Registrar resultado rapido</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Registrar execucao rapida</p>
+                  {isFinanceItem ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={() => recordOutcome("payment_promised", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                        disabled={isMutating}
+                      >
+                        <CalendarClock className="h-4 w-4" />
+                        Prometeu pagar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={() => recordOutcome("payment_confirmed", { noteOverride: "Pagamento confirmado pela operacao." })}
+                        disabled={isMutating}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Pagamento confirmado
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={() => recordOutcome("payment_link_sent", { contact_channel: "whatsapp", noteOverride: "Link ou instrucao de pagamento enviada." })}
+                        disabled={isMutating}
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                        Link enviado
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                        disabled={isMutating}
+                      >
+                        <Clock3 className="h-4 w-4" />
+                        Sem resposta
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        className="justify-start"
+                        onClick={() => recordOutcome("charge_disputed", { noteOverride: operatorNote.trim() || "Aluno contestou a cobranca." })}
+                        disabled={isMutating}
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Contestou cobranca
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={() => recordOutcome("forwarded_to_manager", { noteOverride: operatorNote.trim() || "Encaminhado para gerente acompanhar inadimplencia." })}
+                        disabled={isMutating}
+                      >
+                        <Forward className="h-4 w-4" />
+                        Encaminhar gerente
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => recordOutcome("completed", { contact_channel: "whatsapp", noteOverride: "WhatsApp enviado." })}
+                      disabled={isMutating}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      WhatsApp enviado
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => recordOutcome("completed", { contact_channel: "call", noteOverride: "Ligacao feita." })}
+                      disabled={isMutating}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Ligacao feita
+                    </Button>
+                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("responded")} disabled={isMutating}>
+                      <MessageCircle className="h-4 w-4" />
+                      Respondeu
+                    </Button>
+                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("forwarded_to_trainer")} disabled={isMutating}>
+                      <Forward className="h-4 w-4" />
+                      Encaminhar
+                    </Button>
                     {outcomeOptions.map((option) => {
                       const Icon = option.icon;
                       return (
@@ -540,7 +693,7 @@ export function WorkExecutionView({
                           size="sm"
                           variant={["not_interested", "invalid_number"].includes(option.value) ? "danger" : "secondary"}
                           className="justify-start"
-                          onClick={() => outcomeMutation.mutate({ item: selectedItem, outcome: option.value })}
+                          onClick={() => recordOutcome(option.value)}
                           disabled={isMutating}
                         >
                           <Icon className="h-4 w-4" />
@@ -548,6 +701,54 @@ export function WorkExecutionView({
                         </Button>
                       );
                     })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Adiar corretamente</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => recordOutcome("postponed", { snooze_preset: "tomorrow" })}
+                      disabled={isMutating}
+                    >
+                      Amanha
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => recordOutcome("postponed", { snooze_preset: "next_week" })}
+                      disabled={isMutating}
+                    >
+                      Proxima semana
+                    </Button>
+                    <div className="flex gap-2 sm:col-span-3">
+                      <Input
+                        type="date"
+                        value={customSnoozeDate}
+                        onChange={(event) => setCustomSnoozeDate(event.target.value)}
+                        className="min-w-0"
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          if (!customSnoozeDate) {
+                            toast.error("Escolha uma data para adiar.");
+                            return;
+                          }
+                          recordOutcome("postponed", {
+                            snooze_preset: "custom",
+                            scheduled_for: `${customSnoozeDate}T09:00:00Z`,
+                          });
+                        }}
+                        disabled={isMutating}
+                      >
+                        Escolher data
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

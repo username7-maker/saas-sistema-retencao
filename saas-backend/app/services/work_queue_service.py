@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import AITriageRecommendation, RoleEnum, Task, TaskStatus, User
@@ -26,12 +26,13 @@ from app.services.ai_triage_service import (
     update_ai_triage_recommendation_outcome,
 )
 from app.services.audit_service import log_audit_event
+from app.services.task_event_service import record_task_event
 
 SourceType = Literal["task", "ai_triage"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
 ShiftFilter = Literal["my_shift", "all", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
-DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "manual"]
+DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage"]
 
 FINAL_TASK_OUTCOMES = {
@@ -40,10 +41,21 @@ FINAL_TASK_OUTCOMES = {
     "will_return",
     "not_interested",
     "invalid_number",
+    "payment_confirmed",
+    "payment_link_sent",
     "completed",
 }
-NEUTRAL_AI_OUTCOMES = {"no_response", "postponed", "forwarded_to_trainer", "forwarded_to_reception"}
-POSITIVE_AI_OUTCOMES = {"responded", "scheduled_assessment", "will_return", "completed"}
+NEUTRAL_AI_OUTCOMES = {
+    "no_response",
+    "postponed",
+    "forwarded_to_trainer",
+    "forwarded_to_reception",
+    "forwarded_to_manager",
+    "payment_promised",
+    "payment_link_sent",
+    "charge_disputed",
+}
+POSITIVE_AI_OUTCOMES = {"responded", "scheduled_assessment", "will_return", "payment_confirmed", "completed"}
 
 
 def _now() -> datetime:
@@ -59,8 +71,15 @@ def _is_trainer_task_visible(task: Task) -> bool:
     return task.lead_id is None and extra.get("source") == "assessment_intelligence" and extra.get("owner_role") == "coach"
 
 
+def _is_finance_task(task: Task) -> bool:
+    extra = _task_extra(task)
+    return extra.get("source") == "delinquency" or extra.get("domain") == "finance"
+
+
 def _ensure_task_access(task: Task, current_user: User) -> None:
     if task.gym_id != current_user.gym_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    if _is_finance_task(task) and current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
     if current_user.role == RoleEnum.TRAINER and not _is_trainer_task_visible(task):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
@@ -68,8 +87,11 @@ def _ensure_task_access(task: Task, current_user: User) -> None:
 
 def _task_domain(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "manual").lower()
+    domain = str(_task_extra(task).get("domain") or "").lower()
     title = (task.title or "").lower()
     description = (task.description or "").lower()
+    if domain == "finance" or source == "delinquency" or "inadimplencia" in title:
+        return "finance"
     if task.lead_id:
         return "commercial"
     if "onboarding" in source or "onboarding" in title:
@@ -109,6 +131,9 @@ def _task_context_path(task: Task) -> str:
 
 def _task_action_label(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "").lower()
+    extra = _task_extra(task)
+    if source == "delinquency" or extra.get("domain") == "finance":
+        return str(extra.get("primary_action_label") or "Cobrar inadimplencia")
     if task.suggested_message:
         return "Usar mensagem pronta"
     if task.status == TaskStatus.DOING:
@@ -224,6 +249,7 @@ def _matches_assignee(item: WorkQueueItemOut, current_user: User, assignee: Assi
 def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, datetime]:
     severity_weight = {"critical": 500, "urgent": 500, "high": 350, "medium": 180, "low": 80}.get(item.severity, 120)
     state_weight = {"do_now": 200, "awaiting_outcome": 140, "done": -500}.get(item.state, 0)
+    finance_weight = 120 if item.domain == "finance" and item.severity in {"critical", "high"} else 0
     due_weight = 0
     if item.due_at and item.state != "done":
         if item.due_at <= now:
@@ -233,7 +259,10 @@ def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, dateti
         elif item.due_at <= now + timedelta(days=7):
             due_weight = 60
     unassigned_weight = 70 if item.assigned_to_user_id is None and item.state != "done" else 0
-    return (severity_weight + state_weight + due_weight + unassigned_weight, item.due_at or datetime.max.replace(tzinfo=timezone.utc))
+    return (
+        severity_weight + state_weight + finance_weight + due_weight + unassigned_weight,
+        item.due_at or datetime.max.replace(tzinfo=timezone.utc),
+    )
 
 
 def _filter_items(
@@ -270,6 +299,11 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
                 Task.extra_data["owner_role"].astext == "coach",
             ]
         )
+    elif current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
+        filters.append(
+            func.coalesce(Task.extra_data["domain"].astext, "") != "finance",
+        )
+        filters.append(func.coalesce(Task.extra_data["source"].astext, "") != "delinquency")
     tasks = list(
         db.scalars(
             select(Task)
@@ -373,6 +407,15 @@ def _execute_task(
         task.kanban_column = TaskStatus.DOING.value
         task.completed_at = None
     db.add(task)
+    record_task_event(
+        db,
+        task=task,
+        current_user=current_user,
+        event_type="execution_started",
+        note=payload.operator_note,
+        metadata_json={"source": "work_queue", "previous_status": "todo"},
+        flush=False,
+    )
     log_audit_event(
         db,
         action="work_queue_task_execution_started",
@@ -485,7 +528,28 @@ def execute_work_queue_item(
     )
 
 
-def _apply_task_outcome(task: Task, outcome: WorkQueueOutcome, note: str | None, current_user: User) -> None:
+def _resolve_snooze_date(payload: WorkQueueOutcomeInput) -> datetime:
+    if payload.scheduled_for:
+        return payload.scheduled_for
+    if payload.snooze_preset == "tomorrow":
+        return _now() + timedelta(days=1)
+    if payload.snooze_preset == "next_week":
+        return _now() + timedelta(days=7)
+    return _now() + timedelta(days=2)
+
+
+def _task_event_type_for_outcome(outcome: WorkQueueOutcome) -> str:
+    if outcome in {"postponed", "no_response", "payment_promised"}:
+        return "snoozed"
+    if outcome in {"forwarded_to_trainer", "forwarded_to_reception", "forwarded_to_manager", "charge_disputed"}:
+        return "forwarded"
+    return "outcome_recorded"
+
+
+def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user: User) -> datetime | None:
+    outcome = payload.outcome
+    note = payload.note
+    scheduled_for: datetime | None = None
     extra = _task_extra(task)
     extra.update(
         {
@@ -493,24 +557,38 @@ def _apply_task_outcome(task: Task, outcome: WorkQueueOutcome, note: str | None,
             "work_queue_outcome_note": note,
             "work_queue_outcome_recorded_at": _now().isoformat(),
             "work_queue_outcome_recorded_by_user_id": str(current_user.id),
+            "work_queue_contact_channel": payload.contact_channel,
         }
     )
     if outcome in FINAL_TASK_OUTCOMES:
         task.status = TaskStatus.DONE
         task.kanban_column = TaskStatus.DONE.value
         task.completed_at = _now()
-    elif outcome in {"postponed", "no_response"}:
+    elif outcome in {"postponed", "no_response", "payment_promised"}:
+        scheduled_for = _resolve_snooze_date(payload)
         task.status = TaskStatus.TODO
         task.kanban_column = TaskStatus.TODO.value
-        task.due_date = _now() + timedelta(days=2)
+        task.due_date = scheduled_for
         task.completed_at = None
-    elif outcome in {"forwarded_to_trainer", "forwarded_to_reception"}:
+        extra["work_queue_snoozed_until"] = scheduled_for.isoformat()
+        extra["work_queue_snooze_preset"] = payload.snooze_preset
+        if outcome == "payment_promised":
+            extra["owner_role"] = "reception"
+    elif outcome in {"forwarded_to_trainer", "forwarded_to_reception", "forwarded_to_manager", "charge_disputed"}:
         task.status = TaskStatus.TODO
         task.kanban_column = TaskStatus.TODO.value
         task.completed_at = None
-        extra["work_queue_forwarded_to"] = "trainer" if outcome == "forwarded_to_trainer" else "reception"
-        extra["owner_role"] = "coach" if outcome == "forwarded_to_trainer" else "reception"
+        if outcome == "forwarded_to_trainer":
+            extra["work_queue_forwarded_to"] = "trainer"
+            extra["owner_role"] = "coach"
+        elif outcome == "forwarded_to_reception":
+            extra["work_queue_forwarded_to"] = "reception"
+            extra["owner_role"] = "reception"
+        else:
+            extra["work_queue_forwarded_to"] = "manager"
+            extra["owner_role"] = "manager"
     task.extra_data = extra
+    return scheduled_for
 
 
 def _ai_outcome_for_work_queue(outcome: WorkQueueOutcome) -> str:
@@ -540,8 +618,23 @@ def update_work_queue_outcome(
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
-        _apply_task_outcome(task, payload.outcome, payload.note, current_user)
+        scheduled_for = _apply_task_outcome(task, payload, current_user)
         db.add(task)
+        record_task_event(
+            db,
+            task=task,
+            current_user=current_user,
+            event_type=_task_event_type_for_outcome(payload.outcome),
+            outcome=payload.outcome,
+            note=payload.note,
+            scheduled_for=scheduled_for,
+            contact_channel=payload.contact_channel,
+            metadata_json={
+                "source": "work_queue",
+                "snooze_preset": payload.snooze_preset,
+            },
+            flush=False,
+        )
         log_audit_event(
             db,
             action="work_queue_task_outcome_updated",
@@ -549,7 +642,13 @@ def update_work_queue_outcome(
             user=current_user,
             member_id=task.member_id,
             entity_id=task.id,
-            details={"outcome": payload.outcome, "note": payload.note, "status": task.status.value},
+            details={
+                "outcome": payload.outcome,
+                "note": payload.note,
+                "status": task.status.value,
+                "scheduled_for": scheduled_for.isoformat() if scheduled_for else None,
+                "contact_channel": payload.contact_channel,
+            },
             ip_address=ip_address,
             user_agent=user_agent,
             flush=False,

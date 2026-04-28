@@ -4,7 +4,7 @@ import type { PaginatedResponse, WorkQueueActionResult, WorkQueueItem, WorkQueue
 export type WorkQueueListState = "do_now" | "awaiting_outcome" | "done" | "all";
 export type WorkQueueShiftFilter = "my_shift" | "all" | "morning" | "afternoon" | "evening" | "unassigned";
 export type WorkQueueAssigneeFilter = "mine" | "unassigned" | "all";
-export type WorkQueueDomainFilter = "all" | "retention" | "onboarding" | "assessment" | "commercial" | "manual";
+export type WorkQueueDomainFilter = "all" | "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual";
 export type WorkQueueSourceFilter = "all" | "task" | "ai_triage";
 
 export interface ListWorkQueueParams {
@@ -26,6 +26,9 @@ export interface ExecuteWorkQueuePayload {
 export interface UpdateWorkQueueOutcomePayload {
   outcome: WorkQueueOutcome;
   note?: string | null;
+  scheduled_for?: string | null;
+  snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
+  contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
 }
 
 export const workQueueService = {

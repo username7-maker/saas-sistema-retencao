@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 FinancialEntryType = Literal["receivable", "payable", "cash_in", "cash_out"]
 FinancialEntryStatus = Literal["open", "paid", "overdue", "cancelled"]
+DelinquencyStage = Literal["d1", "d3", "d7", "d15", "d30"]
 
 
 class FinancialEntryCreate(BaseModel):
@@ -87,3 +88,45 @@ class FinanceFoundationSummaryOut(BaseModel):
     revenue_at_risk: float
     dre_basic: DREBasicOut
     data_quality_flags: list[str] = Field(default_factory=list)
+
+
+class DelinquencyItemOut(BaseModel):
+    member_id: UUID
+    member_name: str
+    member_phone: str | None = None
+    member_email: str | None = None
+    plan_name: str | None = None
+    preferred_shift: str | None = None
+    overdue_amount: float
+    overdue_entries_count: int
+    oldest_due_date: date
+    days_overdue: int
+    stage: DelinquencyStage
+    severity: str
+    primary_action_label: str
+    suggested_message: str
+    open_task_id: UUID | None = None
+
+
+class DelinquencyStageSummaryOut(BaseModel):
+    stage: DelinquencyStage
+    label: str
+    members_count: int
+    overdue_amount: float
+
+
+class DelinquencySummaryOut(BaseModel):
+    overdue_amount: float
+    delinquent_members_count: int
+    open_task_count: int
+    recovered_30d: float
+    by_stage: list[DelinquencyStageSummaryOut] = Field(default_factory=list)
+    generated_at: datetime
+
+
+class DelinquencyMaterializeResultOut(BaseModel):
+    created_count: int = 0
+    updated_count: int = 0
+    skipped_count: int = 0
+    normalized_entries_count: int = 0
+    items_count: int = 0

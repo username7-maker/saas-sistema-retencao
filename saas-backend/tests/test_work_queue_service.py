@@ -66,6 +66,9 @@ def test_execute_task_moves_todo_to_doing_and_records_operator_note(monkeypatch)
     assert task.extra_data["work_queue_operator_note"] == "Chamar agora"
     assert result.item.state == "awaiting_outcome"
     assert result.prepared_message == "Oi, tudo bem?"
+    created_events = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "event_type", None) == "execution_started"]
+    assert created_events
+    assert created_events[0].note == "Chamar agora"
     db.flush.assert_called_once()
 
 
@@ -89,7 +92,7 @@ def test_task_outcome_completed_marks_done(monkeypatch):
     assert result.item.state == "done"
 
 
-def test_task_outcome_no_response_postpones_two_days(monkeypatch):
+def test_task_outcome_no_response_snoozes_to_tomorrow(monkeypatch):
     task = _task(status=TaskStatus.DOING, kanban_column=TaskStatus.DOING.value)
     db = MagicMock()
     db.scalar.return_value = task
@@ -100,12 +103,67 @@ def test_task_outcome_no_response_postpones_two_days(monkeypatch):
         current_user=_user(),
         source_type="task",
         source_id=TASK_ID,
-        payload=WorkQueueOutcomeInput(outcome="no_response", note=None),
+        payload=WorkQueueOutcomeInput(outcome="no_response", note=None, snooze_preset="tomorrow", contact_channel="call"),
     )
 
     assert task.status == TaskStatus.TODO
     assert task.due_date is not None
     assert task.completed_at is None
+    assert task.extra_data["work_queue_contact_channel"] == "call"
+    created_events = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "event_type", None) == "snoozed"]
+    assert created_events
+    assert created_events[0].outcome == "no_response"
+    assert created_events[0].contact_channel == "call"
+
+
+def test_finance_task_payment_confirmed_marks_done(monkeypatch):
+    task = _task(
+        status=TaskStatus.DOING,
+        kanban_column=TaskStatus.DOING.value,
+        extra_data={"source": "delinquency", "domain": "finance"},
+    )
+    db = MagicMock()
+    db.scalar.return_value = task
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    result = update_work_queue_outcome(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueOutcomeInput(outcome="payment_confirmed", note="Pago na recepcao"),
+    )
+
+    assert task.status == TaskStatus.DONE
+    assert task.completed_at is not None
+    assert task.extra_data["work_queue_outcome"] == "payment_confirmed"
+    assert result.item.domain == "finance"
+
+
+def test_finance_task_payment_promised_snoozes_and_keeps_open(monkeypatch):
+    task = _task(
+        status=TaskStatus.DOING,
+        kanban_column=TaskStatus.DOING.value,
+        extra_data={"source": "delinquency", "domain": "finance"},
+    )
+    db = MagicMock()
+    db.scalar.return_value = task
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    update_work_queue_outcome(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueOutcomeInput(outcome="payment_promised", snooze_preset="tomorrow", contact_channel="whatsapp"),
+    )
+
+    assert task.status == TaskStatus.TODO
+    assert task.due_date is not None
+    assert task.extra_data["owner_role"] == "reception"
+    created_events = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "event_type", None) == "snoozed"]
+    assert created_events
+    assert created_events[0].outcome == "payment_promised"
 
 
 def test_ai_triage_execute_requires_confirmation_for_critical(monkeypatch):

@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 WorkQueueSourceType = Literal["task", "ai_triage"]
 WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
+WorkQueueSnoozePreset = Literal["tomorrow", "next_week", "custom"]
+WorkQueueContactChannel = Literal["whatsapp", "call", "in_person", "other"]
 WorkQueueOutcome = Literal[
     "responded",
     "no_response",
@@ -17,6 +19,11 @@ WorkQueueOutcome = Literal[
     "postponed",
     "forwarded_to_trainer",
     "forwarded_to_reception",
+    "forwarded_to_manager",
+    "payment_confirmed",
+    "payment_promised",
+    "payment_link_sent",
+    "charge_disputed",
     "completed",
 ]
 
@@ -52,6 +59,9 @@ class WorkQueueExecuteInput(BaseModel):
 class WorkQueueOutcomeInput(BaseModel):
     outcome: WorkQueueOutcome
     note: str | None = Field(default=None, max_length=280)
+    scheduled_for: datetime | None = None
+    snooze_preset: WorkQueueSnoozePreset | None = None
+    contact_channel: WorkQueueContactChannel | None = None
 
 
 class WorkQueueActionResultOut(BaseModel):

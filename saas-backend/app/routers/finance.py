@@ -10,6 +10,9 @@ from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import (
     APIMessage,
+    DelinquencyItemOut,
+    DelinquencyMaterializeResultOut,
+    DelinquencySummaryOut,
     FinanceFoundationSummaryOut,
     FinancialEntryCreate,
     FinancialEntryOut,
@@ -17,6 +20,11 @@ from app.schemas import (
     PaginatedResponse,
 )
 from app.services.audit_service import log_audit_event
+from app.services.delinquency_service import (
+    get_delinquency_summary,
+    list_delinquency_items,
+    materialize_delinquency_tasks_for_gym,
+)
 from app.services.finance_service import (
     create_financial_entry,
     delete_financial_entry,
@@ -27,6 +35,8 @@ from app.services.finance_service import (
 
 
 router = APIRouter(prefix="/finance", tags=["finance"])
+
+FINANCE_OPERATION_ROLES = (RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST)
 
 
 @router.get("/entries", response_model=PaginatedResponse[FinancialEntryOut])
@@ -137,3 +147,48 @@ def summary_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
 ) -> FinanceFoundationSummaryOut:
     return get_finance_foundation_summary(db, gym_id=current_user.gym_id)
+
+
+@router.get("/delinquency/summary", response_model=DelinquencySummaryOut)
+def delinquency_summary_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*FINANCE_OPERATION_ROLES))],
+) -> DelinquencySummaryOut:
+    return get_delinquency_summary(db, gym_id=current_user.gym_id)
+
+
+@router.get("/delinquency/items", response_model=PaginatedResponse[DelinquencyItemOut])
+def delinquency_items_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*FINANCE_OPERATION_ROLES))],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+) -> PaginatedResponse[DelinquencyItemOut]:
+    return list_delinquency_items(db, gym_id=current_user.gym_id, page=page, page_size=page_size)
+
+
+@router.post("/delinquency/materialize-tasks", response_model=DelinquencyMaterializeResultOut)
+def delinquency_materialize_tasks_endpoint(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*FINANCE_OPERATION_ROLES))],
+) -> DelinquencyMaterializeResultOut:
+    result = materialize_delinquency_tasks_for_gym(
+        db,
+        gym_id=current_user.gym_id,
+        current_user=current_user,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="delinquency_ladder_materialized",
+        entity="finance",
+        user=current_user,
+        details=result.model_dump(),
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return result
