@@ -77,7 +77,7 @@ test("notifications page lists items and marks read", async ({ page }) => {
   });
 
   await page.goto("/notifications");
-  await expect(page.getByRole("heading", { name: /Notifica/i })).toBeVisible();
+  await expect(page.locator("#main-content").getByRole("heading", { name: /Notifica/i })).toBeVisible();
   await expect(page.getByText("Aluno sem treino ha 14 dias")).toBeVisible();
 
   await page.getByRole("button", { name: "Marcar como lida" }).click();
