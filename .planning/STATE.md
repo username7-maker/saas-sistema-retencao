@@ -2,8 +2,8 @@
 milestone: v3.3.0
 phase: 7.0
 plan: "Lead-to-member intelligence graph e payload canonico"
-status: A `7.0` foi aberta com payload canonico read-only `lead -> member`, preservando origem comercial, etapa, consentimentos, check-ins, avaliacoes, bioimpedancia, tasks e risco sem criar cadastro paralelo.
-last_activity: 2026-04-26 - `lead-member-context-v1` implementado e validado localmente
+status: A `7.0` foi validada como baseline execution-ready do payload canonico read-only `lead -> member`, preservando origem comercial, etapa, consentimentos, check-ins, avaliacoes, bioimpedancia, tasks e risco sem criar cadastro paralelo.
+last_activity: 2026-05-02 - COR-5 fechou a validacao CTO do `lead-member-context-v1`
 ---
 
 # STATE
@@ -13,14 +13,14 @@ last_activity: 2026-04-26 - `lead-member-context-v1` implementado e validado loc
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Consumir o payload canonico `lead-member-context-v1` nas superficies operacionais.
+**Current focus:** Preparar a `7.1` sobre o baseline validado `lead-member-context-v1`.
 
 ## Current Position
 
 **Phase:** 7.0
 **Plan:** `Lead-to-member intelligence graph e payload canonico`
-**Status:** primeiro corte implementado como service/endpoint read-only e contrato frontend.
-**Last activity:** 2026-04-26 - `GET /members/{member_id}/intelligence-context` validado com testes focados
+**Status:** `verify/validate` concluido; baseline execution-ready.
+**Last activity:** 2026-05-02 - `GET /members/{member_id}/intelligence-context`, consumidores operacionais e BI Foundation revisados contra o contrato canonico
 
 ## Progress Snapshot
 
@@ -62,6 +62,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.42.5: central, distribuicao e rollout dos relatorios - validada no piloto com catalogo `/reports`, descoberta do laudo no workspace e geracao real por tipo
 - Phase 4.43: AI-first fase 1 - Inbox de triagem - validada no piloto com walkthrough real, aprovacao item por item, tool layer segura e comparacao contra baseline
 - Phase 4.43.1: simplificacao operacional do AI Inbox - implementada localmente para transformar a inbox validada em fila de execucao operador-first, sem quebrar os guardrails auditaveis
+- Phase 7.0: lead-to-member intelligence graph - validada; payload canonico `lead-member-context-v1` segue read-only, tenant-scoped e consumido por Profile 360, AI Inbox, Tarefas, Retencao, CRM, Coach workspace e BI Foundation
 - Phase 5: bulk update dedicado de membros - pausada ate a saida do hardening
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 
@@ -117,6 +118,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - 2026-04-19: a `4.43` fechou localmente a `Wave 3`; a API ganhou `POST /api/v1/ai/triage/items/{recommendation_id}/actions/prepare`, `PATCH /api/v1/ai/triage/items/{recommendation_id}/outcome` e `GET /api/v1/ai/triage/metrics/summary`, a inbox passou a preparar task/owner/follow-up/mensagem sob aprovacao humana, `enqueue_approved_job` ficou honesto como indisponivel sem contrato seguro, e a validacao fechou `16 passed` no backend, `4 passed` no frontend e `npm run build` verde
 - 2026-04-19: a `4.43` fechou a `Wave 4` no piloto; o frontend publicado no alias `saas-frontend-pearl.vercel.app` completou walkthrough controlado com `Wave 4 Retention Member` e `Wave 4 Onboarding Member`, a captura browser gerou evidencias reais da inbox/lista/detalhe/aprovacao/metricas, e a comparacao contra o baseline congelado foi registrada em `04.43-WAVE4-WALKTHROUGH-2026-04-19.{md,json}` e `04.43-VALIDATION.md`
 - 2026-04-23: a `4.43.1` abriu um slice incremental pos-validacao para reduzir o atrito da AI Inbox; o backend passou a expor `operator_summary`, `primary_action_type`, `primary_action_label`, `requires_explicit_approval` e `show_outcome_step`, `actions/prepare` ganhou `auto_approve`, `confirm_approval` e `operator_note`, e a UI foi reorganizada para `Fazer agora`, mensagem/resumo curto, CTA principal e detalhes analiticos recolhidos; validacao local fechou `20 passed` no backend, `7 passed` no frontend e `npm run build` verde, e a rodada foi publicada no piloto com frontend `dpl_AriTb8CyJLUkfTQeWetXZ5EHoXGE` e Railway `6f507927-9cd5-4711-95e6-741c5990a60f`
+- 2026-05-02: a `7.0` passou para `verify/validate` concluido; a revisao CTO confirmou rota, service, schema e contrato frontend do `lead-member-context-v1`, consumo operacional por surfaces compartilhadas, flags explicitas para lacunas e consultas presas a `gym_id`/helpers de autorizacao; regressao focada fechou `22 passed` no backend e `npm run build` verde no frontend
 
 ### Security Hardening Backlog Now Converted To Phases
 

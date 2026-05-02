@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from app.services.preferred_shift_service import (
+    checkin_shift_case,
     derive_preferred_shift_from_counts,
     normalize_preferred_shift,
     sync_preferred_shifts_from_checkins,
@@ -10,6 +11,8 @@ from app.services.preferred_shift_service import (
 
 
 def test_normalize_preferred_shift_supports_aliases() -> None:
+    assert normalize_preferred_shift("Madrugada") == "overnight"
+    assert normalize_preferred_shift("plantao_madrugada") == "overnight"
     assert normalize_preferred_shift("Manha") == "morning"
     assert normalize_preferred_shift("vespertino") == "afternoon"
     assert normalize_preferred_shift("noturno") == "evening"
@@ -17,10 +20,17 @@ def test_normalize_preferred_shift_supports_aliases() -> None:
 
 
 def test_derive_preferred_shift_requires_clear_pattern() -> None:
+    assert derive_preferred_shift_from_counts({"overnight": 3, "morning": 1, "afternoon": 0, "evening": 0}) == "overnight"
     assert derive_preferred_shift_from_counts({"morning": 2, "afternoon": 0, "evening": 0}) == "morning"
     assert derive_preferred_shift_from_counts({"morning": 2, "afternoon": 1, "evening": 0}) == "morning"
     assert derive_preferred_shift_from_counts({"morning": 1, "afternoon": 1, "evening": 0}) is None
     assert derive_preferred_shift_from_counts({"morning": 1, "afternoon": 0, "evening": 0}) is None
+
+
+def test_checkin_shift_case_uses_overnight_bucket() -> None:
+    compiled = str(checkin_shift_case().compile(compile_kwargs={"literal_binds": True}))
+    assert "hour_bucket < 6" in compiled
+    assert "'overnight'" in compiled
 
 
 @patch("app.services.preferred_shift_service.invalidate_dashboard_cache")

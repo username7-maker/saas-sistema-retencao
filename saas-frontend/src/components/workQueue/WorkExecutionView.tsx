@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 
 import { EmptyState, SkeletonList } from "../ui";
 import { Badge, Button, Input, Textarea, cn } from "../ui2";
+import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard";
 import { useAuth } from "../../hooks/useAuth";
 import {
   workQueueService,
@@ -13,6 +14,7 @@ import {
   type WorkQueueShiftFilter,
   type WorkQueueSourceFilter,
 } from "../../services/workQueueService";
+import { memberService } from "../../services/memberService";
 import { taskService } from "../../services/taskService";
 import type { WorkQueueItem, WorkQueueOutcome } from "../../types";
 import { getPreferredShiftLabel } from "../../utils/preferredShift";
@@ -54,6 +56,11 @@ function formatDomain(domain: string): string {
   if (domain === "finance") return "Financeiro";
   if (domain === "manual") return "Manual";
   return domain;
+}
+
+function formatRetentionStage(item: WorkQueueItem): string | null {
+  if (item.domain !== "retention") return null;
+  return item.retention_stage_label || null;
 }
 
 function formatDueAt(value: string | null): string {
@@ -138,6 +145,11 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
         <Badge variant="neutral" size="sm">
           Turno {getShiftLabel(item.preferred_shift)}
         </Badge>
+        {formatRetentionStage(item) ? (
+          <Badge variant={item.retention_stage === "cold_base" ? "neutral" : "warning"} size="sm">
+            {formatRetentionStage(item)}
+          </Badge>
+        ) : null}
       </div>
 
       <div className="mt-3 space-y-1">
@@ -209,6 +221,14 @@ export function WorkExecutionView({
     () => filteredItems.find((item) => itemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey],
   );
+  const selectedMemberId = selectedItem?.member_id ?? null;
+
+  const intelligenceContextQuery = useQuery({
+    queryKey: ["members", "intelligence-context", selectedMemberId],
+    queryFn: () => memberService.getIntelligenceContext(selectedMemberId ?? ""),
+    enabled: Boolean(selectedMemberId),
+    staleTime: 60 * 1000,
+  });
 
   const executeMutation = useMutation({
     mutationFn: ({ item, confirmed }: { item: WorkQueueItem; confirmed: boolean }) =>
@@ -458,6 +478,11 @@ export function WorkExecutionView({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={severityVariant(selectedItem.severity)}>{selectedItem.severity}</Badge>
                     <Badge variant="neutral">{formatDomain(selectedItem.domain)}</Badge>
+                    {formatRetentionStage(selectedItem) ? (
+                      <Badge variant={selectedItem.retention_stage === "cold_base" ? "neutral" : "warning"}>
+                        {formatRetentionStage(selectedItem)}
+                      </Badge>
+                    ) : null}
                     {selectedItem.requires_confirmation ? <Badge variant="warning">Confirmacao</Badge> : null}
                   </div>
                   <h3 className="mt-3 text-2xl font-bold text-lovable-ink">{selectedItem.subject_name}</h3>
@@ -468,6 +493,15 @@ export function WorkExecutionView({
               </div>
 
               <div className="mt-5 space-y-4">
+                {selectedMemberId ? (
+                  <MemberIntelligenceMiniCard
+                    context={intelligenceContextQuery.data ?? null}
+                    isLoading={intelligenceContextQuery.isLoading}
+                    isError={intelligenceContextQuery.isError}
+                    onRetry={() => void intelligenceContextQuery.refetch()}
+                  />
+                ) : null}
+
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Fazer agora</p>
                   <p className="mt-2 text-base font-bold text-lovable-ink">{selectedItem.primary_action_label}</p>

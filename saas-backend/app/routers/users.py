@@ -30,7 +30,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
     job_title: str | None = Field(default=None, max_length=120)
-    work_shift: str | None = Field(default=None, pattern="^(morning|afternoon|evening)$")
+    work_shift: str | None = Field(default=None, pattern="^(overnight|morning|afternoon|evening)$")
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -41,7 +41,7 @@ class UserActivationUpdate(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     job_title: str | None = Field(default=None, max_length=120)
-    work_shift: str | None = Field(default=None, pattern="^(morning|afternoon|evening)$")
+    work_shift: str | None = Field(default=None, pattern="^(overnight|morning|afternoon|evening)$")
     avatar_url: str | None = Field(default=None, max_length=500)
 
 

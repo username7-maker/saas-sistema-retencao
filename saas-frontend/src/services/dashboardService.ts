@@ -45,6 +45,12 @@ export interface RetentionQueueItem {
   automation_stage: string | null;
   created_at: string;
   forecast_60d: number | null;
+  retention_stage: string | null;
+  retention_stage_label: string | null;
+  retention_stage_priority: number;
+  recommended_owner_role: string | null;
+  operational_lane: string | null;
+  cooldown_until: string | null;
   signals_summary: string;
   next_action: string | null;
   reasons: Record<string, unknown>;
@@ -53,7 +59,9 @@ export interface RetentionQueueItem {
   assistant?: AIAssistantPayload | null;
 }
 
-export type RetentionQueueResponse = PaginatedResponse<RetentionQueueItem>;
+export type RetentionQueueResponse = PaginatedResponse<RetentionQueueItem> & {
+  stage_counts?: Record<string, number>;
+};
 
 export const dashboardService = {
   async executive(): Promise<ExecutiveDashboard> {
@@ -135,7 +143,8 @@ export const dashboardService = {
     level?: "all" | "red" | "yellow";
     churn_type?: string;
     plan_cycle?: "monthly" | "semiannual" | "annual";
-    preferred_shift?: "morning" | "afternoon" | "evening";
+    preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";
+    retention_stage?: "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
   }): Promise<RetentionQueueResponse> {
     const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
       params,

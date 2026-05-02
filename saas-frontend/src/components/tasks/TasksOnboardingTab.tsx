@@ -230,7 +230,7 @@ interface TasksOnboardingTabProps {
   membersLoading: boolean;
   membersError: boolean;
   tasks: Task[];
-  currentUserShift: "morning" | "afternoon" | "evening" | null;
+  currentUserShift: "overnight" | "morning" | "afternoon" | "evening" | null;
   onOpenOnboardingQueue: () => void;
 }
 

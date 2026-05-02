@@ -669,7 +669,7 @@ export interface AssessmentQueueParams {
   page_size?: number;
   search?: string;
   bucket?: AssessmentQueueFilter;
-  preferred_shift?: "morning" | "afternoon" | "evening";
+  preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";
 }
 
 export interface ActuarSyncQueueParams {

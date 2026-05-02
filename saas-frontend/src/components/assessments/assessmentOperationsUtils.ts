@@ -2,7 +2,7 @@ import type { AssessmentQueueBucket, AssessmentQueueFilter, AssessmentQueueItem 
 import type { RiskLevel } from "../../types";
 
 export type { AssessmentQueueBucket, AssessmentQueueFilter, AssessmentQueueItem };
-export type PreferredShiftFilter = "all" | "morning" | "afternoon" | "evening";
+export type PreferredShiftFilter = "all" | "overnight" | "morning" | "afternoon" | "evening";
 
 export interface AssessmentQueueFilterOption {
   key: AssessmentQueueFilter;
@@ -64,6 +64,7 @@ export function filterAttentionNowItems(
     if (preferredShift !== "all") {
       const shift = normalizeText(item.preferred_shift ?? "");
       const matchesShift =
+        (preferredShift === "overnight" && ["overnight", "madrugada", "noturno_madrugada", "plantao_madrugada"].includes(shift)) ||
         (preferredShift === "morning" && ["morning", "manha", "matutino"].includes(shift)) ||
         (preferredShift === "afternoon" && ["afternoon", "tarde", "vespertino"].includes(shift)) ||
         (preferredShift === "evening" && ["evening", "night", "noite", "noturno"].includes(shift));

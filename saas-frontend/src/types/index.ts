@@ -8,7 +8,7 @@ export interface User {
   role: Role;
   is_active: boolean;
   job_title?: string | null;
-  work_shift?: "morning" | "afternoon" | "evening" | null;
+  work_shift?: "overnight" | "morning" | "afternoon" | "evening" | null;
   avatar_url?: string | null;
   created_at: string;
 }
@@ -161,7 +161,7 @@ export interface WorkQueueItem {
   subject_phone: string | null;
   domain: "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
-  preferred_shift: "morning" | "afternoon" | "evening" | "unassigned" | string | null;
+  preferred_shift: "overnight" | "morning" | "afternoon" | "evening" | "unassigned" | string | null;
   reason: string;
   primary_action_label: string;
   primary_action_type: string;
@@ -172,6 +172,9 @@ export interface WorkQueueItem {
   assigned_to_user_id: string | null;
   context_path: string | null;
   outcome_state: string | null;
+  retention_stage?: string | null;
+  retention_stage_label?: string | null;
+  retention_stage_priority?: number;
 }
 
 export interface WorkQueueActionResult {
@@ -181,6 +184,90 @@ export interface WorkQueueActionResult {
   context_path: string | null;
   task_id?: string | null;
   metadata: Record<string, unknown>;
+}
+
+export interface AutomationJourneyStepTemplate {
+  name: string;
+  delay_days: number;
+  delay_hours: number;
+  action_type: string;
+  channel: string | null;
+  owner_role: string | null;
+  severity: string;
+  message: string | null;
+}
+
+export interface AutomationJourneyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  domain: string;
+  entry_trigger: string;
+  requires_human_approval: boolean;
+  steps: AutomationJourneyStepTemplate[];
+}
+
+export interface AutomationJourneyStep {
+  id: string;
+  journey_id: string;
+  step_order: number;
+  name: string;
+  delay_days: number;
+  delay_hours: number;
+  condition_config: Record<string, unknown>;
+  action_type: string;
+  action_config: Record<string, unknown>;
+  channel: string | null;
+  owner_role: string | null;
+  preferred_shift: string | null;
+  template_key: string | null;
+  fallback_mode: string;
+  severity: string;
+}
+
+export interface AutomationJourney {
+  id: string;
+  name: string;
+  description: string | null;
+  domain: string;
+  entry_trigger: string;
+  audience_config: Record<string, unknown>;
+  exit_conditions: Record<string, unknown>;
+  metrics_config: Record<string, unknown>;
+  is_active: boolean;
+  requires_human_approval: boolean;
+  steps: AutomationJourneyStep[];
+  enrollments_total: number;
+  active_enrollments_total: number;
+  awaiting_outcome_total: number;
+  tasks_created_total: number;
+  positive_outcomes_total: number;
+  neutral_outcomes_total: number;
+  negative_outcomes_total: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationJourneyPreviewSample {
+  id: string;
+  kind: "member" | "lead" | "task";
+  name: string;
+  preferred_shift: string | null;
+  reason: string | null;
+}
+
+export interface AutomationJourneyPreview {
+  template_id: string | null;
+  journey_id: string | null;
+  eligible_count: number;
+  sample: AutomationJourneyPreviewSample[];
+  warnings: string[];
+}
+
+export interface AutomationJourneyActivation {
+  journey: AutomationJourney;
+  enrolled_count: number;
+  skipped_existing_count: number;
 }
 
 export interface Member {
@@ -618,6 +705,18 @@ export interface TaskMetrics {
   by_owner: TaskMetricsOwner[];
   by_source: TaskMetricsBreakdown[];
   by_outcome: TaskMetricsBreakdown[];
+}
+
+export interface TaskOperationalCleanupPreview {
+  candidate_total: number;
+  cutoff_days: number;
+  oldest_created_at: string | null;
+  by_source: TaskMetricsBreakdown[];
+}
+
+export interface TaskOperationalCleanupApplyResult extends TaskOperationalCleanupPreview {
+  archived_total: number;
+  batch_id: string;
 }
 
 export interface FinancialEntryPayload {

@@ -30,7 +30,7 @@ interface TasksOperationalViewProps {
   members: Member[];
   users: StaffUser[];
   currentUserId: string | null;
-  currentUserShift: "morning" | "afternoon" | "evening" | null;
+  currentUserShift: "overnight" | "morning" | "afternoon" | "evening" | null;
   initialSearch: string;
   sourcePreset: SourceFilter | null;
   sourcePresetToken: number;
@@ -375,6 +375,7 @@ export function TasksOperationalView({
                 onChange={(event) => handlePreferredShiftChange(event.target.value as OperationalFilters["preferredShift"])}
               >
                 <option value="all">Todos os turnos</option>
+                <option value="overnight">Madrugada</option>
                 <option value="morning">Manha</option>
                 <option value="afternoon">Tarde</option>
                 <option value="evening">Noite</option>

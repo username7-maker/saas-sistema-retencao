@@ -19,6 +19,7 @@ VALID_ACTIONS = {
     AutomationAction.SEND_WHATSAPP,
     AutomationAction.SEND_EMAIL,
     AutomationAction.NOTIFY,
+    AutomationAction.SEND_TO_KOMMO,
 }
 
 

@@ -33,6 +33,17 @@ from app.schemas.assessment import (
     TrainingPlanOut,
 )
 from app.schemas.automation import AutomationExecutionResult, AutomationRuleCreate, AutomationRuleOut, AutomationRuleUpdate, MessageLogOut
+from app.schemas.automation_journey import (
+    AutomationJourneyActivationOut,
+    AutomationJourneyCreate,
+    AutomationJourneyEnrollmentOut,
+    AutomationJourneyEventOut,
+    AutomationJourneyOut,
+    AutomationJourneyPreviewOut,
+    AutomationJourneyStepOut,
+    AutomationJourneyTemplateOut,
+    AutomationJourneyUpdate,
+)
 from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
 from app.schemas.compliance import (
@@ -60,6 +71,7 @@ from app.schemas.dashboard import (
     RetentionDashboard,
     RetentionPlaybookStep,
     RetentionQueueItem,
+    RetentionQueueResponse,
     RevenuePoint,
     WeeklySummary,
 )
@@ -138,6 +150,9 @@ from app.schemas.task import (
     TaskMetricsBreakdownOut,
     TaskMetricsOut,
     TaskMetricsOwnerOut,
+    TaskOperationalCleanupApplyInput,
+    TaskOperationalCleanupApplyOut,
+    TaskOperationalCleanupPreviewOut,
     TaskOut,
     TaskUpdate,
 )
@@ -174,6 +189,15 @@ __all__ = [
     "AssessmentOut",
     "AuditLogOut",
     "AutomationExecutionResult",
+    "AutomationJourneyActivationOut",
+    "AutomationJourneyCreate",
+    "AutomationJourneyEnrollmentOut",
+    "AutomationJourneyEventOut",
+    "AutomationJourneyOut",
+    "AutomationJourneyPreviewOut",
+    "AutomationJourneyStepOut",
+    "AutomationJourneyTemplateOut",
+    "AutomationJourneyUpdate",
     "AutomationRuleCreate",
     "AutomationRuleOut",
     "AutomationRuleUpdate",
@@ -264,6 +288,7 @@ __all__ = [
     "RetentionDashboard",
     "RetentionPlaybookStep",
     "RetentionQueueItem",
+    "RetentionQueueResponse",
     "RevenuePoint",
     "RiskAlertOut",
     "RiskRecalculationRequestOut",
@@ -289,6 +314,9 @@ __all__ = [
     "TaskMetricsBreakdownOut",
     "TaskMetricsOut",
     "TaskMetricsOwnerOut",
+    "TaskOperationalCleanupApplyInput",
+    "TaskOperationalCleanupApplyOut",
+    "TaskOperationalCleanupPreviewOut",
     "TaskOut",
     "TaskUpdate",
     "TokenPair",

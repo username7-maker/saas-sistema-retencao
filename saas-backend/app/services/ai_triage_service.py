@@ -32,6 +32,10 @@ from app.schemas import (
 )
 from app.services.audit_service import log_audit_event
 from app.services.dashboard_service import get_retention_queue
+from app.services.retention_stage_service import (
+    RETENTION_STAGE_COLD_BASE,
+    RETENTION_STAGE_REACTIVATION,
+)
 from app.services.task_service import create_task
 
 
@@ -92,6 +96,11 @@ def _recommended_owner_payload(user_id: UUID | None, role: str | None, label: st
 
 def _retention_priority_score(item: RetentionQueueItem) -> int:
     score = int(item.risk_score or 0)
+    retention_stage_priority = int(getattr(item, "retention_stage_priority", 0) or 0)
+    retention_stage = getattr(item, "retention_stage", None)
+    score += retention_stage_priority // 3
+    if retention_stage == RETENTION_STAGE_COLD_BASE:
+        score -= 35
     if item.risk_level == RiskLevel.RED:
         score += 15
     if isinstance(item.days_without_checkin, int) and item.days_without_checkin >= 14:
@@ -141,6 +150,12 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
     suggested_message = playbook_step.message.replace("{nome}", item.full_name) if playbook_step else None
     owner_role = playbook_step.owner if playbook_step else ("manager" if item.risk_level == RiskLevel.RED else "reception")
     priority = _retention_priority_score(item)
+    why_now_summary = item.signals_summary or "Aluno em risco requer acao agora."
+    retention_stage = getattr(item, "retention_stage", None)
+    if retention_stage == RETENTION_STAGE_REACTIVATION:
+        why_now_summary = "Aluno em reativacao 30+. Nao usar lembrete simples; oferecer retorno guiado."
+    elif retention_stage == RETENTION_STAGE_COLD_BASE:
+        why_now_summary = "Aluno em base fria. Priorizar campanha de winback, nao fila diaria."
 
     return {
         "source_domain": "retention",
@@ -151,7 +166,7 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
         "subject_name": item.full_name,
         "priority_score": priority,
         "priority_bucket": _priority_bucket(priority),
-        "why_now_summary": item.signals_summary or "Aluno em risco requer acao agora.",
+        "why_now_summary": why_now_summary,
         "why_now_details": _retention_why_now_details(item),
         "recommended_action": recommended_action,
         "recommended_channel": recommended_channel,
@@ -164,6 +179,9 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
             "churn_type": item.churn_type,
             "forecast_60d": item.forecast_60d,
             "days_without_checkin": item.days_without_checkin,
+            "retention_stage": retention_stage,
+            "retention_stage_label": getattr(item, "retention_stage_label", None),
+            "retention_stage_priority": int(getattr(item, "retention_stage_priority", 0) or 0),
             "next_action": item.next_action,
             "preferred_shift": getattr(member, "preferred_shift", None) if member else None,
             "subject_phone": getattr(member, "phone", None) if member else None,
@@ -286,9 +304,10 @@ def _load_member_map(db: Session, member_ids: list[UUID]) -> dict[UUID, Member]:
 
 def _build_retention_snapshots(db: Session, gym_id: UUID, *, limit: int) -> list[dict]:
     queue = get_retention_queue(db, page=1, page_size=limit, gym_id=gym_id)
-    member_ids = [UUID(item.member_id) for item in queue.items]
+    queue_items = [item for item in queue.items if item.retention_stage != RETENTION_STAGE_COLD_BASE]
+    member_ids = [UUID(item.member_id) for item in queue_items]
     member_map = _load_member_map(db, member_ids)
-    return [_build_retention_snapshot(item, member_map.get(UUID(item.member_id))) for item in queue.items]
+    return [_build_retention_snapshot(item, member_map.get(UUID(item.member_id))) for item in queue_items]
 
 
 def _build_onboarding_snapshots(db: Session, gym_id: UUID, *, limit: int) -> list[dict]:

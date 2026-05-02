@@ -308,6 +308,7 @@ export function AssessmentOperationsBoard({
               onChange: (value) => onActiveShiftChange(value as PreferredShiftFilter),
               options: [
                 { value: "all", label: "Todos os turnos por check-in" },
+                { value: "overnight", label: "Madrugada" },
                 { value: "morning", label: "Manha" },
                 { value: "afternoon", label: "Tarde" },
                 { value: "evening", label: "Noite" },

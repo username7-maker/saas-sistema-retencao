@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.models import RiskLevel
 from app.schemas.assistant import AIAssistantPayload
+from app.schemas.common import PaginatedResponse
 
 from app.schemas.lead import LeadOut
 from app.schemas.member import MemberOut
@@ -171,9 +172,19 @@ class RetentionQueueItem(BaseModel):
     automation_stage: str | None = None
     created_at: datetime
     forecast_60d: int | None = None
+    retention_stage: str | None = None
+    retention_stage_label: str | None = None
+    retention_stage_priority: int = 0
+    recommended_owner_role: str | None = None
+    operational_lane: str | None = None
+    cooldown_until: datetime | None = None
     signals_summary: str
     next_action: str | None = None
     reasons: dict = {}
     action_history: list[dict] = []
     playbook_steps: list[RetentionPlaybookStep] = []
     assistant: AIAssistantPayload | None = None
+
+
+class RetentionQueueResponse(PaginatedResponse[RetentionQueueItem]):
+    stage_counts: dict[str, int] = {}

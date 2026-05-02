@@ -3,6 +3,12 @@ from app.models.ai_triage_recommendation import AITriageRecommendation
 from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.automation_execution_log import AutomationExecutionLog
+from app.models.automation_journey import (
+    AutomationJourney,
+    AutomationJourneyEnrollment,
+    AutomationJourneyEvent,
+    AutomationJourneyStep,
+)
 from app.models.body_composition import BodyCompositionEvaluation
 from app.models.body_composition_sync_attempt import BodyCompositionSyncAttempt
 from app.models.core_async_job import CoreAsyncJob
@@ -52,6 +58,10 @@ __all__ = [
     "ActuarSyncJob",
     "Assessment",
     "AutomationExecutionLog",
+    "AutomationJourney",
+    "AutomationJourneyEnrollment",
+    "AutomationJourneyEvent",
+    "AutomationJourneyStep",
     "BodyCompositionEvaluation",
     "BodyCompositionSyncAttempt",
     "CoreAsyncJob",

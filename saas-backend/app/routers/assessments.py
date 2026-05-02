@@ -126,7 +126,7 @@ def assessments_queue_endpoint(
     page_size: int = Query(50, ge=1, le=100),
     search: str | None = Query(default=None),
     bucket: Literal["all", "overdue", "never", "week", "upcoming", "covered"] = Query(default="all"),
-    preferred_shift: Literal["morning", "afternoon", "evening"] | None = Query(default=None),
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = Query(default=None),
 ) -> PaginatedResponse[AssessmentQueueItemOut]:
     return get_assessments_queue(
         db,

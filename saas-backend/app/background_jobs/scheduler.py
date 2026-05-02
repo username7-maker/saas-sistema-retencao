@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.background_jobs.jobs import (
     actuar_sync_queue_job,
+    automation_journeys_job,
     booking_reminder_job,
     core_async_jobs_queue_job,
     daily_automations_job,
@@ -120,6 +121,13 @@ def build_scheduler() -> BackgroundScheduler:
         hour=2,
         minute=30,
         id="automations_daily",
+        **_CRON_DEFAULTS,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("automation_journeys", automation_journeys_job),
+        trigger="cron",
+        minute=20,
+        id="automation_journeys_hourly",
         **_CRON_DEFAULTS,
     )
     # Onboarding score runs in the early morning

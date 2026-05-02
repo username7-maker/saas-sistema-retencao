@@ -26,11 +26,19 @@ from app.services.ai_triage_service import (
     update_ai_triage_recommendation_outcome,
 )
 from app.services.audit_service import log_audit_event
+from app.services.automation_journey_service import handle_task_outcome_for_journey
+from app.services.preferred_shift_service import normalize_preferred_shift
+from app.services.retention_stage_service import (
+    RETENTION_STAGE_COLD_BASE,
+    is_cold_base_stage,
+    retention_stage_payload,
+)
 from app.services.task_event_service import record_task_event
+from app.services.task_service import is_task_operationally_archived
 
 SourceType = Literal["task", "ai_triage"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
-ShiftFilter = Literal["my_shift", "all", "morning", "afternoon", "evening", "unassigned"]
+ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage"]
@@ -132,6 +140,8 @@ def _task_context_path(task: Task) -> str:
 def _task_action_label(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "").lower()
     extra = _task_extra(task)
+    if source == "automation_journey":
+        return str(extra.get("primary_action_label") or task.title or "Executar etapa da jornada")
     if source == "delinquency" or extra.get("domain") == "finance":
         return str(extra.get("primary_action_label") or "Cobrar inadimplencia")
     if task.suggested_message:
@@ -152,6 +162,9 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
     subject_phone = (task.member.phone if task.member else None) or (task.lead.phone if task.lead else None)
     reason = task.description or task.title
     preferred_shift = getattr(task.member, "preferred_shift", None) if task.member else None
+    extra = _task_extra(task)
+    retention_stage = extra.get("retention_stage") or (getattr(task.member, "retention_stage", None) if task.member else None)
+    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if _task_domain(task) == "retention" else {}
     return WorkQueueItemOut(
         source_type="task",
         source_id=task.id,
@@ -172,6 +185,9 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         assigned_to_user_id=task.assigned_to_user_id,
         context_path=_task_context_path(task),
         outcome_state=str(_task_extra(task).get("work_queue_outcome") or ("completed" if task.status == TaskStatus.DONE else "pending")),
+        retention_stage=retention_payload.get("retention_stage"),
+        retention_stage_label=retention_payload.get("retention_stage_label"),
+        retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
     )
 
 
@@ -195,6 +211,8 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     item = serialize_ai_triage_recommendation(recommendation)
     preferred_shift = item.metadata.get("preferred_shift")
     subject_phone = item.metadata.get("subject_phone")
+    retention_stage = item.metadata.get("retention_stage")
+    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if item.source_domain == "retention" else {}
     return WorkQueueItemOut(
         source_type="ai_triage",
         source_id=item.id,
@@ -215,6 +233,9 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
         assigned_to_user_id=item.recommended_owner.user_id if item.recommended_owner else None,
         context_path=_ai_context_path(item),
         outcome_state=item.outcome_state,
+        retention_stage=retention_payload.get("retention_stage"),
+        retention_stage_label=retention_payload.get("retention_stage_label"),
+        retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
     )
 
 
@@ -230,12 +251,12 @@ def _matches_shift(item: WorkQueueItemOut, current_user: User, shift: ShiftFilte
         return True
     if effective_shift == "unassigned":
         return item.preferred_shift is None
-    target = current_user.work_shift if effective_shift == "my_shift" else effective_shift
+    target = normalize_preferred_shift(current_user.work_shift) if effective_shift == "my_shift" else normalize_preferred_shift(effective_shift)
     if not target:
         return True
     if item.preferred_shift is None:
         return True
-    return item.preferred_shift == target
+    return normalize_preferred_shift(item.preferred_shift) == target
 
 
 def _matches_assignee(item: WorkQueueItemOut, current_user: User, assignee: AssigneeFilter) -> bool:
@@ -250,6 +271,9 @@ def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, dateti
     severity_weight = {"critical": 500, "urgent": 500, "high": 350, "medium": 180, "low": 80}.get(item.severity, 120)
     state_weight = {"do_now": 200, "awaiting_outcome": 140, "done": -500}.get(item.state, 0)
     finance_weight = 120 if item.domain == "finance" and item.severity in {"critical", "high"} else 0
+    retention_weight = int(item.retention_stage_priority or 0) if item.domain == "retention" else 0
+    if is_cold_base_stage(item.retention_stage):
+        retention_weight -= 260
     due_weight = 0
     if item.due_at and item.state != "done":
         if item.due_at <= now:
@@ -260,7 +284,7 @@ def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, dateti
             due_weight = 60
     unassigned_weight = 70 if item.assigned_to_user_id is None and item.state != "done" else 0
     return (
-        severity_weight + state_weight + finance_weight + due_weight + unassigned_weight,
+        severity_weight + state_weight + finance_weight + retention_weight + due_weight + unassigned_weight,
         item.due_at or datetime.max.replace(tzinfo=timezone.utc),
     )
 
@@ -280,6 +304,8 @@ def _filter_items(
             continue
         if domain != "all" and item.domain != domain:
             continue
+        if state == "do_now" and item.domain == "retention" and is_cold_base_stage(item.retention_stage):
+            continue
         if not _matches_shift(item, current_user, shift):
             continue
         if not _matches_assignee(item, current_user, assignee):
@@ -291,6 +317,7 @@ def _filter_items(
 
 def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None)]
+    filters.append(func.coalesce(Task.extra_data["operational_archive"]["archived_at"].astext, "") == "")
     if current_user.role == RoleEnum.TRAINER:
         filters.extend(
             [
@@ -315,7 +342,7 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
         .unique()
         .all()
     )
-    return [_task_to_item(task) for task in tasks]
+    return [_task_to_item(task) for task in tasks if not is_task_operationally_archived(task)]
 
 
 def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
@@ -366,6 +393,8 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         )
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        if is_task_operationally_archived(task):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
         return _task_to_item(task)
 
@@ -390,6 +419,8 @@ def _execute_task(
         .where(Task.id == task_id, Task.deleted_at.is_(None))
     )
     if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    if is_task_operationally_archived(task):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
     _ensure_task_access(task, current_user)
 
@@ -551,11 +582,12 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
     note = payload.note
     scheduled_for: datetime | None = None
     extra = _task_extra(task)
+    now = _now()
     extra.update(
         {
             "work_queue_outcome": outcome,
             "work_queue_outcome_note": note,
-            "work_queue_outcome_recorded_at": _now().isoformat(),
+            "work_queue_outcome_recorded_at": now.isoformat(),
             "work_queue_outcome_recorded_by_user_id": str(current_user.id),
             "work_queue_contact_channel": payload.contact_channel,
         }
@@ -563,9 +595,22 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
     if outcome in FINAL_TASK_OUTCOMES:
         task.status = TaskStatus.DONE
         task.kanban_column = TaskStatus.DONE.value
-        task.completed_at = _now()
+        task.completed_at = now
     elif outcome in {"postponed", "no_response", "payment_promised"}:
-        scheduled_for = _resolve_snooze_date(payload)
+        if _task_domain(task) == "retention" and outcome == "no_response":
+            no_response_count = int(extra.get("retention_no_response_count") or 0) + 1
+            extra["retention_no_response_count"] = no_response_count
+            if no_response_count == 1:
+                scheduled_for = now + timedelta(days=3)
+            elif no_response_count == 2:
+                scheduled_for = now + timedelta(days=7)
+            else:
+                scheduled_for = now + timedelta(days=30)
+                extra["retention_stage"] = RETENTION_STAGE_COLD_BASE
+                extra["retention_stage_label"] = "Base fria"
+            extra["retention_cooldown_until"] = scheduled_for.isoformat()
+        else:
+            scheduled_for = _resolve_snooze_date(payload)
         task.status = TaskStatus.TODO
         task.kanban_column = TaskStatus.TODO.value
         task.due_date = scheduled_for
@@ -617,6 +662,8 @@ def update_work_queue_outcome(
         )
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        if is_task_operationally_archived(task):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
         scheduled_for = _apply_task_outcome(task, payload, current_user)
         db.add(task)
@@ -652,6 +699,13 @@ def update_work_queue_outcome(
             ip_address=ip_address,
             user_agent=user_agent,
             flush=False,
+        )
+        handle_task_outcome_for_journey(
+            db,
+            task=task,
+            outcome=payload.outcome,
+            current_user=current_user,
+            note=payload.note,
         )
         db.flush()
         item = _task_to_item(task)

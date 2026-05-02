@@ -13,6 +13,7 @@ from app.models.member import Member
 from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
 from app.services.automation_engine import run_automation_rules
+from app.services.automation_journey_service import journey_summary_for_job, process_automation_journeys_for_gym
 from app.services.booking_service import process_booking_reminders
 from app.services.body_composition_actuar_sync_service import process_pending_actuar_sync_jobs
 from app.services.call_script_service import process_proposal_followups
@@ -225,6 +226,25 @@ def daily_automations_job() -> None:
                 results = run_automation_rules(db)
                 db.commit()
                 _log_job_metrics(job_name, gym_id=gym.id, **_extract_rule_metrics(results))
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("automation_journeys", ttl_seconds=900, fail_open=_critical_lock_fail_open)
+def automation_journeys_job() -> None:
+    """Avanca jornadas operacionais e materializa etapas vencidas como tasks."""
+    job_name = "automation_journeys"
+    db = SessionLocal()
+    try:
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                result = process_automation_journeys_for_gym(db, gym_id=gym.id, commit=True)
+                _log_job_metrics(job_name, gym_id=gym.id, **journey_summary_for_job(result))
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()

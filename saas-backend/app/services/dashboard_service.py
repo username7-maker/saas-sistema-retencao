@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import and_, case, func, not_, or_, select
+from sqlalchemy import DateTime, and_, case, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
@@ -43,6 +43,7 @@ from app.schemas import (
     RetentionDashboard,
     RetentionPlaybookStep,
     RetentionQueueItem,
+    RetentionQueueResponse,
     RevenuePoint,
     WeeklySummary,
 )
@@ -52,8 +53,20 @@ from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
 from app.services.finance_service import get_finance_foundation_summary, get_monthly_financial_entry_revenue
 from app.services.nps_service import nps_evolution
+from app.services.preferred_shift_service import preferred_shift_filter_condition
 from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY, _determine_level, _inactivity_points
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
+from app.services.retention_stage_service import (
+    RETENTION_STAGE_ATTENTION,
+    RETENTION_STAGE_COLD_BASE,
+    RETENTION_STAGE_MANAGER_ESCALATION,
+    RETENTION_STAGE_MONITORING,
+    RETENTION_STAGE_REACTIVATION,
+    RETENTION_STAGE_RECOVERY,
+    RETENTION_STAGE_ORDER,
+    calculate_retention_stage,
+    retention_stage_payload,
+)
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
 
@@ -809,15 +822,48 @@ def _retention_plan_cycle_filter(plan_cycle: str):
 
 
 def _retention_preferred_shift_filter(preferred_shift: str):
-    normalized = (preferred_shift or "").strip().lower()
-    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
-    if normalized == "morning":
-        return preferred_shift_col.in_(("morning", "manha", "matutino"))
-    if normalized == "afternoon":
-        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
-    if normalized == "evening":
-        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
-    return None
+    return preferred_shift_filter_condition(Member.preferred_shift, preferred_shift)
+
+
+def _retention_stage_filter_condition(retention_stage: str | None):
+    if not retention_stage:
+        return None
+
+    now = _utcnow()
+    reference = func.coalesce(Member.last_checkin_at, func.cast(Member.join_date, DateTime(timezone=True)))
+    stage_windows = {
+        RETENTION_STAGE_MONITORING: (None, 6),
+        RETENTION_STAGE_ATTENTION: (7, 13),
+        RETENTION_STAGE_RECOVERY: (14, 29),
+        RETENTION_STAGE_REACTIVATION: (30, 44),
+        RETENTION_STAGE_MANAGER_ESCALATION: (45, 59),
+        RETENTION_STAGE_COLD_BASE: (60, None),
+    }
+    window = stage_windows.get(retention_stage)
+    if window is None:
+        return None
+    min_days, max_days = window
+    conditions = []
+    if min_days is not None:
+        conditions.append(reference <= now - timedelta(days=min_days))
+    if max_days is not None:
+        conditions.append(reference > now - timedelta(days=max_days + 1))
+    return and_(*conditions) if conditions else None
+
+
+def _extract_retention_cooldown_until(extra_data: dict | None) -> datetime | None:
+    if not isinstance(extra_data, dict):
+        return None
+    value = extra_data.get("retention_cooldown_until")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def get_retention_queue(
@@ -830,8 +876,9 @@ def get_retention_queue(
     churn_type: str | None = None,
     plan_cycle: str | None = None,
     preferred_shift: str | None = None,
+    retention_stage: str | None = None,
     gym_id=None,
-) -> PaginatedResponse[RetentionQueueItem]:
+) -> RetentionQueueResponse:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
     latest_alert_subquery = _latest_open_retention_alert_subquery()
     level_priority = case(
@@ -852,6 +899,10 @@ def get_retention_queue(
     preferred_shift_filter = _retention_preferred_shift_filter(preferred_shift or "")
     if preferred_shift_filter is not None:
         filters.append(preferred_shift_filter)
+    stage_count_filters = list(filters)
+    retention_stage_filter = _retention_stage_filter_condition(retention_stage)
+    if retention_stage_filter is not None:
+        filters.append(retention_stage_filter)
     if search and search.strip():
         search_value = f"%{search.strip()}%"
         filters.append(
@@ -880,6 +931,23 @@ def get_retention_queue(
         or 0
     )
 
+    stage_counts = {stage: 0 for stage in RETENTION_STAGE_ORDER}
+    for stage in RETENTION_STAGE_ORDER:
+        stage_filter = _retention_stage_filter_condition(stage)
+        stage_filters = list(stage_count_filters)
+        if stage_filter is not None:
+            stage_filters.append(stage_filter)
+        stage_counts[stage] = int(
+            db.scalar(
+                select(func.count())
+                .select_from(RiskAlert)
+                .join(latest_alert_subquery, latest_alert_subquery.c.alert_id == RiskAlert.id)
+                .join(Member, Member.id == RiskAlert.member_id)
+                .where(and_(*stage_filters))
+            )
+            or 0
+        )
+
     rows = db.execute(
         base_stmt
         .order_by(level_priority, RiskAlert.score.desc(), RiskAlert.created_at.asc(), Member.full_name.asc())
@@ -900,6 +968,9 @@ def get_retention_queue(
             assessment_member_ids=assessment_member_ids,
         )
         days_without_checkin = _days_without_checkin(member)
+        calculated_retention_stage = calculate_retention_stage(days_without_checkin)
+        stage_payload = retention_stage_payload(calculated_retention_stage)
+        cooldown_until = _extract_retention_cooldown_until(getattr(member, "extra_data", None))
         effective_risk_score, effective_risk_level = _effective_retention_severity(
             alert,
             member,
@@ -908,7 +979,13 @@ def get_retention_queue(
         normalized_reasons = _normalize_retention_reasons(alert.reasons)
         playbook = [
             RetentionPlaybookStep.model_validate(step)
-            for step in build_retention_playbook(db, member, churn_type or ChurnType.UNKNOWN.value)
+            for step in build_retention_playbook(
+                db,
+                member,
+                churn_type or ChurnType.UNKNOWN.value,
+                retention_stage=calculated_retention_stage,
+                days_without_checkin=days_without_checkin,
+            )
         ]
         queue_item = RetentionQueueItem(
             alert_id=str(alert.id),
@@ -928,12 +1005,14 @@ def get_retention_queue(
             automation_stage=alert.automation_stage,
             created_at=alert.created_at,
             forecast_60d=forecast_60d,
+            cooldown_until=cooldown_until,
             signals_summary=_retention_signals_summary(
                 member,
                 alert,
                 days_without_checkin=days_without_checkin,
                 forecast_60d=forecast_60d,
             ),
+            **stage_payload,
             next_action=playbook[0].title if playbook else None,
             reasons=normalized_reasons,
             action_history=alert.action_history or [],
@@ -944,13 +1023,14 @@ def get_retention_queue(
 
     items.sort(
         key=lambda item: (
+            -int(item.retention_stage_priority or 0),
             0 if item.risk_level == RiskLevel.RED else 1 if item.risk_level == RiskLevel.YELLOW else 2,
             -item.risk_score,
             item.full_name.lower(),
         )
     )
 
-    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+    return RetentionQueueResponse(items=items, total=total, page=page, page_size=page_size, stage_counts=stage_counts)
 
 
 def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1, page_size: int = 20) -> dict:

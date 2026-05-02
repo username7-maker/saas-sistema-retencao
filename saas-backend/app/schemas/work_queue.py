@@ -48,6 +48,9 @@ class WorkQueueItemOut(BaseModel):
     assigned_to_user_id: UUID | None = None
     context_path: str
     outcome_state: str
+    retention_stage: str | None = None
+    retention_stage_label: str | None = None
+    retention_stage_priority: int = 0
 
 
 class WorkQueueExecuteInput(BaseModel):

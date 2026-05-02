@@ -11,7 +11,7 @@ from app.database import get_current_gym_id, include_all_tenants
 from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
-from app.services.preferred_shift_service import hydrate_missing_preferred_shifts_from_checkins
+from app.services.preferred_shift_service import hydrate_missing_preferred_shifts_from_checkins, preferred_shift_filter_condition
 from app.services.tenant_guard import ensure_optional_user_in_gym
 from app.utils.encryption import encrypt_cpf
 
@@ -19,15 +19,7 @@ MemberPlanCycle = Literal["monthly", "semiannual", "annual"]
 
 
 def _preferred_shift_condition(preferred_shift: str):
-    normalized = (preferred_shift or "").strip().lower()
-    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
-    if normalized == "morning":
-        return preferred_shift_col.in_(("morning", "manha", "matutino"))
-    if normalized == "afternoon":
-        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
-    if normalized == "evening":
-        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
-    return None
+    return preferred_shift_filter_condition(Member.preferred_shift, preferred_shift)
 
 
 def _resolve_gym_id(gym_id: UUID | None = None) -> UUID | None:

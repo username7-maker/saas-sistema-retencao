@@ -32,6 +32,7 @@ const ROLE_BADGE: Record<StaffUser["role"], string> = {
 
 const SHIFT_OPTIONS = [
   { value: "", label: "Sem turno fixo" },
+  { value: "overnight", label: "Madrugada" },
   { value: "morning", label: "Manha" },
   { value: "afternoon", label: "Tarde" },
   { value: "evening", label: "Noite" },
@@ -43,7 +44,7 @@ const createSchema = z.object({
   password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: z.enum(["morning", "afternoon", "evening"]).optional().or(z.literal("")),
+  work_shift: z.enum(["overnight", "morning", "afternoon", "evening"]).optional().or(z.literal("")),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 
@@ -51,7 +52,7 @@ const editSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]).optional(),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: z.enum(["morning", "afternoon", "evening"]).optional().or(z.literal("")),
+  work_shift: z.enum(["overnight", "morning", "afternoon", "evening"]).optional().or(z.literal("")),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 

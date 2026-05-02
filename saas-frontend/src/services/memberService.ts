@@ -11,7 +11,7 @@ export interface MemberFilters {
   risk_level?: RiskLevel;
   status?: Member["status"];
   plan_cycle?: MemberPlanCycle;
-  preferred_shift?: "morning" | "afternoon" | "evening";
+  preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";
   min_days_without_checkin?: number;
   provisional_only?: boolean;
 }

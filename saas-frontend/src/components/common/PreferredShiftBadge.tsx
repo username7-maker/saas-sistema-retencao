@@ -18,7 +18,7 @@ export function PreferredShiftBadge({
   if (!label && !showFallback) return null;
 
   const displayLabel = label ?? "Sem padrão";
-  const variant = key === "morning" ? "warning" : key === "afternoon" ? "info" : "neutral";
+  const variant = key === "overnight" ? "neutral" : key === "morning" ? "warning" : key === "afternoon" ? "info" : "neutral";
   const title = label
     ? PREFERRED_SHIFT_HINT
     : "Ainda não há check-ins suficientes para definir o turno preferido.";

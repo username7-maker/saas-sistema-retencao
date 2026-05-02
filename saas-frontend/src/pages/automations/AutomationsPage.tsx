@@ -9,7 +9,7 @@ import {
   ChevronRight, Clock, CheckCircle2, XCircle,
   AlertTriangle, ArrowRight, Activity, LayoutTemplate,
   ChevronDown, ChevronUp, MessageSquare, Bell, ListTodo, Mail,
-  Timer, Eye, Sparkles,
+  Timer, Eye, Route,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import clsx from "clsx";
@@ -17,6 +17,7 @@ import clsx from "clsx";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { useAuth } from "../../hooks/useAuth";
 import { automationService, type AutomationRule } from "../../services/automationService";
+import { AutomationJourneysPanel } from "../../components/automations/AutomationJourneysPanel";
 import { Button, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { canDeleteAutomationRules, canSeedAutomationRules } from "../../utils/roleAccess";
 
@@ -440,7 +441,6 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
 
   const needsThreshold = ["inactivity_days","nps_score","lead_stale","checkin_streak"].includes(triggerType);
   const needsRiskLevel = triggerType === "risk_level_change";
-  const isAITrigger = triggerType === "ai_evaluate";
 
   const createMutation = useMutation({
     mutationFn: (v: RuleFormValues) => automationService.createRule({
@@ -519,19 +519,6 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
           </FormField>
         )}
 
-        {isAITrigger && (
-          <div className="rounded-xl border p-3" style={{ background: "#D7F2E8", borderColor: "#1D9E7540" }}>
-            <div className="flex items-center gap-2 mb-1.5" style={{ color: "#0F6E56" }}>
-              <Sparkles size={13} />
-              <span className="text-xs font-semibold">Gatilho Inteligente — Claude decide</span>
-            </div>
-            <p className="text-xs leading-relaxed" style={{ color: "#0F6E56" }}>
-              Antes de disparar a ação, Claude analisa o perfil 360 do aluno e avalia se a intervenção
-              é realmente necessária. Elimina falsos positivos e notificações desnecessárias.
-              Requer API key configurada — usa inatividade como fallback.
-            </p>
-          </div>
-        )}
         {["send_whatsapp","send_to_kommo","send_email","notify","create_task"].includes(actionType) && (
           <FormField label={actionType === "create_task" ? "Descrição da tarefa" : "Mensagem"}>
             <Textarea
@@ -592,6 +579,7 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
 export function AutomationsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab]         = useState<"journeys" | "rules">("journeys");
   const [executing, setExecuting]         = useState(false);
   const [execResults, setExecResults]     = useState<ExecResult[] | null>(null);
   const [drawerOpen, setDrawerOpen]       = useState(false);
@@ -668,8 +656,8 @@ export function AutomationsPage() {
     setShowTemplates(false);
   };
 
-  if (rulesQuery.isLoading) return <LoadingPanel text="Carregando automações..." />;
-  if (rulesQuery.isError)   return <LoadingPanel text="Erro ao carregar automações." />;
+  if (activeTab === "rules" && rulesQuery.isLoading) return <LoadingPanel text="Carregando automações..." />;
+  if (activeTab === "rules" && rulesQuery.isError)   return <LoadingPanel text="Erro ao carregar automações." />;
 
   const rules    = rulesQuery.data ?? [];
   const active   = rules.filter(r => r.is_active);
@@ -688,13 +676,16 @@ export function AutomationsPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Zap size={20} className="text-lovable-primary" />
+            {activeTab === "journeys" ? <Route size={20} className="text-lovable-primary" /> : <Zap size={20} className="text-lovable-primary" />}
             <h2 className="font-heading text-3xl font-bold text-lovable-ink">Automações</h2>
           </div>
           <p className="text-sm text-lovable-ink-muted">
-            Regras executadas automaticamente após o processamento diário de risco (2h UTC).
+            {activeTab === "journeys"
+              ? "Jornadas operacionais multi-etapa que criam tasks e outcomes, sem envio automático."
+              : "Regras avançadas executadas após o processamento diário de risco (2h UTC)."}
           </p>
         </div>
+        {activeTab === "rules" && (
         <div className="flex flex-wrap gap-2">
           {rules.length === 0 && canSeedRules && (
             <Button variant="ghost" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
@@ -717,7 +708,36 @@ export function AutomationsPage() {
               : <><Play size={14} />Executar Agora</>}
           </Button>
         </div>
+        )}
       </header>
+
+      <div className="inline-flex rounded-2xl border border-lovable-border bg-lovable-surface p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("journeys")}
+          className={clsx(
+            "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition",
+            activeTab === "journeys" ? "bg-lovable-primary text-white" : "text-lovable-ink-muted hover:text-lovable-ink",
+          )}
+        >
+          <Route size={14} />Jornadas prontas
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("rules")}
+          className={clsx(
+            "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition",
+            activeTab === "rules" ? "bg-lovable-primary text-white" : "text-lovable-ink-muted hover:text-lovable-ink",
+          )}
+        >
+          <Zap size={14} />Regras avançadas
+        </button>
+      </div>
+
+      {activeTab === "journeys" ? (
+        <AutomationJourneysPanel />
+      ) : (
+      <>
       {/* Stats */}
       {rules.length > 0 && <StatsStrip rules={rules} />}
 
@@ -847,6 +867,8 @@ export function AutomationsPage() {
         onClose={() => { setDrawerOpen(false); setRuleToEdit(null); setPrefill(null); }}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["automations", "rules"] })}
       />
+      </>
+      )}
     </section>
   );
 }

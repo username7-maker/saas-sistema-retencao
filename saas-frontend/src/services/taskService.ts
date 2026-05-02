@@ -1,5 +1,16 @@
 import { api } from "./api";
-import type { AIAssistantPayload, PaginatedResponse, Task, TaskContactChannel, TaskEvent, TaskEventType, TaskMetrics, WorkQueueOutcome } from "../types";
+import type {
+  AIAssistantPayload,
+  PaginatedResponse,
+  Task,
+  TaskContactChannel,
+  TaskEvent,
+  TaskEventType,
+  TaskMetrics,
+  TaskOperationalCleanupApplyResult,
+  TaskOperationalCleanupPreview,
+  WorkQueueOutcome,
+} from "../types";
 
 export interface CreateTaskPayload {
   member_id?: string;
@@ -51,6 +62,7 @@ type ListTaskParams = {
   plan_name?: string;
   date_from?: string;
   date_to?: string;
+  include_archived?: boolean;
 };
 
 export const taskService = {
@@ -62,16 +74,17 @@ export const taskService = {
     return data;
   },
 
-  async listAllTasks(params?: Pick<ListTaskParams, "include_retention">): Promise<PaginatedResponse<Task>> {
+  async listAllTasks(params?: Pick<ListTaskParams, "include_retention" | "include_archived">): Promise<PaginatedResponse<Task>> {
     const include_retention = params?.include_retention ?? false;
-    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE, include_retention });
+    const include_archived = params?.include_archived ?? false;
+    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE, include_retention, include_archived });
 
     if (first.total <= PAGE_SIZE) return first;
 
     const totalPages = Math.ceil(first.total / PAGE_SIZE);
     const rest: Task[] = [];
     for (let page = 2; page <= totalPages; page += 1) {
-      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE, include_retention });
+      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE, include_retention, include_archived });
       rest.push(...response.items);
     }
 
@@ -105,6 +118,16 @@ export const taskService = {
 
   async getMetrics(): Promise<TaskMetrics> {
     const { data } = await api.get<TaskMetrics>("/api/v1/tasks/metrics");
+    return data;
+  },
+
+  async getOperationalCleanupPreview(): Promise<TaskOperationalCleanupPreview> {
+    const { data } = await api.get<TaskOperationalCleanupPreview>("/api/v1/tasks/operational-cleanup/preview");
+    return data;
+  },
+
+  async applyOperationalCleanup(reason = "fila_24h_cleanup"): Promise<TaskOperationalCleanupApplyResult> {
+    const { data } = await api.post<TaskOperationalCleanupApplyResult>("/api/v1/tasks/operational-cleanup/apply", { reason });
     return data;
   },
 

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, not_, or_, select
@@ -15,9 +15,12 @@ from app.schemas import (
     TaskMetricsBreakdownOut,
     TaskMetricsOut,
     TaskMetricsOwnerOut,
+    TaskOperationalCleanupApplyOut,
+    TaskOperationalCleanupPreviewOut,
     TaskOut,
     TaskUpdate,
 )
+from app.services.preferred_shift_service import preferred_shift_filter_condition
 from app.services.tenant_guard import (
     ensure_optional_lead_in_gym,
     ensure_optional_member_in_gym,
@@ -83,6 +86,15 @@ def _is_retention_intelligence_task(task: Task) -> bool:
 def _is_finance_task(task: Task) -> bool:
     extra_data = _task_extra(task)
     return extra_data.get("source") == "delinquency" or extra_data.get("domain") == "finance"
+
+
+def is_task_operationally_archived(task: Task) -> bool:
+    archive = _task_extra(task).get("operational_archive")
+    return isinstance(archive, dict) and bool(archive.get("archived_at"))
+
+
+def _operational_archive_filter():
+    return func.coalesce(Task.extra_data["operational_archive"]["archived_at"].astext, "") == ""
 
 
 def _trainer_technical_task_filter():
@@ -167,8 +179,11 @@ def list_tasks(
     plan_name: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    include_archived: bool = False,
 ) -> PaginatedResponse:
     filters = [Task.deleted_at.is_(None)]
+    if not include_archived:
+        filters.append(_operational_archive_filter())
     if current_user:
         filters.append(Task.gym_id == current_user.gym_id)
     if status:
@@ -191,7 +206,9 @@ def list_tasks(
         if preferred_shift == "unassigned":
             filters.append(or_(Task.member_id.is_(None), Member.preferred_shift.is_(None)))
         else:
-            filters.append(Member.preferred_shift == preferred_shift)
+            shift_filter = preferred_shift_filter_condition(Member.preferred_shift, preferred_shift)
+            if shift_filter is not None:
+                filters.append(shift_filter)
     if plan_name:
         filters.append(Member.plan_name.ilike(f"%{plan_name.strip()}%"))
     if q and q.strip():
@@ -257,7 +274,7 @@ def list_tasks(
 
 
 def get_task_metrics(db: Session, *, current_user: User) -> TaskMetricsOut:
-    filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None)]
+    filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None), _operational_archive_filter()]
     if current_user.role == RoleEnum.TRAINER:
         filters.append(_trainer_technical_task_filter())
     now = datetime.now(tz=timezone.utc)
@@ -335,6 +352,148 @@ def get_task_metrics(db: Session, *, current_user: User) -> TaskMetricsOut:
             TaskMetricsBreakdownOut(key=key, label=key.replace("_", " ").title(), total=value)
             for key, value in sorted(outcome_counts.items(), key=lambda item: item[1], reverse=True)
         ],
+    )
+
+
+_OPERATIONAL_CLEANUP_CUTOFF_DAYS = 14
+_ARCHIVE_PROTECTED_SOURCES = {"delinquency", "automation_journey"}
+_ARCHIVE_PROTECTED_DOMAINS = {"finance"}
+_ACTIVE_ONBOARDING_SOURCES = {"onboarding"}
+
+
+def _source_label(task: Task) -> str:
+    source = str(_task_extra(task).get("source") or "manual").strip().lower()
+    return source or "manual"
+
+
+def _has_recorded_outcome(task: Task) -> bool:
+    extra = _task_extra(task)
+    last_event = extra.get("last_task_event")
+    last_outcome = last_event.get("outcome") if isinstance(last_event, dict) else None
+    return bool(extra.get("work_queue_outcome") or last_outcome)
+
+
+def _is_active_onboarding_d0_d30(task: Task, now: datetime) -> bool:
+    if _source_label(task) not in _ACTIVE_ONBOARDING_SOURCES:
+        return False
+    member = getattr(task, "member", None)
+    join_date = getattr(member, "join_date", None)
+    if join_date is None:
+        return False
+    days_since_join = (now.date() - join_date).days
+    status_value = str(getattr(member, "onboarding_status", "") or "").lower()
+    return 0 <= days_since_join <= 30 and status_value in {"active", "at_risk", ""}
+
+
+def _is_cleanup_candidate(task: Task, now: datetime) -> bool:
+    if task.status != TaskStatus.TODO or task.due_date is not None or is_task_operationally_archived(task):
+        return False
+    if not task.created_at or task.created_at > now - timedelta(days=_OPERATIONAL_CLEANUP_CUTOFF_DAYS):
+        return False
+    extra = _task_extra(task)
+    source = _source_label(task)
+    domain = str(extra.get("domain") or "").strip().lower()
+    if source in _ARCHIVE_PROTECTED_SOURCES or domain in _ARCHIVE_PROTECTED_DOMAINS:
+        return False
+    if _has_recorded_outcome(task):
+        return False
+    if _is_active_onboarding_d0_d30(task, now):
+        return False
+    return True
+
+
+def _cleanup_candidates(db: Session, *, current_user: User, now: datetime) -> list[Task]:
+    cutoff = now - timedelta(days=_OPERATIONAL_CLEANUP_CUTOFF_DAYS)
+    db_filters = [
+        Task.gym_id == current_user.gym_id,
+        Task.deleted_at.is_(None),
+        Task.status == TaskStatus.TODO,
+        Task.due_date.is_(None),
+        Task.created_at <= cutoff,
+        _operational_archive_filter(),
+        func.lower(func.coalesce(Task.extra_data["source"].astext, "")).notin_(tuple(_ARCHIVE_PROTECTED_SOURCES)),
+        func.lower(func.coalesce(Task.extra_data["domain"].astext, "")).notin_(tuple(_ARCHIVE_PROTECTED_DOMAINS)),
+        func.coalesce(Task.extra_data["work_queue_outcome"].astext, "") == "",
+    ]
+    tasks = db.scalars(
+        select(Task)
+        .options(joinedload(Task.member), joinedload(Task.lead))
+        .where(and_(*db_filters))
+        .order_by(Task.created_at.asc())
+    ).unique().all()
+    return [task for task in tasks if _is_cleanup_candidate(task, now)]
+
+
+def _cleanup_preview_from_tasks(tasks: list[Task]) -> TaskOperationalCleanupPreviewOut:
+    source_counts: dict[str, int] = {}
+    oldest_created_at: datetime | None = None
+    for task in tasks:
+        source = _source_label(task)
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if task.created_at and (oldest_created_at is None or task.created_at < oldest_created_at):
+            oldest_created_at = task.created_at
+    return TaskOperationalCleanupPreviewOut(
+        candidate_total=len(tasks),
+        cutoff_days=_OPERATIONAL_CLEANUP_CUTOFF_DAYS,
+        oldest_created_at=oldest_created_at,
+        by_source=[
+            TaskMetricsBreakdownOut(key=key, label=key.replace("_", " ").title(), total=value)
+            for key, value in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)
+        ],
+    )
+
+
+def preview_operational_task_cleanup(db: Session, *, current_user: User) -> TaskOperationalCleanupPreviewOut:
+    now = datetime.now(tz=timezone.utc)
+    tasks = _cleanup_candidates(db, current_user=current_user, now=now)
+    return _cleanup_preview_from_tasks(tasks)
+
+
+def apply_operational_task_cleanup(
+    db: Session,
+    *,
+    current_user: User,
+    reason: str,
+    commit: bool = True,
+) -> TaskOperationalCleanupApplyOut:
+    from app.services.task_event_service import record_task_event
+
+    now = datetime.now(tz=timezone.utc)
+    batch_id = str(uuid4())
+    tasks = _cleanup_candidates(db, current_user=current_user, now=now)
+    preview = _cleanup_preview_from_tasks(tasks)
+    for task in tasks:
+        extra = _task_extra(task)
+        extra["operational_archive"] = {
+            "archived_at": now.isoformat(),
+            "archived_by_user_id": str(current_user.id),
+            "reason": reason,
+            "batch_id": batch_id,
+        }
+        task.extra_data = extra
+        db.add(task)
+        record_task_event(
+            db,
+            task=task,
+            current_user=current_user,
+            event_type="status_changed",
+            note=f"Arquivada da fila operacional: {reason}",
+            metadata_json={"source": "operational_cleanup", "batch_id": batch_id},
+            flush=False,
+        )
+    if tasks:
+        invalidate_dashboard_cache("tasks")
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return TaskOperationalCleanupApplyOut(
+        candidate_total=preview.candidate_total,
+        cutoff_days=preview.cutoff_days,
+        oldest_created_at=preview.oldest_created_at,
+        by_source=preview.by_source,
+        archived_total=len(tasks),
+        batch_id=batch_id,
     )
 
 

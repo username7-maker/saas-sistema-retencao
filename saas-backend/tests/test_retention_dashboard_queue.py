@@ -460,3 +460,22 @@ class TestRetentionQueueRoute:
             assert mock_get_retention_queue.call_args.kwargs["preferred_shift"] == "evening"
         finally:
             app.dependency_overrides.clear()
+
+    def test_forwards_retention_stage_filter(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.dashboards.get_retention_queue",
+                return_value=PaginatedResponse(items=[], total=0, page=1, page_size=50),
+            ) as mock_get_retention_queue:
+                response = client.get("/api/v1/dashboards/retention/queue?retention_stage=reactivation")
+
+            assert response.status_code == 200
+            assert mock_get_retention_queue.call_args.kwargs["retention_stage"] == "reactivation"
+        finally:
+            app.dependency_overrides.clear()

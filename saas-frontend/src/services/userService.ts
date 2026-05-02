@@ -8,7 +8,7 @@ export interface StaffUser {
   role: "owner" | "manager" | "receptionist" | "salesperson" | "trainer";
   is_active: boolean;
   job_title?: string | null;
-  work_shift?: "morning" | "afternoon" | "evening" | null;
+  work_shift?: "overnight" | "morning" | "afternoon" | "evening" | null;
   avatar_url?: string | null;
   created_at: string;
 }

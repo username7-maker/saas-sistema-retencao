@@ -21,7 +21,7 @@ export type PriorityFilter = "all" | Task["priority"];
 export type AssigneeFilter = "all" | "unassigned" | string;
 export type OperationalViewMode = "triage" | "status";
 export type PlanFilter = "all" | "mensal" | "semestral" | "anual";
-export type PreferredShiftFilter = "all" | "morning" | "afternoon" | "evening";
+export type PreferredShiftFilter = "all" | "overnight" | "morning" | "afternoon" | "evening";
 export type OnboardingPlaybookKey = "engajado" | "atencao" | "critico";
 
 export interface OperationalFilters {

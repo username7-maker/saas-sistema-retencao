@@ -28,6 +28,7 @@ const LEAD_SOURCES = [
 ] as const;
 
 const PREFERRED_SHIFT_OPTIONS = [
+  { value: "madrugada", label: "Madrugada" },
   { value: "manha", label: "Manha" },
   { value: "tarde", label: "Tarde" },
   { value: "noite", label: "Noite" },

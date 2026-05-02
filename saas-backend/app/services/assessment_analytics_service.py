@@ -13,6 +13,7 @@ from app.models import Member, MemberStatus
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
 from app.schemas import PaginatedResponse
 from app.schemas.assessment import AssessmentQueueItemOut
+from app.services.preferred_shift_service import preferred_shift_filter_condition
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +26,7 @@ _ASSESSMENT_QUEUE_RESOLVED_STATUSES = ("scheduled", "dismissed")
 
 
 def _preferred_shift_condition(preferred_shift: str):
-    normalized = (preferred_shift or "").strip().lower()
-    preferred_shift_col = func.lower(func.coalesce(Member.preferred_shift, ""))
-    if normalized == "morning":
-        return preferred_shift_col.in_(("morning", "manha", "matutino"))
-    if normalized == "afternoon":
-        return preferred_shift_col.in_(("afternoon", "tarde", "vespertino"))
-    if normalized == "evening":
-        return preferred_shift_col.in_(("evening", "night", "noite", "noturno"))
-    return None
+    return preferred_shift_filter_condition(Member.preferred_shift, preferred_shift)
 
 
 def _resolve_gym_id(gym_id=None):

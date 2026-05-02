@@ -249,6 +249,7 @@ export function MembersPage() {
               onChange: (value) => handleFilterChange("preferred_shift", (value || undefined) as MemberQueryFilters["preferred_shift"]),
               options: [
                 { value: "", label: "Todos os turnos por check-in" },
+                { value: "overnight", label: "Madrugada" },
                 { value: "morning", label: "Manha" },
                 { value: "afternoon", label: "Tarde" },
                 { value: "evening", label: "Noite" },

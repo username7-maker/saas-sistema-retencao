@@ -1,4 +1,4 @@
-export type PreferredShiftKey = "morning" | "afternoon" | "evening";
+export type PreferredShiftKey = "overnight" | "morning" | "afternoon" | "evening";
 
 function normalizeText(value: string): string {
   return value
@@ -11,6 +11,7 @@ function normalizeText(value: string): string {
 export function getPreferredShiftKey(value: string | null | undefined): PreferredShiftKey | null {
   const normalized = normalizeText(value ?? "");
   if (!normalized) return null;
+  if (["overnight", "madrugada", "noturno_madrugada", "plantao_madrugada"].includes(normalized)) return "overnight";
   if (["morning", "manha", "matutino"].includes(normalized)) return "morning";
   if (["afternoon", "tarde", "vespertino"].includes(normalized)) return "afternoon";
   if (["evening", "night", "noite", "noturno"].includes(normalized)) return "evening";
@@ -19,6 +20,7 @@ export function getPreferredShiftKey(value: string | null | undefined): Preferre
 
 export function getPreferredShiftLabel(value: string | null | undefined): string | null {
   const key = getPreferredShiftKey(value);
+  if (key === "overnight") return "Madrugada";
   if (key === "morning") return "Manha";
   if (key === "afternoon") return "Tarde";
   if (key === "evening") return "Noite";

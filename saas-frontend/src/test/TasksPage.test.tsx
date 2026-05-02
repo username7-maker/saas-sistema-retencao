@@ -8,9 +8,9 @@ import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import { workQueueService } from "../services/workQueueService";
-import type { Member, Task } from "../types";
+import type { LeadToMemberIntelligenceContext, Member, Task } from "../types";
 
-let currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null as "morning" | "afternoon" | "evening" | null };
+let currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null as "overnight" | "morning" | "afternoon" | "evening" | null };
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
@@ -34,6 +34,7 @@ vi.mock("../services/memberService", () => ({
     listMemberIndex: vi.fn(),
     getOnboardingScore: vi.fn(),
     getOnboardingScoreboard: vi.fn(),
+    getIntelligenceContext: vi.fn(),
   },
 }));
 
@@ -54,6 +55,72 @@ vi.mock("../services/workQueueService", () => ({
 
 let members: Member[] = [];
 let tasks: Task[] = [];
+
+function makeIntelligenceContext(member: Member = members[0]): LeadToMemberIntelligenceContext {
+  return {
+    version: "lead-member-context-v1",
+    generated_at: "2026-04-29T12:00:00Z",
+    member: {
+      member_id: member.id,
+      full_name: member.full_name,
+      email: member.email,
+      phone: member.phone,
+      status: member.status,
+      plan_name: member.plan_name,
+      monthly_fee: member.monthly_fee,
+      join_date: member.join_date,
+      preferred_shift: member.preferred_shift,
+      assigned_user_id: null,
+      is_vip: false,
+    },
+    lead: null,
+    consent: {
+      lgpd: true,
+      communication: true,
+      image: null,
+      contract: true,
+      source: "member.extra_data",
+      missing: ["image"],
+    },
+    lifecycle: {
+      onboarding_status: member.onboarding_status ?? null,
+      onboarding_score: member.onboarding_score ?? null,
+      retention_stage: null,
+      churn_type: null,
+      loyalty_months: member.loyalty_months,
+    },
+    activity: {
+      last_checkin_at: member.last_checkin_at,
+      days_without_checkin: null,
+      checkins_30d: 0,
+      checkins_90d: 0,
+      preferred_shift: member.preferred_shift,
+    },
+    assessment: {
+      assessments_total: 0,
+      latest_assessment_at: null,
+      body_composition_total: 0,
+      latest_body_composition_at: null,
+      latest_body_fat_percent: null,
+      latest_muscle_mass_kg: null,
+      latest_weight_kg: null,
+    },
+    operations: {
+      open_tasks_total: 0,
+      overdue_tasks_total: 0,
+      next_task_due_at: null,
+      latest_completed_task_at: null,
+    },
+    risk: {
+      risk_level: member.risk_level,
+      risk_score: member.risk_score,
+      open_alerts_total: 0,
+      nps_last_score: member.nps_last_score,
+    },
+    signals: [],
+    data_quality_flags: [],
+  };
+}
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -348,6 +415,10 @@ describe("TasksPage", () => {
       completed_tasks: 1,
       total_tasks: 3,
     });
+    vi.mocked(memberService.getIntelligenceContext).mockImplementation(async (memberId) => {
+      const member = members.find((item) => item.id === memberId) ?? members[0];
+      return makeIntelligenceContext(member);
+    });
 
     vi.mocked(userService.listUsers).mockResolvedValue([
       {
@@ -464,7 +535,7 @@ describe("TasksPage", () => {
     expect(screen.getByText("Contato do aluno")).toBeInTheDocument();
     expect(screen.getByText("Risco atual")).toBeInTheDocument();
     expect(screen.getByText(/Score 82/i)).toBeInTheDocument();
-    expect(screen.getByText("Ultimo check-in")).toBeInTheDocument();
+    expect(screen.getAllByText("Ultimo check-in").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Turno Manha").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Ligar" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute(

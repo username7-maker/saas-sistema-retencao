@@ -2,7 +2,7 @@ import { api } from "./api";
 import type { PaginatedResponse, WorkQueueActionResult, WorkQueueItem, WorkQueueOutcome } from "../types";
 
 export type WorkQueueListState = "do_now" | "awaiting_outcome" | "done" | "all";
-export type WorkQueueShiftFilter = "my_shift" | "all" | "morning" | "afternoon" | "evening" | "unassigned";
+export type WorkQueueShiftFilter = "my_shift" | "all" | "overnight" | "morning" | "afternoon" | "evening" | "unassigned";
 export type WorkQueueAssigneeFilter = "mine" | "unassigned" | "all";
 export type WorkQueueDomainFilter = "all" | "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual";
 export type WorkQueueSourceFilter = "all" | "task" | "ai_triage";

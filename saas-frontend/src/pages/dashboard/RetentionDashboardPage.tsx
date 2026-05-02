@@ -35,7 +35,8 @@ import { canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
-type QueuePreferredShift = "all" | "morning" | "afternoon" | "evening";
+type QueuePreferredShift = "all" | "overnight" | "morning" | "afternoon" | "evening";
+type QueueRetentionStage = "all" | "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
 
 const CHURN_OPTIONS = [
   { value: "all", label: "Todos os churns" },
@@ -57,10 +58,21 @@ const PLAN_CYCLE_OPTIONS = [
 
 const PREFERRED_SHIFT_OPTIONS = [
   { value: "all", label: "Todos os turnos" },
+  { value: "overnight", label: "Madrugada" },
   { value: "morning", label: "Manha" },
   { value: "afternoon", label: "Tarde" },
   { value: "evening", label: "Noite" },
 ] as const;
+
+const RETENTION_STAGE_OPTIONS: Array<{ value: QueueRetentionStage; label: string; description: string }> = [
+  { value: "all", label: "Todos os estagios", description: "Fila completa por risco e contexto." },
+  { value: "attention", label: "Atencao agora", description: "7-13 dias sem check-in." },
+  { value: "recovery", label: "Recuperar esta semana", description: "14-29 dias sem check-in." },
+  { value: "reactivation", label: "Reativar 30+ dias", description: "30-44 dias sem check-in." },
+  { value: "manager_escalation", label: "Escalar gerente", description: "45-59 dias sem check-in." },
+  { value: "cold_base", label: "Base fria", description: "60+ dias sem check-in." },
+  { value: "monitoring", label: "Monitoramento", description: "0-6 dias sem check-in." },
+];
 
 const CHURN_META: Record<string, { label: string; description: string }> = {
   early_dropout: {
@@ -100,7 +112,7 @@ const PLAYBOOK_PRIORITY_VARIANT: Record<string, "danger" | "warning" | "info" | 
   low: "neutral",
 };
 
-const QUEUE_GRID_COLUMNS = "lg:grid-cols-[minmax(0,2.3fr)_120px_160px_120px_140px_140px_240px]";
+const QUEUE_GRID_COLUMNS = "lg:grid-cols-[minmax(0,2.15fr)_150px_110px_145px_120px_130px_125px_220px]";
 
 type SignalRow = {
   label: string;
@@ -124,6 +136,27 @@ function formatCurrency(value: number): string {
 function formatChurnType(value: string | null): string {
   if (!value) return "Sem classificação";
   return CHURN_META[value]?.label ?? value.replace(/_/g, " ");
+}
+
+function formatRetentionStage(item: RetentionQueueItem): string {
+  return item.retention_stage_label || RETENTION_STAGE_OPTIONS.find((option) => option.value === item.retention_stage)?.label || "Sem estagio";
+}
+
+function retentionStageVariant(stage: string | null | undefined): "danger" | "warning" | "info" | "success" | "neutral" {
+  if (stage === "manager_escalation") return "danger";
+  if (stage === "recovery" || stage === "reactivation") return "warning";
+  if (stage === "attention") return "info";
+  if (stage === "monitoring") return "success";
+  return "neutral";
+}
+
+function formatOwnerRole(value: string | null | undefined): string {
+  if (!value) return "Equipe";
+  const normalized = value.toLowerCase();
+  if (normalized === "manager") return "Gerente";
+  if (normalized === "trainer" || normalized === "coach") return "Professor";
+  if (normalized === "reception" || normalized === "receptionist") return "Recepcao";
+  return value.replace(/_/g, " ");
 }
 
 function formatLastContact(value: string | null): string {
@@ -343,6 +376,9 @@ function RetentionQueueDrawer({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={retentionStageVariant(item.retention_stage)} size="sm" className="normal-case tracking-normal">
+                  {formatRetentionStage(item)}
+                </Badge>
                 <RiskBadge risk={item.risk_level} />
                 <Badge variant="info" size="sm" className="normal-case tracking-normal">
                   {formatChurnType(item.churn_type)}
@@ -357,6 +393,17 @@ function RetentionQueueDrawer({
               <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
                 <span className="font-semibold text-lovable-ink">Automação:</span> {item.automation_stage ?? "Sem estágio"}
               </div>
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
+                <span className="font-semibold text-lovable-ink">Estagio:</span> {formatRetentionStage(item)}
+              </div>
+              <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
+                <span className="font-semibold text-lovable-ink">Responsavel sugerido:</span> {formatOwnerRole(item.recommended_owner_role)}
+              </div>
+              {item.cooldown_until ? (
+                <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2 sm:col-span-2">
+                  <span className="font-semibold text-lovable-ink">Cooldown:</span> volta para fila em {formatDateTime(item.cooldown_until)}
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -422,7 +469,17 @@ function RetentionQueueDrawer({
           <section>
             <SectionHeader
               title="Playbook sugerido"
-              subtitle={item.next_action ? `Próxima ação recomendada: ${item.next_action}` : "Sem playbook configurado."}
+              subtitle={
+                item.retention_stage === "reactivation"
+                  ? "Aluno 30+ dias: oferecer retorno guiado com professor, nao lembrete simples."
+                  : item.retention_stage === "manager_escalation"
+                    ? "Aluno 45+ dias: gerente revisa permanencia, plano, trancamento ou cancelamento."
+                    : item.retention_stage === "cold_base"
+                      ? "Aluno 60+ dias: tratar como campanha de winback, fora da fila diaria comum."
+                      : item.next_action
+                        ? `Próxima ação recomendada: ${item.next_action}`
+                        : "Sem playbook configurado."
+              }
               count={item.playbook_steps.length}
             />
             {item.playbook_steps.length === 0 ? (
@@ -525,6 +582,7 @@ export function RetentionDashboardPage() {
   const [churnType, setChurnType] = useState("all");
   const [planCycle, setPlanCycle] = useState("all");
   const [preferredShift, setPreferredShift] = useState<QueuePreferredShift>("all");
+  const [retentionStage, setRetentionStage] = useState<QueueRetentionStage>("all");
   const [useCurrentShift, setUseCurrentShift] = useState(false);
   const [shiftPreferenceTouched, setShiftPreferenceTouched] = useState(false);
   const [page, setPage] = useState(1);
@@ -554,10 +612,10 @@ export function RetentionDashboardPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, level, churnType, planCycle, effectivePreferredShift]);
+  }, [search, level, churnType, planCycle, effectivePreferredShift, retentionStage]);
 
   const queueQuery = useQuery({
-    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle, effectivePreferredShift }],
+    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle, effectivePreferredShift, retentionStage }],
     queryFn: () =>
       dashboardService.retentionQueue({
         page,
@@ -567,11 +625,12 @@ export function RetentionDashboardPage() {
         churn_type: churnType === "all" ? undefined : churnType,
         plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
         preferred_shift: effectivePreferredShift,
+        retention_stage: retentionStage === "all" ? undefined : retentionStage,
       }),
     staleTime: 60_000,
     placeholderData: (previous, previousQuery) => {
       const previousParams = previousQuery?.queryKey?.[3] as
-        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string; effectivePreferredShift?: string }
+        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string; effectivePreferredShift?: string; retentionStage?: string }
         | undefined;
       if (!previousParams) return previous;
       const filtersChanged =
@@ -579,7 +638,8 @@ export function RetentionDashboardPage() {
         previousParams.level !== level ||
         previousParams.churnType !== churnType ||
         previousParams.planCycle !== planCycle ||
-        previousParams.effectivePreferredShift !== effectivePreferredShift;
+        previousParams.effectivePreferredShift !== effectivePreferredShift ||
+        previousParams.retentionStage !== retentionStage;
       return filtersChanged ? undefined : previous;
     },
   });
@@ -602,6 +662,7 @@ export function RetentionDashboardPage() {
     churnType !== "all",
     planCycle !== "all",
     preferredShift !== "all",
+    retentionStage !== "all",
   ].filter(Boolean).length;
   const canResolveAlerts = canResolveRetentionAlert(user?.role);
 
@@ -665,6 +726,10 @@ export function RetentionDashboardPage() {
   const queueTotal = queueQuery.data?.total ?? 0;
   const queuePage = queueQuery.data?.page ?? page;
   const queuePageSize = queueQuery.data?.page_size ?? 50;
+  const stageCounts = queueQuery.data?.stage_counts ?? {};
+  const laneOptions = RETENTION_STAGE_OPTIONS.filter((option) =>
+    ["attention", "recovery", "reactivation", "manager_escalation", "cold_base"].includes(option.value),
+  );
 
   const handleOpenProfile = (memberId: string) => {
     setSelectedItem(null);
@@ -688,6 +753,7 @@ export function RetentionDashboardPage() {
     setLevel("all");
     setChurnType("all");
     setPlanCycle("all");
+    setRetentionStage("all");
     setPreferredShift("all");
     setShiftPreferenceTouched(false);
     setUseCurrentShift(Boolean(currentUserShift));
@@ -793,6 +859,13 @@ export function RetentionDashboardPage() {
               ],
             },
             {
+              key: "retention_stage",
+              label: "Estagio",
+              value: retentionStage,
+              onChange: (value) => setRetentionStage((value || "all") as QueueRetentionStage),
+              options: RETENTION_STAGE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+            },
+            {
               key: "churn_type",
               label: "Churn",
               value: churnType,
@@ -840,6 +913,36 @@ export function RetentionDashboardPage() {
           </div>
         ) : null}
 
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {laneOptions.map((option) => {
+            const isActive = retentionStage === option.value;
+            const count = stageCounts[option.value] ?? 0;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setRetentionStage(isActive ? "all" : option.value)}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  isActive
+                    ? "border-lovable-primary/60 bg-lovable-primary/12 text-lovable-ink shadow-panel"
+                    : "border-lovable-border bg-lovable-surface-soft text-lovable-ink hover:border-lovable-primary/35",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">{option.label}</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">{option.description}</p>
+                  </div>
+                  <Badge variant={retentionStageVariant(option.value)} size="sm">
+                    {count}
+                  </Badge>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="mt-4">
           {queueQuery.isLoading ? (
             <QueueSkeleton />
@@ -870,6 +973,7 @@ export function RetentionDashboardPage() {
                 )}
               >
                 <span>Aluno</span>
+                <span>Estagio</span>
                 <span>Severidade</span>
                 <span>Churn</span>
                 <span>Inatividade</span>
@@ -913,6 +1017,15 @@ export function RetentionDashboardPage() {
                           <p className="mt-1 text-xs text-lovable-ink-muted">{item.signals_summary}</p>
                         </div>
                       </div>
+                    </div>
+
+                    <div className="flex min-w-0 flex-col items-start gap-1">
+                      <Badge variant={retentionStageVariant(item.retention_stage)} size="sm" className="normal-case tracking-normal">
+                        {formatRetentionStage(item)}
+                      </Badge>
+                      <span className="text-xs text-lovable-ink-muted">
+                        {formatOwnerRole(item.recommended_owner_role)}
+                      </span>
                     </div>
 
                     <div className="flex min-w-0 items-center lg:items-start">

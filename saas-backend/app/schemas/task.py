@@ -138,3 +138,19 @@ class TaskMetricsOut(BaseModel):
     by_owner: list[TaskMetricsOwnerOut] = Field(default_factory=list)
     by_source: list[TaskMetricsBreakdownOut] = Field(default_factory=list)
     by_outcome: list[TaskMetricsBreakdownOut] = Field(default_factory=list)
+
+
+class TaskOperationalCleanupPreviewOut(BaseModel):
+    candidate_total: int = 0
+    cutoff_days: int = 14
+    oldest_created_at: datetime | None = None
+    by_source: list[TaskMetricsBreakdownOut] = Field(default_factory=list)
+
+
+class TaskOperationalCleanupApplyInput(BaseModel):
+    reason: str = Field(default="fila_24h_cleanup", min_length=3, max_length=160)
+
+
+class TaskOperationalCleanupApplyOut(TaskOperationalCleanupPreviewOut):
+    archived_total: int = 0
+    batch_id: str

@@ -16,9 +16,8 @@ from app.schemas import (
     GrowthPoint,
     LTVPoint,
     OperationalDashboard,
-    PaginatedResponse,
     RetentionDashboard,
-    RetentionQueueItem,
+    RetentionQueueResponse,
     RevenuePoint,
     WeeklySummary,
 )
@@ -139,7 +138,7 @@ def retention_dashboard(
     return get_retention_dashboard(db, red_page=red_page, yellow_page=yellow_page, page_size=page_size)
 
 
-@router.get("/retention/queue", response_model=PaginatedResponse[RetentionQueueItem])
+@router.get("/retention/queue", response_model=RetentionQueueResponse)
 def retention_queue(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
@@ -149,8 +148,9 @@ def retention_queue(
     level: Literal["all", "red", "yellow"] = Query("all"),
     churn_type: str | None = Query(None),
     plan_cycle: Literal["monthly", "semiannual", "annual"] | None = Query(None),
-    preferred_shift: Literal["morning", "afternoon", "evening"] | None = Query(None),
-) -> PaginatedResponse[RetentionQueueItem]:
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = Query(None),
+    retention_stage: Literal["monitoring", "attention", "recovery", "reactivation", "manager_escalation", "cold_base"] | None = Query(None),
+) -> RetentionQueueResponse:
     return get_retention_queue(
         db,
         page=page,
@@ -160,6 +160,7 @@ def retention_queue(
         churn_type=churn_type,
         plan_cycle=plan_cycle,
         preferred_shift=preferred_shift,
+        retention_stage=retention_stage,
     )
 
 

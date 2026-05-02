@@ -12,18 +12,38 @@ from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, Member
 
 PREFERRED_SHIFT_LOOKBACK_DAYS = 120
-_SHIFT_KEYS = ("morning", "afternoon", "evening")
+_SHIFT_KEYS = ("overnight", "morning", "afternoon", "evening")
+
+_SHIFT_ALIASES = {
+    "overnight": {"overnight", "madrugada", "noturno_madrugada", "plantao_madrugada"},
+    "morning": {"morning", "manha", "matutino"},
+    "afternoon": {"afternoon", "tarde", "vespertino"},
+    "evening": {"evening", "night", "noite", "noturno"},
+}
 
 
 def normalize_preferred_shift(value: str | None) -> str | None:
     normalized = (value or "").strip().lower()
-    if normalized in {"morning", "manha", "matutino"}:
-        return "morning"
-    if normalized in {"afternoon", "tarde", "vespertino"}:
-        return "afternoon"
-    if normalized in {"evening", "night", "noite", "noturno"}:
-        return "evening"
+    for canonical, aliases in _SHIFT_ALIASES.items():
+        if normalized in aliases:
+            return canonical
     return None
+
+
+def preferred_shift_filter_condition(column, preferred_shift: str | None):
+    normalized = normalize_preferred_shift(preferred_shift)
+    if normalized is None:
+        return None
+    return func.lower(func.coalesce(column, "")).in_(tuple(_SHIFT_ALIASES[normalized]))
+
+
+def checkin_shift_case():
+    return case(
+        (Checkin.hour_bucket < 6, "overnight"),
+        (Checkin.hour_bucket < 12, "morning"),
+        (Checkin.hour_bucket < 18, "afternoon"),
+        else_="evening",
+    )
 
 
 def derive_preferred_shift_from_counts(counts: dict[str, int] | None) -> str | None:
@@ -68,11 +88,7 @@ def sync_preferred_shifts_from_checkins(
 
     member_id_set = {member.id for member in members}
     recent_cutoff = datetime.now(tz=timezone.utc) - timedelta(days=PREFERRED_SHIFT_LOOKBACK_DAYS)
-    shift_expr = case(
-        (Checkin.hour_bucket < 12, "morning"),
-        (Checkin.hour_bucket < 18, "afternoon"),
-        else_="evening",
-    )
+    shift_expr = checkin_shift_case()
     rows = db.execute(
         select(
             Checkin.member_id.label("member_id"),
@@ -121,11 +137,7 @@ def hydrate_missing_preferred_shifts_from_checkins(db: Session, members: Iterabl
 
     member_id_set = {member.id for member in member_list}
     recent_cutoff = datetime.now(tz=timezone.utc) - timedelta(days=PREFERRED_SHIFT_LOOKBACK_DAYS)
-    shift_expr = case(
-        (Checkin.hour_bucket < 12, "morning"),
-        (Checkin.hour_bucket < 18, "afternoon"),
-        else_="evening",
-    )
+    shift_expr = checkin_shift_case()
     rows = db.execute(
         select(
             Checkin.member_id.label("member_id"),

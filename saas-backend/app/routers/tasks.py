@@ -8,11 +8,32 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, TaskPriority, TaskStatus, User
-from app.schemas import AIAssistantPayload, PaginatedResponse, TaskCreate, TaskEventCreate, TaskEventOut, TaskMetricsOut, TaskOut, TaskUpdate
+from app.schemas import (
+    AIAssistantPayload,
+    PaginatedResponse,
+    TaskCreate,
+    TaskEventCreate,
+    TaskEventOut,
+    TaskMetricsOut,
+    TaskOperationalCleanupApplyInput,
+    TaskOperationalCleanupApplyOut,
+    TaskOperationalCleanupPreviewOut,
+    TaskOut,
+    TaskUpdate,
+)
 from app.services.audit_service import log_audit_event
 from app.services.ai_assistant_service import build_task_assistant
 from app.services.task_event_service import create_task_event, list_task_events
-from app.services.task_service import create_task, delete_task, get_task_metrics, get_task_with_relations_or_404, list_tasks, update_task
+from app.services.task_service import (
+    apply_operational_task_cleanup,
+    create_task,
+    delete_task,
+    get_task_metrics,
+    get_task_with_relations_or_404,
+    list_tasks,
+    preview_operational_task_cleanup,
+    update_task,
+)
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -66,6 +87,7 @@ def list_tasks_endpoint(
     plan_name: str | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
+    include_archived: bool = Query(False),
 ) -> PaginatedResponse[TaskOut]:
     return list_tasks(
         db,
@@ -86,6 +108,7 @@ def list_tasks_endpoint(
         plan_name=plan_name,
         date_from=date_from,
         date_to=date_to,
+        include_archived=include_archived,
     )
 
 
@@ -95,6 +118,36 @@ def task_metrics_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> TaskMetricsOut:
     return get_task_metrics(db, current_user=current_user)
+
+
+@router.get("/operational-cleanup/preview", response_model=TaskOperationalCleanupPreviewOut)
+def operational_cleanup_preview_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> TaskOperationalCleanupPreviewOut:
+    return preview_operational_task_cleanup(db, current_user=current_user)
+
+
+@router.post("/operational-cleanup/apply", response_model=TaskOperationalCleanupApplyOut)
+def operational_cleanup_apply_endpoint(
+    request: Request,
+    payload: TaskOperationalCleanupApplyInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> TaskOperationalCleanupApplyOut:
+    result = apply_operational_task_cleanup(db, current_user=current_user, reason=payload.reason, commit=False)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="task_operational_cleanup_archived",
+        entity="task",
+        user=current_user,
+        details={"archived_total": result.archived_total, "batch_id": result.batch_id, "reason": payload.reason},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
 
 
 @router.patch("/{task_id}", response_model=TaskOut)

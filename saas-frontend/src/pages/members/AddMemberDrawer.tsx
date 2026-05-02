@@ -113,6 +113,7 @@ export function AddMemberDrawer({ open, onClose }: { open: boolean; onClose: () 
         <FormField label="Turno preferido">
           <Select {...register("preferred_shift")}>
             <option value="">Não definido</option>
+            <option value="overnight">Madrugada</option>
             <option value="morning">Manhã</option>
             <option value="afternoon">Tarde</option>
             <option value="evening">Noite</option>

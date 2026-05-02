@@ -1,7 +1,7 @@
 """Tests for task_service covering create, list, update, delete."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -213,3 +213,55 @@ class TestDeleteTask:
         from app.services.task_service import delete_task
         with pytest.raises(HTTPException):
             delete_task(db, TASK_ID)
+
+
+class TestOperationalCleanup:
+    def test_preview_reports_candidates_without_mutating(self):
+        old_task = _mock_task(created_at=datetime.now(tz=timezone.utc) - timedelta(days=30), extra_data={"source": "manual"})
+        db = MagicMock()
+        db.scalars.return_value.unique.return_value.all.return_value = [old_task]
+        from app.services.task_service import preview_operational_task_cleanup
+
+        result = preview_operational_task_cleanup(db, current_user=_mock_user(role=RoleEnum.MANAGER))
+
+        assert result.candidate_total == 1
+        assert result.by_source[0].key == "manual"
+        assert "operational_archive" not in old_task.extra_data
+
+    @patch("app.services.task_service.invalidate_dashboard_cache")
+    def test_apply_archives_without_changing_status(self, mock_cache):
+        old_task = _mock_task(created_at=datetime.now(tz=timezone.utc) - timedelta(days=30), extra_data={"source": "manual"})
+        db = MagicMock()
+        db.scalars.return_value.unique.return_value.all.return_value = [old_task]
+        from app.services.task_service import apply_operational_task_cleanup
+
+        result = apply_operational_task_cleanup(
+            db,
+            current_user=_mock_user(role=RoleEnum.MANAGER),
+            reason="limpeza piloto 24h",
+            commit=False,
+        )
+
+        assert result.archived_total == 1
+        assert old_task.status == TaskStatus.TODO
+        assert old_task.extra_data["operational_archive"]["reason"] == "limpeza piloto 24h"
+        assert old_task.extra_data["operational_archive"]["batch_id"] == result.batch_id
+        assert any(getattr(call.args[0], "event_type", None) == "status_changed" for call in db.add.call_args_list)
+        db.flush.assert_called_once()
+        db.commit.assert_not_called()
+        mock_cache.assert_called_once_with("tasks")
+
+    def test_cleanup_protects_active_onboarding_d0_d30(self):
+        member = SimpleNamespace(join_date=datetime.now(tz=timezone.utc).date() - timedelta(days=10), onboarding_status="active")
+        task = _mock_task(
+            created_at=datetime.now(tz=timezone.utc) - timedelta(days=30),
+            extra_data={"source": "onboarding"},
+            member=member,
+        )
+        db = MagicMock()
+        db.scalars.return_value.unique.return_value.all.return_value = [task]
+        from app.services.task_service import preview_operational_task_cleanup
+
+        result = preview_operational_task_cleanup(db, current_user=_mock_user(role=RoleEnum.MANAGER))
+
+        assert result.candidate_total == 0

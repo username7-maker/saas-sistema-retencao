@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app.models import RoleEnum, TaskPriority, TaskStatus
 from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
-from app.services.work_queue_service import execute_work_queue_item, update_work_queue_outcome
+from app.services.work_queue_service import _matches_shift, execute_work_queue_item, update_work_queue_outcome
 
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -164,6 +164,46 @@ def test_finance_task_payment_promised_snoozes_and_keeps_open(monkeypatch):
     created_events = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "event_type", None) == "snoozed"]
     assert created_events
     assert created_events[0].outcome == "payment_promised"
+
+
+def test_matches_my_shift_for_overnight_user():
+    user = _user()
+    user.work_shift = "overnight"
+    item = WorkQueueItemOut(
+        source_type="task",
+        source_id=TASK_ID,
+        subject_name="Aluno madrugada",
+        domain="retention",
+        severity="high",
+        preferred_shift="madrugada",
+        reason="Padrao de check-in da madrugada",
+        primary_action_label="Contato nao invasivo",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        context_path="/tasks",
+        outcome_state="pending",
+    )
+
+    assert _matches_shift(item, user, "my_shift") is True
+
+
+def test_archived_task_cannot_execute(monkeypatch):
+    task = _task(extra_data={"operational_archive": {"archived_at": "2026-04-29T00:00:00+00:00"}})
+    db = MagicMock()
+    db.scalar.return_value = task
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        execute_work_queue_item(
+            db,
+            current_user=_user(),
+            source_type="task",
+            source_id=TASK_ID,
+            payload=WorkQueueExecuteInput(operator_note="Tentar"),
+        )
+
+    assert exc_info.value.status_code == 404
 
 
 def test_ai_triage_execute_requires_confirmation_for_critical(monkeypatch):

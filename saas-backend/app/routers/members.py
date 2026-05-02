@@ -129,7 +129,7 @@ def list_members_endpoint(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
-    preferred_shift: Literal["morning", "afternoon", "evening"] | None = None,
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = None,
     min_days_without_checkin: int | None = Query(default=None, ge=0),
     provisional_only: bool | None = None,
 ) -> PaginatedResponse[MemberOut]:
@@ -156,7 +156,7 @@ def list_members_index_endpoint(
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
     plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None,
-    preferred_shift: Literal["morning", "afternoon", "evening"] | None = None,
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = None,
     min_days_without_checkin: int | None = Query(default=None, ge=0),
     provisional_only: bool | None = None,
 ) -> list[MemberOut]:

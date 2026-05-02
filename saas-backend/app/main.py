@@ -43,6 +43,7 @@ from app.routers import (
     audit,
     auth,
     automations,
+    automation_journeys,
     checkins,
     crm,
     dashboards,
@@ -219,6 +220,7 @@ app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(risk_alerts.router, prefix=settings.api_prefix)
 app.include_router(automations.router, prefix=settings.api_prefix)
+app.include_router(automation_journeys.router, prefix=settings.api_prefix)
 app.include_router(reports.router, prefix=settings.api_prefix)
 app.include_router(roi.router, prefix=settings.api_prefix)
 app.include_router(sales.router, prefix=settings.api_prefix)

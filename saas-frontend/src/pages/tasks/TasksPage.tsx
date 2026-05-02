@@ -32,10 +32,12 @@ export function TasksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const canManageOperations = user?.role === "owner" || user?.role === "manager";
 
   const tasksQuery = useQuery({
-    queryKey: ["tasks", "all"],
-    queryFn: () => taskService.listAllTasks(),
+    queryKey: ["tasks", "all", { includeArchived }],
+    queryFn: () => taskService.listAllTasks({ include_archived: includeArchived }),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -53,7 +55,13 @@ export function TasksPage() {
   const metricsQuery = useQuery({
     queryKey: ["tasks", "metrics"],
     queryFn: () => taskService.getMetrics(),
-    enabled: (user?.role === "owner" || user?.role === "manager") && typeof taskService.getMetrics === "function",
+    enabled: canManageOperations && typeof taskService.getMetrics === "function",
+    staleTime: 2 * 60 * 1000,
+  });
+  const cleanupPreviewQuery = useQuery({
+    queryKey: ["tasks", "operational-cleanup", "preview"],
+    queryFn: () => taskService.getOperationalCleanupPreview(),
+    enabled: canManageOperations,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -83,6 +91,15 @@ export function TasksPage() {
       toast.success("Tarefa excluida.");
     },
     onError: () => toast.error("Erro ao excluir tarefa."),
+  });
+  const cleanupMutation = useMutation({
+    mutationFn: () => taskService.applyOperationalCleanup(),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      toast.success(`${result.archived_total} tarefas arquivadas da fila diaria.`);
+    },
+    onError: () => toast.error("Erro ao arquivar ruido operacional."),
   });
 
   const tasks = tasksQuery.data?.items ?? [];
@@ -139,10 +156,19 @@ export function TasksPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="neutral">Tasks: {totalTasks}</Badge>
             <Badge variant="warning">Onboarding ativo: {onboardingCount}</Badge>
+            {canManageOperations ? (
+              <Button
+                size="sm"
+                variant={includeArchived ? "secondary" : "ghost"}
+                onClick={() => setIncludeArchived((value) => !value)}
+              >
+                {includeArchived ? "Ocultar arquivadas" : "Mostrar arquivadas"}
+              </Button>
+            ) : null}
           </div>
         </div>
 
-        {user?.role === "owner" || user?.role === "manager" ? (
+        {canManageOperations ? (
           <details className="rounded-[26px] border border-lovable-border bg-lovable-surface/72 p-4 shadow-panel">
             <summary className="cursor-pointer text-sm font-semibold text-lovable-ink">Produtividade das tarefas</summary>
             {metricsQuery.isLoading ? (
@@ -209,6 +235,45 @@ export function TasksPage() {
                 </div>
               </div>
             )}
+          </details>
+        ) : null}
+
+        {canManageOperations ? (
+          <details className="rounded-[26px] border border-lovable-border bg-lovable-surface/72 p-4 shadow-panel">
+            <summary className="cursor-pointer text-sm font-semibold text-lovable-ink">Saneamento da fila 24h</summary>
+            <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div>
+                <p className="text-sm text-lovable-ink-muted">
+                  Arquiva operacionalmente tarefas antigas sem prazo, sem resultado e fora das protecoes de inadimplencia,
+                  jornadas e onboarding ativo. O historico fica preservado; o item apenas sai da rotina diaria.
+                </p>
+                {cleanupPreviewQuery.isLoading ? (
+                  <p className="mt-3 text-sm text-lovable-ink-muted">Calculando preview...</p>
+                ) : cleanupPreviewQuery.isError || !cleanupPreviewQuery.data ? (
+                  <p className="mt-3 text-sm text-lovable-danger">Erro ao calcular saneamento.</p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="neutral">Elegiveis: {cleanupPreviewQuery.data.candidate_total}</Badge>
+                    <Badge variant="neutral">Corte: {cleanupPreviewQuery.data.cutoff_days}+ dias</Badge>
+                    {cleanupPreviewQuery.data.by_source.slice(0, 6).map((item) => (
+                      <Badge key={item.key} variant="neutral">{item.label}: {item.total}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                disabled={
+                  cleanupMutation.isPending ||
+                  cleanupPreviewQuery.isLoading ||
+                  !cleanupPreviewQuery.data ||
+                  cleanupPreviewQuery.data.candidate_total === 0
+                }
+                onClick={() => cleanupMutation.mutate()}
+              >
+                {cleanupMutation.isPending ? "Arquivando..." : "Arquivar ruido operacional"}
+              </Button>
+            </div>
           </details>
         ) : null}
 
