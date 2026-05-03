@@ -14,6 +14,7 @@
 - [x] Criar docs.
 - [x] Criar testes automatizados minimos.
 - [x] Rodar compile/build/check local.
-- [ ] Rodar migrations em Postgres.
+- [x] Rodar migrations em Postgres piloto.
 - [ ] Criar testes automatizados ampliados.
-- [ ] Validar piloto.
+- [x] Validar smoke test do piloto.
+- [ ] Validar fluxos funcionais reais no piloto.
