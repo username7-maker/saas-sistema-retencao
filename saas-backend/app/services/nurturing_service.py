@@ -12,6 +12,8 @@ from app.database import include_all_tenants
 from app.models import Lead, LeadStage, Member, MessageLog, NurturingSequence
 from app.models.gym import Gym
 from app.services.audit_service import log_audit_event
+from app.services.autopilot_event_service import record_event
+from app.services.autopilot_resolver_service import resolve_event
 from app.services.crm_service import append_lead_note
 from app.services.objection_service import generate_objection_response
 from app.services.whatsapp_service import format_phone, get_gym_instance, normalize_phone, phones_match, send_whatsapp_sync
@@ -187,6 +189,25 @@ def handle_incoming_whatsapp_webhook(
     )
     db.add(inbound_log)
     db.flush()
+    autopilot_event = record_event(
+        db,
+        gym_id=resolved_gym_id,
+        event_type="whatsapp_inbound_received",
+        source="whatsapp_webhook",
+        member_id=inbound_log.member_id,
+        lead_id=inbound_log.lead_id,
+        metadata={
+            "message_log_id": str(inbound_log.id),
+            "phone": message["phone"],
+            "text": message["text"],
+            "event_name": event_name,
+            "provider_message_id": message["provider_message_id"],
+        },
+        deduplication_key=f"whatsapp-inbound:{message['provider_message_id'] or inbound_log.id}",
+        correlation_id=message["provider_message_id"],
+        flush=False,
+    )
+    resolve_event(db, autopilot_event, flush=False)
 
     if member:
         _record_member_inbound_response(

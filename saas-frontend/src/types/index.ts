@@ -175,6 +175,8 @@ export interface WorkQueueItem {
   retention_stage?: string | null;
   retention_stage_label?: string | null;
   retention_stage_priority?: number;
+  autopilot_state?: string | null;
+  autopilot_badges?: string[];
 }
 
 export interface WorkQueueActionResult {
@@ -184,6 +186,40 @@ export interface WorkQueueActionResult {
   context_path: string | null;
   task_id?: string | null;
   metadata: Record<string, unknown>;
+}
+
+export interface AutopilotSettings {
+  autopilot_enabled: boolean;
+  autopilot_auto_close_enabled: boolean;
+  autopilot_auto_send_enabled: boolean;
+  retention_enabled: boolean;
+  finance_enabled: boolean;
+  sales_enabled: boolean;
+  onboarding_enabled: boolean;
+  assessment_enabled: boolean;
+  nps_enabled: boolean;
+  business_hours_start: string;
+  business_hours_end: string;
+  max_auto_messages_per_member_per_week: number;
+  max_auto_messages_per_lead_per_week: number;
+  max_auto_actions_per_day: number;
+  max_human_tasks_created_by_autopilot_per_day: number;
+  default_timeout_hours: number;
+  human_recent_activity_cooldown_hours: number;
+  extra_data: Record<string, unknown>;
+}
+
+export interface AutopilotMetrics {
+  period: Record<string, string>;
+  automation_actions: Record<string, number>;
+  tasks: Record<string, number>;
+  rates: {
+    autopilot_resolution_rate: number | null;
+    human_task_avoidance_rate: number | null;
+  };
+  by_domain: Record<string, number>;
+  by_template: Record<string, number>;
+  blocked_reasons: Record<string, number>;
 }
 
 export interface AutomationJourneyStepTemplate {

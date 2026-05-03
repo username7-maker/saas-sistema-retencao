@@ -19,6 +19,7 @@ from app.schemas.finance import (
     FinancialEntryUpdate,
 )
 from app.services.tenant_guard import ensure_optional_lead_in_gym, ensure_optional_member_in_gym
+from app.services.autopilot_resolver_service import register_financial_payment_event
 
 
 def list_financial_entries(
@@ -95,6 +96,7 @@ def update_financial_entry(
     commit: bool = True,
 ) -> FinancialEntry:
     entry = _get_financial_entry(db, entry_id, gym_id=gym_id)
+    previous_status = entry.status
     data = payload.model_dump(exclude_unset=True)
     if "member_id" in data:
         ensure_optional_member_in_gym(db, data.get("member_id"), gym_id)
@@ -104,6 +106,9 @@ def update_financial_entry(
         setattr(entry, key, value)
     _normalize_entry_status(entry)
     db.add(entry)
+    if entry.status == "paid" and previous_status != "paid":
+        db.flush()
+        register_financial_payment_event(db, entry, flush=False)
     if commit:
         db.commit()
     else:

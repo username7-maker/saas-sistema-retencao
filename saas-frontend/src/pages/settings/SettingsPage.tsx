@@ -9,6 +9,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { api } from "../../services/api";
 import { userService } from "../../services/userService";
 import { ActuarConnectionTab } from "../../components/settings/ActuarConnectionTab";
+import { AutopilotSettingsTab } from "../../components/settings/AutopilotSettingsTab";
 import { KommoConnectionTab } from "../../components/settings/KommoConnectionTab";
 import { WhatsAppConnectionTab } from "../../components/settings/WhatsAppConnectionTab";
 import { UserAvatar } from "../../components/common/UserAvatar";
@@ -231,6 +232,7 @@ export function SettingsPage() {
   const canManageWhatsapp = user?.role === "owner" || user?.role === "manager";
   const canManageActuar = user?.role === "owner" || user?.role === "manager";
   const canManageKommo = user?.role === "owner" || user?.role === "manager";
+  const canManageAutopilot = user?.role === "owner" || user?.role === "manager";
 
   return (
     <section className="space-y-8">
@@ -246,6 +248,7 @@ export function SettingsPage() {
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}
           {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
           {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
+          {canManageAutopilot ? <TabsTrigger value="autopilot">Autopilot</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile">
@@ -289,6 +292,12 @@ export function SettingsPage() {
         {canManageWhatsapp ? (
           <TabsContent value="whatsapp">
             <WhatsAppConnectionTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageAutopilot ? (
+          <TabsContent value="autopilot">
+            <AutopilotSettingsTab />
           </TabsContent>
         ) : null}
       </Tabs>

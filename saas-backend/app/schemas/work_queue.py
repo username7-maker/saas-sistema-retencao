@@ -51,6 +51,8 @@ class WorkQueueItemOut(BaseModel):
     retention_stage: str | None = None
     retention_stage_label: str | None = None
     retention_stage_priority: int = 0
+    autopilot_state: str | None = None
+    autopilot_badges: list[str] = Field(default_factory=list)
 
 
 class WorkQueueExecuteInput(BaseModel):

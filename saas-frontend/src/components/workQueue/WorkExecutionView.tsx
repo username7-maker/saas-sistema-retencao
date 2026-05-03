@@ -150,6 +150,11 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
             {formatRetentionStage(item)}
           </Badge>
         ) : null}
+        {(item.autopilot_badges ?? []).slice(0, 2).map((badge) => (
+          <Badge key={badge} variant="info" size="sm">
+            {badge}
+          </Badge>
+        ))}
       </div>
 
       <div className="mt-3 space-y-1">
@@ -299,6 +304,22 @@ export function WorkExecutionView({
     onError: (error) => toast.error(getHttpDetail(error)),
   });
 
+  const sendAndWaitMutation = useMutation({
+    mutationFn: ({ item }: { item: WorkQueueItem }) =>
+      workQueueService.sendAndWait(item.source_type, item.source_id, {
+        message: item.suggested_message || item.primary_action_label,
+        operator_note: operatorNote.trim() || null,
+      }),
+    onSuccess: (result) => {
+      setOperatorNote("");
+      setSelectedKey(itemKey(result.item));
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success(result.detail || "Mensagem enviada e monitorada.");
+    },
+    onError: (error) => toast.error(getHttpDetail(error)),
+  });
+
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
     setConfirmingKey(null);
@@ -317,7 +338,7 @@ export function WorkExecutionView({
 
   const isLoading = activeQuery.isLoading || doNowQuery.isLoading || awaitingQuery.isLoading;
   const isError = activeQuery.isError || doNowQuery.isError || awaitingQuery.isError;
-  const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending;
+  const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending || sendAndWaitMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
@@ -484,6 +505,11 @@ export function WorkExecutionView({
                       </Badge>
                     ) : null}
                     {selectedItem.requires_confirmation ? <Badge variant="warning">Confirmacao</Badge> : null}
+                    {(selectedItem.autopilot_badges ?? []).map((badge) => (
+                      <Badge key={badge} variant="info">
+                        {badge}
+                      </Badge>
+                    ))}
                   </div>
                   <h3 className="mt-3 text-2xl font-bold text-lovable-ink">{selectedItem.subject_name}</h3>
                   <p className="mt-1 text-sm text-lovable-ink-muted">
@@ -527,6 +553,16 @@ export function WorkExecutionView({
                     >
                       <MessageCircle className="h-4 w-4" />
                       Abrir WhatsApp
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="justify-start"
+                      onClick={() => sendAndWaitMutation.mutate({ item: selectedItem })}
+                      disabled={isMutating || selectedItem.source_type !== "task" || !selectedItem.subject_phone}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Enviar e aguardar
                     </Button>
                     <Button
                       size="sm"

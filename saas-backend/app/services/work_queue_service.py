@@ -18,6 +18,10 @@ from app.schemas.work_queue import (
     WorkQueueOutcome,
     WorkQueueOutcomeInput,
 )
+from app.schemas.autopilot import WorkQueueSendAndWaitInput
+from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
+from app.services.autopilot_policy_service import AutopilotDecision
+from app.services.autopilot_safety_service import check_autopilot_safety
 from app.services.ai_triage_service import (
     get_ai_triage_recommendation_or_404,
     prepare_ai_triage_recommendation_action,
@@ -188,7 +192,25 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         retention_stage=retention_payload.get("retention_stage"),
         retention_stage_label=retention_payload.get("retention_stage_label"),
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
+        autopilot_state=str(extra.get("autopilot_state") or "") or None,
+        autopilot_badges=_task_autopilot_badges(task),
     )
+
+
+def _task_autopilot_badges(task: Task) -> list[str]:
+    extra = _task_extra(task)
+    badges: list[str] = []
+    if extra.get("source") == "autopilot":
+        badges.append("Criada pelo Autopilot")
+    if extra.get("autopilot_escalated"):
+        badges.append("Escalada apos automacao")
+    if extra.get("autopilot_waiting_action_id"):
+        badges.append("Aguardando resposta")
+    if extra.get("autopilot_auto_resolved"):
+        badges.append("Auto-resolvida")
+    if extra.get("autopilot_blocked_reason"):
+        badges.append("Bloqueada por seguranca")
+    return badges
 
 
 def _ai_state(recommendation: AITriageRecommendation) -> str:
@@ -556,6 +578,145 @@ def execute_work_queue_item(
         payload=payload,
         ip_address=ip_address,
         user_agent=user_agent,
+    )
+
+
+def send_and_wait_work_queue_item(
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+    payload: WorkQueueSendAndWaitInput,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> WorkQueueActionResultOut:
+    if source_type != "task":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enviar e aguardar resposta esta disponivel apenas para tasks humanas nesta V1.",
+        )
+    task = db.scalar(
+        select(Task)
+        .options(joinedload(Task.member), joinedload(Task.lead))
+        .where(Task.id == source_id, Task.deleted_at.is_(None))
+    )
+    if task is None or is_task_operationally_archived(task):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    _ensure_task_access(task, current_user)
+
+    message = (payload.message or task.suggested_message or "").strip()
+    if not message:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Mensagem obrigatoria para envio.")
+    if not (task.member or task.lead):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Task sem aluno ou lead vinculado.")
+
+    domain = _task_domain(task)
+    safety = check_autopilot_safety(
+        db,
+        gym_id=current_user.gym_id,
+        domain=domain,
+        policy_key=f"manual_send_and_wait_{domain}",
+        action_type="send_whatsapp",
+        member=task.member,
+        lead=task.lead,
+        message_text=message,
+        require_auto_send=False,
+        ignore_recent_human_activity=True,
+    )
+    if not safety.allowed and not safety.scheduled_for:
+        extra = _task_extra(task)
+        extra["autopilot_blocked_reason"] = ",".join(safety.reasons)
+        task.extra_data = extra
+        db.add(task)
+        record_task_event(
+            db,
+            task=task,
+            current_user=current_user,
+            event_type="contact_attempt",
+            note=payload.operator_note,
+            contact_channel="whatsapp",
+            metadata_json={"source": "work_queue_send_and_wait", "blocked_reasons": safety.reasons},
+            flush=False,
+        )
+        db.flush()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Envio bloqueado: " + ", ".join(safety.reasons))
+
+    decision = AutopilotDecision(
+        decision="auto_execute",
+        domain=domain,
+        policy_key=f"manual_send_and_wait_{domain}",
+        action_type="send_whatsapp",
+        template_key=payload.template_key,
+        confidence=1.0,
+        reason="Envio iniciado por operador via Work Queue.",
+        next_timeout_hours=48,
+        metadata={"human_initiated": True, "operator_user_id": str(current_user.id)},
+    )
+    action = create_autopilot_action(
+        db,
+        gym_id=current_user.gym_id,
+        decision=decision,
+        member=task.member,
+        lead=task.lead,
+        related_task_id=task.id,
+        message_body=message,
+        idempotency_key=f"send-and-wait:{task.id}:{message[:80]}",
+        flush=False,
+    )
+    if safety.scheduled_for:
+        action.status = "scheduled"
+        action.scheduled_for = safety.scheduled_for
+        action.failure_reason = ",".join(safety.reasons)
+        db.add(action)
+    else:
+        action = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+
+    extra = _task_extra(task)
+    extra["autopilot_action_id"] = str(action.id)
+    extra["autopilot_state"] = action.status
+    if action.status == "awaiting_outcome":
+        task.status = TaskStatus.DOING
+        task.kanban_column = TaskStatus.DOING.value
+        task.completed_at = None
+        extra["autopilot_waiting_action_id"] = str(action.id)
+    elif action.status == "scheduled":
+        extra["autopilot_scheduled_for"] = action.scheduled_for.isoformat() if action.scheduled_for else None
+    else:
+        extra["autopilot_blocked_reason"] = action.failure_reason
+    task.extra_data = extra
+    db.add(task)
+    record_task_event(
+        db,
+        task=task,
+        current_user=current_user,
+        event_type="contact_attempt",
+        note=payload.operator_note,
+        contact_channel="whatsapp",
+        metadata_json={
+            "source": "work_queue_send_and_wait",
+            "autopilot_action_id": str(action.id),
+            "action_status": action.status,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+        },
+        flush=False,
+    )
+    db.flush()
+    item = _task_to_item(task)
+    if action.status == "awaiting_outcome":
+        detail = "Mensagem enviada. A task ficou aguardando resposta para o Autopilot resolver ou escalar."
+    elif action.status == "scheduled":
+        detail = "Mensagem agendada pelo Autopilot para o proximo horario permitido."
+    else:
+        detail = f"Mensagem nao enviada. Status da acao: {action.status}."
+    return WorkQueueActionResultOut(
+        item=item,
+        detail=detail,
+        prepared_message=message,
+        context_path=item.context_path,
+        task_id=task.id,
+        supported=action.status in {"awaiting_outcome", "scheduled"},
     )
 
 

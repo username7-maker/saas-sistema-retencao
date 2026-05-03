@@ -14,6 +14,15 @@ from app.schemas.acquisition import (
     AcquisitionQualificationOut,
 )
 from app.schemas.assistant import AIAssistantPayload
+from app.schemas.autopilot import (
+    AutopilotActionOut,
+    AutopilotEventOut,
+    AutopilotMetricsOut,
+    AutopilotSettingsOut,
+    AutopilotSettingsUpdate,
+    AutopilotTimelineItemOut,
+    WorkQueueSendAndWaitInput,
+)
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
 from app.schemas.assessment import (
@@ -189,6 +198,12 @@ __all__ = [
     "AssessmentOut",
     "AuditLogOut",
     "AutomationExecutionResult",
+    "AutopilotActionOut",
+    "AutopilotEventOut",
+    "AutopilotMetricsOut",
+    "AutopilotSettingsOut",
+    "AutopilotSettingsUpdate",
+    "AutopilotTimelineItemOut",
     "AutomationJourneyActivationOut",
     "AutomationJourneyCreate",
     "AutomationJourneyEnrollmentOut",
@@ -329,4 +344,5 @@ __all__ = [
     "WorkQueueExecuteInput",
     "WorkQueueItemOut",
     "WorkQueueOutcomeInput",
+    "WorkQueueSendAndWaitInput",
 ]

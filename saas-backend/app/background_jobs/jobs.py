@@ -13,6 +13,8 @@ from app.models.member import Member
 from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
 from app.services.automation_engine import run_automation_rules
+from app.services.autopilot_action_service import execute_autopilot_action, pending_actions_due, pending_events, timed_out_actions
+from app.services.autopilot_resolver_service import resolve_event, resolve_timeout
 from app.services.automation_journey_service import journey_summary_for_job, process_automation_journeys_for_gym
 from app.services.booking_service import process_booking_reminders
 from app.services.body_composition_actuar_sync_service import process_pending_actuar_sync_jobs
@@ -415,6 +417,72 @@ def core_async_jobs_queue_job() -> None:
     job_name = "core_async_jobs_queue"
     processed_count = process_pending_core_async_jobs(batch_size=5)
     _log_job_metrics(job_name, processed_count=processed_count)
+
+
+@with_distributed_lock("autopilot_events_queue", ttl_seconds=120, fail_open=True)
+def autopilot_events_queue_job() -> None:
+    job_name = "autopilot_events_queue"
+    db = SessionLocal()
+    try:
+        processed_count = 0
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                for event in pending_events(db, limit=50):
+                    resolve_event(db, event, flush=False)
+                    processed_count += 1
+                db.commit()
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+        _log_job_metrics(job_name, processed_count=processed_count)
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("autopilot_actions_queue", ttl_seconds=120, fail_open=True)
+def autopilot_actions_queue_job() -> None:
+    job_name = "autopilot_actions_queue"
+    db = SessionLocal()
+    try:
+        processed_count = 0
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                for action in pending_actions_due(db, limit=50):
+                    execute_autopilot_action(db, action, flush=False)
+                    processed_count += 1
+                db.commit()
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+        _log_job_metrics(job_name, processed_count=processed_count)
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("autopilot_timeouts_queue", ttl_seconds=120, fail_open=True)
+def autopilot_timeouts_queue_job() -> None:
+    job_name = "autopilot_timeouts_queue"
+    db = SessionLocal()
+    try:
+        processed_count = 0
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                for action in timed_out_actions(db, limit=50):
+                    resolve_timeout(db, action, flush=False)
+                    processed_count += 1
+                db.commit()
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+        _log_job_metrics(job_name, processed_count=processed_count)
+    finally:
+        clear_current_gym_id()
+        db.close()
 
 
 @with_distributed_lock("daily_onboarding_score", ttl_seconds=900, fail_open=_critical_lock_fail_open)

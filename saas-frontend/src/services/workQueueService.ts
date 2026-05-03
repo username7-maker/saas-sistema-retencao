@@ -31,6 +31,12 @@ export interface UpdateWorkQueueOutcomePayload {
   contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
 }
 
+export interface SendAndWaitPayload {
+  template_key?: string | null;
+  message?: string | null;
+  operator_note?: string | null;
+}
+
 export const workQueueService = {
   async listItems(params?: ListWorkQueueParams): Promise<PaginatedResponse<WorkQueueItem>> {
     const { page = 1, page_size = 25, state = "do_now", shift = "my_shift", assignee = "all", domain = "all", source = "all" } = params ?? {};
@@ -64,6 +70,18 @@ export const workQueueService = {
   ): Promise<WorkQueueActionResult> {
     const { data } = await api.patch<WorkQueueActionResult>(
       `/api/v1/work-queue/items/${sourceType}/${sourceId}/outcome`,
+      payload,
+    );
+    return data;
+  },
+
+  async sendAndWait(
+    sourceType: WorkQueueItem["source_type"],
+    sourceId: string,
+    payload: SendAndWaitPayload,
+  ): Promise<WorkQueueActionResult> {
+    const { data } = await api.post<WorkQueueActionResult>(
+      `/api/v1/work-queue/items/${sourceType}/${sourceId}/send-and-wait`,
       payload,
     );
     return data;

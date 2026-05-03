@@ -3,6 +3,7 @@ from app.models.ai_triage_recommendation import AITriageRecommendation
 from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.automation_execution_log import AutomationExecutionLog
+from app.models.autopilot import AutopilotAction, AutopilotEvent, GymAutopilotSettings
 from app.models.automation_journey import (
     AutomationJourney,
     AutomationJourneyEnrollment,
@@ -58,6 +59,8 @@ __all__ = [
     "ActuarSyncJob",
     "Assessment",
     "AutomationExecutionLog",
+    "AutopilotAction",
+    "AutopilotEvent",
     "AutomationJourney",
     "AutomationJourneyEnrollment",
     "AutomationJourneyEvent",
@@ -74,6 +77,7 @@ __all__ = [
     "FinancialEntry",
     "Goal",
     "Gym",
+    "GymAutopilotSettings",
     "InAppNotification",
     "KommoMemberLink",
     "Lead",

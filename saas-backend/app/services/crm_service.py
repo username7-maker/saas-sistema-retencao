@@ -12,6 +12,7 @@ from app.database import get_current_gym_id
 from app.models import Lead, LeadStage, Member, Task, TaskPriority, TaskStatus
 from app.schemas import LeadCreate, LeadNoteCreate, LeadUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
+from app.services.autopilot_resolver_service import register_lead_stage_event
 from app.services.tenant_guard import ensure_optional_member_in_gym, ensure_optional_user_in_gym
 from app.utils.email import send_email
 
@@ -38,6 +39,10 @@ def delete_lead(db: Session, lead_id: UUID, *, commit: bool = True) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
     lead.deleted_at = datetime.now(tz=timezone.utc)
     db.add(lead)
+    stage_changed = payload.stage is not None and payload.stage != previous_stage
+    if stage_changed:
+        db.flush()
+        register_lead_stage_event(db, lead, previous_stage=previous_stage, flush=False)
     if commit:
         db.commit()
     else:

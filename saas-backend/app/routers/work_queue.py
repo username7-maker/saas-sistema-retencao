@@ -7,8 +7,21 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
-from app.schemas import PaginatedResponse, WorkQueueActionResultOut, WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
-from app.services.work_queue_service import execute_work_queue_item, get_work_queue_item, list_work_queue_items, update_work_queue_outcome
+from app.schemas import (
+    PaginatedResponse,
+    WorkQueueActionResultOut,
+    WorkQueueExecuteInput,
+    WorkQueueItemOut,
+    WorkQueueOutcomeInput,
+    WorkQueueSendAndWaitInput,
+)
+from app.services.work_queue_service import (
+    execute_work_queue_item,
+    get_work_queue_item,
+    list_work_queue_items,
+    send_and_wait_work_queue_item,
+    update_work_queue_outcome,
+)
 
 router = APIRouter(prefix="/work-queue", tags=["work-queue"])
 
@@ -77,6 +90,32 @@ def execute_work_queue_item_endpoint(
 ) -> WorkQueueActionResultOut:
     context = get_request_context(request)
     result = execute_work_queue_item(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        payload=payload,
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
+
+
+@router.post("/items/{source_type}/{source_id}/send-and-wait", response_model=WorkQueueActionResultOut)
+def send_and_wait_work_queue_item_endpoint(
+    source_type: SourceType,
+    source_id: UUID,
+    payload: WorkQueueSendAndWaitInput,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> WorkQueueActionResultOut:
+    context = get_request_context(request)
+    result = send_and_wait_work_queue_item(
         db,
         current_user=current_user,
         source_type=source_type,

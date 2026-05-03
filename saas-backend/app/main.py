@@ -42,6 +42,7 @@ from app.routers import (
     assessments,
     audit,
     auth,
+    autopilot,
     automations,
     automation_journeys,
     checkins,
@@ -231,6 +232,7 @@ app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
 app.include_router(ai_triage.router, prefix=settings.api_prefix)
 app.include_router(work_queue.router, prefix=settings.api_prefix)
+app.include_router(autopilot.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

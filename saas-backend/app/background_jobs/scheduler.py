@@ -8,6 +8,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.background_jobs.jobs import (
     actuar_sync_queue_job,
+    autopilot_actions_queue_job,
+    autopilot_events_queue_job,
+    autopilot_timeouts_queue_job,
     automation_journeys_job,
     booking_reminder_job,
     core_async_jobs_queue_job,
@@ -234,6 +237,30 @@ def build_scheduler() -> BackgroundScheduler:
         id="core_async_jobs_queue",
         coalesce=True,
         misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("autopilot_events_queue", autopilot_events_queue_job),
+        trigger="cron",
+        minute="*/1",
+        id="autopilot_events_queue",
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("autopilot_actions_queue", autopilot_actions_queue_job),
+        trigger="cron",
+        minute="*/1",
+        id="autopilot_actions_queue",
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        instrument_scheduler_job("autopilot_timeouts_queue", autopilot_timeouts_queue_job),
+        trigger="cron",
+        minute="*/5",
+        id="autopilot_timeouts_queue",
+        coalesce=True,
+        misfire_grace_time=120,
     )
     scheduler.add_job(
         instrument_scheduler_job("booking_reminder", booking_reminder_job),

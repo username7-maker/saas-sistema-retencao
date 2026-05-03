@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Checkin, Member
 from app.schemas import CheckinCreate
+from app.services.autopilot_event_service import record_event
+from app.services.autopilot_resolver_service import resolve_event
 from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
 
 
@@ -36,6 +38,17 @@ def create_checkin(db: Session, payload: CheckinCreate, *, commit: bool = True) 
     db.add(member)
     db.flush()
     sync_preferred_shifts_from_checkins(db, member_ids={member.id}, commit=False, flush=False)
+    event = record_event(
+        db,
+        gym_id=member.gym_id,
+        event_type="member_checkin_created",
+        source="checkins",
+        member_id=member.id,
+        metadata={"checkin_id": str(checkin.id), "checkin_at": checkin_at.isoformat(), "source": payload.source},
+        deduplication_key=f"checkin:{checkin.id}",
+        flush=False,
+    )
+    resolve_event(db, event, flush=False)
     if commit:
         db.commit()
     db.refresh(checkin)

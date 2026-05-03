@@ -15,14 +15,48 @@ from app.schemas.settings import (
     KommoSettingsRead,
     KommoSettingsUpdate,
 )
+from app.schemas import AutopilotSettingsOut, AutopilotSettingsUpdate
 from app.schemas.actuar_bridge import ActuarBridgeDeviceRead, ActuarBridgePairingCodeRead
 from app.services.actuar_bridge_service import issue_actuar_bridge_pairing_code, list_actuar_bridge_devices, revoke_actuar_bridge_device
 from app.services.actuar_settings_service import get_actuar_settings, test_actuar_connection, update_actuar_settings
 from app.services.kommo_settings_service import get_kommo_settings, test_kommo_connection_for_gym, update_kommo_settings
+from app.services.autopilot_settings_service import get_autopilot_settings, update_autopilot_settings
 from app.services.audit_service import log_audit_event
 
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@router.get("/autopilot", response_model=AutopilotSettingsOut)
+def get_autopilot_settings_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> AutopilotSettingsOut:
+    return AutopilotSettingsOut.model_validate(get_autopilot_settings(db, gym_id=current_user.gym_id))
+
+
+@router.put("/autopilot", response_model=AutopilotSettingsOut)
+def update_autopilot_settings_endpoint(
+    request: Request,
+    payload: AutopilotSettingsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> AutopilotSettingsOut:
+    result = update_autopilot_settings(db, gym_id=current_user.gym_id, payload=payload)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="autopilot_settings_updated",
+        entity="gym_autopilot_settings",
+        user=current_user,
+        entity_id=current_user.gym_id,
+        details=payload.model_dump(exclude_unset=True),
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return AutopilotSettingsOut.model_validate(result)
 
 
 def _settings_attr(result: ActuarSettingsRead | dict, key: str):
