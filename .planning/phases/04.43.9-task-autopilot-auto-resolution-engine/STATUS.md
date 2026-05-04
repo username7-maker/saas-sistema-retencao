@@ -2,7 +2,7 @@
 
 ## Estado
 
-Implementado e publicado no piloto em corte V1 seguro. Validacao tecnica local concluida, migration aplicada no Railway e smoke test de API/worker/frontend concluido. Pendente validar os cinco fluxos funcionais com sessao autenticada e dados reais da academia.
+Implementado e publicado no piloto em corte V1 seguro. Validacao tecnica local concluida, migration aplicada no Railway e smoke test de API/worker/frontend concluido. Fluxo check-in -> auto-close de retencao validado com membro de teste no piloto. Pendente validar os demais fluxos funcionais com sessao autenticada e dados reais da academia.
 
 ## Checklist
 
@@ -20,7 +20,7 @@ Implementado e publicado no piloto em corte V1 seguro. Validacao tecnica local c
 - [x] Criar testes automatizados minimos para Event Log, safety e auto-close.
 - [x] Validar compile/build/check local.
 - [x] Rodar migration em banco piloto.
-- [ ] Validar manualmente cinco fluxos reais.
+- [ ] Validar manualmente todos os fluxos reais.
 
 ## Evidencias locais
 
@@ -42,3 +42,5 @@ Implementado e publicado no piloto em corte V1 seguro. Validacao tecnica local c
 - Rota Work Queue `send-and-wait` montada e protegida: `POST /api/v1/work-queue/items/task/{id}/send-and-wait -> 401` sem token, como esperado.
 - Logs da API confirmam scheduler desativado no processo API.
 - Logs do worker confirmam jobs `autopilot_actions_queue` e `autopilot_events_queue` rodando com status `completed`.
+- Correcao adicional publicada na API Railway: deploy `320695cf-3e60-4e42-9c7f-422405e05473`, status SUCCESS.
+- Validacao funcional no piloto: task de retencao `4787d77a-7460-471d-bed2-c288ef5e12c4` foi fechada automaticamente como `done/completed` apos check-in `cf0f3552-eed1-46c3-9646-7b03a1a73a3f`, com `TaskEvent` fonte `autopilot` e `AutopilotAction` `succeeded`.

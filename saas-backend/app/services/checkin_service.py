@@ -26,6 +26,7 @@ def create_checkin(db: Session, payload: CheckinCreate, *, commit: bool = True) 
         raise ValueError("Check-in duplicado")
 
     checkin = Checkin(
+        gym_id=member.gym_id,
         member_id=payload.member_id,
         checkin_at=checkin_at,
         source=payload.source,

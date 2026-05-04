@@ -81,10 +81,12 @@ class TestLogAuditEvent:
 # ---------------------------------------------------------------------------
 
 class TestCreateCheckin:
+    @patch("app.services.checkin_service.resolve_event")
+    @patch("app.services.checkin_service.record_event")
     @patch("app.services.checkin_service.invalidate_dashboard_cache")
     @patch("app.services.checkin_service.sync_preferred_shifts_from_checkins")
-    def test_creates_checkin(self, mock_sync_shift, mock_cache):
-        member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
+    def test_creates_checkin(self, mock_sync_shift, mock_cache, mock_record_event, mock_resolve_event):
+        member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, last_checkin_at=None, deleted_at=None)
         db = MagicMock()
         db.scalar.side_effect = [member, None]  # member found, no duplicate
         db.refresh = MagicMock()
@@ -100,12 +102,19 @@ class TestCreateCheckin:
         result = create_checkin(db, payload)
         db.commit.assert_called_once()
         mock_sync_shift.assert_called_once_with(db, member_ids={member.id}, commit=False, flush=False)
+        mock_record_event.assert_called_once()
+        mock_resolve_event.assert_called_once()
+        assert result.gym_id == GYM_ID
         assert member.last_checkin_at is not None
 
+    @patch("app.services.checkin_service.resolve_event")
+    @patch("app.services.checkin_service.record_event")
     @patch("app.services.checkin_service.invalidate_dashboard_cache")
     @patch("app.services.checkin_service.sync_preferred_shifts_from_checkins")
-    def test_creates_checkin_without_committing_when_router_owns_transaction(self, mock_sync_shift, mock_cache):
-        member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
+    def test_creates_checkin_without_committing_when_router_owns_transaction(
+        self, mock_sync_shift, mock_cache, mock_record_event, mock_resolve_event
+    ):
+        member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, last_checkin_at=None, deleted_at=None)
         db = MagicMock()
         db.scalar.side_effect = [member, None]
         db.refresh = MagicMock()
@@ -123,9 +132,12 @@ class TestCreateCheckin:
         result = create_checkin(db, payload, commit=False)
 
         assert result is not None
+        assert result.gym_id == GYM_ID
         assert member.last_checkin_at is not None
         db.commit.assert_not_called()
         db.flush.assert_called_once()
+        mock_record_event.assert_called_once()
+        mock_resolve_event.assert_called_once()
         mock_sync_shift.assert_called_once_with(db, member_ids={member.id}, commit=False, flush=False)
 
     def test_member_not_found_raises(self):
@@ -144,7 +156,7 @@ class TestCreateCheckin:
             create_checkin(db, payload)
 
     def test_duplicate_raises(self):
-        member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
+        member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, last_checkin_at=None, deleted_at=None)
         existing_checkin = SimpleNamespace(id=uuid.uuid4())
         db = MagicMock()
         db.scalar.side_effect = [member, existing_checkin]
@@ -160,9 +172,11 @@ class TestCreateCheckin:
         with pytest.raises(ValueError, match="duplicado"):
             create_checkin(db, payload)
 
+    @patch("app.services.checkin_service.resolve_event")
+    @patch("app.services.checkin_service.record_event")
     @patch("app.services.checkin_service.invalidate_dashboard_cache")
-    def test_naive_datetime_gets_utc(self, mock_cache):
-        member = SimpleNamespace(id=MEMBER_ID, last_checkin_at=None, deleted_at=None)
+    def test_naive_datetime_gets_utc(self, mock_cache, mock_record_event, mock_resolve_event):
+        member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, last_checkin_at=None, deleted_at=None)
         db = MagicMock()
         db.scalar.side_effect = [member, None]
         db.refresh = MagicMock()

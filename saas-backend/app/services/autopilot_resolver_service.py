@@ -94,7 +94,7 @@ def _resolve_success(db: Session, event: AutopilotEvent, *, domain: str, outcome
     for action in _awaiting_actions_for_subject(db, event, domain=domain):
         mark_autopilot_action_succeeded(db, action, outcome=outcome, metadata={"autopilot_event_id": str(event.id)}, flush=False)
         resolved += 1
-    for task in _open_tasks_for_subject(db, event, domain=domain):
+    for task in _open_tasks_for_subject(db, event=event, domain=domain):
         _auto_close_task(db, task, outcome=outcome, note=note, event=event)
         resolved += 1
     return resolved
