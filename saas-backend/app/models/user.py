@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
@@ -37,6 +37,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     phone: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
     work_shift: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    work_shift_scope: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     gym = relationship("Gym", back_populates="users")

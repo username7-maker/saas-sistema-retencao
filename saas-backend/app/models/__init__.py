@@ -39,6 +39,7 @@ from app.models.lead_booking import LeadBooking
 from app.models.lead import Lead
 from app.models.member import Member
 from app.models.member_consent_record import MemberConsentRecord
+from app.models.member_note import MemberNote
 from app.models.member_risk_history import MemberRiskHistory
 from app.models.message_log import MessageLog
 from app.models.nps_response import NPSResponse
@@ -85,6 +86,7 @@ __all__ = [
     "LeadStage",
     "Member",
     "MemberConsentRecord",
+    "MemberNote",
     "MemberConstraints",
     "MemberGoal",
     "MemberRiskHistory",

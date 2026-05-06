@@ -53,6 +53,7 @@ export interface OnboardingScoreResult {
   checkin_count: number;
   completed_tasks: number;
   total_tasks: number;
+  total_journey_tasks?: number | null;
   assistant?: AIAssistantPayload | null;
 }
 
@@ -65,6 +66,111 @@ export interface OnboardingScoreSnapshot {
 export interface PreferredShiftSyncResult {
   updated_count: number;
   message: string;
+}
+
+export interface OnboardingCockpitMember {
+  member_id: string;
+  full_name: string;
+  plan_name?: string | null;
+  preferred_shift?: string | null;
+  days_since_join: number;
+  score: number;
+  status: string;
+  phase_label: string;
+  next_action: string;
+  responsible_role: string;
+  current_stage_offset?: number | null;
+}
+
+export interface OnboardingCockpitTaskStage {
+  stage_key: string;
+  label: string;
+  day_offset?: number | null;
+  total: number;
+  due_now_total: number;
+  future_total: number;
+}
+
+export interface OnboardingCockpit {
+  summary: {
+    active_total: number;
+    at_risk_total: number;
+    critical_total: number;
+    due_today_total: number;
+    overdue_total: number;
+    unassigned_total: number;
+  };
+  members: OnboardingCockpitMember[];
+  critical_members: OnboardingCockpitMember[];
+  tasks_by_stage: OnboardingCockpitTaskStage[];
+  score_distribution: Record<string, number>;
+  metrics: {
+    first_week_two_checkins_rate?: number | null;
+    first_assessment_rate?: number | null;
+    d30_ready_total: number;
+    generated_at: string;
+  };
+  generated_at: string;
+}
+
+export interface MemberOperationalNote {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  author_user_id: string | null;
+  note_type: string;
+  body: string;
+  visibility: string;
+  extra_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemberOperationalProfile {
+  generated_at: string;
+  member: Record<string, unknown>;
+  permissions: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  risk: Record<string, unknown>;
+  activity: Record<string, unknown>;
+  assessment: Record<string, unknown>;
+  financial: Record<string, unknown> | null;
+  commercial: Record<string, unknown> | null;
+  communication: Record<string, unknown>;
+  tasks: {
+    open_total?: number;
+    by_domain?: Record<string, number>;
+    top_open?: Record<string, unknown>[];
+  };
+  autopilot: {
+    state?: string;
+    actions_open_total?: number;
+    latest_action?: Record<string, unknown> | null;
+  };
+  next_best_action: {
+    key?: string;
+    domain?: string;
+    title?: string;
+    reason?: string;
+    priority?: string;
+    owner_role?: string;
+    can_autopilot?: boolean;
+    autopilot_mode?: string;
+    blocked_reasons?: string[];
+    evidence?: string[];
+    context_path?: string;
+  };
+  signals: Record<string, unknown>[];
+  timeline_preview: Record<string, unknown>[];
+  data_quality_flags: Record<string, unknown>[];
+  notes: MemberOperationalNote[];
+}
+
+export interface MemberNoteCreatePayload {
+  note_type?: "internal" | "retention" | "coach" | "manager" | "sales_handoff" | "health_context";
+  body: string;
+  visibility?: "internal" | "team" | "manager" | "coach" | "sales";
+  extra_data?: Record<string, unknown>;
 }
 
 export const memberService = {
@@ -119,8 +225,32 @@ export const memberService = {
     return data;
   },
 
+  async getOnboardingCockpit(): Promise<OnboardingCockpit> {
+    const { data } = await api.get<OnboardingCockpit>("/api/v1/onboarding/cockpit", {
+      params: { ts: Date.now() },
+    });
+    return data;
+  },
+
   async getIntelligenceContext(memberId: string): Promise<LeadToMemberIntelligenceContext> {
     const { data } = await api.get<LeadToMemberIntelligenceContext>(`/api/v1/members/${memberId}/intelligence-context`);
+    return data;
+  },
+
+  async getOperationalProfile(memberId: string): Promise<MemberOperationalProfile> {
+    const { data } = await api.get<MemberOperationalProfile>(`/api/v1/members/${memberId}/operational-profile`, {
+      params: { ts: Date.now() },
+    });
+    return data;
+  },
+
+  async listNotes(memberId: string): Promise<MemberOperationalNote[]> {
+    const { data } = await api.get<MemberOperationalNote[]>(`/api/v1/members/${memberId}/notes`);
+    return data;
+  },
+
+  async createNote(memberId: string, payload: MemberNoteCreatePayload): Promise<MemberOperationalNote> {
+    const { data } = await api.post<MemberOperationalNote>(`/api/v1/members/${memberId}/notes`, payload);
     return data;
   },
 

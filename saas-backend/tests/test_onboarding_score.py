@@ -92,6 +92,21 @@ def test_calculate_onboarding_score_all_zeros():
     assert result["score"] < 50
     assert result["factors"]["first_assessment"] == 0
     assert result["factors"]["member_response"] == 0
+    assert result["factors"]["task_completion"] == 0
+    assert result["completed_tasks"] == 0
+    assert result["total_tasks"] == 0
+
+
+def test_task_completion_does_not_show_full_bar_when_no_task_is_due():
+    """0/0 tarefas esperadas nao pode aparecer como 100% operacional."""
+    db = _make_db(checkin_count=1, has_assessment=0, total_tasks=0, done_tasks=0, has_nps=0)
+    member = _make_member(join_date=date.today() - timedelta(days=8))
+
+    result = calculate_onboarding_score(db, member)
+
+    assert result["completed_tasks"] == 0
+    assert result["total_tasks"] == 0
+    assert result["factors"]["task_completion"] == 0
 
 
 def test_calculate_onboarding_score_completed_after_30_days():

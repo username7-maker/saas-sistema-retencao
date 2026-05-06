@@ -4,8 +4,8 @@ import type { PaginatedResponse, WorkQueueActionResult, WorkQueueItem, WorkQueue
 export type WorkQueueListState = "do_now" | "awaiting_outcome" | "done" | "all";
 export type WorkQueueShiftFilter = "my_shift" | "all" | "overnight" | "morning" | "afternoon" | "evening" | "unassigned";
 export type WorkQueueAssigneeFilter = "mine" | "unassigned" | "all";
-export type WorkQueueDomainFilter = "all" | "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual";
-export type WorkQueueSourceFilter = "all" | "task" | "ai_triage";
+export type WorkQueueDomainFilter = "all" | "operations" | "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual";
+export type WorkQueueSourceFilter = "all" | "task" | "ai_triage" | "assessment_queue";
 
 export interface ListWorkQueueParams {
   state?: WorkQueueListState;
@@ -28,13 +28,14 @@ export interface UpdateWorkQueueOutcomePayload {
   note?: string | null;
   scheduled_for?: string | null;
   snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
-  contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
+  contact_channel?: "whatsapp" | "kommo" | "call" | "in_person" | "other" | null;
 }
 
 export interface SendAndWaitPayload {
   template_key?: string | null;
   message?: string | null;
   operator_note?: string | null;
+  channel?: "auto" | "kommo" | "whatsapp" | "manual" | null;
 }
 
 export const workQueueService = {

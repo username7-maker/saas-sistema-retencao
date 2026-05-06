@@ -30,6 +30,20 @@ def normalize_preferred_shift(value: str | None) -> str | None:
     return None
 
 
+def normalize_preferred_shift_scope(values: Iterable[str | None] | None, *, fallback: str | None = None) -> list[str]:
+    normalized_scope: list[str] = []
+    for value in values or []:
+        normalized = normalize_preferred_shift(value)
+        if normalized and normalized not in normalized_scope:
+            normalized_scope.append(normalized)
+
+    fallback_shift = normalize_preferred_shift(fallback)
+    if fallback_shift and fallback_shift not in normalized_scope:
+        normalized_scope.insert(0, fallback_shift)
+
+    return normalized_scope
+
+
 def preferred_shift_filter_condition(column, preferred_shift: str | None):
     normalized = normalize_preferred_shift(preferred_shift)
     if normalized is None:

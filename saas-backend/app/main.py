@@ -46,16 +46,19 @@ from app.routers import (
     automations,
     automation_journeys,
     checkins,
+    coach,
     crm,
     dashboards,
     exports,
     finance,
     goals,
     imports,
+    kommo,
     lgpd,
     members,
     notifications,
     nps,
+    onboarding,
     public,
     reports,
     risk_alerts,
@@ -208,9 +211,11 @@ app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
 app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)
+app.include_router(coach.router, prefix=settings.api_prefix)
 app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(crm.router, prefix=settings.api_prefix)
 app.include_router(nps.router, prefix=settings.api_prefix)
+app.include_router(onboarding.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
 app.include_router(finance.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
@@ -230,6 +235,7 @@ app.include_router(admin_objections.router, prefix=settings.api_prefix)
 app.include_router(settings_router.router, prefix=settings.api_prefix)
 app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
+app.include_router(kommo.router, prefix=settings.api_prefix)
 app.include_router(ai_triage.router, prefix=settings.api_prefix)
 app.include_router(work_queue.router, prefix=settings.api_prefix)
 app.include_router(autopilot.router, prefix=settings.api_prefix)

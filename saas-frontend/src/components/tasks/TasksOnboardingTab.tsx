@@ -5,7 +5,7 @@ import { Activity, CheckCircle2, MessageCircle, Phone, Rocket, Search } from "lu
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
-import { memberService, type OnboardingScoreResult } from "../../services/memberService";
+import { memberService, type OnboardingCockpitMember, type OnboardingScoreResult } from "../../services/memberService";
 import type { Member, Task } from "../../types";
 import { getPreferredShiftLabel, matchesPreferredShift } from "../../utils/preferredShift";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
@@ -51,6 +51,18 @@ const PLAYBOOK_ACTIONS: Record<
     { day: "D14", owner: "consultor", label: "Reformulacao", description: "Propor ajuste de horario, frequencia ou abordagem." },
   ],
 };
+
+const OWNER_ROLE_LABEL: Record<string, string> = {
+  coach: "Professor",
+  reception: "Recepcao",
+  manager: "Gerente",
+  automatic: "Sistema",
+};
+
+function getCockpitOwnerLabel(cockpitMember?: OnboardingCockpitMember | null): string {
+  if (!cockpitMember?.responsible_role) return "Responsavel sugerido";
+  return OWNER_ROLE_LABEL[cockpitMember.responsible_role] ?? cockpitMember.responsible_role;
+}
 
 function scoreBarClass(score: number): string {
   if (score >= 70) return "bg-emerald-500";
@@ -195,7 +207,10 @@ function OnboardingScorePanel({
           </CardHeader>
           <CardContent className="space-y-3 pt-0 text-sm text-lovable-ink-muted">
             <p>{score.checkin_count} check-ins detectados nos primeiros {score.days_since_join} dias.</p>
-            <p>{score.completed_tasks}/{score.total_tasks} tarefas concluidas no onboarding.</p>
+            <p>
+              {score.completed_tasks}/{score.total_tasks} tarefas esperadas ate hoje concluidas
+              {score.total_journey_tasks != null ? ` (${score.total_journey_tasks} etapas na jornada completa).` : "."}
+            </p>
             <p>{score.factors.first_assessment === 100 ? "Avaliacao ja realizada." : "Avaliacao ainda pendente."}</p>
             <p>{score.factors.member_response === 100 ? "Ja houve resposta ou feedback do aluno." : "Ainda nao houve resposta registrada do aluno."}</p>
           </CardContent>
@@ -270,6 +285,14 @@ export function TasksOnboardingTab({
     if (!useCurrentShift || !currentUserShift) return activeMembers;
     return activeMembers.filter((member) => matchesPreferredShift(member.preferred_shift, currentUserShift));
   }, [currentUserShift, members, useCurrentShift]);
+  const onboardingCockpitQuery = useQuery({
+    queryKey: ["onboarding-cockpit"],
+    queryFn: () => memberService.getOnboardingCockpit(),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    enabled: onboardingMembers.length > 0,
+  });
   const onboardingScoreboardQuery = useQuery({
     queryKey: ["onboarding-scoreboard"],
     queryFn: () => memberService.getOnboardingScoreboard(),
@@ -278,6 +301,13 @@ export function TasksOnboardingTab({
     refetchOnWindowFocus: true,
     enabled: onboardingMembers.length > 0,
   });
+  const cockpitMemberById = useMemo(() => {
+    const filtered = (onboardingCockpitQuery.data?.members ?? []).filter((member) => {
+      if (!useCurrentShift || !currentUserShift) return true;
+      return matchesPreferredShift(member.preferred_shift, currentUserShift);
+    });
+    return new Map(filtered.map((member) => [member.member_id, member]));
+  }, [currentUserShift, onboardingCockpitQuery.data?.members, useCurrentShift]);
 
   useEffect(() => {
     setScoreOverridesByMemberId((current) => {
@@ -294,11 +324,15 @@ export function TasksOnboardingTab({
     onboardingMembers.forEach((member) => {
       scoreMap.set(
         member.id,
-        scoreOverridesByMemberId[member.id] ?? snapshotScoreByMemberId.get(member.id) ?? member.onboarding_score ?? 0,
+        scoreOverridesByMemberId[member.id] ??
+          cockpitMemberById.get(member.id)?.score ??
+          snapshotScoreByMemberId.get(member.id) ??
+          member.onboarding_score ??
+          0,
       );
     });
     return scoreMap;
-  }, [onboardingMembers, onboardingScoreboardQuery.data, scoreOverridesByMemberId]);
+  }, [cockpitMemberById, onboardingMembers, onboardingScoreboardQuery.data, scoreOverridesByMemberId]);
   const getResolvedOnboardingScore = useCallback(
     (member: Member): number => onboardingScoreByMemberId.get(member.id) ?? member.onboarding_score ?? 0,
     [onboardingScoreByMemberId],
@@ -356,11 +390,11 @@ export function TasksOnboardingTab({
   const onboardingStats = useMemo(
     () => ({
       pending: onboardingTasks.length,
-      overdue: onboardingTasks.filter((task) => isOverdue(task, todayKey)).length,
-      unassigned: onboardingTasks.filter((task) => !task.assigned_to_user_id).length,
-      dueToday: onboardingTasks.filter((task) => isDueToday(task, todayKey)).length,
+      overdue: onboardingCockpitQuery.data?.summary.overdue_total ?? onboardingTasks.filter((task) => isOverdue(task, todayKey)).length,
+      unassigned: onboardingCockpitQuery.data?.summary.unassigned_total ?? onboardingTasks.filter((task) => !task.assigned_to_user_id).length,
+      dueToday: onboardingCockpitQuery.data?.summary.due_today_total ?? onboardingTasks.filter((task) => isDueToday(task, todayKey)).length,
     }),
-    [onboardingTasks, todayKey],
+    [onboardingCockpitQuery.data?.summary, onboardingTasks, todayKey],
   );
   const taskDayOffset = useMemo(
     () => (task: Task) => {
@@ -446,7 +480,7 @@ export function TasksOnboardingTab({
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Pendentes</p>
               <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.pending}</p>
@@ -462,6 +496,22 @@ export function TasksOnboardingTab({
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Vencem hoje</p>
               <p className="mt-2 text-2xl font-bold text-lovable-ink">{onboardingStats.dueToday}</p>
+            </div>
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">2+ check-ins D7</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">
+                {onboardingCockpitQuery.data?.metrics.first_week_two_checkins_rate != null
+                  ? `${onboardingCockpitQuery.data.metrics.first_week_two_checkins_rate}%`
+                  : "-"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Avaliacao D30</p>
+              <p className="mt-2 text-2xl font-bold text-lovable-ink">
+                {onboardingCockpitQuery.data?.metrics.first_assessment_rate != null
+                  ? `${onboardingCockpitQuery.data.metrics.first_assessment_rate}%`
+                  : "-"}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -544,25 +594,42 @@ export function TasksOnboardingTab({
                       <p className="mt-2 text-sm text-lovable-ink-muted">Nenhum aluno encontrado neste grupo.</p>
                     </div>
                   ) : (
-                    filteredMembers.map((member) => (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => setSelectedMemberId(member.id)}
-                        className={clsx(
-                          "w-full rounded-2xl border p-3 text-left transition-all",
-                          selectedMember?.id === member.id
-                            ? PLAYBOOK_META[activePlaybook].surfaceClass
-                            : "border-lovable-border bg-lovable-surface hover:border-lovable-primary/30",
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
-                          <span className="text-sm font-bold text-lovable-ink">{getResolvedOnboardingScore(member)}</span>
-                        </div>
-                        <p className="mt-1 text-xs text-lovable-ink-muted">{member.plan_name}</p>
-                      </button>
-                    ))
+                    filteredMembers.map((member) => {
+                      const cockpitMember = cockpitMemberById.get(member.id);
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => setSelectedMemberId(member.id)}
+                          className={clsx(
+                            "w-full rounded-2xl border p-3 text-left transition-all",
+                            selectedMember?.id === member.id
+                              ? PLAYBOOK_META[activePlaybook].surfaceClass
+                              : "border-lovable-border bg-lovable-surface hover:border-lovable-primary/30",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
+                            <span className="text-sm font-bold text-lovable-ink">{getResolvedOnboardingScore(member)}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-lovable-ink-muted">{member.plan_name}</p>
+                          {cockpitMember ? (
+                            <div className="mt-2 space-y-1 text-[11px] text-lovable-ink-muted">
+                              <p className="truncate">
+                                D{cockpitMember.days_since_join} - {cockpitMember.phase_label}
+                              </p>
+                              <p className="truncate">Proxima acao: {cockpitMember.next_action}</p>
+                              <p className="truncate">
+                                {getCockpitOwnerLabel(cockpitMember)}
+                                {getPreferredShiftLabel(cockpitMember.preferred_shift)
+                                  ? ` - ${getPreferredShiftLabel(cockpitMember.preferred_shift)}`
+                                  : ""}
+                              </p>
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })
                   )}
                 </div>
               </CardContent>

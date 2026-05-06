@@ -22,6 +22,7 @@ import type {
 import { Badge } from "../../ui2";
 
 const SECTION_SERIF = { fontFamily: 'Georgia, "Times New Roman", serif' } as const;
+const PROGYM_LOGO_SRC = "/progym-logo.png";
 
 function trendIcon(trend: BodyCompositionTrend) {
   if (trend === "up") return <ArrowUp size={12} />;
@@ -141,13 +142,16 @@ export function ReportHeaderCard({
 }) {
   return (
     <header className="space-y-5 border-b border-[#b7422f] pb-5">
-      <div className="flex flex-col justify-between gap-5 lg:flex-row">
+      <div className="grid gap-5 lg:grid-cols-[210px_150px_minmax(0,1fr)]">
         <div className="space-y-2">
-          <p className="text-6xl font-black uppercase tracking-[-0.06em] text-[#b7422f]">AI GYM OS</p>
-          <div className="h-1 w-56 bg-[#b7422f]" />
+          <p className="text-6xl font-black uppercase leading-none tracking-[-0.06em] text-[#b7422f]">AI GYM OS</p>
+          <div className="h-1 w-48 bg-[#b7422f]" />
           <p className="max-w-xl text-sm leading-6 text-[#615750]">
             Relatorio premium de composicao corporal estruturado para acompanhamento tecnico, percepcao de valor e impressao limpa.
           </p>
+        </div>
+        <div className="flex items-start justify-center">
+          <img src={PROGYM_LOGO_SRC} alt="ProGym" className="h-auto w-32 object-contain" />
         </div>
         <div className="space-y-1 text-left lg:text-right">
           <p className="text-[15px] uppercase tracking-[0.22em] text-[#7a6f68]">Relatorio de bioimpedancia</p>

@@ -526,6 +526,13 @@ export function MemberProfile360Page() {
     staleTime: 60 * 1000,
   });
 
+  const operationalProfileQuery = useQuery({
+    queryKey: ["members", "operational-profile", memberId],
+    queryFn: () => memberService.getOperationalProfile(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const timelineQuery = useQuery({
     queryKey: ["member-timeline", memberId],
     queryFn: () => memberTimelineService.list(memberId ?? ""),
@@ -542,7 +549,7 @@ export function MemberProfile360Page() {
 
   const memberTasksQuery = useQuery({
     queryKey: ["tasks", "member-workspace", memberId],
-    queryFn: () => taskService.listAllTasks({ include_retention: true }),
+    queryFn: () => taskService.listAllTasks({ include_retention: true, member_id: memberId ?? undefined }),
     enabled: Boolean(memberId) && canViewTasks && (activeTab === "acoes" || isCreateTaskOpen),
     staleTime: 60 * 1000,
   });
@@ -560,47 +567,19 @@ export function MemberProfile360Page() {
       const text = noteDraft.trim();
       if (!text) throw new Error("NOTA_VAZIA");
 
-      const freshMember = await memberService.getMember(memberId);
-      const currentExtra = (freshMember.extra_data ?? {}) as Record<string, unknown>;
-      const currentNotes = parseInternalNotes(currentExtra);
-      const newNote: InternalNote = {
-        id: createNoteId(),
-        text,
-        created_at: new Date().toISOString(),
-      };
-      const mergedExtra = {
-        ...currentExtra,
-        profile360_internal_notes: text,
-        profile360_notes: [newNote, ...currentNotes],
-      };
-
-      const updatedMember = await memberService.updateMember(memberId, {
-        extra_data: {
-          ...mergedExtra,
-        },
+      const created = await memberService.createNote(memberId, {
+        note_type: user?.role === "trainer" ? "coach" : "internal",
+        visibility: user?.role === "trainer" ? "coach" : "internal",
+        body: text,
       });
-
-      const updatedExtra = (updatedMember.extra_data ?? mergedExtra) as Record<string, unknown>;
-      return updatedExtra;
+      return created;
     },
-    onSuccess: (updatedExtra) => {
-      queryClient.setQueryData(["assessments", "profile360", memberId], (current: unknown) => {
-        if (!current || typeof current !== "object") return current;
-        const currentObj = current as Record<string, unknown>;
-        const currentMember = currentObj.member;
-        if (!currentMember || typeof currentMember !== "object") return current;
-        return {
-          ...currentObj,
-          member: {
-            ...(currentMember as Record<string, unknown>),
-            extra_data: updatedExtra,
-          },
-        };
-      });
+    onSuccess: () => {
       toast.success("Nota adicionada.");
       setNoteDraft("");
       setIsAddNoteOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["members"] });
+      void queryClient.invalidateQueries({ queryKey: ["members", "operational-profile", memberId] });
     },
     onError: (error: unknown) => {
       if (error instanceof Error && error.message === "NOTA_VAZIA") {
@@ -754,7 +733,13 @@ export function MemberProfile360Page() {
         converted_at: typeof rawConversionHandoff.converted_at === "string" ? rawConversionHandoff.converted_at : null,
       }
     : null;
-  const apiNotes = parseInternalNotes(mergedExtra);
+  const structuredNotes =
+    operationalProfileQuery.data?.notes.map((note) => ({
+      id: note.id,
+      text: note.body,
+      created_at: note.created_at,
+    })) ?? [];
+  const apiNotes = structuredNotes.length > 0 ? structuredNotes : parseInternalNotes(mergedExtra);
   const notes = apiNotes;
   const latestNote = notes[0] ?? null;
   const previousNotes = notes.slice(1);
@@ -763,6 +748,12 @@ export function MemberProfile360Page() {
   const daysWithoutCheckin = daysSince(member.last_checkin_at ?? profile.member.last_checkin_at ?? null);
   const daysActive = daysSince(member.join_date);
   const hasStructuredAssessment = Boolean(assessmentIntelligence.latest_assessment);
+  const operationalNextAction = operationalProfileQuery.data?.next_best_action ?? null;
+  const nextActionTitle = operationalNextAction?.title || assessmentIntelligence.next_best_action.title;
+  const nextActionReason = operationalNextAction?.reason || assessmentIntelligence.next_best_action.reason;
+  const nextActionDomain = operationalNextAction?.domain ? String(operationalNextAction.domain) : "assessment";
+  const autopilotState = operationalProfileQuery.data?.autopilot?.state;
+  const openOperationalTasks = Number(operationalProfileQuery.data?.tasks?.open_total ?? memberTasksQuery.data?.total ?? 0);
   const hasEvolutionData = Boolean(evolution.labels.length);
   const todayKey = getTodayKey();
   const normalizedPhone = normalizeWhatsAppPhone(member.phone);
@@ -908,8 +899,8 @@ export function MemberProfile360Page() {
                 />
                 <DetailMetric
                   label="Proxima acao"
-                  value={assessmentIntelligence.next_best_action.title}
-                  helper={assessmentIntelligence.next_best_action.reason}
+                  value={nextActionTitle}
+                  helper={nextActionReason}
                 />
               </div>
             </div>
@@ -929,6 +920,32 @@ export function MemberProfile360Page() {
                   helper={`Meta: ${assessmentIntelligence.goal_type}`}
                 />
                 <DetailMetric label="Risco" value={`${profile.member.risk_score}`} helper="pontuacao operacional do aluno" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="space-y-4 pt-5">
+              <SectionHeader title="Decisao operacional" subtitle="O que o sistema recomenda fazer agora, considerando tasks, risco, Autopilot e contexto 360." />
+              <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={nextActionDomain === "relationship" ? "danger" : nextActionDomain === "finance" ? "warning" : "neutral"}>
+                    {nextActionDomain}
+                  </Badge>
+                  {operationalNextAction?.can_autopilot ? <Badge variant="success">Autopilot possivel</Badge> : null}
+                  {autopilotState ? <Badge variant="neutral">Autopilot: {String(autopilotState)}</Badge> : null}
+                </div>
+                <h3 className="mt-3 font-heading text-lg font-bold text-lovable-ink">{nextActionTitle}</h3>
+                <p className="mt-1 text-sm text-lovable-ink-muted">{nextActionReason}</p>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <DetailMetric label="Responsavel sugerido" value={operationalNextAction?.owner_role ?? "operacao"} helper="quem deve agir primeiro" />
+                  <DetailMetric label="Tasks abertas" value={`${openOperationalTasks}`} helper="do perfil deste aluno" />
+                  <DetailMetric
+                    label="Modo"
+                    value={operationalNextAction?.autopilot_mode ?? "manual"}
+                    helper={operationalProfileQuery.isError ? "perfil operacional indisponivel" : "estado recomendado"}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -31,6 +31,9 @@ Defaults seguros:
 - `whatsapp_inbound_received`
 - `whatsapp_outbound_sent`
 - `whatsapp_outbound_failed`
+- `kommo_handoff_created`
+- `kommo_handoff_failed`
+- `kommo_inbound_received`
 - `member_checkin_created`
 - `member_payment_confirmed`
 - `member_assessment_scheduled`
@@ -38,6 +41,28 @@ Defaults seguros:
 - `lead_stage_changed`
 - `lead_won`
 - `lead_lost`
+
+## Kommo como canal operacional
+
+A fase `04.43.14` permite configurar a Kommo como canal principal de comunicacao operacional.
+
+Regras V1:
+
+- O AI Gym OS nao faz envio autonomo pela Kommo.
+- A Work Queue cria/atualiza contato/lead e cria uma tarefa na Kommo com contexto, mensagem pronta e link de retorno.
+- O operador confirma e envia pelo ambiente da Kommo.
+- O webhook `/api/v1/kommo/webhook` registra respostas como `kommo_inbound_received`.
+- Respostas simples podem fechar tasks/actions quando `kommo_auto_close_enabled=true`.
+- Mensagens sensiveis continuam escalando para humano.
+- Se a Kommo estiver indisponivel, o roteador usa `kommo_fallback_channel`, por padrao WhatsApp.
+
+Flags e settings relacionados:
+
+- `primary_message_channel`: `kommo`, `whatsapp` ou `manual`.
+- `kommo_operator_confirmed_send_enabled`: mantem o fluxo humano-confirmado.
+- `kommo_auto_close_enabled`: habilita auto-fechamento seguro por eventos Kommo.
+- `kommo_fallback_channel`: `whatsapp` ou `manual`.
+- `KOMMO_WEBHOOK_TOKEN`: token obrigatorio para aceitar webhooks da Kommo.
 - `automation_action_created`
 - `automation_action_succeeded`
 - `automation_action_failed`

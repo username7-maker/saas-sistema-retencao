@@ -21,6 +21,7 @@ def _current_user(role: RoleEnum, user_id: str = "22222222-2222-2222-2222-222222
         is_active=True,
         job_title=None,
         work_shift=None,
+        work_shift_scope=None,
         avatar_url=None,
         created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
         deleted_at=None,
@@ -37,6 +38,7 @@ def _target_user(role: RoleEnum, user_id: str) -> SimpleNamespace:
         is_active=True,
         job_title=None,
         work_shift=None,
+        work_shift_scope=None,
         avatar_url=None,
         deleted_at=None,
         created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
@@ -74,7 +76,15 @@ def test_owner_create_user_route_defers_commit_until_after_audit(app, client, mo
     calls = []
 
     def _create_user(_db, payload, *, gym_id, commit=True):
-        calls.append({"gym_id": gym_id, "commit": commit, "email": payload.email, "work_shift": payload.work_shift})
+        calls.append(
+            {
+                "gym_id": gym_id,
+                "commit": commit,
+                "email": payload.email,
+                "work_shift": payload.work_shift,
+                "work_shift_scope": payload.work_shift_scope,
+            }
+        )
         return created
 
     monkeypatch.setattr("app.routers.users.create_user", _create_user)
@@ -88,12 +98,44 @@ def test_owner_create_user_route_defers_commit_until_after_audit(app, client, mo
                 "password": "Secret123!",
                 "role": "receptionist",
                 "work_shift": "morning",
+                "work_shift_scope": ["morning", "afternoon"],
             },
         )
 
         assert response.status_code == 201
-        assert calls == [{"gym_id": GYM_ID, "commit": False, "email": "recepcao.nova@teste.com", "work_shift": "morning"}]
+        assert calls == [
+            {
+                "gym_id": GYM_ID,
+                "commit": False,
+                "email": "recepcao.nova@teste.com",
+                "work_shift": "morning",
+                "work_shift_scope": ["morning", "afternoon"],
+            }
+        ]
         mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_users_tolerates_legacy_internal_email_domains(app, client):
+    owner = _current_user(RoleEnum.OWNER)
+    legacy_user = _target_user(RoleEnum.TRAINER, "88888888-8888-8888-8888-888888888888")
+    legacy_user.email = "ai-triage-validation@automai.local"
+
+    mock_db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [owner, legacy_user]
+    mock_db.scalars.return_value = mock_scalars
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: owner
+
+    try:
+        response = client.get("/api/v1/users/")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 2
+        assert body[1]["email"] == "ai-triage-validation@automai.local"
     finally:
         app.dependency_overrides.clear()
 
@@ -151,6 +193,7 @@ def test_owner_can_update_team_profile_fields(app, client):
                 "full_name": "Recepcao Editada",
                 "job_title": "Atendimento",
                 "work_shift": "morning",
+                "work_shift_scope": ["morning", "afternoon"],
                 "avatar_url": "https://cdn.exemplo.com/avatar.png",
             },
         )
@@ -160,6 +203,7 @@ def test_owner_can_update_team_profile_fields(app, client):
         assert body["full_name"] == "Recepcao Editada"
         assert body["job_title"] == "Atendimento"
         assert body["work_shift"] == "morning"
+        assert body["work_shift_scope"] == ["morning", "afternoon"]
         assert body["avatar_url"] == "https://cdn.exemplo.com/avatar.png"
         mock_db.commit.assert_called_once()
     finally:
@@ -198,6 +242,7 @@ def test_user_can_update_own_profile(app, client):
                 "full_name": "Recepcao Piloto",
                 "job_title": "Front desk",
                 "work_shift": "evening",
+                "work_shift_scope": ["evening", "overnight"],
                 "avatar_url": "https://cdn.exemplo.com/me.png",
             },
         )
@@ -207,6 +252,7 @@ def test_user_can_update_own_profile(app, client):
         assert body["full_name"] == "Recepcao Piloto"
         assert body["job_title"] == "Front desk"
         assert body["work_shift"] == "evening"
+        assert body["work_shift_scope"] == ["evening", "overnight"]
         assert body["avatar_url"] == "https://cdn.exemplo.com/me.png"
         mock_db.commit.assert_called_once()
     finally:

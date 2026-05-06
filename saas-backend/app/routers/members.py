@@ -18,6 +18,9 @@ from app.schemas import (
     MemberCreate,
     MemberOut,
     MemberUpdate,
+    MemberNoteCreate,
+    MemberNoteOut,
+    MemberOperationalProfileOut,
     OnboardingScoreSnapshotOut,
     OnboardingScoreOut,
     PaginatedResponse,
@@ -70,6 +73,11 @@ from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.kommo_service import KommoServiceError
 from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_intelligence_service import get_member_intelligence_context
+from app.services.member_operational_profile_service import (
+    build_member_operational_profile,
+    create_member_note,
+    list_member_notes,
+)
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
 from app.services.preferred_shift_service import sync_preferred_shifts_from_checkins
@@ -151,7 +159,10 @@ def list_members_endpoint(
 @router.get("/index", response_model=list[MemberOut])
 def list_members_index_endpoint(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
     search: str | None = None,
     risk_level: RiskLevel | None = None,
     status: MemberStatus | None = None,
@@ -246,6 +257,61 @@ def get_member_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> MemberOut:
     return get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+
+
+@router.get("/{member_id}/operational-profile", response_model=MemberOperationalProfileOut)
+def get_member_operational_profile_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> MemberOperationalProfileOut:
+    return MemberOperationalProfileOut.model_validate(
+        build_member_operational_profile(db, member_id=member_id, current_user=current_user)
+    )
+
+
+@router.get("/{member_id}/notes", response_model=list[MemberNoteOut])
+def list_member_notes_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> list[MemberNoteOut]:
+    return list_member_notes(db, member_id=member_id, current_user=current_user)
+
+
+@router.post("/{member_id}/notes", response_model=MemberNoteOut, status_code=status.HTTP_201_CREATED)
+def create_member_note_endpoint(
+    request: Request,
+    member_id: UUID,
+    payload: MemberNoteCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> MemberNoteOut:
+    note = create_member_note(db, member_id=member_id, current_user=current_user, payload=payload)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="member_note_created",
+        entity="member_note",
+        user=current_user,
+        member_id=member_id,
+        entity_id=note.id,
+        details={"note_type": note.note_type, "visibility": note.visibility},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 @router.patch("/{member_id}", response_model=MemberOut)
@@ -343,7 +409,7 @@ def get_recalculate_risk_status_endpoint(
 def get_onboarding_score_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> OnboardingScoreOut:
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     payload = calculate_onboarding_score(db, member)
@@ -431,6 +497,7 @@ def create_body_composition_endpoint(
     payload: BodyCompositionEvaluationCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    sync_actuar: bool = Query(True),
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = create_body_composition_evaluation(
         db,
@@ -438,6 +505,7 @@ def create_body_composition_endpoint(
         member_id,
         payload,
         reviewer_user_id=current_user.id,
+        sync_actuar=sync_actuar,
     )
     db.commit()
     db.refresh(evaluation)
@@ -451,6 +519,7 @@ def update_body_composition_endpoint(
     payload: BodyCompositionEvaluationUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    sync_actuar: bool = Query(True),
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = update_body_composition_evaluation(
         db,
@@ -459,6 +528,7 @@ def update_body_composition_endpoint(
         evaluation_id,
         payload,
         reviewer_user_id=current_user.id,
+        sync_actuar=sync_actuar,
     )
     db.commit()
     db.refresh(evaluation)
@@ -472,6 +542,7 @@ def patch_body_composition_endpoint(
     payload: BodyCompositionEvaluationUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    sync_actuar: bool = Query(True),
 ) -> BodyCompositionEvaluationRead:
     return update_body_composition_endpoint(
         member_id=member_id,
@@ -479,6 +550,7 @@ def patch_body_composition_endpoint(
         payload=payload,
         db=db,
         current_user=current_user,
+        sync_actuar=sync_actuar,
     )
 
 
@@ -505,6 +577,7 @@ def review_body_composition_endpoint(
     payload: BodyCompositionEvaluationReviewInput,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+    sync_actuar: bool = Query(True),
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = review_body_composition_evaluation(
         db,
@@ -513,6 +586,7 @@ def review_body_composition_endpoint(
         evaluation_id,
         payload,
         reviewer_user_id=current_user.id,
+        sync_actuar=sync_actuar,
     )
     db.commit()
     db.refresh(evaluation)

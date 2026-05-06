@@ -5,10 +5,10 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-WorkQueueSourceType = Literal["task", "ai_triage"]
+WorkQueueSourceType = Literal["task", "ai_triage", "assessment_queue"]
 WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
 WorkQueueSnoozePreset = Literal["tomorrow", "next_week", "custom"]
-WorkQueueContactChannel = Literal["whatsapp", "call", "in_person", "other"]
+WorkQueueContactChannel = Literal["whatsapp", "kommo", "call", "in_person", "other"]
 WorkQueueOutcome = Literal[
     "responded",
     "no_response",
@@ -24,6 +24,12 @@ WorkQueueOutcome = Literal[
     "payment_promised",
     "payment_link_sent",
     "charge_disputed",
+    "training_delivered",
+    "training_missing",
+    "training_adjusted",
+    "feedback_positive",
+    "needs_training_adjustment",
+    "reassessment_scheduled",
     "completed",
 ]
 
@@ -45,14 +51,22 @@ class WorkQueueItemOut(BaseModel):
     requires_confirmation: bool = False
     state: WorkQueueState
     due_at: datetime | None = None
+    visible_from: datetime | None = None
     assigned_to_user_id: UUID | None = None
     context_path: str
     outcome_state: str
     retention_stage: str | None = None
     retention_stage_label: str | None = None
     retention_stage_priority: int = 0
+    technical_ladder_step: str | None = None
+    technical_ladder_step_label: str | None = None
     autopilot_state: str | None = None
     autopilot_badges: list[str] = Field(default_factory=list)
+    execution_channel: str | None = None
+    channel_action_label: str | None = None
+    channel_status: str | None = None
+    kommo_contact_id: str | None = None
+    kommo_lead_id: str | None = None
 
 
 class WorkQueueExecuteInput(BaseModel):

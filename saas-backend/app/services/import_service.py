@@ -16,7 +16,7 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, CheckinSource, Member, MemberStatus
+from app.models import Assessment, Checkin, CheckinSource, Member, MemberStatus
 from app.schemas import (
     ImportErrorEntry,
     ImportPreview,
@@ -84,6 +84,32 @@ CHECKIN_AT_KEYS = (
 CHECKIN_DATE_KEYS = ("checkin_date", "data_checkin", "data", "date", "data_entrada", "data_saida")
 CHECKIN_TIME_KEYS = ("checkin_time", "hora_checkin", "hora", "time", "hora_entrada", "hora_saida")
 CHECKIN_SOURCE_KEYS = ("source", "origem", "tipo")
+
+ASSESSMENT_DATE_KEYS = (
+    "assessment_date",
+    "data_avaliacao",
+    "data_da_avaliacao",
+    "dt_avaliacao",
+    "evaluation_date",
+    "data",
+    "date",
+)
+ASSESSMENT_EVALUATOR_KEYS = ("evaluator_name", "professor", "avaliador", "instrutor", "teacher", "evaluator")
+LEGACY_ASSESSMENT_COUNT_KEYS = (
+    "legacy_assessment_count",
+    "qtd_de_fichas",
+    "qtd_fichas",
+    "quantidade_de_fichas",
+    "assessment_count",
+    "qtd_avaliacoes",
+    "quantidade_avaliacoes",
+)
+LEGACY_ASSESSMENT_STATUS_KEYS = ("legacy_status", "situacao", "status")
+ASSESSMENT_WEIGHT_KEYS = ("weight_kg", "peso", "peso_kg", "weight")
+ASSESSMENT_HEIGHT_KEYS = ("height_cm", "altura", "altura_cm", "height")
+ASSESSMENT_BMI_KEYS = ("bmi", "imc")
+ASSESSMENT_BODY_FAT_KEYS = ("body_fat_pct", "body_fat_percent", "gordura_percentual", "percentual_gordura", "pgc")
+ASSESSMENT_LEAN_MASS_KEYS = ("lean_mass_kg", "massa_magra", "massa_magra_kg")
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y")
 DATETIME_FORMATS = (
@@ -163,6 +189,26 @@ _CHECKIN_PREVIEW_COLUMNS = set(
     + CHECKIN_TIME_KEYS
     + CHECKIN_SOURCE_KEYS
 )
+_ASSESSMENT_PREVIEW_COLUMNS = set(
+    NAME_KEYS
+    + FIRST_NAME_KEYS
+    + LAST_NAME_KEYS
+    + EMAIL_KEYS
+    + PHONE_KEYS
+    + CPF_KEYS
+    + PLAN_KEYS
+    + EXTERNAL_ID_KEYS
+    + MEMBER_ID_KEYS
+    + ASSESSMENT_DATE_KEYS
+    + ASSESSMENT_EVALUATOR_KEYS
+    + LEGACY_ASSESSMENT_COUNT_KEYS
+    + LEGACY_ASSESSMENT_STATUS_KEYS
+    + ASSESSMENT_WEIGHT_KEYS
+    + ASSESSMENT_HEIGHT_KEYS
+    + ASSESSMENT_BMI_KEYS
+    + ASSESSMENT_BODY_FAT_KEYS
+    + ASSESSMENT_LEAN_MASS_KEYS
+)
 _MEMBER_MAPPING_TARGETS = {
     "full_name": "Nome completo",
     "first_name": "Primeiro nome",
@@ -192,6 +238,24 @@ _CHECKIN_MAPPING_TARGETS = {
     "checkin_time": "Hora do check-in",
     "source": "Origem",
 }
+_ASSESSMENT_MAPPING_TARGETS = {
+    "member_id": "ID do membro",
+    "member_name": "Nome do membro",
+    "first_name": "Primeiro nome",
+    "last_name": "Sobrenome",
+    "email": "Email",
+    "external_id": "Matricula",
+    "cpf": "CPF",
+    "assessment_date": "Data da avaliacao",
+    "evaluator_name": "Professor/avaliador",
+    "legacy_assessment_count": "Qtd de fichas legadas",
+    "legacy_status": "Situacao legada",
+    "weight_kg": "Peso",
+    "height_cm": "Altura",
+    "bmi": "IMC",
+    "body_fat_pct": "Percentual de gordura",
+    "lean_mass_kg": "Massa magra",
+}
 _MEMBER_ALIAS_TO_TARGET = {key: "full_name" for key in NAME_KEYS} | {key: "first_name" for key in FIRST_NAME_KEYS} | {
     key: "last_name" for key in LAST_NAME_KEYS
 } | {key: "email" for key in EMAIL_KEYS} | {key: "phone" for key in PHONE_KEYS} | {
@@ -210,6 +274,33 @@ _CHECKIN_ALIAS_TO_TARGET = {key: "member_name" for key in NAME_KEYS} | {key: "fi
 } | {key: "checkin_date" for key in CHECKIN_DATE_KEYS} | {
     key: "checkin_time" for key in CHECKIN_TIME_KEYS
 } | {key: "source" for key in CHECKIN_SOURCE_KEYS}
+_ASSESSMENT_ALIAS_TO_TARGET = {key: "member_name" for key in NAME_KEYS} | {
+    key: "first_name" for key in FIRST_NAME_KEYS
+} | {key: "last_name" for key in LAST_NAME_KEYS} | {key: "email" for key in EMAIL_KEYS} | {
+    key: "cpf" for key in CPF_KEYS
+} | {
+    key: "external_id" for key in EXTERNAL_ID_KEYS
+} | {
+    key: "member_id" for key in MEMBER_ID_KEYS
+} | {
+    key: "assessment_date" for key in ASSESSMENT_DATE_KEYS
+} | {
+    key: "evaluator_name" for key in ASSESSMENT_EVALUATOR_KEYS
+} | {
+    key: "legacy_assessment_count" for key in LEGACY_ASSESSMENT_COUNT_KEYS
+} | {
+    key: "legacy_status" for key in LEGACY_ASSESSMENT_STATUS_KEYS
+} | {
+    key: "weight_kg" for key in ASSESSMENT_WEIGHT_KEYS
+} | {
+    key: "height_cm" for key in ASSESSMENT_HEIGHT_KEYS
+} | {
+    key: "bmi" for key in ASSESSMENT_BMI_KEYS
+} | {
+    key: "body_fat_pct" for key in ASSESSMENT_BODY_FAT_KEYS
+} | {
+    key: "lean_mass_kg" for key in ASSESSMENT_LEAN_MASS_KEYS
+}
 
 
 def _should_create_import_onboarding(join_date: date | None) -> bool:
@@ -724,6 +815,178 @@ def preview_checkins_csv(
     )
 
 
+def preview_assessments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportPreview:
+    errors: list[ImportErrorEntry] = []
+    warnings: list[str] = []
+    sample_rows: list[ImportPreviewRow] = []
+    total_rows = 0
+    valid_rows = 0
+    would_create = 0
+    would_update = 0
+    would_skip = 0
+    seen_columns: set[str] = set()
+    source_samples: dict[str, list[str]] = {}
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    seen_assessments: set[tuple[str, date]] = set()
+    seen_legacy_markers: set[str] = set()
+    pending_assessments: list[tuple[Member, datetime, int, dict[str, str]]] = []
+
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _ASSESSMENT_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        total_rows += 1
+        seen_columns.update(row.keys())
+        _collect_source_samples(source_samples, row)
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+
+        member = _resolve_member_from_row(mapped_row, lookup)
+        if not member:
+            missing_name = _extract_member_name(mapped_row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
+            would_skip += 1
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Membro nao encontrado para vincular historico de avaliacao",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        assessment_at = _parse_assessment_datetime(mapped_row)
+        legacy_count = _parse_legacy_assessment_count(mapped_row)
+
+        if not assessment_at:
+            if legacy_count is not None:
+                valid_rows += 1
+                if str(member.id) in seen_legacy_markers:
+                    would_skip += 1
+                    continue
+                seen_legacy_markers.add(str(member.id))
+                would_update += 1
+                if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+                    sample_rows.append(
+                        ImportPreviewRow(
+                            row_number=row_number,
+                            action="update_legacy_assessment_marker",
+                            preview={
+                                "member_id": str(member.id),
+                                "member_name": member.full_name,
+                                "legacy_assessment_count": legacy_count,
+                                "evaluator_name": _pick_first(mapped_row, ASSESSMENT_EVALUATOR_KEYS),
+                                "action": "update_legacy_assessment_marker",
+                            },
+                        )
+                    )
+                continue
+
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Data da avaliacao ausente. Sem data, o sistema nao cria historico datado.",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        valid_rows += 1
+        key = (str(member.id), assessment_at.date())
+        if key in seen_assessments:
+            would_skip += 1
+            continue
+        seen_assessments.add(key)
+        pending_assessments.append((member, assessment_at, row_number, mapped_row))
+
+    existing_days = _fetch_existing_assessment_days(db)
+    for member, assessment_at, row_number, mapped_row in pending_assessments:
+        key = (str(member.id), assessment_at.date())
+        if key in existing_days:
+            would_skip += 1
+            continue
+        would_create += 1
+        if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+            sample_rows.append(
+                ImportPreviewRow(
+                    row_number=row_number,
+                    action="create_legacy_assessment",
+                    preview={
+                        "member_id": str(member.id),
+                        "member_name": member.full_name,
+                        "assessment_date": assessment_at.isoformat(),
+                        "evaluator_name": _pick_first(mapped_row, ASSESSMENT_EVALUATOR_KEYS),
+                        "has_metrics": _assessment_row_has_metrics(mapped_row),
+                        "action": "create_legacy_assessment",
+                    },
+                )
+            )
+
+    if would_update > 0 and would_create == 0:
+        warnings.append(
+            "O arquivo possui quantidade de fichas, mas nao possui data de avaliacao. O sistema marcara o historico legado no aluno, sem criar avaliacoes datadas."
+        )
+    if would_create > 0:
+        warnings.append(
+            "Avaliacoes legadas serao criadas apenas para linhas com data real. Medidas ausentes permanecem vazias."
+        )
+
+    (
+        recognized_columns,
+        unrecognized_columns,
+        source_columns,
+        conflicting_targets,
+        blocking_issues,
+        can_confirm,
+    ) = _build_mapping_preview(
+        seen_columns=seen_columns,
+        sample_values=source_samples,
+        allowed_columns=_ASSESSMENT_PREVIEW_COLUMNS,
+        target_options=_ASSESSMENT_MAPPING_TARGETS,
+        alias_to_target=_ASSESSMENT_ALIAS_TO_TARGET,
+        column_mappings=normalized_mappings,
+        ignored_columns=normalized_ignored,
+        valid_rows=valid_rows,
+    )
+    return ImportPreview(
+        preview_kind="assessments",
+        total_rows=total_rows,
+        valid_rows=valid_rows,
+        would_create=would_create,
+        would_update=would_update,
+        would_skip=would_skip,
+        recognized_columns=recognized_columns,
+        unrecognized_columns=unrecognized_columns,
+        mapping_required=bool(unrecognized_columns or conflicting_targets),
+        can_confirm=can_confirm,
+        resolved_mappings=normalized_mappings,
+        ignored_columns=sorted(normalized_ignored),
+        conflicting_targets=conflicting_targets,
+        blocking_issues=blocking_issues,
+        source_columns=source_columns,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        warnings=warnings,
+        sample_rows=sample_rows,
+        errors=errors,
+    )
+
+
 def import_members_csv(
     db: Session,
     csv_content: bytes,
@@ -999,6 +1262,220 @@ def import_checkins_csv(
         missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
         errors=errors,
     )
+
+
+def import_assessments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportSummary:
+    errors: list[ImportErrorEntry] = []
+    duplicates = 0
+    imported = 0
+    updated_existing = 0
+    seen_assessments: set[tuple[str, date]] = set()
+    seen_legacy_markers: set[str] = set()
+    pending_assessments: list[tuple[Member, datetime, dict[str, str]]] = []
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    touched_members: set[UUID] = set()
+    import_batch_id = f"actuar-assessments-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S')}"
+
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _ASSESSMENT_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        member = _resolve_member_from_row(mapped_row, lookup)
+        if not member:
+            missing_name = _extract_member_name(mapped_row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Membro nao encontrado para vincular historico de avaliacao",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        assessment_at = _parse_assessment_datetime(mapped_row)
+        legacy_count = _parse_legacy_assessment_count(mapped_row)
+        if not assessment_at:
+            if legacy_count is not None:
+                if str(member.id) in seen_legacy_markers:
+                    duplicates += 1
+                    continue
+                seen_legacy_markers.add(str(member.id))
+                if _update_member_legacy_assessment_marker(member, mapped_row, import_batch_id=import_batch_id):
+                    db.add(member)
+                    touched_members.add(member.id)
+                    updated_existing += 1
+                else:
+                    duplicates += 1
+                continue
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Data da avaliacao ausente. Sem data, o sistema nao cria historico datado.",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        key = (str(member.id), assessment_at.date())
+        if key in seen_assessments:
+            duplicates += 1
+            continue
+        seen_assessments.add(key)
+        pending_assessments.append((member, assessment_at, mapped_row))
+
+    existing_days = _fetch_existing_assessment_days(db)
+    next_numbers = _fetch_next_assessment_numbers(db)
+
+    for member, assessment_at, row in pending_assessments:
+        key = (str(member.id), assessment_at.date())
+        if key in existing_days:
+            duplicates += 1
+            continue
+
+        member_key = str(member.id)
+        assessment_number = next_numbers.get(member_key, 1)
+        next_numbers[member_key] = assessment_number + 1
+        existing_days.add(key)
+
+        assessment = Assessment(
+            member_id=member.id,
+            assessment_number=assessment_number,
+            assessment_date=assessment_at,
+            height_cm=_parse_optional_decimal(_pick_first(row, ASSESSMENT_HEIGHT_KEYS)),
+            weight_kg=_parse_optional_decimal(_pick_first(row, ASSESSMENT_WEIGHT_KEYS)),
+            bmi=_parse_optional_decimal(_pick_first(row, ASSESSMENT_BMI_KEYS)),
+            body_fat_pct=_parse_optional_decimal(_pick_first(row, ASSESSMENT_BODY_FAT_KEYS)),
+            lean_mass_kg=_parse_optional_decimal(_pick_first(row, ASSESSMENT_LEAN_MASS_KEYS)),
+            observations="Avaliacao legada importada do Actuar. Dados tecnicos podem estar incompletos.",
+            extra_data={
+                "source": "actuar_legacy_import",
+                "legacy": True,
+                "import_batch_id": import_batch_id,
+                "evaluator_name": _pick_first(row, ASSESSMENT_EVALUATOR_KEYS),
+                "raw_row": row,
+            },
+        )
+        db.add(assessment)
+        imported += 1
+        touched_members.add(member.id)
+
+    db.commit()
+    if touched_members:
+        invalidate_dashboard_cache("assessments", "members")
+    return ImportSummary(
+        imported=imported,
+        updated_existing=updated_existing,
+        skipped_duplicates=duplicates,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        errors=errors,
+    )
+
+
+def _fetch_existing_assessment_days(db: Session) -> set[tuple[str, date]]:
+    rows = db.execute(
+        select(Assessment.member_id, Assessment.assessment_date).where(Assessment.deleted_at.is_(None))
+    ).all()
+    return {(str(member_id), assessment_date.date()) for member_id, assessment_date in rows if assessment_date}
+
+
+def _fetch_next_assessment_numbers(db: Session) -> dict[str, int]:
+    rows = db.execute(
+        select(Assessment.member_id, Assessment.assessment_number).where(Assessment.deleted_at.is_(None))
+    ).all()
+    next_numbers: dict[str, int] = {}
+    for member_id, assessment_number in rows:
+        key = str(member_id)
+        next_numbers[key] = max(next_numbers.get(key, 1), int(assessment_number or 0) + 1)
+    return next_numbers
+
+
+def _parse_assessment_datetime(row: dict[str, str]) -> datetime | None:
+    return _parse_datetime(_pick_first(row, ASSESSMENT_DATE_KEYS))
+
+
+def _parse_legacy_assessment_count(row: dict[str, str]) -> int | None:
+    raw_value = _pick_first(row, LEGACY_ASSESSMENT_COUNT_KEYS)
+    if not raw_value:
+        return None
+    digits = _digits(raw_value)
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
+
+def _parse_optional_decimal(value: str | None) -> Decimal | None:
+    if not value or not value.strip():
+        return None
+    parsed = _parse_decimal(value)
+    return parsed if parsed != Decimal("0") else None
+
+
+def _assessment_row_has_metrics(row: dict[str, str]) -> bool:
+    return any(
+        _pick_first(row, aliases)
+        for aliases in (
+            ASSESSMENT_WEIGHT_KEYS,
+            ASSESSMENT_HEIGHT_KEYS,
+            ASSESSMENT_BMI_KEYS,
+            ASSESSMENT_BODY_FAT_KEYS,
+            ASSESSMENT_LEAN_MASS_KEYS,
+        )
+    )
+
+
+def _update_member_legacy_assessment_marker(
+    member: Member,
+    row: dict[str, str],
+    *,
+    import_batch_id: str,
+) -> bool:
+    legacy_count = _parse_legacy_assessment_count(row)
+    if legacy_count is None:
+        return False
+
+    extra_data = dict(member.extra_data or {})
+    previous = extra_data.get("actuar_legacy_assessment")
+    stable_marker = {
+        "source": "actuar_legacy_import",
+        "legacy": True,
+        "assessment_count": legacy_count,
+        "evaluator_name": _pick_first(row, ASSESSMENT_EVALUATOR_KEYS),
+        "status": _pick_first(row, LEGACY_ASSESSMENT_STATUS_KEYS),
+        "raw_row": row,
+        "note": "Arquivo do Actuar nao trouxe data; marcador legado nao cria avaliacao datada.",
+    }
+    if isinstance(previous, dict) and {key: previous.get(key) for key in stable_marker} == stable_marker:
+        return False
+    marker = {
+        **stable_marker,
+        "import_batch_id": import_batch_id,
+        "imported_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+    extra_data["actuar_legacy_assessment"] = marker
+    member.extra_data = extra_data
+    return True
 
 
 def _fetch_existing_checkin_keys(db: Session, keys: list[tuple[UUID, datetime]]) -> set[tuple[str, str]]:

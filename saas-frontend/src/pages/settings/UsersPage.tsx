@@ -8,11 +8,11 @@ import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { UserAvatar } from "../../components/common/UserAvatar";
-import { userService, type StaffUser } from "../../services/userService";
+import { userService, type StaffUser, type StaffWorkShift } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
 import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
 import { canChangeUserRole, canCreateUsers, canEditTargetUserProfile, canEditTargetUserRole, canToggleTargetUser, getAssignableUserRoles } from "../../utils/roleAccess";
-import { getPreferredShiftLabel } from "../../utils/preferredShift";
+import { formatPreferredShiftScope, getPreferredShiftLabel } from "../../utils/preferredShift";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
   owner: "Proprietário",
@@ -38,13 +38,29 @@ const SHIFT_OPTIONS = [
   { value: "evening", label: "Noite" },
 ] as const;
 
+const SHIFT_SCOPE_OPTIONS = SHIFT_OPTIONS.filter((option) => option.value) as { value: StaffWorkShift; label: string }[];
+const workShiftSchema = z.enum(["overnight", "morning", "afternoon", "evening"]);
+
+function resolveWorkShiftScope(primary: string | null | undefined, scope: StaffWorkShift[] | undefined): StaffWorkShift[] {
+  const resolved: StaffWorkShift[] = [];
+  const append = (value: string | null | undefined) => {
+    if (value === "overnight" || value === "morning" || value === "afternoon" || value === "evening") {
+      if (!resolved.includes(value)) resolved.push(value);
+    }
+  };
+  append(primary);
+  for (const value of scope ?? []) append(value);
+  return resolved;
+}
+
 const createSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   email: z.string().email("E-mail inválido"),
   password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: z.enum(["overnight", "morning", "afternoon", "evening"]).optional().or(z.literal("")),
+  work_shift: workShiftSchema.optional().or(z.literal("")),
+  work_shift_scope: z.array(workShiftSchema).optional(),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 
@@ -52,7 +68,8 @@ const editSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   role: z.enum(["manager", "receptionist", "salesperson", "trainer"]).optional(),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: z.enum(["overnight", "morning", "afternoon", "evening"]).optional().or(z.literal("")),
+  work_shift: workShiftSchema.optional().or(z.literal("")),
+  work_shift_scope: z.array(workShiftSchema).optional(),
   avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
 });
 
@@ -69,7 +86,7 @@ function roleOptionsFor(assignableRoles: StaffUser["role"][]) {
 interface CreateUserDrawerProps {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (createdUser: StaffUser) => void;
   assignableRoles: StaffUser["role"][];
 }
 
@@ -86,16 +103,17 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
       role: (options[0]?.value ?? "receptionist") as CreateFormValues["role"],
       job_title: "",
       work_shift: "",
+      work_shift_scope: [],
       avatar_url: "",
     },
   });
 
   const createMutation = useMutation({
     mutationFn: userService.createUser,
-    onSuccess: () => {
+    onSuccess: (createdUser) => {
       toast.success("Usuário criado com sucesso.");
       reset();
-      onSaved();
+      onSaved(createdUser);
       onClose();
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {
@@ -113,6 +131,7 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
             ...values,
             job_title: values.job_title?.trim() || null,
             work_shift: values.work_shift || null,
+            work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
             avatar_url: values.avatar_url?.trim() || null,
           }),
         )}
@@ -152,6 +171,18 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
               </option>
             ))}
           </Select>
+        </FormField>
+
+        <FormField label="Turnos cobertos na fila">
+          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-lovable-border bg-lovable-surface-soft/50 p-3">
+            {SHIFT_SCOPE_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-2 text-xs font-semibold text-lovable-ink">
+                <input type="checkbox" value={option.value} {...register("work_shift_scope")} className="accent-lovable-primary" />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-lovable-ink-muted">Use para lideres que cobrem mais de um turno, como Noite + Madrugada.</p>
         </FormField>
 
         <FormField label="URL da foto" error={errors.avatar_url?.message}>
@@ -200,6 +231,7 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
       role: user.role === "owner" ? undefined : user.role,
       job_title: user.job_title ?? "",
       work_shift: user.work_shift ?? "",
+      work_shift_scope: user.work_shift_scope ?? [],
       avatar_url: user.avatar_url ?? "",
     });
   }, [reset, user]);
@@ -214,6 +246,7 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
           full_name: values.full_name,
           job_title: values.job_title?.trim() || null,
           work_shift: values.work_shift || null,
+          work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
           avatar_url: values.avatar_url?.trim() || null,
         };
 
@@ -222,6 +255,7 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
           full_name: values.full_name,
           job_title: values.job_title?.trim() || null,
           work_shift: values.work_shift || null,
+          work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
           avatar_url: values.avatar_url?.trim() || null,
           role: values.role,
         });
@@ -284,6 +318,18 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
             </Select>
           </FormField>
 
+          <FormField label="Turnos cobertos na fila">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-lovable-border bg-lovable-surface-soft/50 p-3">
+              {SHIFT_SCOPE_OPTIONS.map((option) => (
+                <label key={option.value} className="flex items-center gap-2 text-xs font-semibold text-lovable-ink">
+                  <input type="checkbox" value={option.value} {...register("work_shift_scope")} className="accent-lovable-primary" />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-lovable-ink-muted">Marque todos os turnos que este login deve enxergar no Meu turno.</p>
+          </FormField>
+
           <FormField label="URL da foto" error={errors.avatar_url?.message}>
             <Input {...register("avatar_url")} placeholder="https://..." />
           </FormField>
@@ -341,6 +387,9 @@ function UserRow({
             </span>
             {user.job_title ? <span className="text-xs text-lovable-ink-muted">{user.job_title}</span> : null}
             {user.work_shift ? <Badge variant="neutral">Turno {getPreferredShiftLabel(user.work_shift)}</Badge> : null}
+            {formatPreferredShiftScope(user.work_shift, user.work_shift_scope) ? (
+              <Badge variant="info">Fila {formatPreferredShiftScope(user.work_shift, user.work_shift_scope)}</Badge>
+            ) : null}
           </div>
         </div>
       </div>
@@ -401,6 +450,8 @@ export function UsersPage() {
 
   const allUsers = usersQuery.data ?? [];
   const users = roleFilter === "all" ? allUsers : allUsers.filter((item) => item.role === roleFilter);
+  const hasFilteredOutUsers = roleFilter !== "all" && users.length === 0 && allUsers.length > 0;
+  const filteredRoleLabel = roleFilter === "all" ? "" : ROLE_LABELS[roleFilter];
   const assignableRoles = getAssignableUserRoles(currentUser?.role);
   const canCreateTeamUsers = canCreateUsers(currentUser?.role);
   const canEditRoles = canChangeUserRole(currentUser?.role);
@@ -424,6 +475,7 @@ export function UsersPage() {
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Filtrar por papel:</label>
         <select
+          aria-label="Filtrar por papel"
           value={roleFilter}
           onChange={(event) => setRoleFilter(event.target.value as StaffUser["role"] | "all")}
           className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-1.5 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
@@ -441,7 +493,16 @@ export function UsersPage() {
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center">
-          <p className="text-lovable-ink-muted">Nenhum usuário cadastrado além de você.</p>
+          <p className="text-lovable-ink-muted">
+            {hasFilteredOutUsers
+              ? `Nenhum usuário com papel ${filteredRoleLabel} neste filtro.`
+              : "Nenhum usuário cadastrado além de você."}
+          </p>
+          {hasFilteredOutUsers ? (
+            <Button type="button" variant="secondary" size="sm" className="mt-4" onClick={() => setRoleFilter("all")}>
+              Ver todos os papéis
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
@@ -464,7 +525,17 @@ export function UsersPage() {
       <CreateUserDrawer
         open={drawerOpen && canCreateTeamUsers}
         onClose={() => setDrawerOpen(false)}
-        onSaved={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
+        onSaved={(createdUser) => {
+          queryClient.setQueryData<StaffUser[]>(["users"], (current) => {
+            const existing = current ?? [];
+            if (existing.some((item) => item.id === createdUser.id)) {
+              return existing.map((item) => (item.id === createdUser.id ? createdUser : item));
+            }
+            return [...existing, createdUser];
+          });
+          setRoleFilter(createdUser.role);
+          void queryClient.invalidateQueries({ queryKey: ["users"] });
+        }}
         assignableRoles={assignableRoles}
       />
 

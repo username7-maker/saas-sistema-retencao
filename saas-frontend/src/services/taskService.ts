@@ -74,17 +74,31 @@ export const taskService = {
     return data;
   },
 
-  async listAllTasks(params?: Pick<ListTaskParams, "include_retention" | "include_archived">): Promise<PaginatedResponse<Task>> {
+  async listAllTasks(params?: Pick<ListTaskParams, "include_retention" | "include_archived" | "member_id" | "lead_id">): Promise<PaginatedResponse<Task>> {
     const include_retention = params?.include_retention ?? false;
     const include_archived = params?.include_archived ?? false;
-    const first = await taskService.listTasks({ page: 1, page_size: PAGE_SIZE, include_retention, include_archived });
+    const first = await taskService.listTasks({
+      page: 1,
+      page_size: PAGE_SIZE,
+      include_retention,
+      include_archived,
+      member_id: params?.member_id,
+      lead_id: params?.lead_id,
+    });
 
     if (first.total <= PAGE_SIZE) return first;
 
     const totalPages = Math.ceil(first.total / PAGE_SIZE);
     const rest: Task[] = [];
     for (let page = 2; page <= totalPages; page += 1) {
-      const response = await taskService.listTasks({ page, page_size: PAGE_SIZE, include_retention, include_archived });
+      const response = await taskService.listTasks({
+        page,
+        page_size: PAGE_SIZE,
+        include_retention,
+        include_archived,
+        member_id: params?.member_id,
+        lead_id: params?.lead_id,
+      });
       rest.push(...response.items);
     }
 

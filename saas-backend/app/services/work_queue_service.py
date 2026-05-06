@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import AITriageRecommendation, RoleEnum, Task, TaskStatus, User
+from app.models import (
+    AITriageRecommendation,
+    Assessment,
+    BodyCompositionEvaluation,
+    Member,
+    MemberStatus,
+    RoleEnum,
+    Task,
+    TaskPriority,
+    TaskStatus,
+    User,
+)
 from app.schemas import PaginatedResponse
 from app.schemas.ai_triage import AITriageSafeActionPrepareInput
 from app.schemas.work_queue import (
@@ -22,6 +34,7 @@ from app.schemas.autopilot import WorkQueueSendAndWaitInput
 from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
 from app.services.autopilot_policy_service import AutopilotDecision
 from app.services.autopilot_safety_service import check_autopilot_safety
+from app.services.communication_channel_service import resolve_communication_channel
 from app.services.ai_triage_service import (
     get_ai_triage_recommendation_or_404,
     prepare_ai_triage_recommendation_action,
@@ -31,7 +44,9 @@ from app.services.ai_triage_service import (
 )
 from app.services.audit_service import log_audit_event
 from app.services.automation_journey_service import handle_task_outcome_for_journey
-from app.services.preferred_shift_service import normalize_preferred_shift
+from app.services.assessment_analytics_service import get_assessments_queue
+from app.services.assessment_service import update_assessment_queue_resolution
+from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
 from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     is_cold_base_stage,
@@ -40,12 +55,24 @@ from app.services.retention_stage_service import (
 from app.services.task_event_service import record_task_event
 from app.services.task_service import is_task_operationally_archived
 
-SourceType = Literal["task", "ai_triage"]
+SourceType = Literal["task", "ai_triage", "assessment_queue"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
 ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
-DomainFilter = Literal["all", "retention", "onboarding", "assessment", "commercial", "finance", "manual"]
-SourceFilter = Literal["all", "task", "ai_triage"]
+DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
+SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue"]
+
+TRAINER_TASK_SOURCES = {
+    "assessment_training_delivery_check_d8",
+    "assessment_feedback_followup",
+    "assessment_reassessment_due",
+    "assessment_intelligence",
+    "assessment_feedback",
+    "trainer_followup",
+    "training_feedback",
+    "training_review",
+}
+TRAINER_OWNER_ROLES = {"coach", "trainer", "professor", "instrutor", "instructor", "teacher", "trainer_lead"}
 
 FINAL_TASK_OUTCOMES = {
     "responded",
@@ -55,6 +82,11 @@ FINAL_TASK_OUTCOMES = {
     "invalid_number",
     "payment_confirmed",
     "payment_link_sent",
+    "training_delivered",
+    "training_adjusted",
+    "feedback_positive",
+    "needs_training_adjustment",
+    "reassessment_scheduled",
     "completed",
 }
 NEUTRAL_AI_OUTCOMES = {
@@ -80,7 +112,25 @@ def _task_extra(task: Task) -> dict:
 
 def _is_trainer_task_visible(task: Task) -> bool:
     extra = _task_extra(task)
-    return task.lead_id is None and extra.get("source") == "assessment_intelligence" and extra.get("owner_role") == "coach"
+    source = str(extra.get("source") or "").lower()
+    domain = str(extra.get("domain") or "").lower()
+    owner_role = str(extra.get("owner_role") or "").lower()
+    return task.lead_id is None and (
+        domain == "trainer" or (source in TRAINER_TASK_SOURCES and owner_role in TRAINER_OWNER_ROLES)
+    )
+
+
+def _trainer_task_filter():
+    source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
+    domain = func.lower(func.coalesce(Task.extra_data["domain"].astext, ""))
+    owner_role = func.lower(func.coalesce(Task.extra_data["owner_role"].astext, ""))
+    return and_(
+        Task.lead_id.is_(None),
+        or_(
+            domain == "trainer",
+            and_(source.in_(tuple(TRAINER_TASK_SOURCES)), owner_role.in_(tuple(TRAINER_OWNER_ROLES))),
+        ),
+    )
 
 
 def _is_finance_task(task: Task) -> bool:
@@ -106,6 +156,8 @@ def _task_domain(task: Task) -> str:
         return "finance"
     if task.lead_id:
         return "commercial"
+    if _is_trainer_task_visible(task):
+        return "trainer"
     if "onboarding" in source or "onboarding" in title:
         return "onboarding"
     if "retention" in source or "reten" in title or "reten" in description or "churn" in title:
@@ -141,9 +193,48 @@ def _task_context_path(task: Task) -> str:
     return "/tasks"
 
 
+def _parse_optional_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _task_visible_from(task: Task) -> datetime | None:
+    return _parse_optional_datetime(_task_extra(task).get("work_queue_visible_from"))
+
+
+def _technical_ladder_step_label(step: str | None) -> str | None:
+    if step == "training_delivery_check_d8":
+        return "D+8 treino"
+    if step == "training_feedback_d14":
+        return "D+14 feedback"
+    if step == "reassessment_due":
+        return "Reavaliacao"
+    return None
+
+
 def _task_action_label(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "").lower()
     extra = _task_extra(task)
+    channel_action_label = str(extra.get("work_queue_channel_action_label") or "").strip()
+    if channel_action_label:
+        return channel_action_label
+    if _task_domain(task) == "trainer":
+        if source == "assessment_training_delivery_check_d8":
+            return str(extra.get("primary_action_label") or "Verificar treino")
+        if source == "assessment_feedback_followup":
+            return str(extra.get("primary_action_label") or "Registrar feedback")
+        if source == "assessment_reassessment_due":
+            return str(extra.get("primary_action_label") or "Agendar reavaliacao")
+        if "training" in source or "trainer" in source:
+            return str(extra.get("primary_action_label") or "Revisar treino do aluno")
+        return str(extra.get("primary_action_label") or "Abrir contexto tecnico")
     if source == "automation_journey":
         return str(extra.get("primary_action_label") or task.title or "Executar etapa da jornada")
     if source == "delinquency" or extra.get("domain") == "finance":
@@ -169,6 +260,7 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
     extra = _task_extra(task)
     retention_stage = extra.get("retention_stage") or (getattr(task.member, "retention_stage", None) if task.member else None)
     retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if _task_domain(task) == "retention" else {}
+    technical_step = str(extra.get("technical_ladder_step") or "") or None
     return WorkQueueItemOut(
         source_type="task",
         source_id=task.id,
@@ -186,14 +278,22 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         requires_confirmation=False,
         state=_task_state(task),  # type: ignore[arg-type]
         due_at=task.due_date,
+        visible_from=_task_visible_from(task),
         assigned_to_user_id=task.assigned_to_user_id,
         context_path=_task_context_path(task),
         outcome_state=str(_task_extra(task).get("work_queue_outcome") or ("completed" if task.status == TaskStatus.DONE else "pending")),
         retention_stage=retention_payload.get("retention_stage"),
         retention_stage_label=retention_payload.get("retention_stage_label"),
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
+        technical_ladder_step=technical_step,
+        technical_ladder_step_label=_technical_ladder_step_label(technical_step),
         autopilot_state=str(extra.get("autopilot_state") or "") or None,
         autopilot_badges=_task_autopilot_badges(task),
+        execution_channel=str(extra.get("work_queue_execution_channel") or "") or None,
+        channel_action_label=str(extra.get("work_queue_channel_action_label") or "") or None,
+        channel_status=str(extra.get("work_queue_channel_status") or "") or None,
+        kommo_contact_id=str(extra.get("kommo_contact_id") or "") or None,
+        kommo_lead_id=str(extra.get("kommo_lead_id") or "") or None,
     )
 
 
@@ -210,7 +310,168 @@ def _task_autopilot_badges(task: Task) -> list[str]:
         badges.append("Auto-resolvida")
     if extra.get("autopilot_blocked_reason"):
         badges.append("Bloqueada por seguranca")
+    if extra.get("work_queue_execution_channel") == "kommo":
+        badges.append("Kommo")
+    if extra.get("work_queue_channel_status") == "awaiting_kommo":
+        badges.append("Aguardando Kommo")
+    if extra.get("work_queue_channel_status") == "fallback_whatsapp":
+        badges.append("Fallback WhatsApp")
     return badges
+
+
+def _assessment_queue_due_at(item) -> datetime | None:
+    due_date = getattr(item, "next_assessment_due", None)
+    if not due_date:
+        return None
+    return datetime.combine(due_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+
+def _assessment_queue_severity(item) -> str:
+    bucket = str(getattr(item, "queue_bucket", "") or "").lower()
+    risk_score = int(getattr(item, "risk_score", 0) or 0)
+    if bucket in {"never", "overdue"} or risk_score >= 80:
+        return "high"
+    if bucket == "week" or risk_score >= 55:
+        return "medium"
+    return "low"
+
+
+def _assessment_queue_action_label(item) -> str:
+    bucket = str(getattr(item, "queue_bucket", "") or "").lower()
+    if bucket == "never":
+        return "Agendar primeira avaliacao"
+    if bucket == "overdue":
+        return "Revisar avaliacao vencida"
+    if bucket == "week":
+        return "Planejar reavaliacao desta semana"
+    return "Abrir contexto tecnico"
+
+
+def _assessment_queue_domain(item) -> str:
+    bucket = str(getattr(item, "queue_bucket", "") or "").lower()
+    return "assessment" if bucket == "never" else "trainer"
+
+
+def _ensure_assessment_queue_access(item: WorkQueueItemOut, current_user: User) -> None:
+    if current_user.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
+        return
+    if current_user.role == RoleEnum.TRAINER and item.domain == "trainer":
+        return
+    if current_user.role == RoleEnum.RECEPTIONIST and item.domain != "trainer":
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+
+def _assessment_queue_to_item(item) -> WorkQueueItemOut:
+    resolution_status = str(getattr(item, "queue_resolution_status", "active") or "active").lower()
+    state = "done" if resolution_status in {"scheduled", "dismissed"} else "do_now"
+    due_label = str(getattr(item, "due_label", "") or "").strip()
+    coverage_label = str(getattr(item, "coverage_label", "") or "").strip()
+    reason = " - ".join(part for part in (due_label, coverage_label) if part)
+    if not reason:
+        reason = "Pendencia tecnica de avaliacao ou acompanhamento."
+    return WorkQueueItemOut(
+        source_type="assessment_queue",
+        source_id=getattr(item, "id"),
+        subject_name=getattr(item, "full_name"),
+        member_id=getattr(item, "id"),
+        lead_id=None,
+        subject_phone=None,
+        domain=_assessment_queue_domain(item),
+        severity=_assessment_queue_severity(item),
+        preferred_shift=getattr(item, "preferred_shift", None),
+        reason=reason[:260],
+        primary_action_label=_assessment_queue_action_label(item),
+        primary_action_type="open_context",
+        suggested_message=None,
+        requires_confirmation=False,
+        state=state,  # type: ignore[arg-type]
+        due_at=_assessment_queue_due_at(item),
+        assigned_to_user_id=None,
+        context_path=f"/assessments/members/{getattr(item, 'id')}?tab=acoes",
+        outcome_state=resolution_status,
+        autopilot_badges=["Fila de avaliacoes"],
+    )
+
+
+def _member_assessment_queue_item(db: Session, *, member_id: UUID, current_user: User) -> WorkQueueItemOut:
+    member = db.scalar(
+        select(Member)
+        .where(
+            Member.id == member_id,
+            Member.gym_id == current_user.gym_id,
+            Member.deleted_at.is_(None),
+            Member.status == MemberStatus.ACTIVE,
+        )
+    )
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    latest_assessment = db.scalar(
+        select(Assessment)
+        .where(Assessment.member_id == member.id, Assessment.deleted_at.is_(None))
+        .order_by(Assessment.assessment_date.desc(), Assessment.updated_at.desc())
+        .limit(1)
+    )
+    latest_body_composition = db.scalar(
+        select(BodyCompositionEvaluation)
+        .where(BodyCompositionEvaluation.member_id == member.id)
+        .order_by(BodyCompositionEvaluation.evaluation_date.desc(), BodyCompositionEvaluation.updated_at.desc())
+        .limit(1)
+    )
+    now = _now()
+    today = now.date()
+    cutoff_90 = (now - timedelta(days=90)).date()
+    next_7 = today + timedelta(days=7)
+    queue_resolution_status = str((member.extra_data or {}).get("assessment_queue_resolution") or "active").lower()
+
+    formal_date = latest_assessment.assessment_date.date() if latest_assessment and latest_assessment.assessment_date else None
+    body_date = latest_body_composition.evaluation_date if latest_body_composition else None
+    if formal_date is None and body_date is None:
+        bucket = "never"
+        next_assessment_due = None
+        coverage_label = "Nenhuma avaliacao registrada"
+        due_label = "Primeira avaliacao pendente"
+        urgency_bonus = 300
+    else:
+        latest_coverage_date = max(value for value in (formal_date, body_date) if value is not None)
+        latest_source_is_body = body_date is not None and (formal_date is None or body_date > formal_date)
+        next_assessment_due = None if latest_source_is_body else latest_assessment.next_assessment_due
+        if latest_coverage_date < cutoff_90 or (next_assessment_due and next_assessment_due < today):
+            bucket = "overdue"
+            coverage_label = "Cobertura vencida"
+            due_label = f"Atrasada desde {next_assessment_due.strftime('%d/%m/%Y')}" if next_assessment_due else "Fora da janela ideal de 90 dias"
+            urgency_bonus = 240
+        elif next_assessment_due and next_assessment_due <= next_7:
+            bucket = "week"
+            coverage_label = "Avaliacao prevista nesta semana"
+            due_label = "Vence hoje" if next_assessment_due == today else f"Janela ate {next_assessment_due.strftime('%d/%m/%Y')}"
+            urgency_bonus = 180
+        elif next_assessment_due and next_assessment_due > next_7:
+            bucket = "upcoming"
+            coverage_label = "Planejamento futuro"
+            due_label = f"Proxima janela em {next_assessment_due.strftime('%d/%m/%Y')}"
+            urgency_bonus = 120
+        else:
+            bucket = "covered"
+            coverage_label = "Base coberta recentemente"
+            due_label = "Sem proxima janela definida"
+            urgency_bonus = 60
+
+    return _assessment_queue_to_item(
+        SimpleNamespace(
+            id=member.id,
+            full_name=member.full_name,
+            preferred_shift=member.preferred_shift,
+            risk_score=int(member.risk_score or 0),
+            next_assessment_due=next_assessment_due,
+            queue_bucket=bucket,
+            coverage_label=coverage_label,
+            due_label=due_label,
+            urgency_score=int(member.risk_score or 0) + urgency_bonus,
+            queue_resolution_status=queue_resolution_status,
+        )
+    )
 
 
 def _ai_state(recommendation: AITriageRecommendation) -> str:
@@ -273,12 +534,19 @@ def _matches_shift(item: WorkQueueItemOut, current_user: User, shift: ShiftFilte
         return True
     if effective_shift == "unassigned":
         return item.preferred_shift is None
-    target = normalize_preferred_shift(current_user.work_shift) if effective_shift == "my_shift" else normalize_preferred_shift(effective_shift)
-    if not target:
-        return True
+    if effective_shift == "my_shift":
+        targets = normalize_preferred_shift_scope(
+            getattr(current_user, "work_shift_scope", None),
+            fallback=getattr(current_user, "work_shift", None),
+        )
+    else:
+        target = normalize_preferred_shift(effective_shift)
+        targets = [target] if target else []
+    if not targets:
+        return item.preferred_shift is None
     if item.preferred_shift is None:
         return True
-    return normalize_preferred_shift(item.preferred_shift) == target
+    return normalize_preferred_shift(item.preferred_shift) in targets
 
 
 def _matches_assignee(item: WorkQueueItemOut, current_user: User, assignee: AssigneeFilter) -> bool:
@@ -324,9 +592,13 @@ def _filter_items(
     for item in items:
         if state != "all" and item.state != state:
             continue
-        if domain != "all" and item.domain != domain:
+        if domain == "operations" and item.domain in {"retention", "trainer"}:
+            continue
+        if domain not in {"all", "operations"} and item.domain != domain:
             continue
         if state == "do_now" and item.domain == "retention" and is_cold_base_stage(item.retention_stage):
+            continue
+        if state == "do_now" and item.visible_from and item.visible_from > _now():
             continue
         if not _matches_shift(item, current_user, shift):
             continue
@@ -341,13 +613,7 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None)]
     filters.append(func.coalesce(Task.extra_data["operational_archive"]["archived_at"].astext, "") == "")
     if current_user.role == RoleEnum.TRAINER:
-        filters.extend(
-            [
-                Task.lead_id.is_(None),
-                Task.extra_data["source"].astext == "assessment_intelligence",
-                Task.extra_data["owner_role"].astext == "coach",
-            ]
-        )
+        filters.append(_trainer_task_filter())
     elif current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         filters.append(
             func.coalesce(Task.extra_data["domain"].astext, "") != "finance",
@@ -382,6 +648,30 @@ def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     return [_ai_to_item(recommendation) for recommendation in recommendations]
 
 
+def _list_assessment_queue_items(
+    db: Session,
+    current_user: User,
+    *,
+    exclude_member_ids: set[UUID] | None = None,
+) -> list[WorkQueueItemOut]:
+    if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
+        return []
+    queue = get_assessments_queue(db, page=1, page_size=200, bucket="all", gym_id=current_user.gym_id)
+    excluded = exclude_member_ids or set()
+    items: list[WorkQueueItemOut] = []
+    for queue_item in queue.items:
+        member_id = getattr(queue_item, "id", None)
+        if member_id in excluded:
+            continue
+        item = _assessment_queue_to_item(queue_item)
+        if current_user.role == RoleEnum.TRAINER and item.domain != "trainer":
+            continue
+        if current_user.role == RoleEnum.RECEPTIONIST and item.domain == "trainer":
+            continue
+        items.append(item)
+    return items
+
+
 def list_work_queue_items(
     db: Session,
     *,
@@ -397,6 +687,11 @@ def list_work_queue_items(
     items: list[WorkQueueItemOut] = []
     if source in {"all", "task"}:
         items.extend(_list_task_items(db, current_user))
+    if source == "all" and domain in {"all", "operations", "assessment", "trainer"}:
+        trainer_task_member_ids = {
+            item.member_id for item in items if item.domain == "trainer" and item.member_id is not None
+        }
+        items.extend(_list_assessment_queue_items(db, current_user, exclude_member_ids=trainer_task_member_ids))
     if source in {"all", "ai_triage"}:
         items.extend(_list_ai_items(db, current_user))
 
@@ -420,10 +715,51 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         _ensure_task_access(task, current_user)
         return _task_to_item(task)
 
+    if source_type == "assessment_queue":
+        if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
+        _ensure_assessment_queue_access(item, current_user)
+        return item
+
     recommendation = get_ai_triage_recommendation_or_404(db, recommendation_id=source_id, gym_id=current_user.gym_id)
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
     return _ai_to_item(recommendation)
+
+
+def _execute_assessment_queue_item(
+    db: Session,
+    *,
+    member_id: UUID,
+    current_user: User,
+    payload: WorkQueueExecuteInput,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> WorkQueueActionResultOut:
+    item = _member_assessment_queue_item(db, member_id=member_id, current_user=current_user)
+    _ensure_assessment_queue_access(item, current_user)
+    log_audit_event(
+        db,
+        action="work_queue_assessment_queue_opened",
+        entity="assessment_queue",
+        user=current_user,
+        member_id=member_id,
+        entity_id=member_id,
+        details={"operator_note": payload.operator_note, "source": "work_queue"},
+        ip_address=ip_address,
+        user_agent=user_agent,
+        flush=False,
+    )
+    db.flush()
+    return WorkQueueActionResultOut(
+        item=item,
+        detail="Abra o Perfil 360, revise avaliacao/treino e registre o resultado.",
+        prepared_message=item.suggested_message,
+        context_path=item.context_path,
+        task_id=None,
+        supported=True,
+    )
 
 
 def _execute_task(
@@ -571,6 +907,15 @@ def execute_work_queue_item(
             ip_address=ip_address,
             user_agent=user_agent,
         )
+    if source_type == "assessment_queue":
+        return _execute_assessment_queue_item(
+            db,
+            member_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
     return _execute_ai_triage(
         db,
         recommendation_id=source_id,
@@ -612,12 +957,28 @@ def send_and_wait_work_queue_item(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Task sem aluno ou lead vinculado.")
 
     domain = _task_domain(task)
+    channel_resolution = resolve_communication_channel(
+        db,
+        gym_id=current_user.gym_id,
+        requested_channel=payload.channel or "auto",
+    )
+    effective_channel = channel_resolution.channel
+    used_channel_fallback = channel_resolution.used_fallback
+    if effective_channel == "kommo" and task.member is None:
+        effective_channel = channel_resolution.fallback_channel
+        used_channel_fallback = True
+    if effective_channel == "manual":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Canal manual resolvido. Abra o contexto e registre o resultado sem envio monitorado.",
+        )
+    action_type = "kommo_operator_handoff" if effective_channel == "kommo" else "send_whatsapp"
     safety = check_autopilot_safety(
         db,
         gym_id=current_user.gym_id,
         domain=domain,
         policy_key=f"manual_send_and_wait_{domain}",
-        action_type="send_whatsapp",
+        action_type=action_type,
         member=task.member,
         lead=task.lead,
         message_text=message,
@@ -635,8 +996,13 @@ def send_and_wait_work_queue_item(
             current_user=current_user,
             event_type="contact_attempt",
             note=payload.operator_note,
-            contact_channel="whatsapp",
-            metadata_json={"source": "work_queue_send_and_wait", "blocked_reasons": safety.reasons},
+            contact_channel=effective_channel,
+            metadata_json={
+                "source": "work_queue_send_and_wait",
+                "blocked_reasons": safety.reasons,
+                "requested_channel": channel_resolution.requested_channel,
+                "resolved_channel": effective_channel,
+            },
             flush=False,
         )
         db.flush()
@@ -646,12 +1012,22 @@ def send_and_wait_work_queue_item(
         decision="auto_execute",
         domain=domain,
         policy_key=f"manual_send_and_wait_{domain}",
-        action_type="send_whatsapp",
+        action_type=action_type,
         template_key=payload.template_key,
         confidence=1.0,
         reason="Envio iniciado por operador via Work Queue.",
         next_timeout_hours=48,
-        metadata={"human_initiated": True, "operator_user_id": str(current_user.id)},
+        metadata={
+            "human_initiated": True,
+            "operator_user_id": str(current_user.id),
+            "requested_channel": channel_resolution.requested_channel,
+            "resolved_channel": effective_channel,
+            "used_channel_fallback": used_channel_fallback,
+            "fallback_channel": channel_resolution.fallback_channel,
+            "task_title": task.title,
+            "task_reason": task.description or task.title,
+            "context_path": _task_context_path(task),
+        },
     )
     action = create_autopilot_action(
         db,
@@ -661,7 +1037,7 @@ def send_and_wait_work_queue_item(
         lead=task.lead,
         related_task_id=task.id,
         message_body=message,
-        idempotency_key=f"send-and-wait:{task.id}:{message[:80]}",
+        idempotency_key=f"send-and-wait:{effective_channel}:{task.id}:{message[:80]}",
         flush=False,
     )
     if safety.scheduled_for:
@@ -671,10 +1047,75 @@ def send_and_wait_work_queue_item(
         db.add(action)
     else:
         action = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+    if effective_channel == "kommo" and action.status == "failed" and channel_resolution.fallback_channel == "whatsapp":
+        effective_channel = "whatsapp"
+        used_channel_fallback = True
+        fallback_safety = check_autopilot_safety(
+            db,
+            gym_id=current_user.gym_id,
+            domain=domain,
+            policy_key=f"manual_send_and_wait_{domain}_fallback_whatsapp",
+            action_type="send_whatsapp",
+            member=task.member,
+            lead=task.lead,
+            message_text=message,
+            require_auto_send=False,
+            ignore_recent_human_activity=True,
+        )
+        if fallback_safety.allowed or fallback_safety.scheduled_for:
+            fallback_decision = AutopilotDecision(
+                decision="auto_execute",
+                domain=domain,
+                policy_key=f"manual_send_and_wait_{domain}_fallback_whatsapp",
+                action_type="send_whatsapp",
+                template_key=payload.template_key,
+                confidence=1.0,
+                reason="Fallback WhatsApp apos falha no handoff Kommo.",
+                next_timeout_hours=48,
+                metadata={
+                    "human_initiated": True,
+                    "operator_user_id": str(current_user.id),
+                    "requested_channel": channel_resolution.requested_channel,
+                    "resolved_channel": "whatsapp",
+                    "used_channel_fallback": True,
+                    "kommo_failure_reason": action.failure_reason,
+                    "task_title": task.title,
+                    "task_reason": task.description or task.title,
+                    "context_path": _task_context_path(task),
+                },
+            )
+            action = create_autopilot_action(
+                db,
+                gym_id=current_user.gym_id,
+                decision=fallback_decision,
+                member=task.member,
+                lead=task.lead,
+                related_task_id=task.id,
+                message_body=message,
+                idempotency_key=f"send-and-wait:fallback-whatsapp:{task.id}:{message[:80]}",
+                flush=False,
+            )
+            if fallback_safety.scheduled_for:
+                action.status = "scheduled"
+                action.scheduled_for = fallback_safety.scheduled_for
+                action.failure_reason = ",".join(fallback_safety.reasons)
+                db.add(action)
+            else:
+                action = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
 
     extra = _task_extra(task)
     extra["autopilot_action_id"] = str(action.id)
     extra["autopilot_state"] = action.status
+    extra["work_queue_execution_channel"] = effective_channel
+    extra["work_queue_channel_status"] = "awaiting_kommo" if effective_channel == "kommo" and action.status == "awaiting_outcome" else (
+        "fallback_whatsapp" if used_channel_fallback and effective_channel == "whatsapp" else action.status
+    )
+    extra["work_queue_channel_action_label"] = "Enviar para Kommo" if effective_channel == "kommo" else "Enviar WhatsApp e aguardar"
+    action_metadata = dict(action.metadata_json or {})
+    if action_metadata.get("kommo_contact_id"):
+        extra["kommo_contact_id"] = action_metadata.get("kommo_contact_id")
+    if action_metadata.get("kommo_lead_id"):
+        extra["kommo_lead_id"] = action_metadata.get("kommo_lead_id")
     if action.status == "awaiting_outcome":
         task.status = TaskStatus.DOING
         task.kanban_column = TaskStatus.DOING.value
@@ -697,6 +1138,9 @@ def send_and_wait_work_queue_item(
             "source": "work_queue_send_and_wait",
             "autopilot_action_id": str(action.id),
             "action_status": action.status,
+            "requested_channel": channel_resolution.requested_channel,
+            "resolved_channel": effective_channel,
+            "used_channel_fallback": used_channel_fallback,
             "ip_address": ip_address,
             "user_agent": user_agent,
         },
@@ -705,7 +1149,11 @@ def send_and_wait_work_queue_item(
     db.flush()
     item = _task_to_item(task)
     if action.status == "awaiting_outcome":
-        detail = "Mensagem enviada. A task ficou aguardando resposta para o Autopilot resolver ou escalar."
+        detail = (
+            "Handoff criado na Kommo. A task ficou aguardando resposta na Kommo para o Autopilot resolver ou escalar."
+            if effective_channel == "kommo"
+            else "Mensagem enviada. A task ficou aguardando resposta para o Autopilot resolver ou escalar."
+        )
     elif action.status == "scheduled":
         detail = "Mensagem agendada pelo Autopilot para o proximo horario permitido."
     else:
@@ -733,6 +1181,15 @@ def _resolve_snooze_date(payload: WorkQueueOutcomeInput) -> datetime:
 def _task_event_type_for_outcome(outcome: WorkQueueOutcome) -> str:
     if outcome in {"postponed", "no_response", "payment_promised"}:
         return "snoozed"
+    if outcome in {
+        "training_delivered",
+        "training_missing",
+        "training_adjusted",
+        "feedback_positive",
+        "needs_training_adjustment",
+        "reassessment_scheduled",
+    }:
+        return "outcome_recorded"
     if outcome in {"forwarded_to_trainer", "forwarded_to_reception", "forwarded_to_manager", "charge_disputed"}:
         return "forwarded"
     return "outcome_recorded"
@@ -757,6 +1214,17 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
         task.status = TaskStatus.DONE
         task.kanban_column = TaskStatus.DONE.value
         task.completed_at = now
+    elif outcome == "training_missing":
+        scheduled_for = payload.scheduled_for or (now + timedelta(days=1))
+        task.status = TaskStatus.TODO
+        task.kanban_column = TaskStatus.TODO.value
+        task.priority = TaskPriority.HIGH
+        task.due_date = scheduled_for
+        task.completed_at = None
+        extra["owner_role"] = "coach"
+        extra["domain"] = "trainer"
+        extra["technical_followup_required"] = True
+        extra["work_queue_snoozed_until"] = scheduled_for.isoformat()
     elif outcome in {"postponed", "no_response", "payment_promised"}:
         if _task_domain(task) == "retention" and outcome == "no_response":
             no_response_count = int(extra.get("retention_no_response_count") or 0) + 1
@@ -787,6 +1255,7 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
         if outcome == "forwarded_to_trainer":
             extra["work_queue_forwarded_to"] = "trainer"
             extra["owner_role"] = "coach"
+            extra["domain"] = "trainer"
         elif outcome == "forwarded_to_reception":
             extra["work_queue_forwarded_to"] = "reception"
             extra["owner_role"] = "reception"
@@ -876,6 +1345,59 @@ def update_work_queue_outcome(
             prepared_message=task.suggested_message,
             context_path=item.context_path,
             task_id=task.id,
+        )
+
+    if source_type == "assessment_queue":
+        if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        current_item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
+        _ensure_assessment_queue_access(current_item, current_user)
+        if payload.outcome == "scheduled_assessment":
+            resolution_status = "scheduled"
+            detail = "Avaliacao marcada e removida da fila operacional."
+        elif payload.outcome in {"postponed", "no_response"}:
+            resolution_status = "active"
+            detail = "Resultado registrado. A pendencia continua ativa para acompanhamento."
+        elif payload.outcome in {"completed", "will_return"}:
+            resolution_status = "scheduled"
+            detail = "Acompanhamento registrado e pendencia tecnica marcada como encaminhada."
+        else:
+            resolution_status = "dismissed"
+            detail = "Pendencia tecnica retirada da fila operacional."
+        update_assessment_queue_resolution(
+            db,
+            source_id,
+            resolution_status=resolution_status,
+            note=payload.note,
+            resolved_by_user_id=current_user.id,
+            gym_id=current_user.gym_id,
+            commit=False,
+        )
+        log_audit_event(
+            db,
+            action="work_queue_assessment_queue_outcome_updated",
+            entity="assessment_queue",
+            user=current_user,
+            member_id=source_id,
+            entity_id=source_id,
+            details={
+                "outcome": payload.outcome,
+                "resolution_status": resolution_status,
+                "note": payload.note,
+                "contact_channel": payload.contact_channel,
+            },
+            ip_address=ip_address,
+            user_agent=user_agent,
+            flush=False,
+        )
+        db.flush()
+        item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
+        return WorkQueueActionResultOut(
+            item=item,
+            detail=detail,
+            prepared_message=item.suggested_message,
+            context_path=item.context_path,
+            task_id=None,
         )
 
     recommendation = update_ai_triage_recommendation_outcome(

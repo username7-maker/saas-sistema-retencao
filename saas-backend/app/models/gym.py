@@ -37,6 +37,10 @@ class Gym(Base, TimestampMixin):
     kommo_default_pipeline_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     kommo_default_stage_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     kommo_default_responsible_user_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    primary_message_channel: Mapped[str] = mapped_column(String(20), nullable=False, default="whatsapp")
+    kommo_operator_confirmed_send_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    kommo_auto_close_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    kommo_fallback_channel: Mapped[str] = mapped_column(String(20), nullable=False, default="whatsapp")
 
     users = relationship("User", back_populates="gym")
     members = relationship("Member", back_populates="gym")

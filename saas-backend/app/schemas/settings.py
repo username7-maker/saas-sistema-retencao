@@ -51,6 +51,10 @@ class KommoSettingsRead(BaseModel):
     kommo_default_stage_id: str | None = None
     kommo_default_responsible_user_id: str | None = None
     automatic_handoff_ready: bool
+    primary_message_channel: str = "whatsapp"
+    kommo_operator_confirmed_send_enabled: bool = True
+    kommo_auto_close_enabled: bool = True
+    kommo_fallback_channel: str = "whatsapp"
 
 
 class KommoSettingsUpdate(BaseModel):
@@ -61,6 +65,10 @@ class KommoSettingsUpdate(BaseModel):
     kommo_default_stage_id: str | None = Field(default=None, max_length=40)
     kommo_default_responsible_user_id: str | None = Field(default=None, max_length=40)
     clear_access_token: bool = False
+    primary_message_channel: str | None = Field(default=None, pattern="^(kommo|whatsapp|manual)$")
+    kommo_operator_confirmed_send_enabled: bool | None = None
+    kommo_auto_close_enabled: bool | None = None
+    kommo_fallback_channel: str | None = Field(default=None, pattern="^(whatsapp|manual)$")
 
 
 class KommoConnectionTestResult(BaseModel):

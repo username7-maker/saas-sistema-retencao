@@ -238,22 +238,136 @@ PLAN_FOLLOWUP_PLAYBOOK: dict[str, list[PlaybookStep]] = {
 
 _IMPORT_PLAYBOOK_GRACE_DAYS = 7
 _IMPORT_PLAYBOOK_LOOKAHEAD_DAYS = 7
+_ONBOARDING_JOURNEY_TEMPLATE_ID = "onboarding_d0_d30"
+
+
+def _stage_key(step: PlaybookStep) -> str:
+    return f"d{step.days}"
+
+
+def _owner_role_for_onboarding_step(step: PlaybookStep) -> str:
+    return "coach" if step.days in {1, 7, 15} else "reception"
+
+
+def _expected_evidence_for_onboarding_step(step: PlaybookStep) -> list[str]:
+    if step.days in {0, 3, 30}:
+        return ["whatsapp_inbound", "task_outcome"]
+    if step.days == 7:
+        return ["assessment_scheduled", "assessment_completed", "task_outcome"]
+    if step.days in {1, 15}:
+        return ["trainer_outcome", "task_outcome"]
+    return ["task_outcome"]
+
+
+def _onboarding_extra_data(
+    step: PlaybookStep,
+    *,
+    due_date: datetime,
+    materialization: str = "journey_stage",
+) -> dict:
+    return {
+        "source": "onboarding",
+        "domain": "onboarding",
+        "onboarding_phase": "initial",
+        "onboarding_stage_key": _stage_key(step),
+        "day_offset": step.days,
+        "owner_role": _owner_role_for_onboarding_step(step),
+        "expected_evidence": _expected_evidence_for_onboarding_step(step),
+        "automation_journey_template_id": _ONBOARDING_JOURNEY_TEMPLATE_ID,
+        "materialization": materialization,
+        "work_queue_visible_from": due_date.isoformat(),
+    }
+
+
+def _task_extra(task: Task) -> dict:
+    return dict(task.extra_data or {}) if isinstance(task.extra_data, dict) else {}
+
+
+def _task_day_offset(task: Task) -> int | None:
+    raw_value = _task_extra(task).get("day_offset")
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, str):
+        try:
+            return int(raw_value)
+        except ValueError:
+            return None
+    return None
+
+
+def _is_archived(task: Task) -> bool:
+    archived = _task_extra(task).get("operational_archive")
+    return isinstance(archived, dict) and bool(archived.get("archived_at"))
+
+
+def _archive_duplicate_task(task: Task, *, batch_id: str, now: datetime) -> None:
+    extra = _task_extra(task)
+    if _is_archived(task):
+        return
+    extra["operational_archive"] = {
+        "archived_at": now.isoformat(),
+        "reason": "duplicate_onboarding_stage",
+        "batch_id": batch_id,
+    }
+    task.extra_data = extra
 
 
 def create_onboarding_tasks_for_member(db: Session, member: object, *, commit: bool = True) -> None:
+    now = datetime.now(tz=timezone.utc)
+    batch_id = f"onboarding-dedup-{member.id}-{now.strftime('%Y%m%d%H%M%S')}"  # type: ignore[attr-defined]
     existing_count = db.scalar(
         select(func.count(Task.id)).where(
             Task.member_id == member.id,  # type: ignore[attr-defined]
             Task.deleted_at.is_(None),
             Task.extra_data["source"].astext == "onboarding",
         )
-    )
-    if existing_count > 0:
+    ) or 0
+    existing_tasks = list(db.scalars(
+        select(Task).where(
+            Task.member_id == member.id,  # type: ignore[attr-defined]
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == "onboarding",
+        )
+    ).all())
+    if existing_count > 0 and not existing_tasks:
         return
 
+    existing_by_offset: dict[int, list[Task]] = {}
+    for task in existing_tasks:
+        offset = _task_day_offset(task)
+        if offset is None:
+            continue
+        existing_by_offset.setdefault(offset, []).append(task)
+
+    changed = False
+    for offset, offset_tasks in existing_by_offset.items():
+        active_tasks = [task for task in offset_tasks if not _is_archived(task)]
+        if len(active_tasks) <= 1:
+            continue
+        active_tasks.sort(key=lambda task: (task.due_date or task.created_at or now, task.created_at or now))
+        for duplicate in active_tasks[1:]:
+            _archive_duplicate_task(duplicate, batch_id=batch_id, now=now)
+            db.add(duplicate)
+            changed = True
+
     base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
-    tasks = [
-        Task(
+    tasks: list[Task] = []
+    for step in ONBOARDING_PLAYBOOK:
+        active_existing = [task for task in existing_by_offset.get(step.days, []) if not _is_archived(task)]
+        if active_existing:
+            due_date = active_existing[0].due_date or base + timedelta(days=step.days)
+            extra = _onboarding_extra_data(step, due_date=due_date)
+            extra.update(_task_extra(active_existing[0]))
+            extra.setdefault("work_queue_visible_from", due_date.isoformat())
+            extra.setdefault("domain", "onboarding")
+            extra.setdefault("onboarding_stage_key", _stage_key(step))
+            extra.setdefault("owner_role", _owner_role_for_onboarding_step(step))
+            active_existing[0].extra_data = extra
+            db.add(active_existing[0])
+            changed = True
+            continue
+        due_date = base + timedelta(days=step.days)
+        tasks.append(Task(
             gym_id=member.gym_id,  # type: ignore[attr-defined]
             member_id=member.id,  # type: ignore[attr-defined]
             title=step.title,
@@ -262,15 +376,15 @@ def create_onboarding_tasks_for_member(db: Session, member: object, *, commit: b
             status=TaskStatus.TODO,
             priority=step.priority,
             kanban_column="todo",
-            due_date=base + timedelta(days=step.days),
-            extra_data={"source": "onboarding", "onboarding_phase": "initial", "day_offset": step.days},
-        )
-        for step in ONBOARDING_PLAYBOOK
-    ]
-    db.add_all(tasks)
-    if commit:
+            due_date=due_date,
+            extra_data=_onboarding_extra_data(step, due_date=due_date),
+        ))
+    if tasks:
+        db.add_all(tasks)
+        changed = True
+    if commit and changed:
         db.commit()
-    else:
+    elif changed:
         db.flush()
 
 
@@ -350,6 +464,7 @@ def _create_playbook_task(
     extra_data: dict,
 ) -> None:
     base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
+    due_date = base + timedelta(days=step.days)
     task = Task(
         gym_id=member.gym_id,  # type: ignore[attr-defined]
         member_id=member.id,  # type: ignore[attr-defined]
@@ -359,7 +474,7 @@ def _create_playbook_task(
         status=TaskStatus.TODO,
         priority=step.priority,
         kanban_column="todo",
-        due_date=base + timedelta(days=step.days),
+        due_date=due_date,
         extra_data=extra_data,
     )
     db.add(task)
@@ -385,16 +500,17 @@ def create_import_playbook_tasks_for_member(
     if onboarding_existing == 0:
         onboarding_step = _select_import_playbook_step(ONBOARDING_PLAYBOOK, join_date=member.join_date, now=now)  # type: ignore[attr-defined]
         if onboarding_step is not None:
+            base = datetime.combine(member.join_date, time.min, tzinfo=timezone.utc)  # type: ignore[attr-defined]
+            due_date = base + timedelta(days=onboarding_step.days)
             _create_playbook_task(
                 db,
                 member=member,
                 step=onboarding_step,
-                extra_data={
-                    "source": "onboarding",
-                    "onboarding_phase": "initial",
-                    "day_offset": onboarding_step.days,
-                    "materialization": "import_next_action",
-                },
+                extra_data=_onboarding_extra_data(
+                    onboarding_step,
+                    due_date=due_date,
+                    materialization="import_next_action",
+                ),
             )
             created["onboarding"] = 1
 

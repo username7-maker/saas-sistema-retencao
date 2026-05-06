@@ -1,7 +1,7 @@
 import type { Role } from "../types";
 
 export const ROUTE_ACCESS = {
-  members: ["owner", "manager", "receptionist", "salesperson"],
+  members: ["owner", "manager", "receptionist", "salesperson", "trainer"],
   dashboardExecutive: ["owner", "manager"],
   dashboardOperational: ["owner", "manager", "receptionist"],
   dashboardCommercial: ["owner", "manager", "salesperson"],

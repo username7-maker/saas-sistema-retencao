@@ -9,6 +9,7 @@ export interface User {
   is_active: boolean;
   job_title?: string | null;
   work_shift?: "overnight" | "morning" | "afternoon" | "evening" | null;
+  work_shift_scope?: ("overnight" | "morning" | "afternoon" | "evening")[] | null;
   avatar_url?: string | null;
   created_at: string;
 }
@@ -133,7 +134,7 @@ export interface AITriageMetricsSummary {
   same_day_prepared_total: number;
 }
 
-export type WorkQueueSourceType = "task" | "ai_triage";
+export type WorkQueueSourceType = "task" | "ai_triage" | "assessment_queue";
 export type WorkQueueState = "do_now" | "awaiting_outcome" | "done";
 export type WorkQueueOutcome =
   | "responded"
@@ -150,6 +151,12 @@ export type WorkQueueOutcome =
   | "payment_promised"
   | "payment_link_sent"
   | "charge_disputed"
+  | "training_delivered"
+  | "training_missing"
+  | "training_adjusted"
+  | "feedback_positive"
+  | "needs_training_adjustment"
+  | "reassessment_scheduled"
   | "completed";
 
 export interface WorkQueueItem {
@@ -159,7 +166,7 @@ export interface WorkQueueItem {
   member_id: string | null;
   lead_id: string | null;
   subject_phone: string | null;
-  domain: "retention" | "onboarding" | "assessment" | "commercial" | "finance" | "manual" | string;
+  domain: "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
   preferred_shift: "overnight" | "morning" | "afternoon" | "evening" | "unassigned" | string | null;
   reason: string;
@@ -169,14 +176,22 @@ export interface WorkQueueItem {
   requires_confirmation: boolean;
   state: WorkQueueState;
   due_at: string | null;
+  visible_from?: string | null;
   assigned_to_user_id: string | null;
   context_path: string | null;
   outcome_state: string | null;
   retention_stage?: string | null;
   retention_stage_label?: string | null;
   retention_stage_priority?: number;
+  technical_ladder_step?: string | null;
+  technical_ladder_step_label?: string | null;
   autopilot_state?: string | null;
   autopilot_badges?: string[];
+  execution_channel?: "kommo" | "whatsapp" | "manual" | string | null;
+  channel_action_label?: string | null;
+  channel_status?: string | null;
+  kommo_contact_id?: string | null;
+  kommo_lead_id?: string | null;
 }
 
 export interface WorkQueueActionResult {
@@ -1269,6 +1284,10 @@ export interface KommoSettings {
   kommo_default_stage_id: string | null;
   kommo_default_responsible_user_id: string | null;
   automatic_handoff_ready: boolean;
+  primary_message_channel: "kommo" | "whatsapp" | "manual" | string;
+  kommo_operator_confirmed_send_enabled: boolean;
+  kommo_auto_close_enabled: boolean;
+  kommo_fallback_channel: "whatsapp" | "manual" | string;
 }
 
 export interface KommoConnectionTestResult {
@@ -1287,6 +1306,10 @@ export interface KommoSettingsUpdateInput {
   kommo_default_stage_id?: string | null;
   kommo_default_responsible_user_id?: string | null;
   clear_access_token?: boolean;
+  primary_message_channel?: "kommo" | "whatsapp" | "manual" | string | null;
+  kommo_operator_confirmed_send_enabled?: boolean | null;
+  kommo_auto_close_enabled?: boolean | null;
+  kommo_fallback_channel?: "whatsapp" | "manual" | string | null;
 }
 
 export interface BodyCompositionEvaluation {

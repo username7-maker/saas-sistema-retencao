@@ -54,6 +54,7 @@ from app.schemas.automation_journey import (
     AutomationJourneyUpdate,
 )
 from app.schemas.checkin import CheckinCreate, CheckinOut
+from app.schemas.coach import CoachWorkspaceItemOut, CoachWorkspaceOut, CoachWorkspaceSummaryOut
 from app.schemas.common import APIMessage, AuditLogOut, PaginatedResponse
 from app.schemas.compliance import (
     MemberConsentCurrentOut,
@@ -120,6 +121,8 @@ from app.schemas.member import (
     OnboardingScoreOut,
     OnboardingScoreSnapshotOut,
 )
+from app.schemas.member_operational_profile import MemberNoteCreate, MemberNoteOut, MemberOperationalProfileOut
+from app.schemas.onboarding import OnboardingCockpitOut
 from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.schemas.nurturing import NurturingSequenceOut
 from app.schemas.nps import NPSEvolutionPoint, NPSDispatchAcceptedResponse, NPSDispatchStatusRead, NPSResponseCreate, NPSResponseOut
@@ -220,6 +223,9 @@ __all__ = [
     "BIFollowUpImpact",
     "BIFoundationDashboard",
     "ChurnPoint",
+    "CoachWorkspaceItemOut",
+    "CoachWorkspaceOut",
+    "CoachWorkspaceSummaryOut",
     "CommercialDashboard",
     "CoreAsyncJobAcceptedResponse",
     "CoreAsyncJobStatusRead",
@@ -274,10 +280,14 @@ __all__ = [
     "MemberLGPDExport",
     "MemberMiniOut",
     "MemberOut",
+    "MemberNoteCreate",
+    "MemberNoteOut",
+    "MemberOperationalProfileOut",
     "MemberRiskOut",
     "MemberUpdate",
     "OnboardingScoreOut",
     "OnboardingScoreSnapshotOut",
+    "OnboardingCockpitOut",
     "MarkNotificationReadInput",
     "MessageLogOut",
     "NurturingSequenceOut",

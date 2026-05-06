@@ -178,6 +178,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Leitura final" in html
     assert "Erick Bedin" in html
     assert "OCR 82%" in html
+    assert "clinical-progym-logo" in html
+    assert "data:image/png;base64" in html
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

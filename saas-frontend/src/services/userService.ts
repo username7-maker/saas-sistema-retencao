@@ -1,5 +1,7 @@
 import { api } from "./api";
 
+export type StaffWorkShift = "overnight" | "morning" | "afternoon" | "evening";
+
 export interface StaffUser {
   id: string;
   gym_id: string;
@@ -8,7 +10,8 @@ export interface StaffUser {
   role: "owner" | "manager" | "receptionist" | "salesperson" | "trainer";
   is_active: boolean;
   job_title?: string | null;
-  work_shift?: "overnight" | "morning" | "afternoon" | "evening" | null;
+  work_shift?: StaffWorkShift | null;
+  work_shift_scope?: StaffWorkShift[] | null;
   avatar_url?: string | null;
   created_at: string;
 }
@@ -20,6 +23,7 @@ export interface UserCreatePayload {
   role: StaffUser["role"];
   job_title?: string | null;
   work_shift?: StaffUser["work_shift"];
+  work_shift_scope?: StaffUser["work_shift_scope"];
   avatar_url?: string | null;
 }
 
@@ -29,6 +33,7 @@ export interface UserUpdatePayload {
   is_active?: boolean;
   job_title?: string | null;
   work_shift?: StaffUser["work_shift"];
+  work_shift_scope?: StaffUser["work_shift_scope"];
   avatar_url?: string | null;
   role?: StaffUser["role"];
 }
@@ -37,6 +42,7 @@ export interface UserProfileUpdatePayload {
   full_name?: string;
   job_title?: string | null;
   work_shift?: StaffUser["work_shift"];
+  work_shift_scope?: StaffUser["work_shift_scope"];
   avatar_url?: string | null;
 }
 

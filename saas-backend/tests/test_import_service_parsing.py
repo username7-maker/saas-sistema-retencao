@@ -1,4 +1,5 @@
-from datetime import date, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from io import BytesIO
 from collections import Counter
 from uuid import uuid4
@@ -7,7 +8,7 @@ from xml.sax.saxutils import escape
 from unittest.mock import MagicMock, patch
 import pytest
 
-from app.models import CheckinSource, Member, MemberStatus
+from app.models import Assessment, CheckinSource, Member, MemberStatus
 from app.services import import_service
 
 
@@ -990,3 +991,182 @@ def test_import_checkins_csv_accepts_turnstile_xlsx_with_data_entrada_serial() -
     assert summary.errors == []
     assert summary.skipped_duplicates == 0
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
+
+
+def test_preview_assessments_csv_marks_legacy_count_without_date() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Abraao Lucca De Vargas",
+        email="abraao@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente,Qtd de Fichas,Professor,Situação\n"
+        "Abraao Lucca De Vargas,2,Leonardo Cordova Werlang,True\n"
+    ).encode("utf-8")
+
+    with patch.object(import_service, "_fetch_existing_assessment_days", return_value=set()):
+        preview = import_service.preview_assessments_csv(db, csv_content, filename="dados-exportados.csv")
+
+    assert preview.preview_kind == "assessments"
+    assert preview.total_rows == 1
+    assert preview.valid_rows == 1
+    assert preview.would_create == 0
+    assert preview.would_update == 1
+    assert preview.errors == []
+    assert preview.sample_rows[0].action == "update_legacy_assessment_marker"
+    assert preview.sample_rows[0].preview["legacy_assessment_count"] == 2
+    assert any("nao possui data" in warning for warning in preview.warnings)
+
+
+def test_import_assessments_csv_creates_dated_legacy_assessment() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Abraao Lucca De Vargas",
+        email="abraao@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente;Data Avaliacao;Professor;Peso;Massa Magra\n"
+        "Abraao Lucca De Vargas;01/04/2026;Leonardo Cordova Werlang;82,5;64,2\n"
+    ).encode("utf-8")
+
+    with (
+        patch.object(import_service, "_fetch_existing_assessment_days", return_value=set()),
+        patch.object(import_service, "_fetch_next_assessment_numbers", return_value={str(member.id): 3}),
+    ):
+        summary = import_service.import_assessments_csv(db, csv_content, filename="avaliacoes.csv")
+
+    added_assessments = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if call.args and isinstance(call.args[0], Assessment)
+    ]
+
+    assert summary.imported == 1
+    assert summary.updated_existing == 0
+    assert summary.skipped_duplicates == 0
+    assert summary.errors == []
+    assert len(added_assessments) == 1
+    assessment = added_assessments[0]
+    assert assessment.member_id == member.id
+    assert assessment.assessment_number == 3
+    assert assessment.assessment_date.date() == date(2026, 4, 1)
+    assert assessment.weight_kg == Decimal("82.5")
+    assert assessment.lean_mass_kg == Decimal("64.2")
+    assert assessment.extra_data["source"] == "actuar_legacy_import"
+    assert assessment.extra_data["evaluator_name"] == "Leonardo Cordova Werlang"
+    db.commit.assert_called_once()
+
+
+def test_import_assessments_csv_does_not_create_dated_assessment_from_count_only() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Abraao Lucca De Vargas",
+        email="abraao@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente,Qtd de Fichas,Professor,Situação\n"
+        "Abraao Lucca De Vargas,2,Leonardo Cordova Werlang,True\n"
+    ).encode("utf-8")
+
+    with (
+        patch.object(import_service, "_fetch_existing_assessment_days", return_value=set()),
+        patch.object(import_service, "_fetch_next_assessment_numbers", return_value={}),
+    ):
+        summary = import_service.import_assessments_csv(db, csv_content, filename="dados-exportados.csv")
+
+    added_assessments = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if call.args and isinstance(call.args[0], Assessment)
+    ]
+
+    assert summary.imported == 0
+    assert summary.updated_existing == 1
+    assert added_assessments == []
+    assert member.extra_data["actuar_legacy_assessment"]["assessment_count"] == 2
+    assert "nao trouxe data" in member.extra_data["actuar_legacy_assessment"]["note"]
+
+
+def test_import_assessments_csv_keeps_existing_legacy_marker_idempotent() -> None:
+    raw_row = {
+        "cliente": "Abraao Lucca De Vargas",
+        "qtd_de_fichas": "2",
+        "professor": "Leonardo Cordova Werlang",
+        "situacao": "True",
+    }
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Abraao Lucca De Vargas",
+        email="abraao@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={
+            "actuar_legacy_assessment": {
+                "source": "actuar_legacy_import",
+                "legacy": True,
+                "assessment_count": 2,
+                "evaluator_name": "Leonardo Cordova Werlang",
+                "status": "True",
+                "import_batch_id": "old-batch",
+                "imported_at": "2026-05-01T00:00:00+00:00",
+                "raw_row": raw_row,
+                "note": "Arquivo do Actuar nao trouxe data; marcador legado nao cria avaliacao datada.",
+            }
+        },
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente,Qtd de Fichas,Professor,Situação\n"
+        "Abraao Lucca De Vargas,2,Leonardo Cordova Werlang,True\n"
+    ).encode("utf-8")
+
+    with (
+        patch.object(import_service, "_fetch_existing_assessment_days", return_value=set()),
+        patch.object(import_service, "_fetch_next_assessment_numbers", return_value={}),
+    ):
+        summary = import_service.import_assessments_csv(db, csv_content, filename="dados-exportados.csv")
+
+    assert summary.imported == 0
+    assert summary.updated_existing == 0
+    assert summary.skipped_duplicates == 1
+    assert not any(call.args and isinstance(call.args[0], Assessment) for call in db.add.call_args_list)

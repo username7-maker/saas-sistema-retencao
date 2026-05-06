@@ -1,6 +1,7 @@
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -8,10 +9,14 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, Member, Task, TaskPriority, TaskStatus
+from app.models import Checkin, Member, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
 from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
+from app.services.autopilot_event_service import record_event
+from app.services.autopilot_resolver_service import resolve_event
+from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
+from app.services.task_event_service import record_task_event
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +36,15 @@ _ASSESSMENT_DUE_BY_PLAN_KEYWORD = {
 }
 _ASSESSMENT_FEEDBACK_TASK_SOURCE = "assessment_feedback_followup"
 _ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET = 14
+_ASSESSMENT_TRAINING_DELIVERY_TASK_SOURCE = "assessment_training_delivery_check_d8"
+_ASSESSMENT_TRAINING_DELIVERY_TASK_DAY_OFFSET = 8
+_ASSESSMENT_REASSESSMENT_TASK_SOURCE = "assessment_reassessment_due"
+_ASSESSMENT_REASSESSMENT_VISIBLE_BEFORE_DAYS = 7
+_POST_ASSESSMENT_TASK_SOURCES = {
+    _ASSESSMENT_TRAINING_DELIVERY_TASK_SOURCE,
+    _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+    _ASSESSMENT_REASSESSMENT_TASK_SOURCE,
+}
 
 
 def _safe(fn, default=None):
@@ -124,13 +138,24 @@ def create_assessment(
     db.refresh(assessment)
 
     generate_ai_insights(db, assessment, commit=False)
-    _ensure_assessment_feedback_followup_task(
+    _ensure_post_assessment_ladder_tasks(
         db,
         member=member,
         assessment=assessment,
         evaluator_id=evaluator_id,
         commit=False,
     )
+    assessment_event = record_event(
+        db,
+        gym_id=member.gym_id,
+        event_type="member_assessment_completed",
+        source="assessment",
+        member_id=member.id,
+        metadata={"assessment_id": str(assessment.id), "assessment_number": assessment.assessment_number},
+        deduplication_key=f"assessment:completed:{assessment.id}",
+        flush=False,
+    )
+    resolve_event(db, assessment_event, flush=False)
     sync_assessment_intelligence_tasks(db, member_id, commit=False)
 
     if commit:
@@ -139,6 +164,383 @@ def create_assessment(
         db.flush()
 
     return assessment
+
+
+def _assessment_due_datetime(assessment: Assessment) -> datetime:
+    next_assessment_due = getattr(assessment, "next_assessment_due", None)
+    assessment_date = _normalize_datetime(getattr(assessment, "assessment_date", None))
+    if next_assessment_due:
+        due = datetime.combine(next_assessment_due, assessment_date.timetz())
+        if due.tzinfo is None:
+            return due.replace(tzinfo=timezone.utc)
+        return due
+    return assessment_date + timedelta(days=_DEFAULT_ASSESSMENT_DUE_DAYS)
+
+
+def _post_assessment_visible_from(source: str, due_date: datetime) -> datetime:
+    if source == _ASSESSMENT_REASSESSMENT_TASK_SOURCE:
+        return due_date - timedelta(days=_ASSESSMENT_REASSESSMENT_VISIBLE_BEFORE_DAYS)
+    return due_date
+
+
+def _member_first_name(member: Member) -> str:
+    member_name = getattr(member, "full_name", "Aluno") or "Aluno"
+    return member_name.split()[0] if member_name else "Aluno"
+
+
+def _user_covers_member_shift(user: User | None, member: Member) -> bool:
+    if user is None or not getattr(user, "is_active", False) or getattr(user, "role", None) != RoleEnum.TRAINER:
+        return False
+    if getattr(user, "gym_id", None) != getattr(member, "gym_id", None):
+        return False
+    preferred_shift = normalize_preferred_shift(getattr(member, "preferred_shift", None))
+    if not preferred_shift:
+        return False
+    user_scope = normalize_preferred_shift_scope(getattr(user, "work_shift_scope", None), fallback=getattr(user, "work_shift", None))
+    return preferred_shift in user_scope
+
+
+def _resolve_post_assessment_owner(db: Session, *, member: Member, evaluator_id: UUID | None) -> UUID | None:
+    member_gym_id = getattr(member, "gym_id", None)
+    if member_gym_id is None:
+        return None
+    evaluator = None
+    if evaluator_id:
+        evaluator = db.scalar(
+            select(User).where(
+                User.id == evaluator_id,
+                User.gym_id == member_gym_id,
+                User.deleted_at.is_(None),
+                User.is_active.is_(True),
+            )
+        )
+    if _user_covers_member_shift(evaluator, member):
+        return evaluator.id
+
+    trainers = list(
+        db.scalars(
+            select(User)
+            .where(
+                User.gym_id == member_gym_id,
+                User.role == RoleEnum.TRAINER,
+                User.deleted_at.is_(None),
+                User.is_active.is_(True),
+            )
+            .order_by(User.created_at.asc())
+        ).all()
+    )
+    for trainer in trainers:
+        if _user_covers_member_shift(trainer, member):
+            return trainer.id
+    return None
+
+
+def _assessment_source_payload(assessment: Assessment, assessment_source_type: str) -> dict:
+    source_id = str(getattr(assessment, "id"))
+    payload = {"type": assessment_source_type, "id": source_id}
+    if assessment_source_type == "body_composition":
+        payload["body_composition_evaluation_id"] = source_id
+    else:
+        payload["assessment_id"] = source_id
+    return payload
+
+
+def _merge_assessment_sources(existing_sources: object, source_payload: dict) -> list[dict]:
+    sources = [dict(item) for item in existing_sources if isinstance(item, dict)] if isinstance(existing_sources, list) else []
+    source_key = (source_payload.get("type"), source_payload.get("id"))
+    if not any((item.get("type"), item.get("id")) == source_key for item in sources):
+        sources.append(source_payload)
+    return sources
+
+
+def _post_assessment_task_specs(
+    member: Member,
+    assessment: Assessment,
+    *,
+    assessment_source_type: str = "formal_assessment",
+) -> list[dict]:
+    member_name = getattr(member, "full_name", "Aluno") or "Aluno"
+    first_name = _member_first_name(member)
+    preferred_shift = normalize_preferred_shift(getattr(member, "preferred_shift", None))
+    reassessment_due = _assessment_due_datetime(assessment)
+    assessment_date = _normalize_datetime(getattr(assessment, "assessment_date", None))
+    reassessment_day_offset = max(0, (reassessment_due.date() - assessment_date.date()).days)
+    assessment_number = getattr(assessment, "assessment_number", None)
+    source_payload = _assessment_source_payload(assessment, assessment_source_type)
+    specs = [
+        {
+            "source": _ASSESSMENT_TRAINING_DELIVERY_TASK_SOURCE,
+            "technical_ladder_step": "training_delivery_check_d8",
+            "day_offset": _ASSESSMENT_TRAINING_DELIVERY_TASK_DAY_OFFSET,
+            "due_date": assessment_date + timedelta(days=_ASSESSMENT_TRAINING_DELIVERY_TASK_DAY_OFFSET),
+            "priority": TaskPriority.HIGH,
+            "title": f"Verificar treino D+8 - {member_name}",
+            "description": (
+                "Confirmar se o aluno recebeu o treino depois da avaliacao, se entendeu a rotina "
+                "e se precisa de ajuste tecnico inicial."
+            ),
+            "primary_action_label": "Verificar treino",
+            "suggested_message": (
+                f"Oi, {first_name}! Passando para confirmar se seu treino ja ficou claro e se voce conseguiu comecar bem."
+            ),
+        },
+        {
+            "source": _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+            "technical_ladder_step": "training_feedback_d14",
+            "day_offset": _ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET,
+            "due_date": assessment_date + timedelta(days=_ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET),
+            "priority": TaskPriority.MEDIUM,
+            "title": f"Follow-up D+14 da avaliacao - {member_name}",
+            "description": (
+                "Verificar com o aluno o feedback do treino, aderencia inicial e necessidade de ajuste apos 14 dias da avaliacao."
+            ),
+            "primary_action_label": "Registrar feedback",
+            "suggested_message": (
+                f"Oi, {first_name}! Ja se passaram 14 dias da sua avaliacao. "
+                "Quero entender como voce esta se sentindo com o treino e se precisamos ajustar alguma coisa."
+            ),
+        },
+        {
+            "source": _ASSESSMENT_REASSESSMENT_TASK_SOURCE,
+            "technical_ladder_step": "reassessment_due",
+            "day_offset": reassessment_day_offset,
+            "due_date": reassessment_due,
+            "priority": TaskPriority.MEDIUM,
+            "title": f"Reavaliacao prevista - {member_name}",
+            "description": (
+                "Agendar ou confirmar a proxima reavaliacao do aluno conforme a janela definida na avaliacao anterior."
+            ),
+            "primary_action_label": "Agendar reavaliacao",
+            "suggested_message": (
+                f"Oi, {first_name}! Sua janela de reavaliacao esta chegando. Vamos marcar um horario para revisar sua evolucao?"
+            ),
+        },
+    ]
+    for spec in specs:
+        visible_from = _post_assessment_visible_from(spec["source"], spec["due_date"])
+        spec["extra_data"] = {
+            "source": spec["source"],
+            "domain": "trainer",
+            "assessment_id": str(assessment.id),
+            "assessment_source_id": str(assessment.id),
+            "assessment_source_type": assessment_source_type,
+            "assessment_sources": [source_payload],
+            "assessment_number": assessment_number,
+            "day_offset": spec["day_offset"],
+            "owner_role": "coach",
+            "preferred_shift": preferred_shift,
+            "work_queue_visible_from": visible_from.isoformat(),
+            "technical_ladder_step": spec["technical_ladder_step"],
+            "primary_action_label": spec["primary_action_label"],
+        }
+        if assessment_source_type == "body_composition":
+            spec["extra_data"]["body_composition_evaluation_id"] = str(assessment.id)
+        else:
+            spec["extra_data"]["formal_assessment_id"] = str(assessment.id)
+    return specs
+
+
+def _supersede_open_post_assessment_tasks(
+    db: Session,
+    *,
+    member: Member,
+    assessment: Assessment,
+    evaluator_id: UUID | None,
+    keep_task_ids: set[UUID] | None = None,
+) -> None:
+    now = datetime.now(tz=timezone.utc)
+    keep_task_ids = keep_task_ids or set()
+    member_gym_id = getattr(member, "gym_id", None)
+    if member_gym_id is None:
+        return
+    tasks = list(
+        db.scalars(
+            select(Task).where(
+                Task.member_id == member.id,
+                Task.gym_id == member_gym_id,
+                Task.deleted_at.is_(None),
+                Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
+                Task.due_date >= now,
+                Task.extra_data["source"].astext.in_(tuple(_POST_ASSESSMENT_TASK_SOURCES)),
+                Task.extra_data["assessment_id"].astext != str(assessment.id),
+            )
+        ).all()
+    )
+    for task in tasks:
+        if task.id in keep_task_ids:
+            continue
+        extra = dict(task.extra_data or {})
+        extra["superseded_by_assessment_id"] = str(assessment.id)
+        extra["superseded_at"] = now.isoformat()
+        task.extra_data = extra
+        task.status = TaskStatus.CANCELLED
+        task.kanban_column = TaskStatus.CANCELLED.value
+        db.add(task)
+        record_task_event(
+            db,
+            task=task,
+            current_user=None,
+            event_type="status_changed",
+            outcome="superseded_by_new_assessment",
+            note="Task futura da regua tecnica substituida por nova avaliacao.",
+            metadata_json={
+                "source": "post_assessment_ladder",
+                "new_assessment_id": str(assessment.id),
+                "evaluator_id": str(evaluator_id) if evaluator_id else None,
+            },
+            flush=False,
+        )
+
+
+def _find_existing_post_assessment_task_for_cycle(
+    db: Session,
+    *,
+    member: Member,
+    spec: dict,
+    assessment: Assessment,
+) -> Task | None:
+    source = spec["source"]
+    source_id = str(assessment.id)
+    exact = db.scalar(
+        select(Task).where(
+            Task.member_id == member.id,
+            Task.deleted_at.is_(None),
+            Task.extra_data["source"].astext == source,
+            Task.extra_data["assessment_id"].astext == source_id,
+        )
+    )
+    if exact:
+        return exact
+
+    due_date = spec["due_date"]
+    return db.scalar(
+        select(Task)
+        .where(
+            Task.member_id == member.id,
+            Task.deleted_at.is_(None),
+            Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
+            Task.extra_data["source"].astext == source,
+            Task.due_date >= due_date - timedelta(hours=12),
+            Task.due_date <= due_date + timedelta(hours=12),
+        )
+        .order_by(Task.created_at.desc())
+        .limit(1)
+    )
+
+
+def _merge_post_assessment_task_source(task: Task, spec: dict) -> None:
+    extra = dict(task.extra_data or {})
+    new_extra = dict(spec["extra_data"])
+    source_payload = new_extra["assessment_sources"][0]
+    extra["assessment_sources"] = _merge_assessment_sources(extra.get("assessment_sources"), source_payload)
+    extra["assessment_source_type"] = "mixed" if len(extra["assessment_sources"]) > 1 else source_payload.get("type")
+    extra["assessment_source_id"] = source_payload.get("id")
+    for key in ("body_composition_evaluation_id", "formal_assessment_id"):
+        if key in new_extra:
+            extra[key] = new_extra[key]
+    if not extra.get("preferred_shift") and new_extra.get("preferred_shift"):
+        extra["preferred_shift"] = new_extra["preferred_shift"]
+    extra["work_queue_visible_from"] = new_extra.get("work_queue_visible_from", extra.get("work_queue_visible_from"))
+    task.extra_data = extra
+
+
+def _ensure_post_assessment_ladder_tasks(
+    db: Session,
+    *,
+    member: Member,
+    assessment: Assessment,
+    evaluator_id: UUID | None,
+    commit: bool = True,
+    assessment_source_type: str = "formal_assessment",
+) -> list[Task]:
+    gym_id = getattr(member, "gym_id", None) or getattr(assessment, "gym_id", None)
+    if gym_id is None:
+        return []
+
+    owner_id = _resolve_post_assessment_owner(db, member=member, evaluator_id=evaluator_id)
+    created_or_existing: list[Task] = []
+    kept_task_ids: set[UUID] = set()
+
+    for spec in _post_assessment_task_specs(member, assessment, assessment_source_type=assessment_source_type):
+        existing = _find_existing_post_assessment_task_for_cycle(db, member=member, spec=spec, assessment=assessment)
+        if existing:
+            _merge_post_assessment_task_source(existing, spec)
+            db.add(existing)
+            kept_task_ids.add(existing.id)
+            created_or_existing.append(existing)
+            continue
+
+        task = Task(
+            gym_id=gym_id,
+            member_id=member.id,
+            assigned_to_user_id=owner_id,
+            title=spec["title"],
+            description=spec["description"],
+            priority=spec["priority"],
+            status=TaskStatus.TODO,
+            kanban_column=TaskStatus.TODO.value,
+            due_date=spec["due_date"],
+            suggested_message=spec["suggested_message"],
+            extra_data=spec["extra_data"],
+        )
+        db.add(task)
+        created_or_existing.append(task)
+
+    _supersede_open_post_assessment_tasks(
+        db,
+        member=member,
+        assessment=assessment,
+        evaluator_id=evaluator_id,
+        keep_task_ids=kept_task_ids,
+    )
+    invalidate_dashboard_cache("tasks")
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return created_or_existing
+
+
+def _body_composition_as_assessment_source(evaluation) -> SimpleNamespace:
+    base_date = getattr(evaluation, "measured_at", None)
+    if isinstance(base_date, datetime):
+        assessment_date = base_date if base_date.tzinfo else base_date.replace(tzinfo=timezone.utc)
+    else:
+        evaluation_date = getattr(evaluation, "evaluation_date", None)
+        if isinstance(evaluation_date, date):
+            assessment_date = datetime.combine(evaluation_date, time(hour=12), tzinfo=timezone.utc)
+        else:
+            assessment_date = datetime.now(tz=timezone.utc)
+    next_due = getattr(evaluation, "next_assessment_due", None)
+    if next_due is None:
+        next_due = (assessment_date + timedelta(days=_DEFAULT_ASSESSMENT_DUE_DAYS)).date()
+    return SimpleNamespace(
+        id=getattr(evaluation, "id"),
+        gym_id=getattr(evaluation, "gym_id", None),
+        assessment_number=None,
+        assessment_date=assessment_date,
+        next_assessment_due=next_due,
+    )
+
+
+def ensure_body_composition_technical_ladder_tasks(
+    db: Session,
+    *,
+    member: Member,
+    evaluation,
+    reviewer_user_id: UUID | None,
+    commit: bool = True,
+) -> list[Task]:
+    if getattr(member, "gym_id", None) is None:
+        return []
+    return _ensure_post_assessment_ladder_tasks(
+        db,
+        member=member,
+        assessment=_body_composition_as_assessment_source(evaluation),
+        evaluator_id=reviewer_user_id,
+        commit=commit,
+        assessment_source_type="body_composition",
+    )
 
 
 def _ensure_assessment_feedback_followup_task(
@@ -182,6 +584,7 @@ def _ensure_assessment_feedback_followup_task(
         ),
         extra_data={
             "source": _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+            "domain": "trainer",
             "assessment_id": str(assessment.id),
             "assessment_number": assessment.assessment_number,
             "day_offset": _ASSESSMENT_FEEDBACK_TASK_DAY_OFFSET,

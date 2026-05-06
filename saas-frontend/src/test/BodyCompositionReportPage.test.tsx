@@ -133,6 +133,7 @@ describe("BodyCompositionReportPage", () => {
     renderPage();
 
     expect(await screen.findByText("Erick Bedin")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
     expect(screen.getByText("Relatorio premium pronto")).toBeInTheDocument();
     expect(screen.getByText("% Gordura corporal")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();

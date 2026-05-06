@@ -486,14 +486,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   }
 
   const saveMutation = useMutation({
-    mutationFn: (payload: BodyCompositionEvaluationCreate) => {
+    mutationFn: ({ payload, syncActuar }: { payload: BodyCompositionEvaluationCreate; syncActuar: boolean }) => {
       if (editingEvaluationId) {
-        return bodyCompositionService.update(memberId, editingEvaluationId, payload);
+        return bodyCompositionService.update(memberId, editingEvaluationId, payload, { syncActuar });
       }
-      return bodyCompositionService.create(memberId, payload);
+      return bodyCompositionService.create(memberId, payload, { syncActuar });
     },
-    onSuccess: async (savedEvaluation) => {
-      if (savedEvaluation.actuar_sync_status === "sync_pending") {
+    onSuccess: async (savedEvaluation, variables) => {
+      if (!variables.syncActuar) {
+        toast.success(editingEvaluationId ? "Bioimpedancia atualizada apenas no sistema." : "Bioimpedancia salva apenas no sistema.");
+      } else if (savedEvaluation.actuar_sync_status === "sync_pending") {
         const bridgeMode = actuarSettingsQuery.data?.effective_sync_mode === "local_bridge";
         toast.success(
           bridgeMode
@@ -779,7 +781,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     });
   }
 
-  function onSubmit(data: FormData) {
+  function submitBodyComposition(data: FormData, syncActuar: boolean) {
     if (currentSource === "ocr_receipt" && !reviewedManually) {
       toast.error("Confirme a revisao humana dos campos OCR antes de salvar a bioimpedancia.");
       return;
@@ -788,7 +790,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       toast.error("Preencha ao menos uma metrica da bioimpedancia antes de salvar.");
       return;
     }
-    saveMutation.mutate(buildPayload(data));
+    saveMutation.mutate({ payload: buildPayload(data), syncActuar });
+  }
+
+  function onSubmit(data: FormData) {
+    submitBodyComposition(data, true);
   }
 
   async function handleReadPhoto(forceAssisted = false) {
@@ -1154,6 +1160,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <Button type="button" variant="ghost" onClick={handleNewEvaluation} disabled={saveMutation.isPending}>
                     <X size={14} />
                     Cancelar
+                  </Button>
+                ) : null}
+                {automaticActuarSaveReady ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={saveMutation.isPending}
+                    onClick={() => void handleSubmit((data) => submitBodyComposition(data, false))()}
+                  >
+                    <Save size={14} />
+                    Salvar apenas no sistema
                   </Button>
                 ) : null}
                 <Button type="submit" variant="primary" disabled={saveMutation.isPending}>

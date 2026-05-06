@@ -62,10 +62,25 @@ def _task_extra(task: Task) -> dict:
 
 def _is_trainer_technical_task(task: Task) -> bool:
     extra_data = _task_extra(task)
-    return (
-        task.lead_id is None
-        and extra_data.get("source") == "assessment_intelligence"
-        and extra_data.get("owner_role") == "coach"
+    source = str(extra_data.get("source") or "").lower()
+    domain = str(extra_data.get("domain") or "").lower()
+    owner_role = str(extra_data.get("owner_role") or "").lower()
+    return task.lead_id is None and (
+        domain == "trainer"
+        or (
+            source
+            in {
+                "assessment_training_delivery_check_d8",
+                "assessment_feedback_followup",
+                "assessment_reassessment_due",
+                "assessment_intelligence",
+                "assessment_feedback",
+                "trainer_followup",
+                "training_feedback",
+                "training_review",
+            }
+            and owner_role in {"coach", "trainer", "professor", "instrutor", "instructor", "teacher", "trainer_lead"}
+        )
     )
 
 
@@ -98,10 +113,29 @@ def _operational_archive_filter():
 
 
 def _trainer_technical_task_filter():
+    source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
+    domain = func.lower(func.coalesce(Task.extra_data["domain"].astext, ""))
+    owner_role = func.lower(func.coalesce(Task.extra_data["owner_role"].astext, ""))
     return and_(
         Task.lead_id.is_(None),
-        Task.extra_data["source"].astext == "assessment_intelligence",
-        Task.extra_data["owner_role"].astext == "coach",
+        or_(
+            domain == "trainer",
+            and_(
+                source.in_(
+                    (
+                        "assessment_training_delivery_check_d8",
+                        "assessment_feedback_followup",
+                        "assessment_reassessment_due",
+                        "assessment_intelligence",
+                        "assessment_feedback",
+                        "trainer_followup",
+                        "training_feedback",
+                        "training_review",
+                    )
+                ),
+                owner_role.in_(("coach", "trainer", "professor", "instrutor", "instructor", "teacher", "trainer_lead")),
+            ),
+        ),
     )
 
 

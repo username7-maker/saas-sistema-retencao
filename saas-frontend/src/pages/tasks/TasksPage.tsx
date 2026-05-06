@@ -13,10 +13,11 @@ import type { Member } from "../../types";
 import { TasksOnboardingTab } from "../../components/tasks/TasksOnboardingTab";
 import { TasksOperationalView } from "../../components/tasks/TasksOperationalView";
 import { isOnboardingActiveMember, type SourceFilter } from "../../components/tasks/taskUtils";
+import { CoachWorkspaceView } from "../../components/coach/CoachWorkspaceView";
 import { WorkExecutionView } from "../../components/workQueue/WorkExecutionView";
-import { matchesPreferredShift } from "../../utils/preferredShift";
+import { matchesPreferredShiftScope } from "../../utils/preferredShift";
 
-type WorkspaceTab = "execution" | "operations" | "onboarding";
+type WorkspaceTab = "execution" | "coach" | "operations" | "onboarding";
 
 async function listAllMembers(): Promise<Member[]> {
   return memberService.listMemberIndex();
@@ -34,6 +35,7 @@ export function TasksPage() {
   const [sourcePresetToken, setSourcePresetToken] = useState(0);
   const [includeArchived, setIncludeArchived] = useState(false);
   const canManageOperations = user?.role === "owner" || user?.role === "manager";
+  const isTrainer = user?.role === "trainer";
 
   const tasksQuery = useQuery({
     queryKey: ["tasks", "all", { includeArchived }],
@@ -106,12 +108,11 @@ export function TasksPage() {
   const members = membersQuery.data ?? [];
   const users = usersQuery.data ?? [];
   const currentUserShift = user?.work_shift ?? null;
-  const visibleTasks = currentUserShift
-    ? tasks.filter((task) => !task.preferred_shift || matchesPreferredShift(task.preferred_shift, currentUserShift))
-    : tasks;
-  const visibleOnboardingMembers = currentUserShift
-    ? members.filter((member) => isOnboardingActiveMember(member) && matchesPreferredShift(member.preferred_shift, currentUserShift))
-    : members.filter((member) => isOnboardingActiveMember(member));
+  const currentUserShiftScope = user?.work_shift_scope ?? null;
+  const visibleTasks = tasks.filter((task) => matchesPreferredShiftScope(task.preferred_shift, currentUserShift, currentUserShiftScope));
+  const visibleOnboardingMembers = members.filter(
+    (member) => isOnboardingActiveMember(member) && matchesPreferredShiftScope(member.preferred_shift, currentUserShift, currentUserShiftScope),
+  );
   const totalTasks = visibleTasks.length;
   const onboardingCount = visibleOnboardingMembers.length;
 
@@ -145,6 +146,11 @@ export function TasksPage() {
             <TabsTrigger value="execution" className="flex-1 sm:min-w-[150px]">
               Modo execucao
             </TabsTrigger>
+            {canManageOperations ? (
+              <TabsTrigger value="coach" className="flex-1 sm:min-w-[150px]">
+                Professor
+              </TabsTrigger>
+            ) : null}
             <TabsTrigger value="operations" className="flex-1 sm:min-w-[150px]">
               Lista completa
             </TabsTrigger>
@@ -278,12 +284,23 @@ export function TasksPage() {
         ) : null}
 
         <TabsContent value="execution">
-          <WorkExecutionView
-            source="all"
-            title="Modo execucao operacional"
-            subtitle="Fila unica de tasks e AI Inbox por turno. Comece a execucao, registre o resultado e avance sem abrir varias telas."
-          />
+          {isTrainer ? (
+            <CoachWorkspaceView />
+          ) : (
+            <WorkExecutionView
+              source="all"
+              defaultDomain="operations"
+              title="Modo execucao operacional"
+              subtitle="Fila operacional sem retencao misturada. Use o botao Retencao quando for executar a regua de ausencia e reativacao."
+            />
+          )}
         </TabsContent>
+
+        {canManageOperations ? (
+          <TabsContent value="coach">
+            <CoachWorkspaceView />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="operations">
           {tasksQuery.isLoading ? (

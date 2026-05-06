@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     whatsapp_allow_global_fallback: bool = False
     whatsapp_rate_limit_per_hour: int = 6
     whatsapp_webhook_token: str = ""
+    kommo_webhook_token: str = ""
 
     sentry_dsn: str = ""
 

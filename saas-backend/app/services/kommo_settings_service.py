@@ -37,6 +37,14 @@ def update_kommo_settings(
     gym.kommo_default_pipeline_id = _normalize_text(payload.kommo_default_pipeline_id)
     gym.kommo_default_stage_id = _normalize_text(payload.kommo_default_stage_id)
     gym.kommo_default_responsible_user_id = _normalize_text(payload.kommo_default_responsible_user_id)
+    if payload.primary_message_channel is not None:
+        gym.primary_message_channel = payload.primary_message_channel
+    if payload.kommo_operator_confirmed_send_enabled is not None:
+        gym.kommo_operator_confirmed_send_enabled = payload.kommo_operator_confirmed_send_enabled
+    if payload.kommo_auto_close_enabled is not None:
+        gym.kommo_auto_close_enabled = payload.kommo_auto_close_enabled
+    if payload.kommo_fallback_channel is not None:
+        gym.kommo_fallback_channel = payload.kommo_fallback_channel
 
     if payload.clear_access_token:
         gym.kommo_access_token_encrypted = None
@@ -70,6 +78,10 @@ def serialize_kommo_settings(gym: Gym) -> KommoSettingsRead:
         kommo_default_stage_id=_normalize_text(gym.kommo_default_stage_id),
         kommo_default_responsible_user_id=_normalize_text(gym.kommo_default_responsible_user_id),
         automatic_handoff_ready=is_kommo_ready(gym),
+        primary_message_channel=str(getattr(gym, "primary_message_channel", None) or "whatsapp"),
+        kommo_operator_confirmed_send_enabled=bool(getattr(gym, "kommo_operator_confirmed_send_enabled", True)),
+        kommo_auto_close_enabled=bool(getattr(gym, "kommo_auto_close_enabled", True)),
+        kommo_fallback_channel=str(getattr(gym, "kommo_fallback_channel", None) or "whatsapp"),
     )
 
 

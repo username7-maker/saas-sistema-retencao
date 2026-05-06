@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models import RoleEnum
 
+WorkShiftLiteral = Literal["overnight", "morning", "afternoon", "evening"]
+
 
 class UserRegister(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
@@ -14,7 +16,8 @@ class UserRegister(BaseModel):
     password: str = Field(min_length=8, max_length=72)
     role: RoleEnum = RoleEnum.RECEPTIONIST
     job_title: str | None = Field(default=None, max_length=120)
-    work_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = None
+    work_shift: WorkShiftLiteral | None = None
+    work_shift_scope: list[WorkShiftLiteral] | None = None
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -36,11 +39,15 @@ class UserOut(BaseModel):
     id: UUID
     gym_id: UUID
     full_name: str
-    email: EmailStr
+    # Legacy pilot data may contain internal/reserved domains such as `.local`.
+    # Keep strict EmailStr validation on inputs, but don't let old output data
+    # break administrative screens that need to list and repair users.
+    email: str
     role: RoleEnum
     is_active: bool
     job_title: str | None = None
     work_shift: str | None = None
+    work_shift_scope: list[str] | None = None
     avatar_url: str | None = None
     created_at: datetime
 

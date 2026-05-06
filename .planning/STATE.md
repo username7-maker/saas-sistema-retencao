@@ -1,9 +1,9 @@
 ---
 milestone: v3.3.0
-phase: 7.0
-plan: "Lead-to-member intelligence graph e payload canonico"
-status: A `7.0` foi validada como baseline execution-ready do payload canonico read-only `lead -> member`, preservando origem comercial, etapa, consentimentos, check-ins, avaliacoes, bioimpedancia, tasks e risco sem criar cadastro paralelo.
-last_activity: 2026-05-02 - COR-5 fechou a validacao CTO do `lead-member-context-v1`
+phase: 7.2
+plan: "Assessment + Coach Workspace Foundation"
+status: A `7.2` foi aberta como corte staff-first para professores, usando avaliacoes, bioimpedancia, regua tecnica e Work Queue como base real para fila tecnica por turno.
+last_activity: 2026-05-06 - GSD, Spec Kit e Obsidian criados para Coach Workspace V1
 ---
 
 # STATE
@@ -13,14 +13,14 @@ last_activity: 2026-05-02 - COR-5 fechou a validacao CTO do `lead-member-context
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Preparar a `7.1` sobre o baseline validado `lead-member-context-v1`.
+**Current focus:** Preparar a `7.2` como Coach Workspace staff-first sobre avaliacoes, bioimpedancia e regua tecnica ja existentes.
 
 ## Current Position
 
-**Phase:** 7.0
-**Plan:** `Lead-to-member intelligence graph e payload canonico`
-**Status:** `verify/validate` concluido; baseline execution-ready.
-**Last activity:** 2026-05-02 - `GET /members/{member_id}/intelligence-context`, consumidores operacionais e BI Foundation revisados contra o contrato canonico
+**Phase:** 7.2
+**Plan:** `Assessment + Coach Workspace Foundation`
+**Status:** `planned`; contrato GSD/Spec Kit criado.
+**Last activity:** 2026-05-06 - fase `07.2-assessment-coach-workspace-foundation` e spec `018-assessment-coach-workspace-foundation` abertas
 
 ## Progress Snapshot
 
@@ -63,6 +63,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 4.43: AI-first fase 1 - Inbox de triagem - validada no piloto com walkthrough real, aprovacao item por item, tool layer segura e comparacao contra baseline
 - Phase 4.43.1: simplificacao operacional do AI Inbox - implementada localmente para transformar a inbox validada em fila de execucao operador-first, sem quebrar os guardrails auditaveis
 - Phase 7.0: lead-to-member intelligence graph - validada; payload canonico `lead-member-context-v1` segue read-only, tenant-scoped e consumido por Profile 360, AI Inbox, Tarefas, Retencao, CRM, Coach workspace e BI Foundation
+- Phase 7.2: assessment + coach workspace foundation - aberta; objetivo e criar fila tecnica do professor por turno com avaliacao, bioimpedancia, treino, feedback e reavaliacao sem app do aluno ou prescricao automatica
 - Phase 5: bulk update dedicado de membros - pausada ate a saida do hardening
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 

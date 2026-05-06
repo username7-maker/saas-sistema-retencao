@@ -18,6 +18,7 @@ describe("roleAccess", () => {
   });
 
   it("keeps the requested path only when the role can access it", () => {
+    expect(resolvePostLoginRoute("trainer", "/members")).toBe("/members");
     expect(resolvePostLoginRoute("trainer", "/assessments/members/member-1")).toBe("/assessments/members/member-1");
     expect(resolvePostLoginRoute("trainer", "/settings/users")).toBe("/assessments");
     expect(resolvePostLoginRoute("salesperson", "/crm")).toBe("/crm");
@@ -31,6 +32,7 @@ describe("roleAccess", () => {
     expect(canRoleAccessPath("salesperson", "/crm")).toBe(true);
     expect(canRoleAccessPath("salesperson", "/assessments/members/member-1")).toBe(true);
     expect(canRoleAccessPath("salesperson", "/assessments/new/member-1")).toBe(false);
+    expect(canRoleAccessPath("trainer", "/members")).toBe(true);
     expect(canRoleAccessPath("trainer", "/assessments/new/member-1")).toBe(true);
   });
 

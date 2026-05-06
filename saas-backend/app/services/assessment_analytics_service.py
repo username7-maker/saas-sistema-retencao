@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.database import get_current_gym_id, include_all_tenants
 from app.models import Member, MemberStatus
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
+from app.models.body_composition import BodyCompositionEvaluation
 from app.schemas import PaginatedResponse
 from app.schemas.assessment import AssessmentQueueItemOut
 from app.services.preferred_shift_service import preferred_shift_filter_condition
@@ -65,6 +66,49 @@ def _latest_assessment_subquery():
         .where(ranked_assessments.c.row_number == 1)
         .subquery()
     )
+
+
+def _latest_body_composition_subquery():
+    ranked_evaluations = (
+        select(
+            BodyCompositionEvaluation.member_id.label("member_id"),
+            BodyCompositionEvaluation.evaluation_date.label("evaluation_date"),
+            func.row_number()
+            .over(
+                partition_by=BodyCompositionEvaluation.member_id,
+                order_by=(BodyCompositionEvaluation.evaluation_date.desc(), BodyCompositionEvaluation.updated_at.desc()),
+            )
+            .label("row_number"),
+        )
+        .subquery()
+    )
+
+    return (
+        select(
+            ranked_evaluations.c.member_id.label("member_id"),
+            ranked_evaluations.c.evaluation_date.label("last_body_composition_date"),
+        )
+        .where(ranked_evaluations.c.row_number == 1)
+        .subquery()
+    )
+
+
+def _effective_assessment_coverage_columns(latest_assessment_subquery, latest_body_composition_subquery):
+    assessment_day = func.date(latest_assessment_subquery.c.last_assessment_date)
+    body_day = latest_body_composition_subquery.c.last_body_composition_date
+    effective_date = case(
+        (latest_assessment_subquery.c.last_assessment_date.is_(None), body_day),
+        (body_day.is_(None), assessment_day),
+        (body_day >= assessment_day, body_day),
+        else_=assessment_day,
+    )
+    effective_next_due = case(
+        (latest_assessment_subquery.c.last_assessment_date.is_(None), literal(None)),
+        (body_day.is_(None), latest_assessment_subquery.c.next_assessment_due),
+        (body_day >= assessment_day, literal(None)),
+        else_=latest_assessment_subquery.c.next_assessment_due,
+    )
+    return effective_date, effective_next_due
 
 
 def _queue_conditions(last_assessment_date_col, next_assessment_due_col, *, cutoff_90, today, next_7):
@@ -207,14 +251,17 @@ def get_assessments_queue(
     gym_id=None,
 ) -> PaginatedResponse[AssessmentQueueItemOut]:
     now = datetime.now(tz=timezone.utc)
-    cutoff_90 = now - timedelta(days=90)
+    cutoff_90 = (now - timedelta(days=90)).date()
     today = now.date()
     next_7 = today + timedelta(days=7)
     resolved_gym_id = _resolve_gym_id(gym_id)
 
     latest_assessment_subquery = _latest_assessment_subquery()
-    last_assessment_date_col = latest_assessment_subquery.c.last_assessment_date
-    next_assessment_due_col = latest_assessment_subquery.c.next_assessment_due
+    latest_body_composition_subquery = _latest_body_composition_subquery()
+    last_assessment_date_col, next_assessment_due_col = _effective_assessment_coverage_columns(
+        latest_assessment_subquery,
+        latest_body_composition_subquery,
+    )
     queue_conditions = _queue_conditions(
         last_assessment_date_col,
         next_assessment_due_col,
@@ -300,6 +347,7 @@ def get_assessments_queue(
         )
         .select_from(Member)
         .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+        .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
         .where(and_(*filters))
     )
 
@@ -307,6 +355,7 @@ def get_assessments_queue(
         select(func.count(Member.id))
         .select_from(Member)
         .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+        .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
         .where(and_(*filters)),
         resolved_gym_id,
     )
@@ -333,7 +382,7 @@ def get_assessments_queue(
 
 def get_assessments_dashboard(db: Session) -> dict:
     now = datetime.now(tz=timezone.utc)
-    cutoff_90 = now - timedelta(days=90)
+    cutoff_90 = (now - timedelta(days=90)).date()
     today = now.date()
     next_7 = today + timedelta(days=7)
     resolved_gym_id = _resolve_gym_id()
@@ -347,25 +396,39 @@ def get_assessments_dashboard(db: Session) -> dict:
     ) or 0
     assessed_last_90_days = db.scalar(
         _scoped_statement(
-            select(func.count(distinct(Assessment.member_id)))
-            .select_from(Assessment)
-            .join(Member, Member.id == Assessment.member_id)
+            select(func.count(distinct(Member.id)))
+            .select_from(Member)
+            .outerjoin(
+                Assessment,
+                and_(
+                    Assessment.member_id == Member.id,
+                    Assessment.deleted_at.is_(None),
+                    func.date(Assessment.assessment_date) >= cutoff_90,
+                ),
+            )
+            .outerjoin(
+                BodyCompositionEvaluation,
+                and_(
+                    BodyCompositionEvaluation.member_id == Member.id,
+                    BodyCompositionEvaluation.evaluation_date >= cutoff_90,
+                ),
+            )
             .where(
-                Assessment.deleted_at.is_(None),
-                Assessment.assessment_date >= cutoff_90,
                 *base_member_filters,
+                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None)),
             ),
             resolved_gym_id,
         )
     ) or 0
     assessed_total = db.scalar(
         _scoped_statement(
-            select(func.count(distinct(Assessment.member_id)))
-            .select_from(Assessment)
-            .join(Member, Member.id == Assessment.member_id)
+            select(func.count(distinct(Member.id)))
+            .select_from(Member)
+            .outerjoin(Assessment, and_(Assessment.member_id == Member.id, Assessment.deleted_at.is_(None)))
+            .outerjoin(BodyCompositionEvaluation, BodyCompositionEvaluation.member_id == Member.id)
             .where(
-                Assessment.deleted_at.is_(None),
                 *base_member_filters,
+                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None)),
             ),
             resolved_gym_id,
         )
@@ -373,9 +436,14 @@ def get_assessments_dashboard(db: Session) -> dict:
     never_assessed = max(int(total_members) - int(assessed_total), 0)
 
     latest_assessment_subquery = _latest_assessment_subquery()
+    latest_body_composition_subquery = _latest_body_composition_subquery()
+    last_assessment_date_col, next_assessment_due_col = _effective_assessment_coverage_columns(
+        latest_assessment_subquery,
+        latest_body_composition_subquery,
+    )
     queue_conditions = _queue_conditions(
-        latest_assessment_subquery.c.last_assessment_date,
-        latest_assessment_subquery.c.next_assessment_due,
+        last_assessment_date_col,
+        next_assessment_due_col,
         cutoff_90=cutoff_90,
         today=today,
         next_7=next_7,
@@ -383,7 +451,7 @@ def get_assessments_dashboard(db: Session) -> dict:
     queue_resolution_status_expr = func.lower(func.coalesce(Member.extra_data["assessment_queue_resolution"].astext, ""))
     unresolved_queue_expr = ~queue_resolution_status_expr.in_(_ASSESSMENT_QUEUE_RESOLVED_STATUSES)
     operational_filters = _operational_queue_filters(
-        latest_assessment_subquery.c.last_assessment_date,
+        last_assessment_date_col,
         queue_conditions,
         today=today,
         now=now,
@@ -394,6 +462,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -403,6 +472,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["never"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -413,6 +483,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["week"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -423,6 +494,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, queue_conditions["never"], ~operational_filters["never"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -432,6 +504,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(Member.id))
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+            .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, queue_conditions["overdue"], ~operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -456,14 +529,15 @@ def get_assessments_dashboard(db: Session) -> dict:
         db.scalars(
             _scoped_statement(
                 select(Member)
-                .join(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
                 .where(
                     and_(
                         *base_member_filters,
-                        latest_assessment_subquery.c.last_assessment_date >= cutoff_90,
+                        last_assessment_date_col >= cutoff_90,
                     )
                 )
-                .order_by(latest_assessment_subquery.c.last_assessment_date.desc(), *member_ordering)
+                .order_by(last_assessment_date_col.desc(), *member_ordering)
                 .limit(20),
                 resolved_gym_id,
             )
@@ -475,6 +549,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             _scoped_statement(
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["overdue"]))
                 .order_by(*member_ordering)
                 .limit(20),
@@ -488,6 +563,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             _scoped_statement(
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["never"]))
                 .order_by(*member_ordering)
                 .limit(20),
@@ -501,6 +577,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             _scoped_statement(
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
+                .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["week"]))
                 .order_by(*member_ordering)
                 .limit(20),

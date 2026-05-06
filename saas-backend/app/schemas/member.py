@@ -83,6 +83,7 @@ class OnboardingScoreOut(BaseModel):
     checkin_count: int
     completed_tasks: int
     total_tasks: int
+    total_journey_tasks: int | None = None
     assistant: AIAssistantPayload | None = None
 
 

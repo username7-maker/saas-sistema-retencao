@@ -130,4 +130,4 @@ class WorkQueueSendAndWaitInput(BaseModel):
     template_key: str | None = Field(default=None, max_length=100)
     message: str | None = Field(default=None, max_length=1000)
     operator_note: str | None = Field(default=None, max_length=280)
-
+    channel: str | None = Field(default="auto", pattern="^(auto|kommo|whatsapp|manual)$")

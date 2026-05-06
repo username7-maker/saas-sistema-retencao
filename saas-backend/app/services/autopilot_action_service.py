@@ -10,6 +10,7 @@ from app.models import AutopilotAction, AutopilotEvent, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_policy_service import AutopilotDecision, render_template
 from app.services.autopilot_safety_service import check_autopilot_safety
+from app.services.kommo_service import handoff_member_to_kommo
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
 
@@ -52,7 +53,7 @@ def create_autopilot_action(
         member_id=member.id if member else None,
         lead_id=lead.id if lead else None,
         related_task_id=related_task_id,
-        channel="whatsapp" if decision.action_type == "send_whatsapp" else "none",
+        channel=_channel_for_action_type(decision.action_type),
         template_key=decision.template_key,
         message_body=resolved_message,
         timeout_at=_now() + timedelta(hours=decision.next_timeout_hours),
@@ -76,6 +77,14 @@ def create_autopilot_action(
         flush=flush,
     )
     return action
+
+
+def _channel_for_action_type(action_type: str) -> str:
+    if action_type == "send_whatsapp":
+        return "whatsapp"
+    if action_type == "kommo_operator_handoff":
+        return "kommo"
+    return "none"
 
 
 def mark_autopilot_action_succeeded(
@@ -184,6 +193,8 @@ def execute_autopilot_action(
 ) -> AutopilotAction:
     if action.status not in {"planned", "scheduled"}:
         return action
+    if action.action_type == "kommo_operator_handoff":
+        return _execute_kommo_operator_handoff(db, action, flush=flush)
     if action.action_type != "send_whatsapp":
         action.status = "skipped" if action.action_type == "no_op" else "blocked"
         db.add(action)
@@ -280,6 +291,105 @@ def execute_autopilot_action(
     if flush:
         db.flush()
     return action
+
+
+def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flush: bool = True) -> AutopilotAction:
+    member = db.get(Member, action.member_id) if action.member_id else None
+    if member is None:
+        return mark_autopilot_action_failed(db, action, reason="kommo_member_required", flush=flush)
+
+    action.status = "executing"
+    action.executed_at = _now()
+    db.add(action)
+    metadata = dict(action.metadata_json or {})
+    title = str(metadata.get("task_title") or metadata.get("title") or f"AI Gym OS - {action.policy_key}")[:120]
+    summary_parts = [
+        str(metadata.get("task_reason") or metadata.get("reason") or action.policy_key),
+    ]
+    if action.message_body:
+        summary_parts.extend(["", "Mensagem pronta:", action.message_body])
+    result = handoff_member_to_kommo(
+        db,
+        gym_id=action.gym_id,
+        member=member,
+        title=title,
+        summary="\n".join(summary_parts).strip(),
+        source=action.policy_key,
+        ai_gym_profile_url=str(metadata.get("context_path") or "") or None,
+        due_in_hours=int(metadata.get("due_in_hours") or 24),
+    )
+    if result.status == "sent":
+        metadata.update(
+            {
+                "kommo_contact_id": result.contact_id,
+                "kommo_lead_id": result.lead_id,
+                "kommo_task_id": result.task_id,
+                "operator_confirmed_send": True,
+            }
+        )
+        action.status = "awaiting_outcome"
+        action.metadata_json = metadata
+        _record_kommo_message_log(db, action=action, member=member, result=result)
+        record_event(
+            db,
+            gym_id=action.gym_id,
+            event_type="kommo_handoff_created",
+            source="autopilot",
+            member_id=action.member_id,
+            task_id=action.related_task_id,
+            autopilot_action_id=action.id,
+            metadata={
+                "kommo_contact_id": result.contact_id,
+                "kommo_lead_id": result.lead_id,
+                "kommo_task_id": result.task_id,
+                "template_key": action.template_key,
+            },
+            flush=False,
+        )
+    else:
+        action.status = "failed"
+        action.failure_reason = result.detail or result.status
+        action.metadata_json = metadata
+        record_event(
+            db,
+            gym_id=action.gym_id,
+            event_type="kommo_handoff_failed",
+            source="autopilot",
+            member_id=action.member_id,
+            task_id=action.related_task_id,
+            autopilot_action_id=action.id,
+            metadata={"detail": result.detail, "status": result.status},
+            flush=False,
+        )
+    db.add(action)
+    if flush:
+        db.flush()
+    return action
+
+
+def _record_kommo_message_log(db: Session, *, action: AutopilotAction, member: Member, result) -> None:
+    recipient = (member.phone or member.email or "").strip() or str(member.id)
+    log = MessageLog(
+        gym_id=action.gym_id,
+        member_id=member.id,
+        lead_id=None,
+        channel="kommo",
+        recipient=recipient,
+        template_name=action.template_key,
+        content=action.message_body or "",
+        status="sent",
+        direction="outbound",
+        event_type="kommo_operator_handoff",
+        provider_message_id=result.task_id,
+        extra_data={
+            "autopilot_action_id": str(action.id),
+            "source": "autopilot",
+            "kommo_contact_id": result.contact_id,
+            "kommo_lead_id": result.lead_id,
+            "kommo_task_id": result.task_id,
+        },
+    )
+    db.add(log)
 
 
 def _attach_action_to_message_log(log: MessageLog, action_id: UUID) -> None:

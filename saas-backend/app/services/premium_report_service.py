@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from html import escape
+from pathlib import Path
 from typing import Any, Sequence
 
 from sqlalchemy import select
@@ -24,6 +26,14 @@ from app.services.dashboard_service import (
 
 DashboardReportType = str
 ALLOWED_DASHBOARD_REPORTS = {"executive", "operational", "commercial", "financial", "retention", "consolidated"}
+PROGYM_LOGO_DATA_URI = (
+    "data:image/png;base64,"
+    "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"
+)
+
+_PROGYM_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "progym_logo.png"
+if _PROGYM_LOGO_ASSET.exists():
+    PROGYM_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_PROGYM_LOGO_ASSET.read_bytes()).decode("ascii")
 
 
 @dataclass(slots=True)
@@ -897,6 +907,9 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
           <div class="clinical-brand-line"></div>
           <p>Relatorio premium de composicao corporal estruturado para acompanhamento tecnico e impressao limpa.</p>
         </div>
+        <div class="clinical-partner-logo-wrap">
+          <img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" />
+        </div>
         <div class="clinical-professional">
           <span class="clinical-kicker">{escape(scope_label)}</span>
           <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
@@ -1555,10 +1568,24 @@ def _body_composition_report_css() -> str:
       }
       .clinical-header {
         display: grid;
-        grid-template-columns: 1.08fr 0.92fr;
-        gap: 14px;
+        grid-template-columns: 210px 138px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
         padding-bottom: 8px;
         border-bottom: 1px solid var(--brand);
+      }
+      .clinical-partner-logo-wrap {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: 0;
+      }
+      .clinical-progym-logo {
+        width: 122px;
+        max-width: 122px;
+        height: auto;
+        object-fit: contain;
+        display: block;
       }
       .clinical-brand-name {
         font-size: 38px;
@@ -1569,10 +1596,10 @@ def _body_composition_report_css() -> str:
         line-height: 0.95;
       }
       .clinical-brand-line {
-        width: 156px;
+        width: 176px;
         height: 3px;
         background: var(--brand);
-        margin: 7px 0 8px;
+        margin: 8px 0 8px;
       }
       .clinical-brand p,
       .clinical-professional p,

@@ -102,6 +102,7 @@ const trainerNavGroups: NavGroup[] = [
   {
     label: "Treino",
     items: [
+      { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],

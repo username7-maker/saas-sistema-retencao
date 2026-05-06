@@ -13,6 +13,7 @@ from app.schemas.body_composition import (
     BodyCompositionEvaluationUpdate,
 )
 from app.services.ai_assistant_service import build_body_composition_assistant
+from app.services.assessment_service import ensure_body_composition_technical_ladder_tasks
 from app.services.body_composition_actuar_sync_service import (
     get_body_composition_evaluation_or_404,
     prepare_body_composition_sync_attempt,
@@ -54,6 +55,7 @@ def create_body_composition_evaluation(
     payload: BodyCompositionEvaluationCreate,
     *,
     reviewer_user_id: UUID | None = None,
+    sync_actuar: bool = True,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation_data = resolve_body_composition_persistence_fields(payload.model_dump(), reviewer_user_id=reviewer_user_id)
@@ -67,7 +69,14 @@ def create_body_composition_evaluation(
     db.add(evaluation)
     db.flush()
     _apply_ai_payload(db, member=member, evaluation=evaluation)
-    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
+    ensure_body_composition_technical_ladder_tasks(
+        db,
+        member=member,
+        evaluation=evaluation,
+        reviewer_user_id=reviewer_user_id,
+        commit=False,
+    )
+    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation) if sync_actuar else None
     db.flush()
     return evaluation, sync_attempt
 
@@ -99,6 +108,7 @@ def update_body_composition_evaluation(
     payload: BodyCompositionEvaluationUpdate,
     *,
     reviewer_user_id: UUID | None = None,
+    sync_actuar: bool = True,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
@@ -110,7 +120,14 @@ def update_body_composition_evaluation(
         setattr(evaluation, field, value)
 
     _apply_ai_payload(db, member=member, evaluation=evaluation)
-    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation)
+    ensure_body_composition_technical_ladder_tasks(
+        db,
+        member=member,
+        evaluation=evaluation,
+        reviewer_user_id=reviewer_user_id,
+        commit=False,
+    )
+    sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation) if sync_actuar else None
     db.flush()
     return evaluation, sync_attempt
 
@@ -123,6 +140,7 @@ def review_body_composition_evaluation(
     payload: BodyCompositionEvaluationReviewInput,
     *,
     reviewer_user_id: UUID,
+    sync_actuar: bool = True,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     review_payload = BodyCompositionEvaluationUpdate.model_validate(
         payload.model_dump() | {"reviewed_manually": True, "needs_review": False}
@@ -134,6 +152,7 @@ def review_body_composition_evaluation(
         evaluation_id,
         review_payload,
         reviewer_user_id=reviewer_user_id,
+        sync_actuar=sync_actuar,
     )
 
 

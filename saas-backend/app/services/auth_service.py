@@ -21,6 +21,7 @@ from app.core.security import (
 from app.database import include_all_tenants
 from app.models import Gym, RoleEnum, User
 from app.schemas import TokenPair, UserLogin, UserRegister
+from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
 from app.utils.email import send_email
 
 _PASSWORD_RESET_EXPIRY_HOURS = 1
@@ -84,6 +85,7 @@ def create_user(
         raise _already_exists_exception()
 
     role = force_role or payload.role
+    primary_shift = normalize_preferred_shift(payload.work_shift)
 
     user = User(
         gym_id=gym_id,
@@ -92,7 +94,8 @@ def create_user(
         hashed_password=hash_password(payload.password),
         role=role,
         job_title=payload.job_title,
-        work_shift=payload.work_shift,
+        work_shift=primary_shift,
+        work_shift_scope=normalize_preferred_shift_scope(payload.work_shift_scope, fallback=primary_shift),
         avatar_url=payload.avatar_url,
     )
     db.add(user)

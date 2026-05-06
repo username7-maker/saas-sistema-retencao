@@ -20,6 +20,10 @@ export function KommoConnectionTab() {
   const [pipelineId, setPipelineId] = useState("");
   const [stageId, setStageId] = useState("");
   const [responsibleUserId, setResponsibleUserId] = useState("");
+  const [primaryMessageChannel, setPrimaryMessageChannel] = useState("whatsapp");
+  const [operatorConfirmedSend, setOperatorConfirmedSend] = useState(true);
+  const [autoCloseEnabled, setAutoCloseEnabled] = useState(true);
+  const [fallbackChannel, setFallbackChannel] = useState("whatsapp");
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -30,6 +34,10 @@ export function KommoConnectionTab() {
     setPipelineId(settingsQuery.data.kommo_default_pipeline_id ?? "");
     setStageId(settingsQuery.data.kommo_default_stage_id ?? "");
     setResponsibleUserId(settingsQuery.data.kommo_default_responsible_user_id ?? "");
+    setPrimaryMessageChannel(settingsQuery.data.primary_message_channel ?? "whatsapp");
+    setOperatorConfirmedSend(settingsQuery.data.kommo_operator_confirmed_send_enabled);
+    setAutoCloseEnabled(settingsQuery.data.kommo_auto_close_enabled);
+    setFallbackChannel(settingsQuery.data.kommo_fallback_channel ?? "whatsapp");
   }, [settingsQuery.data]);
 
   const saveMutation = useMutation({
@@ -42,6 +50,10 @@ export function KommoConnectionTab() {
         kommo_default_stage_id: stageId.trim() || null,
         kommo_default_responsible_user_id: responsibleUserId.trim() || null,
         clear_access_token: clearAccessToken,
+        primary_message_channel: primaryMessageChannel,
+        kommo_operator_confirmed_send_enabled: operatorConfirmedSend,
+        kommo_auto_close_enabled: autoCloseEnabled,
+        kommo_fallback_channel: fallbackChannel,
       }),
     onSuccess: async (payload) => {
       await queryClient.invalidateQueries({ queryKey: ["kommo-settings"] });
@@ -96,12 +108,18 @@ export function KommoConnectionTab() {
 
         {settings ? (
           <>
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-4">
               <StatusCard
                 title="Canal Kommo"
                 value={settings.kommo_enabled ? "Ativo" : "Desligado"}
                 description="Liga ou desliga o handoff do AI GYM OS para a Kommo nesta academia."
                 tone={settings.kommo_enabled ? "success" : "warning"}
+              />
+              <StatusCard
+                title="Canal principal"
+                value={settings.primary_message_channel === "kommo" ? "Kommo" : settings.primary_message_channel === "manual" ? "Manual" : "WhatsApp"}
+                description={`Fallback: ${settings.kommo_fallback_channel === "manual" ? "manual" : "WhatsApp"}.`}
+                tone={settings.primary_message_channel === "kommo" ? "success" : "neutral"}
               />
               <StatusCard
                 title="Handoff automatico"
@@ -135,6 +153,70 @@ export function KommoConnectionTab() {
                 </p>
               </div>
             </label>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
+                  Canal principal da operacao
+                </label>
+                <select
+                  value={primaryMessageChannel}
+                  onChange={(event) => setPrimaryMessageChannel(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-lovable-border bg-lovable-bg-muted px-3 text-sm text-lovable-ink outline-none focus:border-lovable-primary"
+                >
+                  <option value="kommo">Kommo</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="manual">Manual</option>
+                </select>
+                <p className="mt-1 text-xs text-lovable-ink-muted">
+                  Quando estiver em Kommo, a Work Queue cria contexto e tarefa na Kommo para o operador confirmar por la.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">
+                  Fallback quando Kommo falhar
+                </label>
+                <select
+                  value={fallbackChannel}
+                  onChange={(event) => setFallbackChannel(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-lovable-border bg-lovable-bg-muted px-3 text-sm text-lovable-ink outline-none focus:border-lovable-primary"
+                >
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-start gap-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4"
+                  checked={operatorConfirmedSend}
+                  onChange={(event) => setOperatorConfirmedSend(event.target.checked)}
+                />
+                <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Envio confirmado pelo operador na Kommo</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">
+                    V1 nao envia autonomamente: cria tarefa/contexto na Kommo e o humano confirma no canal oficial.
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4"
+                  checked={autoCloseEnabled}
+                  onChange={(event) => setAutoCloseEnabled(event.target.checked)}
+                />
+                <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Auto-fechar por resposta Kommo</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">
+                    Respostas simples podem fechar tasks; cancelamento, reclamacao e opt-out escalam para humano.
+                  </p>
+                </div>
+              </label>
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>

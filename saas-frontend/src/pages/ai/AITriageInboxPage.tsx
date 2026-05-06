@@ -11,6 +11,7 @@ export default function AITriageInboxPage() {
 
       <WorkExecutionView
         source="ai_triage"
+        defaultDomain="all"
         title="Execucao da AI Inbox"
         subtitle="Abra o item, prepare a acao indicada, use a mensagem pronta e registre o resultado depois."
         compact

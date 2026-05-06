@@ -84,6 +84,9 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 }
 
 export type BodyCompositionPdfKind = "summary" | "technical";
+export interface BodyCompositionSaveOptions {
+  syncActuar?: boolean;
+}
 
 export interface BodyCompositionAssistedReadResult {
   localResult: BodyCompositionOcrResult | null;
@@ -113,10 +116,12 @@ export const bodyCompositionService = {
   async create(
     memberId: string,
     payload: BodyCompositionEvaluationCreate,
+    options?: BodyCompositionSaveOptions,
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.post<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition`,
       payload,
+      { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);
   },
@@ -125,10 +130,12 @@ export const bodyCompositionService = {
     memberId: string,
     evaluationId: string,
     payload: BodyCompositionEvaluationUpdate,
+    options?: BodyCompositionSaveOptions,
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.put<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}`,
       payload,
+      { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);
   },
@@ -137,10 +144,12 @@ export const bodyCompositionService = {
     memberId: string,
     evaluationId: string,
     payload: BodyCompositionEvaluationReviewInput,
+    options?: BodyCompositionSaveOptions,
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.post<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}/review`,
       payload,
+      { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);
   },

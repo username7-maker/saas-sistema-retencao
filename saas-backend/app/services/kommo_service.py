@@ -7,7 +7,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.database import include_all_tenants
@@ -192,6 +192,27 @@ def _get_member_link(db: Session, *, gym_id: UUID, member_id: UUID) -> KommoMemb
                 KommoMemberLink.member_id == member_id,
             ),
             reason="kommo.fetch_member_link",
+        )
+    )
+
+
+def find_member_link_by_kommo_ids(
+    db: Session,
+    *,
+    kommo_lead_id: str | None = None,
+    kommo_contact_id: str | None = None,
+) -> KommoMemberLink | None:
+    filters = []
+    if kommo_lead_id:
+        filters.append(KommoMemberLink.kommo_lead_id == str(kommo_lead_id))
+    if kommo_contact_id:
+        filters.append(KommoMemberLink.kommo_contact_id == str(kommo_contact_id))
+    if not filters:
+        return None
+    return db.scalar(
+        include_all_tenants(
+            select(KommoMemberLink).where(or_(*filters)).order_by(KommoMemberLink.updated_at.desc()).limit(1),
+            reason="kommo.find_member_link_by_external_id",
         )
     )
 

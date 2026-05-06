@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import AutopilotAction, AutopilotEvent, FinancialEntry, Lead, LeadStage, Member, Task, TaskStatus
@@ -26,6 +26,8 @@ def _task_extra(task: Task) -> dict:
 
 
 def _task_domain_filter(domain: str):
+    if domain == "onboarding":
+        return or_(Task.extra_data["domain"].astext == "onboarding", Task.extra_data["source"].astext == "onboarding")
     return Task.extra_data["domain"].astext == domain
 
 
@@ -100,6 +102,39 @@ def _resolve_success(db: Session, event: AutopilotEvent, *, domain: str, outcome
     return resolved
 
 
+def _resolve_onboarding_stage(
+    db: Session,
+    event: AutopilotEvent,
+    *,
+    eligible_offsets: set[int],
+    outcome: str,
+    note: str,
+) -> int:
+    if not event.member_id:
+        return 0
+    tasks = list(db.scalars(
+        select(Task).where(
+            Task.gym_id == event.gym_id,
+            Task.member_id == event.member_id,
+            Task.deleted_at.is_(None),
+            Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+            Task.extra_data["source"].astext == "onboarding",
+        ).limit(20)
+    ).all())
+    resolved = 0
+    for task in tasks:
+        raw_offset = _task_extra(task).get("day_offset")
+        try:
+            offset = int(raw_offset)
+        except (TypeError, ValueError):
+            continue
+        if offset not in eligible_offsets:
+            continue
+        _auto_close_task(db, task, outcome=outcome, note=note, event=event)
+        resolved += 1
+    return resolved
+
+
 def resolve_event(db: Session, event: AutopilotEvent, *, flush: bool = True) -> dict:
     if event.processing_status == "processed":
         return {"processed": False, "detail": "Evento ja processado"}
@@ -118,8 +153,9 @@ def resolve_event(db: Session, event: AutopilotEvent, *, flush: bool = True) -> 
 
 def _resolve_event_inner(db: Session, event: AutopilotEvent) -> dict:
     metadata = dict(event.metadata_json or {})
-    if event.event_type == "whatsapp_inbound_received":
+    if event.event_type in {"whatsapp_inbound_received", "kommo_inbound_received"}:
         text = str(metadata.get("message_text") or metadata.get("text") or "")
+        channel_label = "Kommo" if event.event_type == "kommo_inbound_received" else "WhatsApp"
         if contains_sensitive_text(text):
             member = db.get(Member, event.member_id) if event.member_id else None
             lead = db.get(Lead, event.lead_id) if event.lead_id else None
@@ -140,13 +176,27 @@ def _resolve_event_inner(db: Session, event: AutopilotEvent) -> dict:
             )
             return {"processed": True, "detail": "Resposta sensivel escalada", "task_id": str(task.id)}
         resolved = 0
-        resolved += _resolve_success(db, event, domain="retention", outcome="responded", note="Fechada automaticamente porque o aluno respondeu no WhatsApp.")
+        resolved += _resolve_success(db, event, domain="retention", outcome="responded", note=f"Fechada automaticamente porque o aluno respondeu na {channel_label}.")
         resolved += _resolve_success(db, event, domain="finance", outcome="responded", note="Resposta recebida; cobrança deixa de ficar como tentativa pendente.")
-        resolved += _resolve_success(db, event, domain="commercial", outcome="responded", note="Lead respondeu no WhatsApp; follow-up automatico foi resolvido.")
+        resolved += _resolve_success(db, event, domain="commercial", outcome="responded", note=f"Lead respondeu na {channel_label}; follow-up automatico foi resolvido.")
+        resolved += _resolve_onboarding_stage(
+            db,
+            event,
+            eligible_offsets={0, 3, 30},
+            outcome="responded",
+            note=f"Etapa de onboarding fechada automaticamente porque o aluno respondeu na {channel_label}.",
+        )
         return {"processed": True, "resolved_count": resolved}
 
     if event.event_type == "member_checkin_created":
         resolved = _resolve_success(db, event, domain="retention", outcome="completed", note="Fechada automaticamente porque o aluno fez check-in.")
+        resolved += _resolve_onboarding_stage(
+            db,
+            event,
+            eligible_offsets={0, 3},
+            outcome="completed",
+            note="Etapa de onboarding fechada automaticamente porque o aluno fez check-in.",
+        )
         return {"processed": True, "resolved_count": resolved}
 
     if event.event_type == "member_payment_confirmed":
@@ -157,6 +207,13 @@ def _resolve_event_inner(db: Session, event: AutopilotEvent) -> dict:
         outcome = "scheduled_assessment" if event.event_type.endswith("scheduled") else "completed"
         note = "Fechada automaticamente porque a avaliacao foi agendada." if outcome == "scheduled_assessment" else "Fechada automaticamente porque a avaliacao foi concluida."
         resolved = _resolve_success(db, event, domain="assessment", outcome=outcome, note=note)
+        resolved += _resolve_onboarding_stage(
+            db,
+            event,
+            eligible_offsets={7},
+            outcome=outcome,
+            note="Etapa de onboarding fechada automaticamente porque a avaliacao foi resolvida.",
+        )
         return {"processed": True, "resolved_count": resolved}
 
     if event.event_type in {"lead_won", "lead_lost"}:

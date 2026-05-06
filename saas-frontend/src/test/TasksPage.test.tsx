@@ -4,13 +4,19 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TasksPage } from "../pages/tasks/TasksPage";
+import { coachWorkspaceService } from "../services/coachWorkspaceService";
 import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import { workQueueService } from "../services/workQueueService";
 import type { LeadToMemberIntelligenceContext, Member, Task } from "../types";
 
-let currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null as "overnight" | "morning" | "afternoon" | "evening" | null };
+let currentUserMock = {
+  id: "user-1",
+  full_name: "Julia Operacoes",
+  role: "receptionist",
+  work_shift: null as "overnight" | "morning" | "afternoon" | "evening" | null,
+};
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
@@ -50,6 +56,12 @@ vi.mock("../services/workQueueService", () => ({
     getItem: vi.fn(),
     executeItem: vi.fn(),
     updateOutcome: vi.fn(),
+  },
+}));
+
+vi.mock("../services/coachWorkspaceService", () => ({
+  coachWorkspaceService: {
+    getWorkspace: vi.fn(),
   },
 }));
 
@@ -147,7 +159,7 @@ async function openCompleteList() {
 describe("TasksPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: null };
+    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", role: "receptionist", work_shift: null };
 
     const now = new Date();
     const isoAtOffset = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString();
@@ -449,6 +461,23 @@ describe("TasksPage", () => {
       page: 1,
       page_size: 25,
     });
+    vi.mocked(coachWorkspaceService.getWorkspace).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 25,
+      state: "do_now",
+      shift: "my_shift",
+      summary: {
+        total: 0,
+        do_now: 0,
+        awaiting_outcome: 0,
+        done: 0,
+        overdue: 0,
+        by_lane: {},
+      },
+      generated_at: isoAtOffset(0),
+    });
   });
 
   it("renders triage as the default operational view with fixed sections", async () => {
@@ -460,8 +489,61 @@ describe("TasksPage", () => {
     expect(screen.getByRole("button", { name: "Lista completa" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
     expect(await screen.findByText("Modo execucao operacional")).toBeInTheDocument();
-    expect(screen.getByText("Fila unica de tasks e AI Inbox por turno. Comece a execucao, registre o resultado e avance sem abrir varias telas.")).toBeInTheDocument();
+    expect(screen.getByText("Fila operacional sem retencao misturada. Use o botao Retencao quando for executar a regua de ausencia e reativacao.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retencao" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Professor" })).toBeInTheDocument();
     expect(await screen.findByText("Nenhuma acao nessa fila")).toBeInTheDocument();
+  });
+
+  it("keeps retention out of the default execution queue and exposes it as a deliberate lane", async () => {
+    renderPage();
+
+    await screen.findByText("Modo execucao operacional");
+
+    await waitFor(() => {
+      expect(workQueueService.listItems).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: "operations",
+          state: "do_now",
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retencao" }));
+
+    await waitFor(() => {
+      expect(workQueueService.listItems).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: "retention",
+          state: "do_now",
+        }),
+      );
+    });
+  });
+
+  it("opens the professor queue by default for trainer users", async () => {
+    currentUserMock = { id: "trainer-1", full_name: "Carlos Professor", role: "trainer", work_shift: "evening" };
+
+    renderPage();
+
+    expect(await screen.findByText("Fila tecnica do professor")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Avaliacao, bioimpedancia, entrega de treino, feedback e reavaliacao por turno. Retencao e recepcao ficam fora desta fila.",
+      ),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(coachWorkspaceService.getWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: "do_now",
+          shift: "my_shift",
+          page: 1,
+          page_size: 25,
+        }),
+      );
+    });
   });
 
   it("keeps the full operational list behind the advanced tab", async () => {
@@ -623,7 +705,7 @@ describe("TasksPage", () => {
   });
 
   it("applies the logged-in shift as the default task scope and allows turning it off", async () => {
-    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", work_shift: "morning" };
+    currentUserMock = { id: "user-1", full_name: "Julia Operacoes", role: "receptionist", work_shift: "morning" };
 
     renderPage();
 

@@ -84,6 +84,37 @@ class TestCreateBodyComposition:
         db.add.assert_called_once()
         assert db.flush.call_count == 2
 
+    @patch("app.services.body_composition_service.ensure_body_composition_technical_ladder_tasks")
+    @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt")
+    @patch("app.services.body_composition_service.generate_body_composition_ai")
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_can_save_only_in_system_without_actuar_sync(
+        self,
+        mock_get_member,
+        mock_generate_ai,
+        mock_prepare_sync,
+        mock_ladder,
+    ):
+        mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, full_name="Aluno")
+        mock_generate_ai.return_value = _ai_payload()
+        db = MagicMock()
+
+        from app.schemas.body_composition import BodyCompositionEvaluationCreate
+        from app.services.body_composition_service import create_body_composition_evaluation
+
+        evaluation, attempt = create_body_composition_evaluation(
+            db,
+            GYM_ID,
+            MEMBER_ID,
+            BodyCompositionEvaluationCreate(evaluation_date=date(2026, 3, 2), source="manual", weight_kg=80.0),
+            sync_actuar=False,
+        )
+
+        assert evaluation.gym_id == GYM_ID
+        assert attempt is None
+        mock_prepare_sync.assert_not_called()
+        mock_ladder.assert_called_once()
+
     @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt", return_value=None)
     @patch("app.services.body_composition_service.generate_body_composition_ai")
     @patch("app.services.body_composition_service.get_member_or_404")

@@ -146,6 +146,25 @@ const CHECKIN_MAPPING_OPTIONS = [
   { value: "source", label: "Origem" },
 ];
 
+const ASSESSMENT_MAPPING_OPTIONS = [
+  { value: "member_id", label: "ID do membro" },
+  { value: "member_name", label: "Nome do membro" },
+  { value: "first_name", label: "Primeiro nome" },
+  { value: "last_name", label: "Sobrenome" },
+  { value: "email", label: "Email" },
+  { value: "external_id", label: "Matricula" },
+  { value: "cpf", label: "CPF" },
+  { value: "assessment_date", label: "Data da avaliacao" },
+  { value: "evaluator_name", label: "Professor/avaliador" },
+  { value: "legacy_assessment_count", label: "Qtd de fichas legadas" },
+  { value: "legacy_status", label: "Situacao legada" },
+  { value: "weight_kg", label: "Peso" },
+  { value: "height_cm", label: "Altura" },
+  { value: "bmi", label: "IMC" },
+  { value: "body_fat_pct", label: "Percentual de gordura" },
+  { value: "lean_mass_kg", label: "Massa magra" },
+];
+
 function buildImportMappingPayload(
   columnMappings: Record<string, string>,
   ignoredColumns: string[],
@@ -502,16 +521,22 @@ export function ImportsPage() {
   const queryClient = useQueryClient();
   const [membersFile, setMembersFile] = useState<File | null>(null);
   const [checkinsFile, setCheckinsFile] = useState<File | null>(null);
+  const [assessmentsFile, setAssessmentsFile] = useState<File | null>(null);
   const [membersPreview, setMembersPreview] = useState<ImportPreview | null>(null);
   const [checkinsPreview, setCheckinsPreview] = useState<ImportPreview | null>(null);
+  const [assessmentsPreview, setAssessmentsPreview] = useState<ImportPreview | null>(null);
   const [membersSummary, setMembersSummary] = useState<ImportSummary | null>(null);
   const [checkinsSummary, setCheckinsSummary] = useState<ImportSummary | null>(null);
+  const [assessmentsSummary, setAssessmentsSummary] = useState<ImportSummary | null>(null);
   const [membersColumnMappings, setMembersColumnMappings] = useState<Record<string, string>>({});
   const [checkinsColumnMappings, setCheckinsColumnMappings] = useState<Record<string, string>>({});
+  const [assessmentsColumnMappings, setAssessmentsColumnMappings] = useState<Record<string, string>>({});
   const [membersIgnoredColumns, setMembersIgnoredColumns] = useState<string[]>([]);
   const [checkinsIgnoredColumns, setCheckinsIgnoredColumns] = useState<string[]>([]);
+  const [assessmentsIgnoredColumns, setAssessmentsIgnoredColumns] = useState<string[]>([]);
   const [membersPreviewDirty, setMembersPreviewDirty] = useState(false);
   const [checkinsPreviewDirty, setCheckinsPreviewDirty] = useState(false);
+  const [assessmentsPreviewDirty, setAssessmentsPreviewDirty] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [autoCreateMissingMembers, setAutoCreateMissingMembers] = useState(false);
@@ -525,6 +550,10 @@ export function ImportsPage() {
     () => buildImportMappingPayload(checkinsColumnMappings, checkinsIgnoredColumns),
     [checkinsColumnMappings, checkinsIgnoredColumns],
   );
+  const assessmentsMapping = useMemo(
+    () => buildImportMappingPayload(assessmentsColumnMappings, assessmentsIgnoredColumns),
+    [assessmentsColumnMappings, assessmentsIgnoredColumns],
+  );
   const canConfirmMembersImport = Boolean(
     membersFile && membersPreview && membersPreview.valid_rows > 0 && membersPreview.can_confirm && !membersPreviewDirty,
   );
@@ -534,6 +563,13 @@ export function ImportsPage() {
       checkinsPreview.valid_rows > 0 &&
       checkinsPreview.can_confirm &&
       !checkinsPreviewDirty,
+  );
+  const canConfirmAssessmentsImport = Boolean(
+    assessmentsFile &&
+      assessmentsPreview &&
+      assessmentsPreview.valid_rows > 0 &&
+      assessmentsPreview.can_confirm &&
+      !assessmentsPreviewDirty,
   );
 
   const refreshImportedDataViews = () => {
@@ -625,6 +661,41 @@ export function ImportsPage() {
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
+  const importAssessmentsMutation = useMutation({
+    mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
+      importExportService.importAssessments(file, mapping),
+    onSuccess: (summary) => {
+      setAssessmentsSummary(summary);
+      setAssessmentsPreview(null);
+      setAssessmentsPreviewDirty(false);
+      refreshImportedDataViews();
+      if (summary.imported > 0) {
+        toast.success("Historico legado de avaliacoes importado.");
+        return;
+      }
+      if (summary.updated_existing > 0) {
+        toast.success("Marcadores legados do Actuar atualizados nos alunos.");
+        return;
+      }
+      toast.success("Arquivo processado sem novas avaliacoes.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const previewAssessmentsMutation = useMutation({
+    mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
+      importExportService.previewAssessments(file, mapping),
+    onSuccess: (preview) => {
+      setAssessmentsPreview(preview);
+      setAssessmentsSummary(null);
+      setAssessmentsColumnMappings(preview.resolved_mappings);
+      setAssessmentsIgnoredColumns(preview.ignored_columns);
+      setAssessmentsPreviewDirty(false);
+      toast.success("Preview de avaliacoes gerado. Revise se ha data antes de confirmar.");
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
   const exportMembersMutation = useMutation({
     mutationFn: () => importExportService.exportMembersCsv(),
     onSuccess: () => toast.success("Exportacao de membros concluida."),
@@ -656,7 +727,7 @@ export function ImportsPage() {
         </p>
       </header>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-3">
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Importar alunos</h3>
           <p className="mt-1 text-xs text-lovable-ink-muted">
@@ -885,6 +956,99 @@ export function ImportsPage() {
             }}
           />
           <ImportResult summary={checkinsSummary} allowMissingExport />
+        </article>
+
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
+            Importar historico de avaliacoes
+          </h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted">
+            Use export do Actuar/Afig com aluno e data da avaliacao. Se vier apenas Qtd de Fichas, o sistema marca legado sem criar datas.
+          </p>
+          <input
+            type="file"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(event) => {
+              setAssessmentsFile(event.target.files?.[0] ?? null);
+              setAssessmentsPreview(null);
+              setAssessmentsSummary(null);
+              setAssessmentsColumnMappings({});
+              setAssessmentsIgnoredColumns([]);
+              setAssessmentsPreviewDirty(false);
+            }}
+            className="mt-3 w-full rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!assessmentsFile || previewAssessmentsMutation.isPending}
+              onClick={() =>
+                assessmentsFile &&
+                previewAssessmentsMutation.mutate({
+                  file: assessmentsFile,
+                  mapping: assessmentsMapping,
+                })
+              }
+              className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-brand-700 disabled:opacity-60"
+            >
+              <FileUp size={14} />
+              {previewAssessmentsMutation.isPending
+                ? assessmentsPreviewDirty
+                  ? "Revalidando..."
+                  : "Validando..."
+                : assessmentsPreviewDirty
+                  ? "Revalidar preview"
+                  : "Validar arquivo"}
+            </button>
+            <button
+              type="button"
+              disabled={!canConfirmAssessmentsImport || importAssessmentsMutation.isPending}
+              onClick={() =>
+                assessmentsFile &&
+                importAssessmentsMutation.mutate({
+                  file: assessmentsFile,
+                  mapping: assessmentsMapping,
+                })
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              <FileUp size={14} />
+              {importAssessmentsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
+            </button>
+          </div>
+          {assessmentsPreviewDirty ? (
+            <p className="mt-2 text-xs text-amber-900">
+              Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
+            </p>
+          ) : null}
+          <PreviewResult preview={assessmentsPreview} allowMissingExport />
+          <ReconciliationPanel
+            preview={assessmentsPreview}
+            options={ASSESSMENT_MAPPING_OPTIONS}
+            columnMappings={assessmentsColumnMappings}
+            ignoredColumns={assessmentsIgnoredColumns}
+            previewDirty={assessmentsPreviewDirty}
+            onMappingChange={(sourceKey, target) => {
+              setAssessmentsColumnMappings((current) => {
+                const next = { ...current };
+                if (target) {
+                  next[sourceKey] = target;
+                } else {
+                  delete next[sourceKey];
+                }
+                return next;
+              });
+              setAssessmentsIgnoredColumns((current) => current.filter((item) => item !== sourceKey));
+              setAssessmentsPreviewDirty(true);
+            }}
+            onToggleIgnore={(sourceKey) => {
+              setAssessmentsIgnoredColumns((current) =>
+                current.includes(sourceKey) ? current.filter((item) => item !== sourceKey) : [...current, sourceKey],
+              );
+              setAssessmentsPreviewDirty(true);
+            }}
+          />
+          <ImportResult summary={assessmentsSummary} allowMissingExport />
         </article>
       </section>
 

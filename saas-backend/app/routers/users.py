@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -12,7 +12,7 @@ from app.models import RoleEnum, User
 from app.schemas import UserOut, UserRegister
 from app.services.auth_service import create_user
 from app.services.audit_service import log_audit_event
-from app.services.preferred_shift_service import normalize_preferred_shift
+from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -22,6 +22,7 @@ MANAGER_ALLOWED_CREATE_ROLES = {
     RoleEnum.SALESPERSON,
     RoleEnum.TRAINER,
 }
+WorkShift = Literal["overnight", "morning", "afternoon", "evening"]
 
 
 class UserUpdate(BaseModel):
@@ -30,7 +31,8 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
     job_title: str | None = Field(default=None, max_length=120)
-    work_shift: str | None = Field(default=None, pattern="^(overnight|morning|afternoon|evening)$")
+    work_shift: WorkShift | None = None
+    work_shift_scope: list[WorkShift] | None = None
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -41,7 +43,8 @@ class UserActivationUpdate(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     job_title: str | None = Field(default=None, max_length=120)
-    work_shift: str | None = Field(default=None, pattern="^(overnight|morning|afternoon|evening)$")
+    work_shift: WorkShift | None = None
+    work_shift_scope: list[WorkShift] | None = None
     avatar_url: str | None = Field(default=None, max_length=500)
 
 
@@ -101,6 +104,16 @@ def update_my_profile_endpoint(
         current_user.job_title = payload.job_title.strip() or None
     if payload.work_shift is not None:
         current_user.work_shift = normalize_preferred_shift(payload.work_shift)
+        if "work_shift_scope" not in updates:
+            current_user.work_shift_scope = normalize_preferred_shift_scope(
+                current_user.work_shift_scope,
+                fallback=current_user.work_shift,
+            )
+    if "work_shift_scope" in updates:
+        current_user.work_shift_scope = normalize_preferred_shift_scope(
+            payload.work_shift_scope,
+            fallback=current_user.work_shift,
+        )
     if payload.avatar_url is not None:
         current_user.avatar_url = payload.avatar_url.strip() or None
 
@@ -137,6 +150,7 @@ def update_user_endpoint(
     if target.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível alterar sua própria conta")
 
+    updates = payload.model_dump(exclude_unset=True)
     if payload.is_active is not None:
         target.is_active = payload.is_active
     if payload.role is not None:
@@ -159,6 +173,10 @@ def update_user_endpoint(
         target.job_title = payload.job_title.strip() or None
     if payload.work_shift is not None:
         target.work_shift = normalize_preferred_shift(payload.work_shift)
+        if "work_shift_scope" not in updates:
+            target.work_shift_scope = normalize_preferred_shift_scope(target.work_shift_scope, fallback=target.work_shift)
+    if "work_shift_scope" in updates:
+        target.work_shift_scope = normalize_preferred_shift_scope(payload.work_shift_scope, fallback=target.work_shift)
     if payload.avatar_url is not None:
         target.avatar_url = payload.avatar_url.strip() or None
 
@@ -170,7 +188,7 @@ def update_user_endpoint(
         entity="user",
         user=current_user,
         entity_id=target.id,
-        details={"updated_fields": payload.model_dump(exclude_none=True)},
+        details={"updated_fields": updates},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -202,6 +220,10 @@ def update_user_profile_endpoint(
         target.job_title = payload.job_title.strip() or None
     if payload.work_shift is not None:
         target.work_shift = normalize_preferred_shift(payload.work_shift)
+        if "work_shift_scope" not in updates:
+            target.work_shift_scope = normalize_preferred_shift_scope(target.work_shift_scope, fallback=target.work_shift)
+    if "work_shift_scope" in updates:
+        target.work_shift_scope = normalize_preferred_shift_scope(payload.work_shift_scope, fallback=target.work_shift)
     if payload.avatar_url is not None:
         target.avatar_url = payload.avatar_url.strip() or None
 

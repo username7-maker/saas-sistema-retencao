@@ -149,6 +149,21 @@ class TestUpdateTask:
 
         assert exc_info.value.status_code == 403
 
+    def test_trainer_can_access_feedback_followup_task(self):
+        task = _mock_task(
+            extra_data={"source": "assessment_feedback_followup", "domain": "trainer", "owner_role": "coach"},
+            member_id=uuid.uuid4(),
+        )
+        db = MagicMock()
+        db.get.return_value = task
+        payload = TaskUpdate(title="Novo titulo")
+        from app.services.task_service import update_task
+
+        with pytest.raises(HTTPException) as exc_info:
+            update_task(db, TASK_ID, payload, current_user=_mock_user(role=RoleEnum.TRAINER))
+
+        assert exc_info.value.status_code == 403
+
     @patch("app.services.task_service.invalidate_dashboard_cache")
     @patch("app.services.task_service._load_with_relations")
     def test_trainer_can_update_technical_task_status(self, mock_load, mock_cache):

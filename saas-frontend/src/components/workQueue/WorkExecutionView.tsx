@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Clock3, ExternalLink, Forward, MessageCircle, Search, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -10,6 +10,7 @@ import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard
 import { useAuth } from "../../hooks/useAuth";
 import {
   workQueueService,
+  type WorkQueueDomainFilter,
   type WorkQueueListState,
   type WorkQueueShiftFilter,
   type WorkQueueSourceFilter,
@@ -17,12 +18,20 @@ import {
 import { memberService } from "../../services/memberService";
 import { taskService } from "../../services/taskService";
 import type { WorkQueueItem, WorkQueueOutcome } from "../../types";
-import { getPreferredShiftLabel } from "../../utils/preferredShift";
+import { formatPreferredShiftScope, getPreferredShiftLabel } from "../../utils/preferredShift";
 
 type QueueMode = "do_now" | "awaiting_outcome" | "all";
 
+const explicitShiftFilters: Exclude<WorkQueueShiftFilter, "my_shift" | "all" | "unassigned">[] = [
+  "morning",
+  "afternoon",
+  "evening",
+  "overnight",
+];
+
 interface WorkExecutionViewProps {
   source?: WorkQueueSourceFilter;
+  defaultDomain?: WorkQueueDomainFilter;
   title?: string;
   subtitle?: string;
   compact?: boolean;
@@ -52,6 +61,7 @@ function formatDomain(domain: string): string {
   if (domain === "retention") return "Retencao";
   if (domain === "onboarding") return "Onboarding";
   if (domain === "assessment") return "Avaliacao";
+  if (domain === "trainer") return "Professor";
   if (domain === "commercial") return "Comercial";
   if (domain === "finance") return "Financeiro";
   if (domain === "manual") return "Manual";
@@ -61,6 +71,11 @@ function formatDomain(domain: string): string {
 function formatRetentionStage(item: WorkQueueItem): string | null {
   if (item.domain !== "retention") return null;
   return item.retention_stage_label || null;
+}
+
+function formatTechnicalStep(item: WorkQueueItem): string | null {
+  if (item.domain !== "trainer") return null;
+  return item.technical_ladder_step_label || null;
 }
 
 function formatDueAt(value: string | null): string {
@@ -93,6 +108,26 @@ function buildWhatsAppUrl(item: WorkQueueItem): string | null {
 function buildTelUrl(item: WorkQueueItem): string | null {
   const phone = normalizePhoneForAction(item.subject_phone);
   return phone ? `tel:+${phone}` : null;
+}
+
+function itemUsesKommo(item: WorkQueueItem): boolean {
+  return item.execution_channel === "kommo" || item.channel_status === "awaiting_kommo" || Boolean(item.kommo_lead_id || item.kommo_contact_id);
+}
+
+function primaryChannelLabel(item: WorkQueueItem): string {
+  if (item.channel_action_label) return item.channel_action_label;
+  if (itemUsesKommo(item)) return "Enviar para Kommo";
+  return "Enviar pelo canal principal";
+}
+
+function outcomeChannel(item: WorkQueueItem): "kommo" | "whatsapp" {
+  return itemUsesKommo(item) ? "kommo" : "whatsapp";
+}
+
+function formatSourceLabel(item: WorkQueueItem): string {
+  if (item.source_type === "ai_triage") return "AI Inbox";
+  if (item.source_type === "assessment_queue") return "Fila de avaliacoes";
+  return "Task";
 }
 
 function getHttpDetail(error: unknown): string {
@@ -150,6 +185,26 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
             {formatRetentionStage(item)}
           </Badge>
         ) : null}
+        {formatTechnicalStep(item) ? (
+          <Badge variant="info" size="sm">
+            {formatTechnicalStep(item)}
+          </Badge>
+        ) : null}
+        {item.execution_channel ? (
+          <Badge variant={item.execution_channel === "kommo" ? "success" : "neutral"} size="sm">
+            {item.execution_channel === "kommo" ? "Kommo" : item.execution_channel}
+          </Badge>
+        ) : null}
+        {item.channel_status === "awaiting_kommo" ? (
+          <Badge variant="info" size="sm">
+            Aguardando Kommo
+          </Badge>
+        ) : null}
+        {item.channel_status === "fallback_whatsapp" ? (
+          <Badge variant="warning" size="sm">
+            Fallback WhatsApp
+          </Badge>
+        ) : null}
         {(item.autopilot_badges ?? []).slice(0, 2).map((badge) => (
           <Badge key={badge} variant="info" size="sm">
             {badge}
@@ -164,7 +219,7 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-lovable-ink-muted">
-        <span>{item.source_type === "ai_triage" ? "AI Inbox" : "Task"}</span>
+        <span>{formatSourceLabel(item)}</span>
         <span>{formatDueAt(item.due_at)}</span>
       </div>
     </button>
@@ -173,6 +228,7 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
 
 export function WorkExecutionView({
   source = "all",
+  defaultDomain = "operations",
   title = "Modo execucao",
   subtitle = "Fila curta por turno: execute, registre o resultado e siga para o proximo aluno.",
   compact = false,
@@ -181,6 +237,7 @@ export function WorkExecutionView({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [mode, setMode] = useState<QueueMode>("do_now");
+  const [domainFilter, setDomainFilter] = useState<WorkQueueDomainFilter>(defaultDomain);
   const [shiftFilter, setShiftFilter] = useState<WorkQueueShiftFilter>("my_shift");
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -189,31 +246,43 @@ export function WorkExecutionView({
   const [customSnoozeDate, setCustomSnoozeDate] = useState("");
 
   const deferredSearch = useDeferredValue(search);
-  const canSeeAllShifts = user?.role === "owner" || user?.role === "manager";
+  const userRole = user?.role;
+  const canSeeAllShifts = userRole === "owner" || userRole === "manager";
+  const userShiftScopeLabel = useMemo(
+    () => formatPreferredShiftScope(user?.work_shift, user?.work_shift_scope),
+    [user?.work_shift, user?.work_shift_scope],
+  );
+  const hasUserShiftScope = Boolean(userShiftScopeLabel);
+
+  useEffect(() => {
+    if (!userRole || hasUserShiftScope || shiftFilter !== "my_shift") return;
+    setShiftFilter(canSeeAllShifts ? "all" : "unassigned");
+  }, [canSeeAllShifts, hasUserShiftScope, shiftFilter, userRole]);
 
   const sharedParams = {
     shift: shiftFilter,
     assignee: "all" as const,
-    domain: "all" as const,
+    domain: domainFilter,
     source,
     page: 1,
     page_size: 25,
   };
 
   const doNowQuery = useQuery({
-    queryKey: ["work-queue", "items", "do_now", source, shiftFilter],
+    queryKey: ["work-queue", "items", "do_now", source, domainFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "do_now" }),
     staleTime: 60 * 1000,
   });
 
   const awaitingQuery = useQuery({
-    queryKey: ["work-queue", "items", "awaiting_outcome", source, shiftFilter],
+    queryKey: ["work-queue", "items", "awaiting_outcome", source, domainFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "awaiting_outcome" }),
+    enabled: mode === "awaiting_outcome",
     staleTime: 60 * 1000,
   });
 
   const allQuery = useQuery({
-    queryKey: ["work-queue", "items", "all", source, shiftFilter],
+    queryKey: ["work-queue", "items", "all", source, domainFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "all" as WorkQueueListState }),
     enabled: mode === "all",
     staleTime: 60 * 1000,
@@ -265,7 +334,7 @@ export function WorkExecutionView({
     }: {
       item: WorkQueueItem;
       outcome: WorkQueueOutcome;
-      contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
+      contact_channel?: "whatsapp" | "kommo" | "call" | "in_person" | "other" | null;
       snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
       scheduled_for?: string | null;
       noteOverride?: string | null;
@@ -309,6 +378,7 @@ export function WorkExecutionView({
       workQueueService.sendAndWait(item.source_type, item.source_id, {
         message: item.suggested_message || item.primary_action_label,
         operator_note: operatorNote.trim() || null,
+        channel: "auto",
       }),
     onSuccess: (result) => {
       setOperatorNote("");
@@ -336,13 +406,14 @@ export function WorkExecutionView({
     executeMutation.mutate({ item: selectedItem, confirmed: selectedItem.requires_confirmation });
   }
 
-  const isLoading = activeQuery.isLoading || doNowQuery.isLoading || awaitingQuery.isLoading;
-  const isError = activeQuery.isError || doNowQuery.isError || awaitingQuery.isError;
+  const isLoading = activeQuery.isLoading;
+  const isError = activeQuery.isError;
   const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending || sendAndWaitMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
   const isFinanceItem = selectedItem?.domain === "finance";
+  const isTechnicalTrainerItem = selectedItem?.domain === "trainer" && Boolean(selectedItem.technical_ladder_step);
 
   function markExecutionStartedForAction(item: WorkQueueItem) {
     if (item.state !== "do_now") return;
@@ -380,7 +451,7 @@ export function WorkExecutionView({
   function recordOutcome(
     outcome: WorkQueueOutcome,
     options?: {
-      contact_channel?: "whatsapp" | "call" | "in_person" | "other" | null;
+      contact_channel?: "whatsapp" | "kommo" | "call" | "in_person" | "other" | null;
       snooze_preset?: "tomorrow" | "next_week" | "custom" | null;
       scheduled_for?: string | null;
       noteOverride?: string | null;
@@ -409,12 +480,36 @@ export function WorkExecutionView({
       <div className="rounded-[28px] border border-lovable-border bg-lovable-surface/72 p-4 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-lovable-ink-muted">Fila unificada</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-lovable-ink-muted">Fila de execucao</p>
             <h2 className="mt-1 text-2xl font-bold text-lovable-ink">{title}</h2>
             <p className="mt-1 max-w-3xl text-sm text-lovable-ink-muted">{subtitle}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={domainFilter === "operations" ? "primary" : "secondary"}
+              onClick={() => setDomainFilter("operations")}
+            >
+              Operacao
+            </Button>
+            <Button
+              size="sm"
+              variant={domainFilter === "retention" ? "primary" : "secondary"}
+              onClick={() => setDomainFilter("retention")}
+            >
+              Retencao
+            </Button>
+            <Button
+              size="sm"
+              variant={domainFilter === "trainer" ? "primary" : "secondary"}
+              onClick={() => setDomainFilter("trainer")}
+            >
+              Professor
+            </Button>
+            <Button size="sm" variant={domainFilter === "all" ? "primary" : "secondary"} onClick={() => setDomainFilter("all")}>
+              Todas
+            </Button>
             <Button size="sm" variant={mode === "do_now" ? "primary" : "secondary"} onClick={() => setMode("do_now")}>
               Fazer agora ({doNowQuery.data?.total ?? 0})
             </Button>
@@ -428,18 +523,29 @@ export function WorkExecutionView({
             <Button size="sm" variant={mode === "all" ? "primary" : "secondary"} onClick={() => setMode("all")}>
               Todos
             </Button>
-            <Button
-              size="sm"
-              variant={shiftFilter === "my_shift" ? "secondary" : "ghost"}
-              onClick={() => setShiftFilter("my_shift")}
-            >
-              Meu turno
-            </Button>
+            {hasUserShiftScope ? (
+              <Button
+                size="sm"
+                variant={shiftFilter === "my_shift" ? "secondary" : "ghost"}
+                onClick={() => setShiftFilter("my_shift")}
+              >
+                Meu turno: {userShiftScopeLabel}
+              </Button>
+            ) : (
+              <Badge variant="warning">Login sem turno</Badge>
+            )}
             {canSeeAllShifts ? (
               <Button size="sm" variant={shiftFilter === "all" ? "secondary" : "ghost"} onClick={() => setShiftFilter("all")}>
                 Todos os turnos
               </Button>
             ) : null}
+            {canSeeAllShifts
+              ? explicitShiftFilters.map((shift) => (
+                  <Button key={shift} size="sm" variant={shiftFilter === shift ? "secondary" : "ghost"} onClick={() => setShiftFilter(shift)}>
+                    {getShiftLabel(shift)}
+                  </Button>
+                ))
+              : null}
           </div>
         </div>
 
@@ -504,6 +610,11 @@ export function WorkExecutionView({
                         {formatRetentionStage(selectedItem)}
                       </Badge>
                     ) : null}
+                    {formatTechnicalStep(selectedItem) ? (
+                      <Badge variant="info">
+                        {formatTechnicalStep(selectedItem)}
+                      </Badge>
+                    ) : null}
                     {selectedItem.requires_confirmation ? <Badge variant="warning">Confirmacao</Badge> : null}
                     {(selectedItem.autopilot_badges ?? []).map((badge) => (
                       <Badge key={badge} variant="info">
@@ -559,10 +670,10 @@ export function WorkExecutionView({
                       variant="secondary"
                       className="justify-start"
                       onClick={() => sendAndWaitMutation.mutate({ item: selectedItem })}
-                      disabled={isMutating || selectedItem.source_type !== "task" || !selectedItem.subject_phone}
+                      disabled={isMutating || selectedItem.source_type !== "task"}
                     >
                       <MessageCircle className="h-4 w-4" />
-                      Enviar e aguardar
+                      {primaryChannelLabel(selectedItem)}
                     </Button>
                     <Button
                       size="sm"
@@ -725,17 +836,136 @@ export function WorkExecutionView({
                         Encaminhar gerente
                       </Button>
                     </div>
+                  ) : isTechnicalTrainerItem ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {selectedItem.technical_ladder_step === "training_delivery_check_d8" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("training_delivered", { noteOverride: "Treino entregue e entendido pelo aluno." })}
+                            disabled={isMutating}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Treino entregue
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("training_adjusted", { noteOverride: "Treino revisado ou ajustado pelo professor." })}
+                            disabled={isMutating}
+                          >
+                            <ClipboardCheck className="h-4 w-4" />
+                            Treino ajustado
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            className="justify-start"
+                            onClick={() =>
+                              recordOutcome("training_missing", {
+                                snooze_preset: "tomorrow",
+                                noteOverride: operatorNote.trim() || "Treino ainda nao foi entregue; precisa de acao tecnica.",
+                              })
+                            }
+                            disabled={isMutating}
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Treino pendente
+                          </Button>
+                        </>
+                      ) : null}
+                      {selectedItem.technical_ladder_step === "training_feedback_d14" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("feedback_positive", { noteOverride: "Feedback positivo registrado pelo professor." })}
+                            disabled={isMutating}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Feedback positivo
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() =>
+                              recordOutcome("needs_training_adjustment", {
+                                noteOverride: operatorNote.trim() || "Aluno precisa de ajuste no treino.",
+                              })
+                            }
+                            disabled={isMutating}
+                          >
+                            <ClipboardCheck className="h-4 w-4" />
+                            Precisa ajuste
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                            disabled={isMutating}
+                          >
+                            <Clock3 className="h-4 w-4" />
+                            Sem resposta
+                          </Button>
+                        </>
+                      ) : null}
+                      {selectedItem.technical_ladder_step === "reassessment_due" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("reassessment_scheduled", { noteOverride: "Reavaliacao agendada." })}
+                            disabled={isMutating}
+                          >
+                            <CalendarClock className="h-4 w-4" />
+                            Reavaliacao agendada
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="justify-start"
+                            onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                            disabled={isMutating}
+                          >
+                            <Clock3 className="h-4 w-4" />
+                            Sem resposta
+                          </Button>
+                        </>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="justify-start"
+                        onClick={saveOperationalComment}
+                        disabled={isMutating || selectedItem.source_type !== "task"}
+                      >
+                        <ClipboardCheck className="h-4 w-4" />
+                        Comentario
+                      </Button>
+                    </div>
                   ) : (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <Button
                       size="sm"
                       variant="secondary"
                       className="justify-start"
-                      onClick={() => recordOutcome("completed", { contact_channel: "whatsapp", noteOverride: "WhatsApp enviado." })}
+                      onClick={() =>
+                        recordOutcome("completed", {
+                          contact_channel: outcomeChannel(selectedItem),
+                          noteOverride: itemUsesKommo(selectedItem) ? "Handoff preparado na Kommo." : "WhatsApp enviado.",
+                        })
+                      }
                       disabled={isMutating}
                     >
                       <MessageCircle className="h-4 w-4" />
-                      WhatsApp enviado
+                      {itemUsesKommo(selectedItem) ? "Kommo preparado" : "WhatsApp enviado"}
                     </Button>
                     <Button
                       size="sm"
