@@ -267,6 +267,12 @@ function BIFoundationMini() {
   const impact = data.follow_up_impact;
   const hasOutcomeBase = impact.acceptance_rate !== null;
   const flags = data.data_quality_flags;
+  const onboarding = data.onboarding_activation;
+  const staffExecution = data.staff_execution;
+  const aiFirstOps = data.ai_first_ops;
+  const retentionHotStages = data.retention_stage_mix.filter((stage) =>
+    ["recovery", "reactivation", "manager_escalation", "cold_base"].includes(stage.stage),
+  );
 
   const items = [
     {
@@ -329,6 +335,65 @@ function BIFoundationMini() {
           );
         })}
       </div>
+      <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/88 p-4 shadow-panel">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
+            Execucao e ativacao
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="font-display text-xl font-bold text-lovable-ink">{onboarding.active_members}</p>
+              <p className="text-xs text-lovable-ink-muted">onboarding ativo</p>
+            </div>
+            <div>
+              <p className="font-display text-xl font-bold text-lovable-ink">{staffExecution.completed_tasks_7d}</p>
+              <p className="text-xs text-lovable-ink-muted">tasks concluidas 7d</p>
+            </div>
+            <div>
+              <p className="font-display text-xl font-bold text-lovable-ink">
+                {aiFirstOps.human_task_avoidance_rate !== null ? percent(aiFirstOps.human_task_avoidance_rate) : "Sem base"}
+              </p>
+              <p className="text-xs text-lovable-ink-muted">resolucao Autopilot</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-lovable-ink-muted">
+            {staffExecution.overdue_open_tasks > 0
+              ? `${staffExecution.overdue_open_tasks} tasks vencidas exigem revisao da gestao.`
+              : "Sem backlog vencido relevante no corte operacional."}
+          </p>
+        </div>
+        <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/88 p-4 shadow-panel">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
+            Acoes da gestao
+          </p>
+          {data.manager_actions.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {data.manager_actions.slice(0, 2).map((action) => (
+                <div key={`${action.domain}-${action.title}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-lovable-ink-muted">Sem acao gerencial urgente no momento.</p>
+          )}
+        </div>
+      </div>
+      {retentionHotStages.some((stage) => stage.total > 0) ? (
+        <div className="flex flex-wrap gap-2">
+          {retentionHotStages
+            .filter((stage) => stage.total > 0)
+            .map((stage) => (
+              <span
+                key={stage.stage}
+                className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200"
+              >
+                {stage.label}: {stage.total}
+              </span>
+            ))}
+        </div>
+      ) : null}
       {flags.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {flags.map((flag) => (

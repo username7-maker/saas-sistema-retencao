@@ -147,6 +147,43 @@ const biFoundationData = {
     acceptance_rate: 58.3,
     data_quality: "ready",
   },
+  onboarding_activation: {
+    active_members: 83,
+    at_risk_members: 8,
+    average_score: 71.5,
+    handoff_due_members: 2,
+    first_assessment_rate_30d: 67.5,
+    data_quality: "ready",
+  },
+  retention_stage_mix: [
+    { stage: "recovery", label: "Recuperacao", total: 4, priority: 70 },
+    { stage: "reactivation", label: "Reativacao", total: 3, priority: 55 },
+  ],
+  staff_execution: {
+    completed_tasks_7d: 42,
+    overdue_open_tasks: 5,
+    coach_completed_7d: 16,
+    reception_completed_7d: 20,
+    manager_completed_7d: 6,
+    completion_mix: { coach: 16, reception: 20, manager: 6 },
+  },
+  ai_first_ops: {
+    autopilot_actions_30d: 30,
+    autopilot_succeeded_30d: 18,
+    autopilot_escalated_30d: 6,
+    autopilot_awaiting_30d: 3,
+    human_task_avoidance_rate: 75,
+    data_quality: "ready",
+  },
+  manager_actions: [
+    {
+      title: "Revisar alunos com receita em risco",
+      domain: "retention",
+      priority: "high",
+      reason: "Existem alunos amarelos/vermelhos afetando a receita prevista.",
+      metric_value: "6 alunos",
+    },
+  ],
   data_quality_flags: [],
 };
 
@@ -210,6 +247,8 @@ describe("DashboardLovable", () => {
 
     expect(screen.getByText("AI Insight Card")).toBeInTheDocument();
     expect(screen.getByText("ROI Summary Card")).toBeInTheDocument();
+    expect(screen.getByText("Execucao e ativacao")).toBeInTheDocument();
+    expect(screen.getByText("Revisar alunos com receita em risco")).toBeInTheDocument();
     expect(screen.getByText(/Acoes prioritarias/i)).toBeInTheDocument();
     expect(screen.getAllByText("Ana Silva").length).toBeGreaterThan(0);
     expect(screen.getByText("Lead Maria")).toBeInTheDocument();

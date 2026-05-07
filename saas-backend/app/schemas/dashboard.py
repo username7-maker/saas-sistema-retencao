@@ -108,6 +108,48 @@ class BIFollowUpImpact(BaseModel):
     data_quality: str
 
 
+class BIOnboardingActivation(BaseModel):
+    active_members: int = 0
+    at_risk_members: int = 0
+    average_score: float = 0.0
+    handoff_due_members: int = 0
+    first_assessment_rate_30d: float | None = None
+    data_quality: str = "no_base"
+
+
+class BIRetentionStagePoint(BaseModel):
+    stage: str
+    label: str
+    total: int
+    priority: int = 0
+
+
+class BIStaffExecution(BaseModel):
+    completed_tasks_7d: int = 0
+    overdue_open_tasks: int = 0
+    coach_completed_7d: int = 0
+    reception_completed_7d: int = 0
+    manager_completed_7d: int = 0
+    completion_mix: dict[str, int] = Field(default_factory=dict)
+
+
+class BIAIFirstOps(BaseModel):
+    autopilot_actions_30d: int = 0
+    autopilot_succeeded_30d: int = 0
+    autopilot_escalated_30d: int = 0
+    autopilot_awaiting_30d: int = 0
+    human_task_avoidance_rate: float | None = None
+    data_quality: str = "no_base"
+
+
+class BIManagerAction(BaseModel):
+    title: str
+    domain: str
+    priority: str
+    reason: str
+    metric_value: str | None = None
+
+
 class BIFoundationDashboard(BaseModel):
     generated_at: datetime
     cohort: list[BICohortPoint]
@@ -116,6 +158,11 @@ class BIFoundationDashboard(BaseModel):
     revenue_at_risk: float
     revenue_at_risk_members: int
     follow_up_impact: BIFollowUpImpact
+    onboarding_activation: BIOnboardingActivation = Field(default_factory=BIOnboardingActivation)
+    retention_stage_mix: list[BIRetentionStagePoint] = Field(default_factory=list)
+    staff_execution: BIStaffExecution = Field(default_factory=BIStaffExecution)
+    ai_first_ops: BIAIFirstOps = Field(default_factory=BIAIFirstOps)
+    manager_actions: list[BIManagerAction] = Field(default_factory=list)
     data_quality_flags: list[str]
 
 

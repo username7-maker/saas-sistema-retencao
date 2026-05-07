@@ -871,6 +871,48 @@ export interface BIFollowUpImpact {
   data_quality: string;
 }
 
+export interface BIOnboardingActivation {
+  active_members: number;
+  at_risk_members: number;
+  average_score: number;
+  handoff_due_members: number;
+  first_assessment_rate_30d: number | null;
+  data_quality: string;
+}
+
+export interface BIRetentionStagePoint {
+  stage: string;
+  label: string;
+  total: number;
+  priority: number;
+}
+
+export interface BIStaffExecution {
+  completed_tasks_7d: number;
+  overdue_open_tasks: number;
+  coach_completed_7d: number;
+  reception_completed_7d: number;
+  manager_completed_7d: number;
+  completion_mix: Record<string, number>;
+}
+
+export interface BIAIFirstOps {
+  autopilot_actions_30d: number;
+  autopilot_succeeded_30d: number;
+  autopilot_escalated_30d: number;
+  autopilot_awaiting_30d: number;
+  human_task_avoidance_rate: number | null;
+  data_quality: string;
+}
+
+export interface BIManagerAction {
+  title: string;
+  domain: string;
+  priority: string;
+  reason: string;
+  metric_value: string | null;
+}
+
 export interface BIFoundationDashboard {
   generated_at: string;
   cohort: BICohortPoint[];
@@ -879,6 +921,11 @@ export interface BIFoundationDashboard {
   revenue_at_risk: number;
   revenue_at_risk_members: number;
   follow_up_impact: BIFollowUpImpact;
+  onboarding_activation: BIOnboardingActivation;
+  retention_stage_mix: BIRetentionStagePoint[];
+  staff_execution: BIStaffExecution;
+  ai_first_ops: BIAIFirstOps;
+  manager_actions: BIManagerAction[];
   data_quality_flags: string[];
 }
 

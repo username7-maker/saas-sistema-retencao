@@ -155,6 +155,7 @@ export default function ReportsPage() {
     : undefined;
   const latestLtv = biFoundation.data?.ltv?.[biFoundation.data.ltv.length - 1];
   const forecast3m = biFoundation.data?.forecast?.find((point) => point.horizon_months === 3);
+  const firstManagerAction = biFoundation.data?.manager_actions?.[0];
 
   const handleDownload = async (type: DashboardReportType) => {
     setLoadingByType((prev) => ({ ...prev, [type]: true }));
@@ -321,17 +322,44 @@ export default function ReportsPage() {
                       </p>
                       <p className="mt-1 text-xs text-lovable-ink-muted">Projecao de receita</p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
-                      <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Follow-up</p>
+                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Follow-up</p>
                       <p className="mt-1 font-semibold text-lovable-ink">
                         {biFoundation.data.follow_up_impact.acceptance_rate !== null
                           ? `${biFoundation.data.follow_up_impact.acceptance_rate.toFixed(1)}%`
                           : `${biFoundation.data.follow_up_impact.completed_followups_30d}`}
                       </p>
-                      <p className="mt-1 text-xs text-lovable-ink-muted">Impacto em 30 dias</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">Impacto em 30 dias</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Execucao 7d</p>
+                        <p className="mt-1 font-semibold text-lovable-ink">
+                          {biFoundation.data.staff_execution.completed_tasks_7d}
+                        </p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">
+                          {biFoundation.data.staff_execution.overdue_open_tasks} vencidas abertas
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Autopilot</p>
+                        <p className="mt-1 font-semibold text-lovable-ink">
+                          {biFoundation.data.ai_first_ops.human_task_avoidance_rate !== null
+                            ? `${biFoundation.data.ai_first_ops.human_task_avoidance_rate.toFixed(1)}%`
+                            : "Sem base"}
+                        </p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">Resolucao sem task humana</p>
+                      </div>
                     </div>
-                  </div>
-                  {biFoundation.data.data_quality_flags.length > 0 ? (
+                    {firstManagerAction ? (
+                      <div className="rounded-2xl border border-lovable-primary/20 bg-lovable-primary/10 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-primary-light">
+                          Proxima acao de gestao
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-lovable-ink">{firstManagerAction.title}</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">{firstManagerAction.reason}</p>
+                      </div>
+                    ) : null}
+                    {biFoundation.data.data_quality_flags.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {biFoundation.data.data_quality_flags.map((flag) => (
                         <span

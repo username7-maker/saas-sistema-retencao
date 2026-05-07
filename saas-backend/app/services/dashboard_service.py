@@ -12,6 +12,8 @@ from app.models import (
     AITriageRecommendation,
     Assessment,
     AuditLog,
+    AutopilotAction,
+    BodyCompositionEvaluation,
     Checkin,
     Lead,
     LeadStage,
@@ -25,9 +27,14 @@ from app.models import (
 )
 from app.models.enums import ChurnType
 from app.schemas import (
+    BIAIFirstOps,
     BICohortPoint,
     BIFollowUpImpact,
     BIFoundationDashboard,
+    BIManagerAction,
+    BIOnboardingActivation,
+    BIRetentionStagePoint,
+    BIStaffExecution,
     ChurnPoint,
     ConversionBySource,
     CommercialDashboard,
@@ -420,7 +427,12 @@ def get_bi_foundation_dashboard(db: Session, months: int = 6) -> BIFoundationDas
     ltv = get_ltv_dashboard(db, months=months)
     financial = FinancialDashboard.model_validate(get_financial_dashboard(db))
     retention = RetentionDashboard.model_validate(get_retention_dashboard(db))
-    follow_up_impact = _follow_up_impact(db, since=_utcnow() - timedelta(days=30), gym_id=resolved_gym_id)
+    now = _utcnow()
+    follow_up_impact = _follow_up_impact(db, since=now - timedelta(days=30), gym_id=resolved_gym_id)
+    onboarding_activation = _onboarding_activation(db, gym_id=resolved_gym_id)
+    retention_stage_mix = _retention_stage_mix(db, gym_id=resolved_gym_id)
+    staff_execution = _staff_execution(db, since=now - timedelta(days=7), gym_id=resolved_gym_id)
+    ai_first_ops = _ai_first_ops(db, since=now - timedelta(days=30), gym_id=resolved_gym_id)
 
     red_total = int(retention.red.total or 0)
     yellow_total = int(retention.yellow.total or 0)
@@ -432,8 +444,23 @@ def get_bi_foundation_dashboard(db: Session, months: int = 6) -> BIFoundationDas
         data_quality_flags.append("missing_ltv_history")
     if follow_up_impact.data_quality != "ready":
         data_quality_flags.append("missing_follow_up_outcomes")
+    if onboarding_activation.data_quality != "ready":
+        data_quality_flags.append("missing_onboarding_activation_base")
+    if ai_first_ops.data_quality != "ready":
+        data_quality_flags.append("missing_ai_first_ops_base")
     if (red_total + yellow_total) > 0 and retention.mrr_at_risk <= 0:
         data_quality_flags.append("revenue_at_risk_without_fee_base")
+    if staff_execution.overdue_open_tasks > 0:
+        data_quality_flags.append("execution_backlog_attention")
+
+    manager_actions = _manager_actions(
+        revenue_at_risk_members=red_total + yellow_total,
+        revenue_at_risk=float(retention.mrr_at_risk or 0),
+        onboarding_activation=onboarding_activation,
+        retention_stage_mix=retention_stage_mix,
+        staff_execution=staff_execution,
+        ai_first_ops=ai_first_ops,
+    )
 
     payload = BIFoundationDashboard(
         generated_at=_utcnow(),
@@ -443,6 +470,11 @@ def get_bi_foundation_dashboard(db: Session, months: int = 6) -> BIFoundationDas
         revenue_at_risk=round(float(retention.mrr_at_risk or 0), 2),
         revenue_at_risk_members=red_total + yellow_total,
         follow_up_impact=follow_up_impact,
+        onboarding_activation=onboarding_activation,
+        retention_stage_mix=retention_stage_mix,
+        staff_execution=staff_execution,
+        ai_first_ops=ai_first_ops,
+        manager_actions=manager_actions,
         data_quality_flags=data_quality_flags,
     )
     _cache_dashboard_payload(cache_key, BIFoundationDashboard, payload)
@@ -567,6 +599,242 @@ def _follow_up_impact(db: Session, *, since: datetime, gym_id=None) -> BIFollowU
         acceptance_rate=acceptance_rate,
         data_quality=data_quality,
     )
+
+
+def _onboarding_activation(db: Session, *, gym_id=None) -> BIOnboardingActivation:
+    base_filters = [Member.deleted_at.is_(None), Member.status == MemberStatus.ACTIVE]
+    if gym_id is not None:
+        base_filters.append(Member.gym_id == gym_id)
+
+    onboarding_filters = [
+        *base_filters,
+        Member.onboarding_status.in_(["active", "at_risk"]),
+    ]
+    active_members = int(db.scalar(select(func.count()).select_from(Member).where(*onboarding_filters)) or 0)
+    at_risk_members = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Member)
+            .where(*base_filters, Member.onboarding_status == "at_risk")
+        )
+        or 0
+    )
+    average_score = float(
+        db.scalar(select(func.coalesce(func.avg(Member.onboarding_score), 0.0)).where(*onboarding_filters)) or 0.0
+    )
+    handoff_due_members = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Member)
+            .where(
+                *base_filters,
+                Member.onboarding_status.in_(["active", "at_risk"]),
+                Member.join_date <= (_utcnow().date() - timedelta(days=30)),
+            )
+        )
+        or 0
+    )
+
+    cutoff_date = _utcnow().date() - timedelta(days=30)
+    new_member_filters = [*base_filters, Member.join_date >= cutoff_date]
+    new_members = int(db.scalar(select(func.count()).select_from(Member).where(*new_member_filters)) or 0)
+
+    assessment_start = datetime.combine(cutoff_date, time.min, tzinfo=timezone.utc)
+    assessment_filters = [Assessment.deleted_at.is_(None), Assessment.assessment_date >= assessment_start]
+    body_composition_filters = [BodyCompositionEvaluation.evaluation_date >= cutoff_date]
+    if gym_id is not None:
+        assessment_filters.append(Assessment.gym_id == gym_id)
+        body_composition_filters.append(BodyCompositionEvaluation.gym_id == gym_id)
+
+    assessed_members = 0
+    if new_members:
+        formal_assessment_ids = select(Assessment.member_id).where(*assessment_filters)
+        body_composition_ids = select(BodyCompositionEvaluation.member_id).where(*body_composition_filters)
+        assessed_members = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Member)
+                .where(
+                    *new_member_filters,
+                    or_(Member.id.in_(formal_assessment_ids), Member.id.in_(body_composition_ids)),
+                )
+            )
+            or 0
+        )
+
+    first_assessment_rate_30d = round((assessed_members / new_members) * 100, 1) if new_members else None
+    data_quality = "ready" if active_members or new_members else "no_base"
+    return BIOnboardingActivation(
+        active_members=active_members,
+        at_risk_members=at_risk_members,
+        average_score=round(average_score, 1),
+        handoff_due_members=handoff_due_members,
+        first_assessment_rate_30d=first_assessment_rate_30d,
+        data_quality=data_quality,
+    )
+
+
+def _retention_stage_mix(db: Session, *, gym_id=None) -> list[BIRetentionStagePoint]:
+    filters = [Member.deleted_at.is_(None), Member.status == MemberStatus.ACTIVE]
+    if gym_id is not None:
+        filters.append(Member.gym_id == gym_id)
+
+    rows = db.execute(
+        select(Member.retention_stage, func.count(Member.id).label("total"))
+        .where(*filters)
+        .group_by(Member.retention_stage)
+    ).all()
+    counts = {str(row.retention_stage or RETENTION_STAGE_MONITORING): int(row.total or 0) for row in rows}
+    points: list[BIRetentionStagePoint] = []
+    for stage in RETENTION_STAGE_ORDER:
+        payload = retention_stage_payload(stage)
+        points.append(
+            BIRetentionStagePoint(
+                stage=stage,
+                label=str(payload.get("retention_stage_label") or stage),
+                total=counts.get(stage, 0),
+                priority=int(payload.get("retention_stage_priority") or 0),
+            )
+        )
+    return points
+
+
+def _staff_execution(db: Session, *, since: datetime, gym_id=None) -> BIStaffExecution:
+    completed_filters = [
+        Task.deleted_at.is_(None),
+        Task.status == TaskStatus.DONE,
+        Task.completed_at >= since,
+    ]
+    open_overdue_filters = [
+        Task.deleted_at.is_(None),
+        Task.status.in_([TaskStatus.TODO, TaskStatus.DOING]),
+        Task.due_date.is_not(None),
+        Task.due_date < _utcnow(),
+    ]
+    if gym_id is not None:
+        completed_filters.append(Task.gym_id == gym_id)
+        open_overdue_filters.append(Task.gym_id == gym_id)
+
+    completed_tasks = int(db.scalar(select(func.count()).select_from(Task).where(*completed_filters)) or 0)
+    overdue_open_tasks = int(db.scalar(select(func.count()).select_from(Task).where(*open_overdue_filters)) or 0)
+
+    owner_role = func.lower(func.coalesce(Task.extra_data["owner_role"].astext, "sem_role"))
+    rows = db.execute(
+        select(owner_role.label("owner_role"), func.count(Task.id).label("total"))
+        .where(*completed_filters)
+        .group_by(owner_role)
+    ).all()
+    completion_mix = {str(row.owner_role or "sem_role"): int(row.total or 0) for row in rows}
+
+    coach_roles = {"coach", "trainer", "professor", "instructor"}
+    reception_roles = {"reception", "receptionist", "frontdesk"}
+    manager_roles = {"manager", "owner", "gestao"}
+    return BIStaffExecution(
+        completed_tasks_7d=completed_tasks,
+        overdue_open_tasks=overdue_open_tasks,
+        coach_completed_7d=sum(total for role, total in completion_mix.items() if role in coach_roles),
+        reception_completed_7d=sum(total for role, total in completion_mix.items() if role in reception_roles),
+        manager_completed_7d=sum(total for role, total in completion_mix.items() if role in manager_roles),
+        completion_mix=completion_mix,
+    )
+
+
+def _ai_first_ops(db: Session, *, since: datetime, gym_id=None) -> BIAIFirstOps:
+    filters = [AutopilotAction.created_at >= since]
+    if gym_id is not None:
+        filters.append(AutopilotAction.gym_id == gym_id)
+
+    total = int(db.scalar(select(func.count()).select_from(AutopilotAction).where(*filters)) or 0)
+    succeeded = int(
+        db.scalar(select(func.count()).select_from(AutopilotAction).where(*filters, AutopilotAction.status == "succeeded"))
+        or 0
+    )
+    escalated = int(
+        db.scalar(select(func.count()).select_from(AutopilotAction).where(*filters, AutopilotAction.status == "escalated"))
+        or 0
+    )
+    awaiting = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AutopilotAction)
+            .where(*filters, AutopilotAction.status.in_(["scheduled", "sent", "awaiting_outcome"]))
+        )
+        or 0
+    )
+    resolution_base = succeeded + escalated
+    avoidance_rate = round((succeeded / resolution_base) * 100, 1) if resolution_base else None
+    return BIAIFirstOps(
+        autopilot_actions_30d=total,
+        autopilot_succeeded_30d=succeeded,
+        autopilot_escalated_30d=escalated,
+        autopilot_awaiting_30d=awaiting,
+        human_task_avoidance_rate=avoidance_rate,
+        data_quality="ready" if total else "no_base",
+    )
+
+
+def _manager_actions(
+    *,
+    revenue_at_risk_members: int,
+    revenue_at_risk: float,
+    onboarding_activation: BIOnboardingActivation,
+    retention_stage_mix: list[BIRetentionStagePoint],
+    staff_execution: BIStaffExecution,
+    ai_first_ops: BIAIFirstOps,
+) -> list[BIManagerAction]:
+    actions: list[BIManagerAction] = []
+    if revenue_at_risk_members > 0:
+        actions.append(
+            BIManagerAction(
+                title="Revisar alunos com receita em risco",
+                domain="retention",
+                priority="high",
+                reason="Existem alunos amarelos/vermelhos afetando a receita prevista.",
+                metric_value=f"{revenue_at_risk_members} alunos | R$ {revenue_at_risk:,.0f}",
+            )
+        )
+    if onboarding_activation.at_risk_members > 0:
+        actions.append(
+            BIManagerAction(
+                title="Fechar gargalos de onboarding",
+                domain="onboarding",
+                priority="high",
+                reason="Alunos novos em risco precisam de ativacao antes de virar retencao.",
+                metric_value=f"{onboarding_activation.at_risk_members} alunos em risco",
+            )
+        )
+    if staff_execution.overdue_open_tasks > 0:
+        actions.append(
+            BIManagerAction(
+                title="Destravar backlog operacional",
+                domain="operations",
+                priority="medium",
+                reason="Tasks vencidas reduzem confianca da fila e precisam de saneamento por responsavel.",
+                metric_value=f"{staff_execution.overdue_open_tasks} vencidas",
+            )
+        )
+    if ai_first_ops.autopilot_escalated_30d > 0:
+        actions.append(
+            BIManagerAction(
+                title="Revisar escalamentos do Autopilot",
+                domain="ai_first",
+                priority="medium",
+                reason="Escalamentos indicam automacoes bloqueadas, casos sensiveis ou falta de evidencia segura.",
+                metric_value=f"{ai_first_ops.autopilot_escalated_30d} escalamentos",
+            )
+        )
+    cold_base = next((point for point in retention_stage_mix if point.stage == RETENTION_STAGE_COLD_BASE), None)
+    if cold_base and cold_base.total > 0:
+        actions.append(
+            BIManagerAction(
+                title="Separar campanha para base fria",
+                domain="retention",
+                priority="medium",
+                reason="60+ dias sem check-in nao deve competir com a fila diaria comum.",
+                metric_value=f"{cold_base.total} alunos em base fria",
+            )
+        )
+    return actions[:5]
 
 
 def _resolve_dashboard_gym_id(gym_id=None):

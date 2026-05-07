@@ -7,7 +7,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models import MemberStatus, RiskLevel
-from app.schemas import BICohortPoint, BIFollowUpImpact, LTVPoint, ProjectionPoint
+from app.schemas import (
+    BIAIFirstOps,
+    BICohortPoint,
+    BIFollowUpImpact,
+    BIManagerAction,
+    BIOnboardingActivation,
+    BIRetentionStagePoint,
+    BIStaffExecution,
+    LTVPoint,
+    ProjectionPoint,
+)
 from app.schemas.member import MemberOut
 
 
@@ -313,6 +323,11 @@ class TestGetFinancialDashboard:
 class TestGetBIFoundationDashboard:
     @patch("app.services.dashboard_service.dashboard_cache")
     @patch("app.services.dashboard_service._resolve_dashboard_gym_id", return_value=GYM_ID)
+    @patch("app.services.dashboard_service._manager_actions")
+    @patch("app.services.dashboard_service._ai_first_ops")
+    @patch("app.services.dashboard_service._staff_execution")
+    @patch("app.services.dashboard_service._retention_stage_mix")
+    @patch("app.services.dashboard_service._onboarding_activation")
     @patch("app.services.dashboard_service._follow_up_impact")
     @patch("app.services.dashboard_service.get_retention_dashboard")
     @patch("app.services.dashboard_service.get_financial_dashboard")
@@ -325,6 +340,11 @@ class TestGetBIFoundationDashboard:
         mock_financial,
         mock_retention,
         mock_impact,
+        mock_onboarding,
+        mock_stage_mix,
+        mock_staff,
+        mock_ai_first,
+        mock_manager_actions,
         mock_gym,
         mock_cache,
     ):
@@ -356,6 +376,42 @@ class TestGetBIFoundationDashboard:
             acceptance_rate=50.0,
             data_quality="ready",
         )
+        mock_onboarding.return_value = BIOnboardingActivation(
+            active_members=8,
+            at_risk_members=1,
+            average_score=72.5,
+            handoff_due_members=0,
+            first_assessment_rate_30d=80.0,
+            data_quality="ready",
+        )
+        mock_stage_mix.return_value = [
+            BIRetentionStagePoint(stage="recovery", label="Recuperacao", total=2, priority=70)
+        ]
+        mock_staff.return_value = BIStaffExecution(
+            completed_tasks_7d=12,
+            overdue_open_tasks=0,
+            coach_completed_7d=5,
+            reception_completed_7d=6,
+            manager_completed_7d=1,
+            completion_mix={"coach": 5, "reception": 6, "manager": 1},
+        )
+        mock_ai_first.return_value = BIAIFirstOps(
+            autopilot_actions_30d=10,
+            autopilot_succeeded_30d=7,
+            autopilot_escalated_30d=2,
+            autopilot_awaiting_30d=1,
+            human_task_avoidance_rate=77.8,
+            data_quality="ready",
+        )
+        mock_manager_actions.return_value = [
+            BIManagerAction(
+                title="Revisar alunos com receita em risco",
+                domain="retention",
+                priority="high",
+                reason="Base de risco ativa.",
+                metric_value="5 alunos",
+            )
+        ]
 
         from app.services.dashboard_service import get_bi_foundation_dashboard
 
@@ -367,12 +423,22 @@ class TestGetBIFoundationDashboard:
         assert result.revenue_at_risk == 2500.0
         assert result.revenue_at_risk_members == 5
         assert result.follow_up_impact.acceptance_rate == 50.0
+        assert result.onboarding_activation.average_score == 72.5
+        assert result.retention_stage_mix[0].stage == "recovery"
+        assert result.staff_execution.completed_tasks_7d == 12
+        assert result.ai_first_ops.human_task_avoidance_rate == 77.8
+        assert result.manager_actions[0].domain == "retention"
         assert result.data_quality_flags == []
         mock_cohort.assert_called_once_with(mock_cohort.call_args.args[0], 6, gym_id=GYM_ID)
         mock_cache.set.assert_called_once()
 
     @patch("app.services.dashboard_service.dashboard_cache")
     @patch("app.services.dashboard_service._resolve_dashboard_gym_id", return_value=None)
+    @patch("app.services.dashboard_service._manager_actions", return_value=[])
+    @patch("app.services.dashboard_service._ai_first_ops")
+    @patch("app.services.dashboard_service._staff_execution")
+    @patch("app.services.dashboard_service._retention_stage_mix", return_value=[])
+    @patch("app.services.dashboard_service._onboarding_activation")
     @patch("app.services.dashboard_service._follow_up_impact")
     @patch("app.services.dashboard_service.get_retention_dashboard")
     @patch("app.services.dashboard_service.get_financial_dashboard")
@@ -385,6 +451,11 @@ class TestGetBIFoundationDashboard:
         mock_financial,
         mock_retention,
         mock_impact,
+        mock_onboarding,
+        mock_stage_mix,
+        mock_staff,
+        mock_ai_first,
+        mock_manager_actions,
         mock_gym,
         mock_cache,
     ):
@@ -408,6 +479,9 @@ class TestGetBIFoundationDashboard:
             acceptance_rate=None,
             data_quality="no_base",
         )
+        mock_onboarding.return_value = BIOnboardingActivation(data_quality="no_base")
+        mock_staff.return_value = BIStaffExecution(overdue_open_tasks=2)
+        mock_ai_first.return_value = BIAIFirstOps(data_quality="no_base")
 
         from app.services.dashboard_service import get_bi_foundation_dashboard
 
@@ -416,4 +490,7 @@ class TestGetBIFoundationDashboard:
         assert "missing_cohort_history" in result.data_quality_flags
         assert "missing_ltv_history" in result.data_quality_flags
         assert "missing_follow_up_outcomes" in result.data_quality_flags
+        assert "missing_onboarding_activation_base" in result.data_quality_flags
+        assert "missing_ai_first_ops_base" in result.data_quality_flags
+        assert "execution_backlog_attention" in result.data_quality_flags
         assert "revenue_at_risk_without_fee_base" in result.data_quality_flags
