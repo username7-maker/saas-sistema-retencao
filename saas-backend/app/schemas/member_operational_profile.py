@@ -36,6 +36,7 @@ class MemberOperationalProfileOut(BaseModel):
     member: dict
     permissions: dict
     summary: dict
+    lifecycle: dict = Field(default_factory=dict)
     risk: dict
     activity: dict
     assessment: dict

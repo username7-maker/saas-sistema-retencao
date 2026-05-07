@@ -62,6 +62,13 @@ class MemberOut(BaseModel):
     churn_type: str | None = None
     is_vip: bool = False
     retention_stage: str | None = None
+    lifecycle_stage: str | None = None
+    lifecycle_label: str | None = None
+    operational_lane: str | None = None
+    recommended_owner_role: str | None = None
+    lifecycle_priority: int = 0
+    lifecycle_reason: str | None = None
+    lifecycle_next_focus: str | None = None
     created_at: datetime
     updated_at: datetime
 

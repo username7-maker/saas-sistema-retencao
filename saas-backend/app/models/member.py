@@ -120,3 +120,45 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
         if self.loyalty_months < 2:
             return "Acompanhar onboarding"
         return None
+
+    @property
+    def lifecycle_stage(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "lifecycle_stage")
+
+    @property
+    def lifecycle_label(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "lifecycle_label")
+
+    @property
+    def operational_lane(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "operational_lane")
+
+    @property
+    def recommended_owner_role(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "recommended_owner_role")
+
+    @property
+    def lifecycle_priority(self) -> int:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return int(member_lifecycle_field(self, "lifecycle_priority") or 0)
+
+    @property
+    def lifecycle_reason(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "reason")
+
+    @property
+    def lifecycle_next_focus(self) -> str | None:
+        from app.services.member_lifecycle_service import member_lifecycle_field
+
+        return member_lifecycle_field(self, "next_focus")

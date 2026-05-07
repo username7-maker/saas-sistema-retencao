@@ -10,7 +10,15 @@ import { lgpdService } from "../../services/lgpdService";
 import { memberService } from "../../services/memberService";
 import { canAnonymizeLgpd, canExportLgpd, canManageMemberConsents } from "../../utils/roleAccess";
 import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
-import { RISK_LABELS, RISK_VARIANTS, STATUS_LABELS, STATUS_VARIANTS } from "./memberUtils";
+import {
+  getLifecycleLabel,
+  getLifecycleVariant,
+  getOwnerRoleLabel,
+  RISK_LABELS,
+  RISK_VARIANTS,
+  STATUS_LABELS,
+  STATUS_VARIANTS,
+} from "./memberUtils";
 
 const CONSENT_LABELS: Record<string, string> = {
   lgpd: "LGPD / dados",
@@ -179,6 +187,22 @@ export function MemberDetailDrawer({
               Risco {RISK_LABELS[member.risk_level]} ({member.risk_score})
             </Badge>
             <Badge variant={STATUS_VARIANTS[member.status]}>{STATUS_LABELS[member.status]}</Badge>
+            <Badge variant={getLifecycleVariant(member)}>{getLifecycleLabel(member)}</Badge>
+          </div>
+
+          <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
+              Ciclo de vida operacional
+            </p>
+            <p className="mt-2 text-sm font-semibold text-lovable-ink">
+              {member.lifecycle_next_focus ?? "Sem proxima acao de ciclo definida."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-lovable-ink-muted">
+              {member.lifecycle_reason ? <span>{member.lifecycle_reason}</span> : null}
+              {getOwnerRoleLabel(member.recommended_owner_role) ? (
+                <span>Dono sugerido: {getOwnerRoleLabel(member.recommended_owner_role)}</span>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">

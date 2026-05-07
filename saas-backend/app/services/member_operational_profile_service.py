@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.schemas.member_operational_profile import MemberNoteCreate
 from app.services.member_intelligence_service import get_member_intelligence_context
+from app.services.member_lifecycle_service import build_member_lifecycle_state
 from app.services.member_next_best_action_service import build_member_next_best_action
 from app.services.member_profile_permissions_service import build_member_profile_permissions, filter_member_note_for_role
 from app.services.member_service import get_member_or_404
@@ -40,6 +41,7 @@ def build_member_operational_profile(db: Session, *, member_id: UUID, current_us
     financial_summary = _build_financial_summary(db, member, permissions)
     commercial_summary = _build_commercial_summary(db, member, permissions)
     autopilot_summary = _build_autopilot_summary(db, member, permissions)
+    lifecycle = build_member_lifecycle_state(member)
 
     next_best_action = build_member_next_best_action(
         db,
@@ -51,9 +53,10 @@ def build_member_operational_profile(db: Session, *, member_id: UUID, current_us
 
     return {
         "generated_at": datetime.now(tz=timezone.utc),
-        "member": _serialize_member(member, permissions),
+        "member": _serialize_member(member, permissions, lifecycle),
         "permissions": permissions,
-        "summary": _build_summary(member, intelligence_payload, financial_summary, autopilot_summary),
+        "summary": _build_summary(member, intelligence_payload, financial_summary, autopilot_summary, lifecycle),
+        "lifecycle": lifecycle,
         "risk": intelligence_payload.get("risk") or {},
         "activity": intelligence_payload.get("activity") or {},
         "assessment": intelligence_payload.get("assessment") or {},
@@ -112,7 +115,7 @@ def create_member_note(db: Session, *, member_id: UUID, current_user: User, payl
     return note
 
 
-def _serialize_member(member: Member, permissions: dict) -> dict:
+def _serialize_member(member: Member, permissions: dict, lifecycle: dict) -> dict:
     payload = {
         "id": str(member.id),
         "full_name": member.full_name,
@@ -127,6 +130,11 @@ def _serialize_member(member: Member, permissions: dict) -> dict:
         "onboarding_status": member.onboarding_status,
         "retention_stage": member.retention_stage,
         "is_vip": member.is_vip,
+        "lifecycle_stage": lifecycle.get("lifecycle_stage"),
+        "lifecycle_label": lifecycle.get("lifecycle_label"),
+        "operational_lane": lifecycle.get("operational_lane"),
+        "recommended_owner_role": lifecycle.get("recommended_owner_role"),
+        "lifecycle_priority": lifecycle.get("lifecycle_priority"),
     }
     if permissions.get("can_view_contact"):
         payload.update({"email": member.email, "phone": member.phone})
@@ -135,7 +143,7 @@ def _serialize_member(member: Member, permissions: dict) -> dict:
     return payload
 
 
-def _build_summary(member: Member, intelligence: dict, financial: dict | None, autopilot: dict) -> dict:
+def _build_summary(member: Member, intelligence: dict, financial: dict | None, autopilot: dict, lifecycle: dict) -> dict:
     activity = intelligence.get("activity") or {}
     operations = intelligence.get("operations") or {}
     return {
@@ -147,6 +155,8 @@ def _build_summary(member: Member, intelligence: dict, financial: dict | None, a
         "overdue_tasks_total": operations.get("overdue_tasks_total", 0),
         "financial_open_amount": (financial or {}).get("open_amount"),
         "autopilot_state": autopilot.get("state"),
+        "lifecycle_label": lifecycle.get("lifecycle_label"),
+        "next_focus": lifecycle.get("next_focus"),
         "last_interaction_at": _latest_timestamp_from_summary(financial, autopilot),
     }
 

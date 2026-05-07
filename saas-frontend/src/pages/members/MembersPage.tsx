@@ -29,6 +29,9 @@ import { EditMemberDrawer } from "./EditMemberDrawer";
 import { MemberDetailDrawer } from "./MemberDetailDrawer";
 import {
   getMemberExternalId,
+  getLifecycleLabel,
+  getLifecycleVariant,
+  getOwnerRoleLabel,
   getUpcomingBirthdayLabel,
   isProvisionalMember,
   PAGE_SIZE,
@@ -395,7 +398,23 @@ export function MembersPage() {
                         <Badge variant="neutral" className="px-2 py-0.5 text-[11px] normal-case tracking-normal">
                           {member.risk_score} pts
                         </Badge>
+                        <Badge
+                          variant={getLifecycleVariant(member)}
+                          className="px-2 py-0.5 text-[11px] normal-case tracking-normal"
+                        >
+                          {getLifecycleLabel(member)}
+                        </Badge>
                       </div>
+                      {member.lifecycle_next_focus ? (
+                        <p className="mt-2 max-w-[280px] text-xs leading-relaxed text-lovable-ink-muted">
+                          {member.lifecycle_next_focus}
+                        </p>
+                      ) : null}
+                      {getOwnerRoleLabel(member.recommended_owner_role) ? (
+                        <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-lovable-ink-muted">
+                          Dono sugerido: {getOwnerRoleLabel(member.recommended_owner_role)}
+                        </p>
+                      ) : null}
                     </TableCell>
 
                     <TableCell>

@@ -341,6 +341,13 @@ export interface Member {
   suggested_action?: string | null;
   onboarding_status?: 'active' | 'completed' | 'at_risk' | null;
   onboarding_score?: number | null;
+  lifecycle_stage?: string | null;
+  lifecycle_label?: string | null;
+  operational_lane?: string | null;
+  recommended_owner_role?: string | null;
+  lifecycle_priority?: number;
+  lifecycle_reason?: string | null;
+  lifecycle_next_focus?: string | null;
   created_at: string;
   updated_at: string;
 }

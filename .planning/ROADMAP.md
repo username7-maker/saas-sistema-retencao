@@ -4,7 +4,7 @@
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
 - In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
-- In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`; 7.1 segue parcialmente pulada por decisao de foco operacional, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
+- In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.1 retrofit implementado como lifecycle operacional em Membros/Perfil; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
 
 ## Active Milestone - v3.2.0 Operacao de Base
 

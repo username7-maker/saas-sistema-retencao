@@ -27,6 +27,55 @@ export const STATUS_VARIANTS: Record<Member["status"], "success" | "warning" | "
   cancelled: "danger",
 };
 
+export const LIFECYCLE_LABELS: Record<string, string> = {
+  active: "Rotina",
+  onboarding: "Onboarding",
+  attention: "Atencao",
+  recovery: "Recuperacao",
+  reactivation: "Reativacao",
+  manager_escalation: "Gerente",
+  cold_base: "Base fria",
+  paused: "Pausado",
+  cancelled: "Cancelado",
+};
+
+export const LIFECYCLE_VARIANTS: Record<string, "neutral" | "success" | "warning" | "danger" | "info"> = {
+  active: "success",
+  onboarding: "info",
+  attention: "warning",
+  recovery: "danger",
+  reactivation: "warning",
+  manager_escalation: "danger",
+  cold_base: "neutral",
+  paused: "warning",
+  cancelled: "neutral",
+};
+
+export const OWNER_ROLE_LABELS: Record<string, string> = {
+  receptionist: "Recepcao",
+  trainer: "Professor",
+  manager: "Gerente",
+  owner: "Owner",
+  salesperson: "Comercial",
+  system: "Sistema",
+};
+
+export function getLifecycleLabel(member: Member): string {
+  if (member.lifecycle_label) return member.lifecycle_label;
+  const stage = member.lifecycle_stage ?? "active";
+  return LIFECYCLE_LABELS[stage] ?? stage;
+}
+
+export function getLifecycleVariant(member: Member): "neutral" | "success" | "warning" | "danger" | "info" {
+  const stage = member.lifecycle_stage ?? "active";
+  return LIFECYCLE_VARIANTS[stage] ?? "neutral";
+}
+
+export function getOwnerRoleLabel(role?: string | null): string | null {
+  if (!role) return null;
+  return OWNER_ROLE_LABELS[role] ?? role;
+}
+
 export type MemberQueryFilters = Omit<MemberFilters, "page" | "page_size">;
 
 export function getMemberExternalId(member: Member): string | null {

@@ -131,6 +131,7 @@ export interface MemberOperationalProfile {
   member: Record<string, unknown>;
   permissions: Record<string, unknown>;
   summary: Record<string, unknown>;
+  lifecycle: Record<string, unknown>;
   risk: Record<string, unknown>;
   activity: Record<string, unknown>;
   assessment: Record<string, unknown>;
