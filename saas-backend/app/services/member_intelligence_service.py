@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import include_all_tenants
 from app.models import (
     Assessment,
+    AssessmentAppointment,
     BodyCompositionEvaluation,
     Checkin,
     Lead,
@@ -428,6 +429,15 @@ def get_member_intelligence_context(
         BodyCompositionEvaluation.gym_id == gym_id,
         BodyCompositionEvaluation.member_id == member.id,
     )
+    historical_appointments_total = _count(
+        db,
+        AssessmentAppointment,
+        AssessmentAppointment.gym_id == gym_id,
+        AssessmentAppointment.member_id == member.id,
+        AssessmentAppointment.deleted_at.is_(None),
+        AssessmentAppointment.status.in_(("attended", "completed")),
+    )
+    assessments_total += historical_appointments_total
     open_tasks_total = _count(
         db,
         Task,

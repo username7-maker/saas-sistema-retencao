@@ -175,11 +175,39 @@ export interface AssessmentQueueItem {
   next_assessment_due: string | null;
   queue_bucket: AssessmentQueueBucket;
   coverage_label: string;
+  coverage_source?: string | null;
   due_label: string;
   urgency_score: number;
   queue_resolution_status?: AssessmentQueueResolutionStatus;
   queue_resolution_label?: string | null;
   queue_resolution_note?: string | null;
+}
+
+export interface AssessmentAppointment {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  member_name: string | null;
+  scheduled_at: string;
+  assessment_type: string;
+  status: string;
+  payment_status: string;
+  evaluator_user_id: string | null;
+  evaluator_name: string | null;
+  evaluator_name_raw: string | null;
+  notes: string | null;
+  source: string;
+  external_reference: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssessmentAppointmentResponse {
+  items: AssessmentAppointment[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface AssessmentQueueResponse {
@@ -355,6 +383,7 @@ function normalizeAssessmentQueueItem(payload: unknown): AssessmentQueueItem {
     next_assessment_due: asNullableString(data.next_assessment_due),
     queue_bucket: asString(data.queue_bucket, "covered") as AssessmentQueueBucket,
     coverage_label: asString(data.coverage_label, "Sem cobertura operacional"),
+    coverage_source: asNullableString(data.coverage_source),
     due_label: asString(data.due_label, "Sem janela definida"),
     urgency_score: asNumber(data.urgency_score),
     queue_resolution_status: asString(data.queue_resolution_status, "active") as AssessmentQueueResolutionStatus,
@@ -678,6 +707,17 @@ export interface ActuarSyncQueueParams {
   search?: string;
 }
 
+export interface AssessmentAppointmentParams {
+  page?: number;
+  page_size?: number;
+  date_from?: string;
+  date_to?: string;
+  status?: string;
+  payment_status?: string;
+  evaluator_user_id?: string;
+  search?: string;
+}
+
 export const assessmentService = {
   async dashboard(): Promise<AssessmentDashboard> {
     const { data } = await api.get<AssessmentDashboard>("/api/v1/assessments/dashboard");
@@ -710,6 +750,27 @@ export const assessmentService = {
 
   async updateQueueResolution(memberId: string, payload: AssessmentQueueResolutionInput): Promise<AssessmentQueueResolutionResult> {
     const { data } = await api.put<AssessmentQueueResolutionResult>(`/api/v1/assessments/members/${memberId}/queue-resolution`, payload);
+    return data;
+  },
+
+  async appointments(params: AssessmentAppointmentParams = {}): Promise<AssessmentAppointmentResponse> {
+    const { data } = await api.get<AssessmentAppointmentResponse>("/api/v1/assessment-appointments", {
+      params: {
+        page: params.page ?? 1,
+        page_size: params.page_size ?? 50,
+        date_from: params.date_from || undefined,
+        date_to: params.date_to || undefined,
+        status: params.status || undefined,
+        payment_status: params.payment_status || undefined,
+        evaluator_user_id: params.evaluator_user_id || undefined,
+        search: params.search?.trim() ? params.search.trim() : undefined,
+      },
+    });
+    return data;
+  },
+
+  async updateAppointment(id: string, payload: Partial<AssessmentAppointment>): Promise<AssessmentAppointment> {
+    const { data } = await api.patch<AssessmentAppointment>(`/api/v1/assessment-appointments/${id}`, payload);
     return data;
   },
 

@@ -116,6 +116,8 @@ function itemUsesKommo(item: WorkQueueItem): boolean {
 
 function primaryChannelLabel(item: WorkQueueItem): string {
   if (item.channel_action_label) return item.channel_action_label;
+  if (item.source_type === "ai_service_agent") return "Preparar na Kommo";
+  if (item.source_type === "student_personal_ai") return "Preparar resposta Kommo";
   if (itemUsesKommo(item)) return "Enviar para Kommo";
   return "Enviar pelo canal principal";
 }
@@ -127,6 +129,8 @@ function outcomeChannel(item: WorkQueueItem): "kommo" | "whatsapp" {
 function formatSourceLabel(item: WorkQueueItem): string {
   if (item.source_type === "ai_triage") return "AI Inbox";
   if (item.source_type === "assessment_queue") return "Fila de avaliacoes";
+  if (item.source_type === "ai_service_agent") return "Agente Kommo";
+  if (item.source_type === "student_personal_ai") return "Aluno Kommo";
   return "Task";
 }
 
@@ -726,7 +730,9 @@ export function WorkExecutionView({
                   ) : (
                     <Button className="mt-4" onClick={executeSelected} disabled={isMutating}>
                       <ArrowRight className="h-4 w-4" />
-                      Comecar execucao
+                      {selectedItem.source_type === "ai_service_agent" || selectedItem.source_type === "student_personal_ai"
+                        ? primaryChannelLabel(selectedItem)
+                        : "Comecar execucao"}
                     </Button>
                   )}
 
@@ -1057,7 +1063,7 @@ export function WorkExecutionView({
                   <dl className="mt-3 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
                     <div>
                       <dt className="uppercase tracking-[0.18em]">Origem</dt>
-                      <dd className="mt-1 font-semibold text-lovable-ink">{selectedItem.source_type}</dd>
+                      <dd className="mt-1 font-semibold text-lovable-ink">{formatSourceLabel(selectedItem)}</dd>
                     </div>
                     <div>
                       <dt className="uppercase tracking-[0.18em]">Estado</dt>

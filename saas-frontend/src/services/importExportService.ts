@@ -148,6 +148,32 @@ export const importExportService = {
     return response.data;
   },
 
+  async previewAssessmentAppointments(file: File, mapping?: ImportMappingPayload): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append("file", file);
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
+    const response = await api.post("/api/v1/imports/assessment-appointments/preview", form, { timeout: 2 * 60 * 1000 });
+    return normalizeImportPreview(response.data);
+  },
+
+  async importAssessmentAppointments(file: File, mapping?: ImportMappingPayload): Promise<ImportSummary> {
+    const form = new FormData();
+    form.append("file", file);
+    if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
+      form.append("column_mappings", JSON.stringify(mapping.columnMappings));
+    }
+    if (mapping?.ignoredColumns && mapping.ignoredColumns.length > 0) {
+      form.append("ignored_columns", JSON.stringify(mapping.ignoredColumns));
+    }
+    const response = await api.post("/api/v1/imports/assessment-appointments/apply", form, { timeout: 10 * 60 * 1000 });
+    return response.data;
+  },
+
   async exportMembersCsv(): Promise<void> {
     const response = await api.get("/api/v1/exports/members.csv", { responseType: "blob" });
     const filename = parseFilename(response.headers["content-disposition"]);

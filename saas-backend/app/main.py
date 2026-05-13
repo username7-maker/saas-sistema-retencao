@@ -37,8 +37,11 @@ if settings.sentry_dsn:
 from app.models import User
 from app.routers import (
     actuar_bridge,
+    ai_review_center,
+    ai_service_agent,
     ai_triage,
     admin_objections,
+    assessment_appointments,
     assessments,
     audit,
     auth,
@@ -56,15 +59,18 @@ from app.routers import (
     kommo,
     lgpd,
     members,
+    movement_video,
     notifications,
     nps,
     onboarding,
+    personal_ai,
     public,
     reports,
     risk_alerts,
     roi,
     sales,
     settings as settings_router,
+    student_personal_ai,
     tasks,
     users,
     work_queue,
@@ -209,6 +215,7 @@ async def correlation_id_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
+app.include_router(assessment_appointments.router, prefix=settings.api_prefix)
 app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)
 app.include_router(coach.router, prefix=settings.api_prefix)
@@ -236,6 +243,11 @@ app.include_router(settings_router.router, prefix=settings.api_prefix)
 app.include_router(actuar_bridge.router, prefix=settings.api_prefix)
 app.include_router(whatsapp.router, prefix=settings.api_prefix)
 app.include_router(kommo.router, prefix=settings.api_prefix)
+app.include_router(ai_review_center.router, prefix=settings.api_prefix)
+app.include_router(ai_service_agent.router, prefix=settings.api_prefix)
+app.include_router(personal_ai.router, prefix=settings.api_prefix)
+app.include_router(movement_video.router, prefix=settings.api_prefix)
+app.include_router(student_personal_ai.router, prefix=settings.api_prefix)
 app.include_router(ai_triage.router, prefix=settings.api_prefix)
 app.include_router(work_queue.router, prefix=settings.api_prefix)
 app.include_router(autopilot.router, prefix=settings.api_prefix)

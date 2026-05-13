@@ -82,7 +82,7 @@ def create_autopilot_action(
 def _channel_for_action_type(action_type: str) -> str:
     if action_type == "send_whatsapp":
         return "whatsapp"
-    if action_type == "kommo_operator_handoff":
+    if action_type in {"kommo_operator_handoff", "kommo_draft_reply"}:
         return "kommo"
     return "none"
 

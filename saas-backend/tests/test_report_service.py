@@ -177,7 +177,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Comparativo rapido" in html
     assert "Leitura final" in html
     assert "Erick Bedin" in html
-    assert "OCR 82%" in html
+    assert "OCR 82%" not in html
+    assert "OCR com baixa confianca" not in html
+    assert ">ID<" not in html
     assert "clinical-progym-logo" in html
     assert "data:image/png;base64" in html
 

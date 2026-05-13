@@ -38,7 +38,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     job_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
     work_shift: Mapped[str | None] = mapped_column(String(24), nullable=True)
     work_shift_scope: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     gym = relationship("Gym", back_populates="users")
     assigned_members = relationship("Member", back_populates="assigned_user")

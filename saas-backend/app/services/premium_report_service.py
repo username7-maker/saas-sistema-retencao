@@ -829,11 +829,9 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     data_quality_flags = report.get("data_quality_flags", []) or []
     parsing_confidence = report.get("parsing_confidence")
     technical_scope = payload.report_scope == "technical"
-    history_keys = {"weight_kg", "muscle_mass_kg", "body_fat_percent"}
-    history_series = [series for series in history_series if str(series.get("key")) in history_keys]
     comparison_priority = {"weight_kg", "body_fat_percent", "muscle_mass_kg", "visceral_fat_level", "bmi"}
-    comparison_rows = [row for row in comparison_rows if str(row.get("key")) in comparison_priority]
-    comparison_rows = comparison_rows[: (4 if technical_scope else 3)]
+    compact_comparison_rows = [row for row in comparison_rows if str(row.get("key")) in comparison_priority]
+    compact_comparison_rows = compact_comparison_rows[: (4 if technical_scope else 3)]
 
     score_metric = _body_metric_by_key(risk_metrics, "health_score") or _body_metric_by_key(primary_cards, "health_score")
     obesity_metrics = [metric for metric in risk_metrics if metric.get("key") in {"bmi", "body_fat_percent"}]
@@ -867,28 +865,24 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     generated_label = payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     measured_label = _format_human_datetime(header.get("measured_at"))
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Resumo do aluno"
+    visible_quality_flags = [flag for flag in data_quality_flags if not str(flag).lower().startswith("ocr")]
     flags_html = "".join(
         f"<span class=\"clinical-flag\">{escape(_body_flag_label(str(flag)))}</span>"
-        for flag in data_quality_flags
+        for flag in visible_quality_flags
     )
-    if parsing_confidence is not None:
-        flags_html += f"<span class=\"clinical-flag\">OCR {int(round(float(parsing_confidence) * 100))}%</span>"
 
     lead_insight = insights[0] if insights else None
 
     teacher_notes = str(teacher_notes).strip()
-    if len(teacher_notes) > (140 if technical_scope else 96):
-        teacher_notes = teacher_notes[: (137 if technical_scope else 93)].rstrip(" ,;:-") + "..."
+    compact_teacher_notes = _truncate_body_text(teacher_notes, 140 if technical_scope else 96)
 
     lead_insight_message = str(
         lead_insight.get("message") if lead_insight else "Historico ainda em consolidacao para comparacoes mais fortes."
     ).strip()
-    if len(lead_insight_message) > (180 if technical_scope else 110):
-        lead_insight_message = lead_insight_message[: (177 if technical_scope else 107)].rstrip(" ,;:-") + "..."
+    compact_lead_insight_message = _truncate_body_text(lead_insight_message, 180 if technical_scope else 110)
 
     methodological_note = str(methodological_note or "").strip()
-    if len(methodological_note) > (170 if technical_scope else 118):
-        methodological_note = methodological_note[: (167 if technical_scope else 115)].rstrip(" ,;:-") + "..."
+    compact_methodological_note = _truncate_body_text(methodological_note, 170 if technical_scope else 118)
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -920,14 +914,13 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       </header>
 
       <section class="clinical-meta-grid">
-        {_render_body_meta_block("ID", str(payload.evaluation_id or payload.entity_id or "-"))}
         {_render_body_meta_block("Altura", _body_header_value(header.get("height_cm"), "cm"))}
         {_render_body_meta_block("Idade", _body_header_value(header.get("age_years"), "anos"))}
         {_render_body_meta_block("Sexo", _body_sex_label(header.get("sex")))}
         {_render_body_meta_block("Data / Hora", measured_label, last=True)}
       </section>
 
-      <section class="clinical-flags">{flags_html}</section>
+      {f'<section class="clinical-flags">{flags_html}</section>' if flags_html else ''}
       <section class="clinical-summary-ribbon">
         {"".join(_render_body_snapshot_compact(metric) for metric in summary_metrics)}
       </section>
@@ -1001,9 +994,9 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
           {f'''<section class="clinical-sidebar-block">
             <h3>Comparativo rapido</h3>
             <div class="clinical-compact-comparison">
-              {"".join(_render_body_compact_comparison_row(row) for row in comparison_rows)}
+              {"".join(_render_body_compact_comparison_row(row) for row in compact_comparison_rows)}
             </div>
-          </section>''' if comparison_rows else ''}
+          </section>''' if compact_comparison_rows else ''}
 
           <section class="clinical-sidebar-block">
             <h3>Dados adicionais</h3>
@@ -1015,13 +1008,13 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
             <div class="clinical-note-pair">
               <div>
                 <span>Leitura final</span>
-                <p>{escape(lead_insight_message)}</p>
+                <p>{escape(compact_lead_insight_message)}</p>
               </div>
               <div>
                 <span>Observacoes do professor</span>
-                <p>{escape(str(teacher_notes or "Sem observacoes registradas nesta avaliacao."))}</p>
+                <p>{escape(str(compact_teacher_notes or "Sem observacoes registradas nesta avaliacao."))}</p>
               </div>
-              {f'<div><span>Nota metodologica</span><p>{escape(str(methodological_note))}</p></div>' if methodological_note else ''}
+              {f'<div><span>Nota metodologica</span><p>{escape(str(compact_methodological_note))}</p></div>' if compact_methodological_note else ''}
             </div>
           </section>''' if technical_scope or lead_insight or teacher_notes or methodological_note else ''}
         </aside>
@@ -1029,8 +1022,19 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
 
       <section class="clinical-section">
         <h2>Historico da Composicao Corporal</h2>
-        {_render_body_history_grid(history_series[: (4 if technical_scope else 3)], limit=(5 if technical_scope else 4))}
+        {_render_body_history_grid(history_series, limit=(5 if technical_scope else 4))}
       </section>
+      <section class="clinical-section clinical-detail-section">
+        <h2>Anterior x Atual</h2>
+        <p class="clinical-section-subtitle">Leitura comparativa da avaliacao anterior contra a leitura atual.</p>
+        {_render_body_comparison_table(comparison_rows)}
+      </section>
+      <section class="clinical-section clinical-detail-section">
+        <h2>Leitura Final</h2>
+        <p class="clinical-section-subtitle">Insights deterministicos e observacoes operacionais da avaliacao.</p>
+        {_render_body_insight_panel(insights, teacher_notes, methodological_note)}
+      </section>
+      {_render_body_segmental_analysis_empty(report.get("segmental_analysis_available"))}
       </div>
     </section>
   </main>
@@ -1336,6 +1340,98 @@ def _render_body_history_row(series: dict[str, Any], columns: Sequence[str]) -> 
     """
 
 
+def _render_body_comparison_table(rows: Sequence[dict[str, Any]]) -> str:
+    if not rows:
+        return "<div class=\"clinical-history-empty\">Sem avaliacao anterior suficiente para comparacao.</div>"
+
+    table_rows = "".join(
+        f"""
+        <tr>
+          <td>{escape(str(row.get("label") or "-"))}</td>
+          <td>{escape(str(row.get("previous_formatted") or "-"))}</td>
+          <td>{escape(str(row.get("current_formatted") or "-"))}</td>
+          <td>{escape(_format_body_delta(row))}</td>
+          <td>{escape(_body_trend_label(str(row.get("trend") or "insufficient")))}</td>
+        </tr>
+        """
+        for row in rows
+    )
+    return f"""
+    <div class="clinical-table-wrap clinical-table-wrap-open">
+      <table class="clinical-comparison-table">
+        <thead>
+          <tr>
+            <th>Metrica</th>
+            <th>Anterior</th>
+            <th>Atual</th>
+            <th>Delta</th>
+            <th>Tendencia</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+    </div>
+    """
+
+
+def _render_body_insight_panel(
+    insights: Sequence[dict[str, Any]],
+    teacher_notes: str,
+    methodological_note: str,
+) -> str:
+    insight_cards = "".join(_render_body_insight_card(insight) for insight in insights)
+    if not insight_cards:
+        insight_cards = """
+        <article class="clinical-insight tone-neutral">
+          <h3 class="clinical-insight-title">Historico em consolidacao</h3>
+          <p>Ainda nao ha variacao suficiente para gerar uma leitura comparativa forte.</p>
+        </article>
+        """
+
+    notes = teacher_notes or "Sem observacoes registradas nesta avaliacao."
+    methodological = methodological_note or ""
+    return f"""
+    <div class="clinical-final-grid">
+      <div class="clinical-insight-grid">{insight_cards}</div>
+      <div class="clinical-final-notes">
+        <section class="clinical-note-block">
+          <h3>Observacoes do professor</h3>
+          <p>{escape(notes)}</p>
+        </section>
+        {f'''<section class="clinical-note-block">
+          <p>{escape(methodological)}</p>
+        </section>''' if methodological else ''}
+      </div>
+    </div>
+    """
+
+
+def _render_body_insight_card(insight: dict[str, Any]) -> str:
+    tone = _body_tone(str(insight.get("tone") or "neutral"))
+    reasons = _render_body_reasons(insight.get("reasons") or [])
+    return f"""
+    <article class="clinical-insight tone-{escape(tone)}">
+      <div class="clinical-insight-head">
+        <h3 class="clinical-insight-title">{escape(str(insight.get("title") or "Leitura da avaliacao"))}</h3>
+        <span>{escape(_body_tone_label(tone))}</span>
+      </div>
+      <p>{escape(str(insight.get("message") or "Sem leitura adicional registrada."))}</p>
+      {reasons}
+    </article>
+    """
+
+
+def _render_body_segmental_analysis_empty(available: Any) -> str:
+    if available:
+        return ""
+    return """
+    <section class="clinical-segmental-empty">
+      <strong>Analise segmentar indisponivel neste exame</strong>
+      <p>Esta secao permanece oculta ate existirem dados segmentares reais da maquina ou do fluxo de importacao.</p>
+    </section>
+    """
+
+
 def _render_body_reasons(reasons: Sequence[Any]) -> str:
     if not reasons:
         return ""
@@ -1504,6 +1600,20 @@ def _body_tone(tone: str) -> str:
     return "neutral"
 
 
+def _body_tone_label(tone: str) -> str:
+    if tone == "positive":
+        return "Positivo"
+    if tone == "warning":
+        return "Atencao"
+    return "Neutro"
+
+
+def _truncate_body_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: max(limit - 3, 0)].rstrip(" ,;:-") + "..."
+
+
 def _render_body_meta_block(label: str, value: str, *, last: bool = False) -> str:
     border = " clinical-meta-last" if last else ""
     return f"""
@@ -1544,15 +1654,16 @@ def _body_composition_report_css() -> str:
       .clinical-page {
         width: 202mm;
         max-width: 202mm;
-        height: 297mm;
+        min-height: 297mm;
+        height: auto;
         margin: 0 auto;
         background: var(--surface);
         border: 1px solid var(--line);
         box-shadow: none;
         padding: 5.5mm 6.5mm 4.5mm;
-        page-break-after: avoid;
-        break-after: avoid-page;
-        overflow: hidden;
+        page-break-after: auto;
+        break-after: auto;
+        overflow: visible;
       }
       .clinical-sheet-summary { --sheet-scale: 1; }
       .clinical-sheet-technical { --sheet-scale: 1; }
@@ -1588,15 +1699,15 @@ def _body_composition_report_css() -> str:
         display: block;
       }
       .clinical-brand-name {
-        font-size: 38px;
+        font-size: 28px;
         font-weight: 900;
-        letter-spacing: -0.08em;
+        letter-spacing: -0.06em;
         color: var(--brand);
         text-transform: uppercase;
-        line-height: 0.95;
+        line-height: 1;
       }
       .clinical-brand-line {
-        width: 176px;
+        width: 156px;
         height: 3px;
         background: var(--brand);
         margin: 8px 0 8px;
@@ -1640,7 +1751,7 @@ def _body_composition_report_css() -> str:
       }
       .clinical-meta-grid {
         display: grid;
-        grid-template-columns: 1.45fr 0.8fr 0.75fr 0.85fr 1.25fr;
+        grid-template-columns: 1fr 0.9fr 0.95fr 1.25fr;
         border: 1px solid var(--line);
         background: #f7f5f1;
         margin-top: 8px;
@@ -1753,6 +1864,9 @@ def _body_composition_report_css() -> str:
         border: 1px solid var(--line);
         background: #fbfaf7;
         overflow: hidden;
+      }
+      .clinical-table-wrap-open {
+        overflow: visible;
       }
       table {
         width: 100%;
@@ -1965,6 +2079,19 @@ def _body_composition_report_css() -> str:
         background: #fbfaf7;
         font-size: 11px;
       }
+      .clinical-detail-section {
+        margin-top: 9px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .clinical-section-subtitle {
+        margin: -2px 0 8px;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.25;
+      }
       .clinical-compact-comparison {
         display: grid;
         gap: 3px;
@@ -2014,10 +2141,10 @@ def _body_composition_report_css() -> str:
       }
       .clinical-comparison-table th,
       .clinical-comparison-table td {
-        padding: 6px 8px;
+        padding: 7px 8px;
         border-top: 1px solid var(--line-soft);
         text-align: left;
-        font-size: 11px;
+        font-size: 10px;
       }
       .clinical-comparison-table thead th {
         border-top: 0;
@@ -2031,9 +2158,31 @@ def _body_composition_report_css() -> str:
         display: grid;
         gap: 8px;
       }
+      .clinical-final-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 10px;
+        align-items: start;
+      }
       .clinical-insight {
         border: 1px solid var(--line);
         padding: 8px 10px;
+      }
+      .clinical-insight-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .clinical-insight-head span {
+        border-radius: 999px;
+        background: #ffffff;
+        color: #7a7068;
+        padding: 2px 7px;
+        font-size: 8px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
       }
       .clinical-insight p,
       .clinical-note-block p {
@@ -2050,10 +2199,34 @@ def _body_composition_report_css() -> str:
       .tone-warning { background: #fff5e9; }
       .tone-neutral { background: #fbfaf7; }
       .clinical-note-block {
-        margin-top: 8px;
+        margin-top: 0;
         border: 1px solid var(--line);
         background: #f7f5f1;
         padding: 8px 10px;
+      }
+      .clinical-final-notes {
+        display: grid;
+        gap: 8px;
+      }
+      .clinical-segmental-empty {
+        margin-top: 9px;
+        border: 1px dashed var(--line);
+        background: #fbfaf7;
+        padding: 10px 12px;
+        text-align: center;
+        color: var(--muted);
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .clinical-segmental-empty strong {
+        display: block;
+        color: var(--text);
+        font-size: 11px;
+      }
+      .clinical-segmental-empty p {
+        margin: 4px 0 0;
+        font-size: 10px;
+        line-height: 1.3;
       }
       .clinical-footer {
         border-top: 1px solid var(--line);

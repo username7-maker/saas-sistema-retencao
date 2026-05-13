@@ -175,7 +175,7 @@ class TestAssessmentQueueService:
         assert payload["historical_overdue_assessments"] == 2
 
         compiled_scalars = [str(call.args[0]) for call in db.scalar.call_args_list]
-        assert any("JOIN members" in stmt and "members.status" in stmt for stmt in compiled_scalars)
+        assert any(("JOIN members" in stmt or "FROM members" in stmt) and "members.status" in stmt for stmt in compiled_scalars)
 
 
 class TestAssessmentQueueRoute:

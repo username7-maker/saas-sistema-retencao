@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
     AITriageRecommendation,
+    AutopilotAction,
     Assessment,
     BodyCompositionEvaluation,
     Member,
@@ -42,6 +43,18 @@ from app.services.ai_triage_service import (
     sync_ai_triage_recommendations,
     update_ai_triage_recommendation_outcome,
 )
+from app.services.ai_service_agent_service import (
+    AI_SERVICE_AGENT_ACTION_TYPE,
+    AI_SERVICE_AGENT_DRAFT_READY,
+    prepare_ai_service_agent_draft_in_kommo,
+    serialize_ai_service_agent_draft,
+)
+from app.services.student_personal_ai_service import (
+    STUDENT_PERSONAL_AI_ACTION_TYPE,
+    STUDENT_PERSONAL_AI_DRAFT_READY,
+    prepare_student_personal_ai_draft_in_kommo,
+    serialize_student_personal_ai_draft,
+)
 from app.services.audit_service import log_audit_event
 from app.services.automation_journey_service import handle_task_outcome_for_journey
 from app.services.assessment_analytics_service import get_assessments_queue
@@ -55,12 +68,12 @@ from app.services.retention_stage_service import (
 from app.services.task_event_service import record_task_event
 from app.services.task_service import is_task_operationally_archived
 
-SourceType = Literal["task", "ai_triage", "assessment_queue"]
+SourceType = Literal["task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
 ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
-SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue"]
+SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 
 TRAINER_TASK_SOURCES = {
     "assessment_training_delivery_check_d8",
@@ -522,6 +535,122 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     )
 
 
+def _ai_service_agent_state(action: AutopilotAction) -> str:
+    if action.status in {"succeeded", "cancelled"}:
+        return "done"
+    if action.status == "awaiting_outcome":
+        return "awaiting_outcome"
+    return "do_now"
+
+
+def _ai_service_agent_to_item(db: Session, action: AutopilotAction) -> WorkQueueItemOut:
+    draft = serialize_ai_service_agent_draft(action)
+    member = db.get(Member, action.member_id) if action.member_id else None
+    subject_name = member.full_name if member else "Conversa Kommo"
+    preferred_shift = getattr(member, "preferred_shift", None) if member else None
+    domain = "commercial" if draft.intent == "sales" else draft.intent
+    if domain in {"cancellation", "complaint", "human_request", "opt_out"}:
+        domain = "manual"
+    if domain == "injury":
+        domain = "assessment"
+    if domain == "finance_dispute":
+        domain = "finance"
+    severity = "high" if draft.sensitivity == "sensitive" or action.status in {"blocked", "escalated"} else "medium"
+    if action.status == AI_SERVICE_AGENT_DRAFT_READY:
+        primary_label = "Preparar na Kommo"
+    elif action.status == "awaiting_outcome":
+        primary_label = "Aguardando Kommo"
+    elif action.status in {"blocked", "escalated"}:
+        primary_label = "Assumir conversa"
+    else:
+        primary_label = "Revisar conversa"
+    return WorkQueueItemOut(
+        source_type="ai_service_agent",
+        source_id=action.id,
+        subject_name=subject_name,
+        member_id=action.member_id,
+        lead_id=action.lead_id,
+        subject_phone=getattr(member, "phone", None) if member else None,
+        domain=domain,
+        severity=severity,
+        preferred_shift=str(preferred_shift) if preferred_shift else None,
+        reason=draft.summary,
+        primary_action_label=primary_label,
+        primary_action_type="prepare_kommo",
+        suggested_message=draft.draft_reply,
+        requires_confirmation=False,
+        state=_ai_service_agent_state(action),  # type: ignore[arg-type]
+        due_at=action.created_at,
+        assigned_to_user_id=None,
+        context_path="/settings",
+        outcome_state=action.outcome or action.status,
+        autopilot_state=action.status,
+        autopilot_badges=["Agente Kommo", "Draft-only"] + (["Bloqueado por seguranca"] if action.status == "blocked" else []),
+        execution_channel="kommo",
+        channel_action_label=primary_label,
+        channel_status=action.status,
+        kommo_contact_id=draft.kommo_contact_id,
+        kommo_lead_id=draft.kommo_lead_id,
+    )
+
+
+def _student_personal_ai_state(action: AutopilotAction) -> str:
+    if action.status in {"succeeded", "cancelled"}:
+        return "done"
+    if action.status == "awaiting_outcome":
+        return "awaiting_outcome"
+    return "do_now"
+
+
+def _student_personal_ai_to_item(db: Session, action: AutopilotAction) -> WorkQueueItemOut:
+    draft = serialize_student_personal_ai_draft(action)
+    member = db.get(Member, action.member_id) if action.member_id else None
+    subject_name = member.full_name if member else "Aluno Kommo"
+    preferred_shift = getattr(member, "preferred_shift", None) if member else None
+    severity = "high" if action.status in {"blocked", "escalated"} or draft.sensitivity == "sensitive" else "medium"
+    if action.status == STUDENT_PERSONAL_AI_DRAFT_READY:
+        primary_label = "Preparar resposta Kommo"
+    elif action.status == "awaiting_outcome":
+        primary_label = "Aguardando Kommo"
+    elif action.status in {"blocked", "escalated"}:
+        primary_label = "Assumir conversa"
+    else:
+        primary_label = "Revisar aluno"
+    badges = ["Aluno Kommo", "Personal IA", "Draft-only"]
+    if draft.intent == "movement_video":
+        badges.append("Video")
+    if action.status == "blocked":
+        badges.append("Bloqueado por seguranca")
+    return WorkQueueItemOut(
+        source_type="student_personal_ai",
+        source_id=action.id,
+        subject_name=subject_name,
+        member_id=action.member_id,
+        lead_id=action.lead_id,
+        subject_phone=getattr(member, "phone", None) if member else None,
+        domain="trainer",
+        severity=severity,
+        preferred_shift=str(preferred_shift) if preferred_shift else None,
+        reason=draft.summary,
+        primary_action_label=primary_label,
+        primary_action_type="prepare_kommo",
+        suggested_message=draft.draft_reply,
+        requires_confirmation=False,
+        state=_student_personal_ai_state(action),  # type: ignore[arg-type]
+        due_at=action.created_at,
+        assigned_to_user_id=None,
+        context_path=f"/assessments/members/{action.member_id}" if action.member_id else "/tasks",
+        outcome_state=action.outcome or action.status,
+        autopilot_state=action.status,
+        autopilot_badges=badges,
+        execution_channel="kommo",
+        channel_action_label=primary_label,
+        channel_status=action.status,
+        kommo_contact_id=draft.kommo_contact_id,
+        kommo_lead_id=draft.kommo_lead_id,
+    )
+
+
 def _effective_shift_filter(current_user: User, shift: ShiftFilter) -> ShiftFilter:
     if shift == "all" and current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER}:
         return "my_shift"
@@ -648,6 +777,47 @@ def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     return [_ai_to_item(recommendation) for recommendation in recommendations]
 
 
+def _list_ai_service_agent_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+    if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER, RoleEnum.SALESPERSON}:
+        return []
+    actions = list(
+        db.scalars(
+            select(AutopilotAction)
+            .where(
+                AutopilotAction.gym_id == current_user.gym_id,
+                AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
+                AutopilotAction.status.in_([AI_SERVICE_AGENT_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
+            )
+            .order_by(AutopilotAction.created_at.desc())
+            .limit(100)
+        ).all()
+    )
+    items = [_ai_service_agent_to_item(db, action) for action in actions]
+    if current_user.role == RoleEnum.TRAINER:
+        return [item for item in items if item.domain == "assessment"]
+    if current_user.role == RoleEnum.SALESPERSON:
+        return [item for item in items if item.domain == "commercial"]
+    return items
+
+
+def _list_student_personal_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+    if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
+        return []
+    actions = list(
+        db.scalars(
+            select(AutopilotAction)
+            .where(
+                AutopilotAction.gym_id == current_user.gym_id,
+                AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
+                AutopilotAction.status.in_([STUDENT_PERSONAL_AI_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
+            )
+            .order_by(AutopilotAction.created_at.desc())
+            .limit(100)
+        ).all()
+    )
+    return [_student_personal_ai_to_item(db, action) for action in actions]
+
+
 def _list_assessment_queue_items(
     db: Session,
     current_user: User,
@@ -694,6 +864,10 @@ def list_work_queue_items(
         items.extend(_list_assessment_queue_items(db, current_user, exclude_member_ids=trainer_task_member_ids))
     if source in {"all", "ai_triage"}:
         items.extend(_list_ai_items(db, current_user))
+    if source in {"all", "ai_service_agent"}:
+        items.extend(_list_ai_service_agent_items(db, current_user))
+    if source in {"all", "student_personal_ai"}:
+        items.extend(_list_student_personal_ai_items(db, current_user))
 
     filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain)
     total = len(filtered)
@@ -721,6 +895,35 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
         _ensure_assessment_queue_access(item, current_user)
         return item
+
+    if source_type == "ai_service_agent":
+        action = db.scalar(
+            select(AutopilotAction).where(
+                AutopilotAction.gym_id == current_user.gym_id,
+                AutopilotAction.id == source_id,
+                AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
+            )
+        )
+        if action is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        item = _ai_service_agent_to_item(db, action)
+        if current_user.role == RoleEnum.TRAINER and item.domain != "assessment":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        if current_user.role == RoleEnum.SALESPERSON and item.domain != "commercial":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        return item
+
+    if source_type == "student_personal_ai":
+        action = db.scalar(
+            select(AutopilotAction).where(
+                AutopilotAction.gym_id == current_user.gym_id,
+                AutopilotAction.id == source_id,
+                AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
+            )
+        )
+        if action is None or current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        return _student_personal_ai_to_item(db, action)
 
     recommendation = get_ai_triage_recommendation_or_404(db, recommendation_id=source_id, gym_id=current_user.gym_id)
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
@@ -888,6 +1091,296 @@ def _execute_ai_triage(
     )
 
 
+def _execute_ai_service_agent(
+    db: Session,
+    *,
+    action_id: UUID,
+    current_user: User,
+    payload: WorkQueueExecuteInput,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> WorkQueueActionResultOut:
+    action = db.scalar(
+        select(AutopilotAction).where(
+            AutopilotAction.gym_id == current_user.gym_id,
+            AutopilotAction.id == action_id,
+            AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
+        )
+    )
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    item_before = _ai_service_agent_to_item(db, action)
+    if current_user.role == RoleEnum.TRAINER and item_before.domain != "assessment":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    if current_user.role == RoleEnum.SALESPERSON and item_before.domain != "commercial":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    if action.status != AI_SERVICE_AGENT_DRAFT_READY:
+        return WorkQueueActionResultOut(
+            item=item_before,
+            detail="Este item exige assumicao humana. Abra a conversa na Kommo e registre o resultado depois.",
+            prepared_message=item_before.suggested_message,
+            context_path=item_before.context_path,
+            task_id=None,
+            supported=True,
+        )
+
+    prepared = prepare_ai_service_agent_draft_in_kommo(db, gym_id=current_user.gym_id, draft_id=action_id, flush=False)
+    log_audit_event(
+        db,
+        action="work_queue_ai_service_agent_prepared",
+        entity="autopilot_action",
+        user=current_user,
+        member_id=prepared.draft.member_id,
+        entity_id=action_id,
+        details={"operator_note": payload.operator_note, "status": prepared.draft.status},
+        ip_address=ip_address,
+        user_agent=user_agent,
+        flush=False,
+    )
+    return WorkQueueActionResultOut(
+        item=_ai_service_agent_to_item(db, action),
+        detail=prepared.detail,
+        prepared_message=prepared.draft.draft_reply,
+        context_path="/settings",
+        task_id=None,
+        supported=True,
+    )
+
+
+def _update_ai_service_agent_outcome(
+    db: Session,
+    *,
+    action_id: UUID,
+    current_user: User,
+    payload: WorkQueueOutcomeInput,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> WorkQueueActionResultOut:
+    action = db.scalar(
+        select(AutopilotAction).where(
+            AutopilotAction.gym_id == current_user.gym_id,
+            AutopilotAction.id == action_id,
+            AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
+        )
+    )
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    item_before = _ai_service_agent_to_item(db, action)
+    if current_user.role == RoleEnum.TRAINER and item_before.domain != "assessment":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+    if current_user.role == RoleEnum.SALESPERSON and item_before.domain != "commercial":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    now = datetime.now(timezone.utc)
+    final_outcomes = {"responded", "completed", "will_return", "scheduled_assessment", "payment_confirmed"}
+    escalated_outcomes = {
+        "forwarded_to_manager",
+        "forwarded_to_trainer",
+        "forwarded_to_reception",
+        "charge_disputed",
+        "needs_training_adjustment",
+        "training_missing",
+    }
+    cancelled_outcomes = {"not_interested", "invalid_number"}
+
+    action.outcome = payload.outcome
+    action.metadata_json = {
+        **(action.metadata_json or {}),
+        "last_work_queue_outcome": payload.outcome,
+        "last_work_queue_note": payload.note,
+        "last_work_queue_contact_channel": payload.contact_channel,
+        "last_work_queue_user_id": str(current_user.id),
+        "last_work_queue_recorded_at": now.isoformat(),
+    }
+    if payload.outcome in final_outcomes:
+        action.status = "succeeded"
+        action.completed_at = now
+    elif payload.outcome in escalated_outcomes:
+        action.status = "escalated"
+        action.escalation_reason = payload.note or "Encaminhado pela Work Queue."
+    elif payload.outcome in cancelled_outcomes:
+        action.status = "cancelled"
+        action.completed_at = now
+    elif payload.outcome in {"no_response", "postponed"}:
+        action.status = "awaiting_outcome"
+        if payload.scheduled_for:
+            action.cooldown_until = payload.scheduled_for
+    else:
+        action.status = "succeeded"
+        action.completed_at = now
+
+    log_audit_event(
+        db,
+        action="work_queue_ai_service_agent_outcome_updated",
+        entity="autopilot_action",
+        user=current_user,
+        member_id=action.member_id,
+        entity_id=action.id,
+        details={
+            "outcome": payload.outcome,
+            "status": action.status,
+            "note": payload.note,
+            "contact_channel": payload.contact_channel,
+        },
+        ip_address=ip_address,
+        user_agent=user_agent,
+        flush=False,
+    )
+    db.flush()
+    item = _ai_service_agent_to_item(db, action)
+    return WorkQueueActionResultOut(
+        item=item,
+        detail="Resultado registrado no Agente Kommo.",
+        prepared_message=item.suggested_message,
+        context_path=item.context_path,
+        task_id=None,
+    )
+
+
+def _execute_student_personal_ai(
+    db: Session,
+    *,
+    action_id: UUID,
+    current_user: User,
+    payload: WorkQueueExecuteInput,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> WorkQueueActionResultOut:
+    action = db.scalar(
+        select(AutopilotAction).where(
+            AutopilotAction.gym_id == current_user.gym_id,
+            AutopilotAction.id == action_id,
+            AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
+        )
+    )
+    if action is None or current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    item_before = _student_personal_ai_to_item(db, action)
+    if action.status != STUDENT_PERSONAL_AI_DRAFT_READY:
+        return WorkQueueActionResultOut(
+            item=item_before,
+            detail="Este item exige assumicao humana. Abra a conversa na Kommo e registre o resultado depois.",
+            prepared_message=item_before.suggested_message,
+            context_path=item_before.context_path,
+            task_id=None,
+            supported=True,
+        )
+
+    prepared = prepare_student_personal_ai_draft_in_kommo(db, gym_id=current_user.gym_id, draft_id=action_id, flush=False)
+    log_audit_event(
+        db,
+        action="work_queue_student_personal_ai_prepared",
+        entity="autopilot_action",
+        user=current_user,
+        member_id=prepared.draft.member_id,
+        entity_id=action_id,
+        details={"operator_note": payload.operator_note, "status": prepared.draft.status, "intent": prepared.draft.intent},
+        ip_address=ip_address,
+        user_agent=user_agent,
+        flush=False,
+    )
+    return WorkQueueActionResultOut(
+        item=_student_personal_ai_to_item(db, action),
+        detail=prepared.detail,
+        prepared_message=prepared.draft.draft_reply,
+        context_path=f"/assessments/members/{prepared.draft.member_id}" if prepared.draft.member_id else "/tasks",
+        task_id=None,
+        supported=True,
+    )
+
+
+def _update_student_personal_ai_outcome(
+    db: Session,
+    *,
+    action_id: UUID,
+    current_user: User,
+    payload: WorkQueueOutcomeInput,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> WorkQueueActionResultOut:
+    action = db.scalar(
+        select(AutopilotAction).where(
+            AutopilotAction.gym_id == current_user.gym_id,
+            AutopilotAction.id == action_id,
+            AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
+        )
+    )
+    if action is None or current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    now = datetime.now(timezone.utc)
+    final_outcomes = {
+        "responded",
+        "completed",
+        "training_delivered",
+        "training_adjusted",
+        "feedback_positive",
+        "reassessment_scheduled",
+    }
+    escalated_outcomes = {
+        "forwarded_to_manager",
+        "forwarded_to_trainer",
+        "needs_training_adjustment",
+        "training_missing",
+    }
+
+    action.outcome = payload.outcome
+    action.metadata_json = {
+        **(action.metadata_json or {}),
+        "last_work_queue_outcome": payload.outcome,
+        "last_work_queue_note": payload.note,
+        "last_work_queue_contact_channel": payload.contact_channel,
+        "last_work_queue_user_id": str(current_user.id),
+        "last_work_queue_recorded_at": now.isoformat(),
+    }
+    if payload.outcome in final_outcomes:
+        action.status = "succeeded"
+        action.completed_at = now
+    elif payload.outcome in escalated_outcomes:
+        action.status = "escalated"
+        action.escalation_reason = payload.note or "Encaminhado pela Work Queue."
+    elif payload.outcome in {"not_interested", "invalid_number"}:
+        action.status = "cancelled"
+        action.completed_at = now
+    elif payload.outcome in {"no_response", "postponed"}:
+        action.status = "awaiting_outcome"
+        if payload.scheduled_for:
+            action.cooldown_until = payload.scheduled_for
+    else:
+        action.status = "succeeded"
+        action.completed_at = now
+
+    log_audit_event(
+        db,
+        action="work_queue_student_personal_ai_outcome_updated",
+        entity="autopilot_action",
+        user=current_user,
+        member_id=action.member_id,
+        entity_id=action.id,
+        details={
+            "outcome": payload.outcome,
+            "status": action.status,
+            "note": payload.note,
+            "contact_channel": payload.contact_channel,
+        },
+        ip_address=ip_address,
+        user_agent=user_agent,
+        flush=False,
+    )
+    db.flush()
+    item = _student_personal_ai_to_item(db, action)
+    return WorkQueueActionResultOut(
+        item=item,
+        detail="Resultado registrado no Personal IA do aluno.",
+        prepared_message=item.suggested_message,
+        context_path=item.context_path,
+        task_id=None,
+    )
+
+
 def execute_work_queue_item(
     db: Session,
     *,
@@ -911,6 +1404,24 @@ def execute_work_queue_item(
         return _execute_assessment_queue_item(
             db,
             member_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+    if source_type == "ai_service_agent":
+        return _execute_ai_service_agent(
+            db,
+            action_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+    if source_type == "student_personal_ai":
+        return _execute_student_personal_ai(
+            db,
+            action_id=source_id,
             current_user=current_user,
             payload=payload,
             ip_address=ip_address,
@@ -1398,6 +1909,26 @@ def update_work_queue_outcome(
             prepared_message=item.suggested_message,
             context_path=item.context_path,
             task_id=None,
+        )
+
+    if source_type == "ai_service_agent":
+        return _update_ai_service_agent_outcome(
+            db,
+            action_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+    if source_type == "student_personal_ai":
+        return _update_student_personal_ai_outcome(
+            db,
+            action_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
         )
 
     recommendation = update_ai_triage_recommendation_outcome(

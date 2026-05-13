@@ -75,6 +75,7 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     audit_logs = relationship("AuditLog", back_populates="member")
     in_app_notifications = relationship("InAppNotification", back_populates="member")
     assessments = relationship("Assessment", back_populates="member", cascade="all, delete-orphan")
+    assessment_appointments = relationship("AssessmentAppointment", back_populates="member", cascade="all, delete-orphan")
     member_constraints = relationship("MemberConstraints", back_populates="member", cascade="all, delete-orphan", uselist=False)
     training_plans = relationship("TrainingPlan", back_populates="member", cascade="all, delete-orphan")
     member_goals = relationship("MemberGoal", back_populates="member", cascade="all, delete-orphan")

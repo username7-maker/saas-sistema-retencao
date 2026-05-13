@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.database import get_db, set_current_gym_id
 from app.models import Member, MessageLog
+from app.services.ai_service_agent_service import process_kommo_inbound_for_ai_agent
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.kommo_service import find_member_link_by_kommo_ids, get_kommo_gym
+from app.services.student_personal_ai_service import process_kommo_inbound_for_student_personal_ai
 
 router = APIRouter(prefix="/kommo", tags=["kommo"])
 
@@ -86,8 +88,41 @@ async def kommo_webhook_endpoint(
     result = None
     if bool(getattr(gym, "kommo_auto_close_enabled", True)):
         result = resolve_event(db, event, flush=False)
+    student_personal_draft = process_kommo_inbound_for_student_personal_ai(
+        db,
+        gym_id=link.gym_id,
+        member=member,
+        message_text=content,
+        event=event,
+        payload=payload,
+        message_log_id=log.id,
+        kommo_contact_id=link.kommo_contact_id,
+        kommo_lead_id=link.kommo_lead_id,
+        flush=False,
+    )
+    agent_draft = None
+    if student_personal_draft is None:
+        agent_draft = process_kommo_inbound_for_ai_agent(
+            db,
+            gym_id=link.gym_id,
+            member=member,
+            message_text=content,
+            event=event,
+            message_log_id=log.id,
+            kommo_contact_id=link.kommo_contact_id,
+            kommo_lead_id=link.kommo_lead_id,
+            flush=False,
+        )
     db.commit()
-    return {"processed": True, "event_id": str(event.id), "resolver": result}
+    return {
+        "processed": True,
+        "event_id": str(event.id),
+        "resolver": result,
+        "ai_service_agent": {"draft_id": str(agent_draft.id), "status": agent_draft.status} if agent_draft else None,
+        "student_personal_ai": {"draft_id": str(student_personal_draft.id), "status": student_personal_draft.status}
+        if student_personal_draft
+        else None,
+    }
 
 
 async def _read_payload(request: Request) -> dict[str, Any]:

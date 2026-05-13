@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-WorkQueueSourceType = Literal["task", "ai_triage", "assessment_queue"]
+WorkQueueSourceType = Literal["task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
 WorkQueueSnoozePreset = Literal["tomorrow", "next_week", "custom"]
 WorkQueueContactChannel = Literal["whatsapp", "kommo", "call", "in_person", "other"]

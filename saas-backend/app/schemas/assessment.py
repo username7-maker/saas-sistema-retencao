@@ -211,6 +211,7 @@ class AssessmentQueueItemOut(BaseModel):
     next_assessment_due: date | None = None
     queue_bucket: str
     coverage_label: str
+    coverage_source: str | None = None
     due_label: str
     urgency_score: int
     queue_resolution_status: str = Field(default="active")

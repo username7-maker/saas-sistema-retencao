@@ -2,6 +2,7 @@ from app.models.actuar_sync import ActuarBridgeDevice, ActuarMemberLink, ActuarS
 from app.models.ai_triage_recommendation import AITriageRecommendation
 from app.models.audit_log import AuditLog
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
+from app.models.assessment_appointment import AssessmentAppointment
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.models.autopilot import AutopilotAction, AutopilotEvent, GymAutopilotSettings
 from app.models.automation_journey import (
@@ -42,6 +43,7 @@ from app.models.member_consent_record import MemberConsentRecord
 from app.models.member_note import MemberNote
 from app.models.member_risk_history import MemberRiskHistory
 from app.models.message_log import MessageLog
+from app.models.movement_video import MovementVideoReview
 from app.models.nps_response import NPSResponse
 from app.models.nurturing_sequence import NurturingSequence
 from app.models.objection_response import ObjectionResponse
@@ -59,6 +61,7 @@ __all__ = [
     "ActuarSyncAttempt",
     "ActuarSyncJob",
     "Assessment",
+    "AssessmentAppointment",
     "AutomationExecutionLog",
     "AutopilotAction",
     "AutopilotEvent",
@@ -92,6 +95,7 @@ __all__ = [
     "MemberRiskHistory",
     "MemberStatus",
     "MessageLog",
+    "MovementVideoReview",
     "NPSResponse",
     "NurturingSequence",
     "NPSSentiment",

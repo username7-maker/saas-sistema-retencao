@@ -23,6 +23,34 @@ from app.schemas.autopilot import (
     AutopilotTimelineItemOut,
     WorkQueueSendAndWaitInput,
 )
+from app.schemas.ai_service_agent import (
+    AiServiceAgentDraftOut,
+    AiServiceAgentPrepareResultOut,
+    AiServiceAgentSettingsOut,
+    AiServiceAgentSettingsUpdate,
+)
+from app.schemas.ai_review_center import (
+    AiReviewCenterActionOut,
+    AiReviewCenterItemOut,
+    AiReviewCenterListOut,
+    AiReviewCenterMetricsOut,
+    AiReviewCenterRejectInput,
+)
+from app.schemas.personal_ai import (
+    PersonalAiContextOut,
+    PersonalAiDraftCreate,
+    PersonalAiDraftOut,
+    PersonalAiPrepareResultOut,
+    PersonalAiSettingsOut,
+    PersonalAiSettingsUpdate,
+)
+from app.schemas.student_personal_ai import (
+    StudentPersonalAiDraftOut,
+    StudentPersonalAiPrepareResultOut,
+    StudentPersonalAiRejectInput,
+    StudentPersonalAiSettingsOut,
+    StudentPersonalAiSettingsUpdate,
+)
 from app.schemas.auth import GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.body_composition import BodyCompositionEvaluationCreate, BodyCompositionEvaluationRead
 from app.schemas.assessment import (
@@ -52,6 +80,11 @@ from app.schemas.automation_journey import (
     AutomationJourneyStepOut,
     AutomationJourneyTemplateOut,
     AutomationJourneyUpdate,
+)
+from app.schemas.assessment_appointment import (
+    AssessmentAppointmentCreate,
+    AssessmentAppointmentOut,
+    AssessmentAppointmentUpdate,
 )
 from app.schemas.checkin import CheckinCreate, CheckinOut
 from app.schemas.coach import CoachWorkspaceItemOut, CoachWorkspaceOut, CoachWorkspaceSummaryOut
@@ -127,6 +160,16 @@ from app.schemas.member import (
     OnboardingScoreSnapshotOut,
 )
 from app.schemas.member_operational_profile import MemberNoteCreate, MemberNoteOut, MemberOperationalProfileOut
+from app.schemas.movement_video import (
+    MovementVideoAiSettingsOut,
+    MovementVideoAiSettingsUpdate,
+    MovementVideoAnalyzeInput,
+    MovementVideoApproveInput,
+    MovementVideoKommoPrepareOut,
+    MovementVideoRejectInput,
+    MovementVideoReviewCreate,
+    MovementVideoReviewOut,
+)
 from app.schemas.onboarding import OnboardingCockpitOut
 from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.schemas.nurturing import NurturingSequenceOut
@@ -194,7 +237,19 @@ __all__ = [
     "AcquisitionLeadSummaryOut",
     "AcquisitionQualificationOut",
     "AIAssistantPayload",
+    "AiServiceAgentDraftOut",
+    "AiServiceAgentPrepareResultOut",
+    "AiServiceAgentSettingsOut",
+    "AiServiceAgentSettingsUpdate",
+    "AiReviewCenterActionOut",
+    "AiReviewCenterItemOut",
+    "AiReviewCenterListOut",
+    "AiReviewCenterMetricsOut",
+    "AiReviewCenterRejectInput",
     "AssessmentCreate",
+    "AssessmentAppointmentCreate",
+    "AssessmentAppointmentOut",
+    "AssessmentAppointmentUpdate",
     "ActuarConnectionTestResult",
     "ActuarSettingsRead",
     "ActuarSettingsUpdate",
@@ -300,6 +355,14 @@ __all__ = [
     "OnboardingCockpitOut",
     "MarkNotificationReadInput",
     "MessageLogOut",
+    "MovementVideoAiSettingsOut",
+    "MovementVideoAiSettingsUpdate",
+    "MovementVideoAnalyzeInput",
+    "MovementVideoApproveInput",
+    "MovementVideoKommoPrepareOut",
+    "MovementVideoRejectInput",
+    "MovementVideoReviewCreate",
+    "MovementVideoReviewOut",
     "NurturingSequenceOut",
     "NPSEvolutionPoint",
     "NPSDispatchAcceptedResponse",

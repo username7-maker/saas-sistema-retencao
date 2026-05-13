@@ -77,6 +77,7 @@ const navGroups: NavGroup[] = [
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
       { to: "/crm", label: "CRM", icon: Users, route: "crm" },
       { to: "/ai/triage", label: "AI Inbox", icon: Sparkles, route: "aiTriage" },
+      { to: "/ai/review-center", label: "Revisao IA", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -104,6 +105,7 @@ const trainerNavGroups: NavGroup[] = [
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
+      { to: "/ai/review-center", label: "Revisao IA", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },

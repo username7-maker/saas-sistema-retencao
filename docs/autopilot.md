@@ -69,6 +69,34 @@ Flags e settings relacionados:
 - `automation_action_timed_out`
 - `human_intervention_required`
 
+## AI Service Agent Kommo V1
+
+A fase `08.4` adiciona o agente IA de atendimento escrito na Kommo em modo `draft_only`.
+
+Regras V1:
+
+- O agente nunca envia autonomamente.
+- O webhook Kommo registra `kommo_inbound_received` e, quando habilitado, cria `AutopilotAction(action_type=kommo_draft_reply)`.
+- `draft_ready` significa que existe resposta sugerida para humano revisar.
+- `blocked` significa que faltou guardrail operacional, como consentimento, Kommo indisponivel ou limite diario.
+- `escalated` significa caso sensivel: cancelamento, lesao/dor, contestacao financeira, opt-out, reclamacao ou pedido de humano.
+- `POST /api/v1/ai/service-agent/drafts/{id}/prepare-kommo` cria uma tarefa/contexto na Kommo para revisao humana.
+- A Work Queue tambem lista `ai_service_agent` como item humano com badge `Agente Kommo` e CTA `Preparar na Kommo`.
+
+Settings:
+
+- `GET /api/v1/settings/ai-service-agent`
+- `PUT /api/v1/settings/ai-service-agent`
+- Defaults seguros: `enabled=false`, `mode=draft_only`, `auto_send_enabled=false`, `sensitive_escalation_enabled=true`.
+
+Operacao:
+
+1. Configure a Kommo como canal principal em `Settings > Kommo`.
+2. Habilite `Settings > Agente IA`.
+3. Receba mensagem inbound da Kommo.
+4. Revise o rascunho em `Settings > Agente IA > Rascunhos recentes`.
+5. Clique em `Preparar na Kommo` e envie manualmente pela Kommo.
+
 ## Safety checks
 
 O Autopilot bloqueia ou agenda quando encontra:

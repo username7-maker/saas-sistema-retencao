@@ -16,7 +16,7 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Assessment, Checkin, CheckinSource, Member, MemberStatus
+from app.models import Assessment, AssessmentAppointment, Checkin, CheckinSource, Member, MemberStatus, RoleEnum, User
 from app.schemas import (
     ImportErrorEntry,
     ImportPreview,
@@ -26,6 +26,11 @@ from app.schemas import (
     MissingMemberEntry,
 )
 from app.services.onboarding_service import create_import_playbook_tasks_for_member
+from app.services.assessment_appointment_service import (
+    apply_assessment_appointment_operational_effects,
+    normalize_appointment_status,
+    normalize_payment_status,
+)
 from app.services.preferred_shift_service import normalize_preferred_shift, sync_preferred_shifts_from_checkins
 from app.services.risk import refresh_member_risk_snapshot
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
@@ -110,6 +115,24 @@ ASSESSMENT_HEIGHT_KEYS = ("height_cm", "altura", "altura_cm", "height")
 ASSESSMENT_BMI_KEYS = ("bmi", "imc")
 ASSESSMENT_BODY_FAT_KEYS = ("body_fat_pct", "body_fat_percent", "gordura_percentual", "percentual_gordura", "pgc")
 ASSESSMENT_LEAN_MASS_KEYS = ("lean_mass_kg", "massa_magra", "massa_magra_kg")
+
+APPOINTMENT_AT_KEYS = (
+    "scheduled_at",
+    "data_hora",
+    "data_e_hora",
+    "data_avaliacao",
+    "data_da_avaliacao",
+    "dt_avaliacao",
+    "data",
+    "date",
+)
+APPOINTMENT_DATE_KEYS = ("scheduled_date", "data", "date", "dia", "data_avaliacao", "data_da_avaliacao")
+APPOINTMENT_TIME_KEYS = ("scheduled_time", "hora", "horario", "time", "hora_avaliacao")
+APPOINTMENT_STATUS_KEYS = ("appointment_status", "status_agenda", "presenca", "compareceu", "status", "situacao", "attendance_status")
+APPOINTMENT_PAYMENT_KEYS = ("payment_status", "status_pagamento", "pagamento", "pago", "financeiro")
+APPOINTMENT_TYPE_KEYS = ("assessment_type", "tipo_avaliacao", "tipo", "servico")
+APPOINTMENT_NOTES_KEYS = ("notes", "observacao", "observacoes", "comentario", "comentarios", "obs")
+APPOINTMENT_EXTERNAL_REF_KEYS = ("external_reference", "id_agenda", "id_avaliacao", "codigo", "referencia", "id")
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y")
 DATETIME_FORMATS = (
@@ -209,6 +232,26 @@ _ASSESSMENT_PREVIEW_COLUMNS = set(
     + ASSESSMENT_BODY_FAT_KEYS
     + ASSESSMENT_LEAN_MASS_KEYS
 )
+_APPOINTMENT_PREVIEW_COLUMNS = set(
+    NAME_KEYS
+    + FIRST_NAME_KEYS
+    + LAST_NAME_KEYS
+    + EMAIL_KEYS
+    + PHONE_KEYS
+    + CPF_KEYS
+    + PLAN_KEYS
+    + EXTERNAL_ID_KEYS
+    + MEMBER_ID_KEYS
+    + APPOINTMENT_AT_KEYS
+    + APPOINTMENT_DATE_KEYS
+    + APPOINTMENT_TIME_KEYS
+    + ASSESSMENT_EVALUATOR_KEYS
+    + APPOINTMENT_STATUS_KEYS
+    + APPOINTMENT_PAYMENT_KEYS
+    + APPOINTMENT_TYPE_KEYS
+    + APPOINTMENT_NOTES_KEYS
+    + APPOINTMENT_EXTERNAL_REF_KEYS
+)
 _MEMBER_MAPPING_TARGETS = {
     "full_name": "Nome completo",
     "first_name": "Primeiro nome",
@@ -256,6 +299,25 @@ _ASSESSMENT_MAPPING_TARGETS = {
     "body_fat_pct": "Percentual de gordura",
     "lean_mass_kg": "Massa magra",
 }
+_APPOINTMENT_MAPPING_TARGETS = {
+    "member_id": "ID do membro",
+    "member_name": "Nome do membro",
+    "first_name": "Primeiro nome",
+    "last_name": "Sobrenome",
+    "email": "Email",
+    "phone": "Telefone",
+    "external_id": "Matricula",
+    "cpf": "CPF",
+    "scheduled_at": "Data e hora da avaliacao",
+    "scheduled_date": "Data da avaliacao",
+    "scheduled_time": "Hora da avaliacao",
+    "evaluator_name": "Professor/avaliador",
+    "appointment_status": "Presenca/status",
+    "payment_status": "Pagamento",
+    "assessment_type": "Tipo de avaliacao",
+    "notes": "Observacoes",
+    "external_reference": "Referencia externa",
+}
 _MEMBER_ALIAS_TO_TARGET = {key: "full_name" for key in NAME_KEYS} | {key: "first_name" for key in FIRST_NAME_KEYS} | {
     key: "last_name" for key in LAST_NAME_KEYS
 } | {key: "email" for key in EMAIL_KEYS} | {key: "phone" for key in PHONE_KEYS} | {
@@ -300,6 +362,29 @@ _ASSESSMENT_ALIAS_TO_TARGET = {key: "member_name" for key in NAME_KEYS} | {
     key: "body_fat_pct" for key in ASSESSMENT_BODY_FAT_KEYS
 } | {
     key: "lean_mass_kg" for key in ASSESSMENT_LEAN_MASS_KEYS
+}
+_APPOINTMENT_ALIAS_TO_TARGET = {key: "member_name" for key in NAME_KEYS} | {
+    key: "first_name" for key in FIRST_NAME_KEYS
+} | {key: "last_name" for key in LAST_NAME_KEYS} | {key: "email" for key in EMAIL_KEYS} | {
+    key: "phone" for key in PHONE_KEYS
+} | {key: "cpf" for key in CPF_KEYS} | {
+    key: "external_id" for key in EXTERNAL_ID_KEYS
+} | {key: "member_id" for key in MEMBER_ID_KEYS} | {
+    key: "scheduled_at" for key in APPOINTMENT_AT_KEYS
+} | {key: "scheduled_date" for key in APPOINTMENT_DATE_KEYS} | {
+    key: "scheduled_time" for key in APPOINTMENT_TIME_KEYS
+} | {
+    key: "evaluator_name" for key in ASSESSMENT_EVALUATOR_KEYS
+} | {
+    key: "appointment_status" for key in APPOINTMENT_STATUS_KEYS
+} | {
+    key: "payment_status" for key in APPOINTMENT_PAYMENT_KEYS
+} | {
+    key: "assessment_type" for key in APPOINTMENT_TYPE_KEYS
+} | {
+    key: "notes" for key in APPOINTMENT_NOTES_KEYS
+} | {
+    key: "external_reference" for key in APPOINTMENT_EXTERNAL_REF_KEYS
 }
 
 
@@ -987,6 +1072,137 @@ def preview_assessments_csv(
     )
 
 
+def preview_assessment_appointments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportPreview:
+    errors: list[ImportErrorEntry] = []
+    warnings: list[str] = [
+        "Esta importacao cria agenda/historico operacional, nao avaliacao fisica tecnica.",
+    ]
+    sample_rows: list[ImportPreviewRow] = []
+    total_rows = 0
+    valid_rows = 0
+    would_create = 0
+    would_skip = 0
+    seen_columns: set[str] = set()
+    source_samples: dict[str, list[str]] = {}
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    seen_keys: set[tuple[str, str, str, str]] = set()
+    pending: list[tuple[Member, datetime, int, dict[str, str]]] = []
+
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _APPOINTMENT_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        total_rows += 1
+        seen_columns.update(row.keys())
+        _collect_source_samples(source_samples, row)
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+
+        member = _resolve_member_from_row(mapped_row, lookup)
+        if not member:
+            missing_name = _extract_member_name(mapped_row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
+            would_skip += 1
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Aluno nao encontrado para criar agenda/historico de avaliacao",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        scheduled_at = _parse_appointment_datetime(mapped_row)
+        if not scheduled_at:
+            would_skip += 1
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Data/hora da avaliacao ausente ou invalida",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        valid_rows += 1
+        key = _appointment_dedupe_key(member, scheduled_at, mapped_row)
+        if key in seen_keys:
+            would_skip += 1
+            continue
+        seen_keys.add(key)
+        pending.append((member, scheduled_at, row_number, mapped_row))
+
+    existing_keys = _fetch_existing_appointment_keys(db)
+    for member, scheduled_at, row_number, mapped_row in pending:
+        key = _appointment_dedupe_key(member, scheduled_at, mapped_row)
+        if key in existing_keys:
+            would_skip += 1
+            continue
+        would_create += 1
+        if len(sample_rows) < _IMPORT_PREVIEW_SAMPLE_LIMIT:
+            sample_rows.append(
+                ImportPreviewRow(
+                    row_number=row_number,
+                    action="create_assessment_appointment",
+                    preview=_appointment_preview_payload(member, scheduled_at, mapped_row),
+                )
+            )
+
+    (
+        recognized_columns,
+        unrecognized_columns,
+        source_columns,
+        conflicting_targets,
+        blocking_issues,
+        can_confirm,
+    ) = _build_mapping_preview(
+        seen_columns=seen_columns,
+        sample_values=source_samples,
+        allowed_columns=_APPOINTMENT_PREVIEW_COLUMNS,
+        target_options=_APPOINTMENT_MAPPING_TARGETS,
+        alias_to_target=_APPOINTMENT_ALIAS_TO_TARGET,
+        column_mappings=normalized_mappings,
+        ignored_columns=normalized_ignored,
+        valid_rows=valid_rows,
+    )
+    return ImportPreview(
+        preview_kind="assessment_appointments",
+        total_rows=total_rows,
+        valid_rows=valid_rows,
+        would_create=would_create,
+        would_skip=would_skip,
+        recognized_columns=recognized_columns,
+        unrecognized_columns=unrecognized_columns,
+        mapping_required=bool(unrecognized_columns or conflicting_targets),
+        can_confirm=can_confirm,
+        resolved_mappings=normalized_mappings,
+        ignored_columns=sorted(normalized_ignored),
+        conflicting_targets=conflicting_targets,
+        blocking_issues=blocking_issues,
+        source_columns=source_columns,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        warnings=warnings,
+        sample_rows=sample_rows,
+        errors=errors,
+    )
+
+
 def import_members_csv(
     db: Session,
     csv_content: bytes,
@@ -1388,6 +1604,220 @@ def import_assessments_csv(
         missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
         errors=errors,
     )
+
+
+def import_assessment_appointments_csv(
+    db: Session,
+    csv_content: bytes,
+    filename: str | None = None,
+    *,
+    column_mappings: dict[str, str] | None = None,
+    ignored_columns: list[str] | None = None,
+) -> ImportSummary:
+    errors: list[ImportErrorEntry] = []
+    duplicates = 0
+    imported = 0
+    seen_keys: set[tuple[str, str, str, str]] = set()
+    missing_member_counts: Counter[str] = Counter()
+    missing_member_plans: dict[str, str | None] = {}
+    pending: list[tuple[Member, datetime, dict[str, str]]] = []
+    import_batch_id = f"excel-assessment-appointments-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S')}"
+
+    normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
+        column_mappings,
+        ignored_columns,
+        _APPOINTMENT_MAPPING_TARGETS,
+    )
+    _validate_mapping_commit(normalized_mappings)
+
+    existing_members = list(db.scalars(select(Member).where(Member.deleted_at.is_(None))).all())
+    lookup = _build_member_lookups(existing_members)
+
+    for row_number, row in _iter_rows(csv_content, filename=filename):
+        mapped_row = _apply_column_mapping(row, normalized_mappings, normalized_ignored)
+        member = _resolve_member_from_row(mapped_row, lookup)
+        if not member:
+            missing_name = _extract_member_name(mapped_row)
+            if missing_name:
+                missing_member_counts[missing_name] += 1
+                missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Aluno nao encontrado para criar agenda/historico de avaliacao",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        scheduled_at = _parse_appointment_datetime(mapped_row)
+        if not scheduled_at:
+            errors.append(
+                ImportErrorEntry(
+                    row_number=row_number,
+                    reason="Data/hora da avaliacao ausente ou invalida",
+                    payload=mapped_row,
+                )
+            )
+            continue
+
+        key = _appointment_dedupe_key(member, scheduled_at, mapped_row)
+        if key in seen_keys:
+            duplicates += 1
+            continue
+        seen_keys.add(key)
+        pending.append((member, scheduled_at, mapped_row))
+
+    existing_keys = _fetch_existing_appointment_keys(db)
+    evaluator_lookup = _build_trainer_lookup(db)
+    for member, scheduled_at, row in pending:
+        key = _appointment_dedupe_key(member, scheduled_at, row)
+        if key in existing_keys:
+            duplicates += 1
+            continue
+
+        evaluator_name = _pick_first(row, ASSESSMENT_EVALUATOR_KEYS)
+        evaluator = evaluator_lookup.get(_normalize_text(evaluator_name or ""))
+        appointment = AssessmentAppointment(
+            gym_id=member.gym_id,
+            member_id=member.id,
+            scheduled_at=scheduled_at,
+            assessment_type=_appointment_assessment_type(row),
+            status=normalize_appointment_status(_pick_first(row, APPOINTMENT_STATUS_KEYS)),
+            payment_status=normalize_payment_status(_pick_first(row, APPOINTMENT_PAYMENT_KEYS)),
+            evaluator_user_id=evaluator.id if evaluator else None,
+            evaluator_name_raw=evaluator_name,
+            notes=_pick_first(row, APPOINTMENT_NOTES_KEYS),
+            source="excel_assessment_agenda_import",
+            external_reference=_appointment_external_reference(row),
+            metadata_json={
+                "source": "excel_assessment_agenda_import",
+                "technical_data_present": False,
+                "import_batch_id": import_batch_id,
+                "raw_row": row,
+            },
+        )
+        db.add(appointment)
+        db.flush()
+        apply_assessment_appointment_operational_effects(db, appointment)
+        existing_keys.add(key)
+        imported += 1
+
+    db.commit()
+    if imported:
+        invalidate_dashboard_cache("assessments", "members", "tasks")
+    return ImportSummary(
+        imported=imported,
+        skipped_duplicates=duplicates,
+        missing_members=_build_missing_member_entries(missing_member_counts, missing_member_plans),
+        errors=errors,
+    )
+
+
+def _parse_appointment_datetime(row: dict[str, str]) -> datetime | None:
+    parsed = _parse_datetime(_pick_first(row, ("scheduled_at",)))
+    if parsed:
+        return parsed
+
+    date_raw = _pick_first(row, ("scheduled_date",))
+    time_raw = _pick_first(row, ("scheduled_time",))
+    if not date_raw:
+        date_raw = _pick_first(row, APPOINTMENT_AT_KEYS)
+    if not time_raw:
+        time_raw = _pick_first(row, APPOINTMENT_TIME_KEYS)
+
+    if date_raw and time_raw:
+        parsed_date = _parse_date(date_raw)
+        parsed_time = _parse_time(time_raw)
+        if parsed_date and parsed_time:
+            return datetime.combine(parsed_date, parsed_time, tzinfo=timezone.utc)
+        combined = _parse_datetime(f"{date_raw} {time_raw}")
+        if combined:
+            return combined
+
+    return _parse_datetime(date_raw)
+
+
+def _appointment_assessment_type(row: dict[str, str]) -> str:
+    raw = _pick_first(row, APPOINTMENT_TYPE_KEYS) or "physical_assessment"
+    normalized = _normalize_header(raw)
+    if normalized in {"bioimpedancia", "bioimpedance", "body_composition"}:
+        return "body_composition"
+    if normalized in {"avaliacao", "avaliacao_fisica", "physical_assessment", "assessment"}:
+        return "physical_assessment"
+    return _truncate(raw, 60) or "physical_assessment"
+
+
+def _appointment_external_reference(row: dict[str, str]) -> str | None:
+    raw = _pick_first(row, APPOINTMENT_EXTERNAL_REF_KEYS)
+    return _truncate(raw, 160)
+
+
+def _appointment_dedupe_key(member: Member, scheduled_at: datetime, row: dict[str, str]) -> tuple[str, str, str, str]:
+    external_reference = _appointment_external_reference(row)
+    if external_reference:
+        return ("external", str(member.gym_id), external_reference, "")
+    evaluator_name = _normalize_text(_pick_first(row, ASSESSMENT_EVALUATOR_KEYS) or "")
+    return (
+        str(member.id),
+        scheduled_at.isoformat(),
+        _normalize_header(_appointment_assessment_type(row)),
+        evaluator_name,
+    )
+
+
+def _appointment_preview_payload(member: Member, scheduled_at: datetime, row: dict[str, str]) -> dict:
+    return {
+        "member_id": str(member.id),
+        "member_name": member.full_name,
+        "scheduled_at": scheduled_at.isoformat(),
+        "assessment_type": _appointment_assessment_type(row),
+        "status": normalize_appointment_status(_pick_first(row, APPOINTMENT_STATUS_KEYS)),
+        "payment_status": normalize_payment_status(_pick_first(row, APPOINTMENT_PAYMENT_KEYS)),
+        "evaluator_name": _pick_first(row, ASSESSMENT_EVALUATOR_KEYS),
+        "technical_data_present": False,
+        "action": "create_assessment_appointment",
+    }
+
+
+def _fetch_existing_appointment_keys(db: Session) -> set[tuple[str, str, str, str]]:
+    rows = db.execute(
+        select(
+            AssessmentAppointment.gym_id,
+            AssessmentAppointment.member_id,
+            AssessmentAppointment.scheduled_at,
+            AssessmentAppointment.assessment_type,
+            AssessmentAppointment.evaluator_name_raw,
+            AssessmentAppointment.external_reference,
+        ).where(AssessmentAppointment.deleted_at.is_(None))
+    ).all()
+    keys: set[tuple[str, str, str, str]] = set()
+    for gym_id, member_id, scheduled_at, assessment_type, evaluator_name, external_reference in rows:
+        if external_reference:
+            keys.add(("external", str(gym_id), str(external_reference), ""))
+        if member_id and scheduled_at:
+            keys.add(
+                (
+                    str(member_id),
+                    scheduled_at.isoformat(),
+                    _normalize_header(assessment_type or "physical_assessment"),
+                    _normalize_text(evaluator_name or ""),
+                )
+            )
+    return keys
+
+
+def _build_trainer_lookup(db: Session) -> dict[str, User]:
+    trainers = list(
+        db.scalars(
+            select(User).where(
+                User.deleted_at.is_(None),
+                User.is_active.is_(True),
+                User.role == RoleEnum.TRAINER,
+            )
+        ).all()
+    )
+    return {_normalize_text(user.full_name): user for user in trainers if user.full_name}
 
 
 def _fetch_existing_assessment_days(db: Session) -> set[tuple[str, date]]:

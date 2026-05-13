@@ -4,7 +4,7 @@
 
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
 - In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
-- In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.1 retrofit implementado como lifecycle operacional em Membros/Perfil; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md), [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
+- In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.1 retrofit implementado como lifecycle operacional em Membros/Perfil; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md) com `8.4 AI Service Agent Kommo V1` e `8.5 Personal IA V1` publicadas no piloto, e `8.6 Video Movement Corrector V1` aberta como proximo AI First tecnico supervisionado, [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
@@ -444,3 +444,37 @@ Status:
 
 Plans:
 - [ ] TBD (run $gsd-discuss-phase 6 -> $gsd-plan-phase 6) - blocked until o freeze do core terminar e a Fase 5 reabrir
+
+### Phase 8.7: Student Personal IA Kommo V1
+
+**Goal:** Permitir que alunos acionem Personal IA e enviem videos pela Kommo, com rascunho/review supervisionado e sem autoenvio autonomo.
+**Requirements**: `AIOS-24`, `AIOS-25`
+**Depends on:** Phase 8.4, Phase 8.5, Phase 8.6, Kommo principal configurada
+**Plans:** 1 plan
+
+Plans:
+- [x] 08.7-PLAN.md - Student Personal IA via Kommo draft-only, com guardrails, video como review e Work Queue
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [ ] verify/validate
+
+### Phase 8.8: AI First Review Center
+
+**Goal:** Unificar revisao de rascunhos e reviews AI First em uma central unica antes de qualquer envio humano pela Kommo.
+**Requirements**: `AIOS-26`, `AIOS-27`
+**Depends on:** Phase 8.4, Phase 8.5, Phase 8.6, Phase 8.7
+**Plans:** 1 plan
+
+Plans:
+- [x] 08.8-PLAN.md - central de revisao para atendimento IA, Personal IA, aluno Kommo e video, sem autoenvio
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [ ] verify/validate

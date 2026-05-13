@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
-import { AlertTriangle, ArrowLeft, CalendarDays, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, CalendarDays, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert, Video } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -30,16 +30,18 @@ import { MemberGoalsEditor } from "../../components/assessments/MemberGoalsEdito
 import { MemberTrainingPlanEditor } from "../../components/assessments/MemberTrainingPlanEditor";
 import { EmptyState, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { MemberTimeline360Content } from "../../components/common/MemberTimeline360Content";
-import { Badge, Button, Card, CardContent, Dialog, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "../../components/ui2";
+import { Badge, Button, Card, CardContent, Dialog, Input, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "../../components/ui2";
 import { CreateTaskModal } from "../tasks/CreateTaskModal";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
 import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
+import { movementVideoService } from "../../services/movementVideoService";
+import { personalAiService } from "../../services/personalAiService";
 import { taskService, type CreateTaskPayload } from "../../services/taskService";
 import { userService } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
-import type { Task } from "../../types";
+import type { MovementVideoReview, Task } from "../../types";
 import {
   canAddAssessmentInternalNote,
   canCreateAssessment,
@@ -94,6 +96,33 @@ const TASK_STATUS_MAP = {
   done: { label: STATUS_LABELS.done, variant: "success" as const },
   cancelled: { label: STATUS_LABELS.cancelled, variant: "danger" as const },
 };
+
+type PersonalAiDomain =
+  | "routine_support"
+  | "training_guidance"
+  | "assessment_explanation"
+  | "body_composition_explanation";
+
+const PERSONAL_AI_DOMAIN_OPTIONS: Array<{ value: PersonalAiDomain; label: string }> = [
+  { value: "routine_support", label: "Rotina do aluno" },
+  { value: "training_guidance", label: "Orientacao de treino" },
+  { value: "assessment_explanation", label: "Explicar avaliacao" },
+  { value: "body_composition_explanation", label: "Explicar bioimpedancia" },
+];
+
+const PERSONAL_AI_BLOCKER_LABELS: Record<string, string> = {
+  member_not_active: "Aluno nao esta ativo para orientacao de treino/rotina.",
+  missing_active_training_plan: "Cadastre ou ative um treino antes de orientar rotina.",
+  missing_technical_baseline: "Registre avaliacao ou bioimpedancia antes de explicar resultado tecnico.",
+  personal_ai_disabled: "Personal IA esta desligado nas configuracoes.",
+  domain_disabled: "Este tipo de rascunho esta desativado.",
+  daily_draft_limit_reached: "Limite diario de rascunhos atingido.",
+  autonomous_prescription_not_allowed: "A IA nao pode prescrever treino novo sozinha.",
+};
+
+function personalAiBlockerLabel(reason: string): string {
+  return PERSONAL_AI_BLOCKER_LABELS[reason] ?? reason;
+}
 
 function createNoteId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -389,6 +418,468 @@ function MemberTaskRow({
   );
 }
 
+function PersonalAiProfilePanel({
+  memberId,
+  memberName,
+  enabled,
+  onOpenTab,
+}: {
+  memberId: string;
+  memberName: string;
+  enabled: boolean;
+  onOpenTab?: (tab: AssessmentWorkspaceTab) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [question, setQuestion] = useState("Como orientar este aluno no proximo contato tecnico?");
+  const [domain, setDomain] = useState<PersonalAiDomain>("routine_support");
+
+  const draftsQuery = useQuery({
+    queryKey: ["personal-ai", "drafts", memberId],
+    queryFn: () => personalAiService.listDrafts({ member_id: memberId }),
+    enabled,
+    staleTime: 30_000,
+  });
+  const contextQuery = useQuery({
+    queryKey: ["personal-ai", "context", memberId],
+    queryFn: () => personalAiService.getContext(memberId),
+    enabled,
+    staleTime: 60_000,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => personalAiService.createDraft(memberId, { question: question.trim(), domain, channel: "internal" }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personal-ai", "drafts", memberId] });
+      toast.success("Personal IA gerou um rascunho para revisao.");
+    },
+    onError: () => toast.error("Nao foi possivel gerar o rascunho do Personal IA."),
+  });
+
+  const prepareMutation = useMutation({
+    mutationFn: (draftId: string) => personalAiService.prepareKommo(draftId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personal-ai", "drafts", memberId] });
+      toast.success("Rascunho preparado na Kommo para revisao do professor.");
+    },
+    onError: () => toast.error("Nao foi possivel preparar o rascunho na Kommo."),
+  });
+
+  if (!enabled) return null;
+
+  const latestDraft = draftsQuery.data?.[0] ?? null;
+  const context = contextQuery.data;
+  const canGenerate = question.trim().length >= 3 && !createMutation.isPending;
+  const hasBioComposition = Boolean(context?.latest_body_composition);
+  const hasAssessment = Boolean(context?.latest_assessment);
+  const needsTrainingPlan = Boolean(latestDraft?.blocked_reasons.includes("missing_active_training_plan"));
+  const canSwitchToTechnicalExplanation = hasBioComposition || hasAssessment;
+
+  function useBestTechnicalExplanation() {
+    if (hasBioComposition) {
+      setDomain("body_composition_explanation");
+      setQuestion("Como explicar a bioimpedancia mais recente deste aluno de forma simples e segura?");
+      return;
+    }
+    setDomain("assessment_explanation");
+    setQuestion("Como explicar a avaliacao mais recente deste aluno de forma simples e segura?");
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <SectionHeader
+            title="Personal IA"
+            subtitle="Rascunho tecnico para professor revisar. Nao prescreve treino novo e nao envia sozinho."
+          />
+          <Badge variant="info">Coach review</Badge>
+        </div>
+
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Bot size={16} className="text-lovable-primary" />
+            <p className="text-sm font-semibold text-lovable-ink">{memberName}</p>
+            {context?.active_training_plan ? <Badge variant="success">Treino ativo</Badge> : <Badge variant="warning">Sem treino ativo</Badge>}
+            {context?.latest_body_composition ? <Badge variant="neutral">Bioimpedancia</Badge> : null}
+            {context?.latest_assessment ? <Badge variant="neutral">Avaliacao</Badge> : null}
+          </div>
+          {context?.missing_data?.length ? (
+            <p className="mt-2 text-xs text-lovable-ink-muted">Lacunas: {context.missing_data.join(", ")}</p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[220px,1fr]">
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Tipo</span>
+            <select
+              value={domain}
+              onChange={(event) => setDomain(event.target.value as PersonalAiDomain)}
+              className="h-11 w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 text-sm text-lovable-ink outline-none transition focus:border-lovable-primary"
+            >
+              {PERSONAL_AI_DOMAIN_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pergunta para o Personal IA</span>
+            <Textarea
+              rows={3}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Ex: Como explicar a bioimpedancia e orientar a rotina desta semana?"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button size="sm" variant="primary" onClick={() => createMutation.mutate()} disabled={!canGenerate}>
+            {createMutation.isPending ? "Gerando..." : "Gerar rascunho"}
+          </Button>
+        </div>
+
+        {draftsQuery.isLoading ? (
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-4 text-sm text-lovable-ink-muted">
+            Carregando rascunhos do aluno...
+          </div>
+        ) : null}
+
+        {latestDraft ? (
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={latestDraft.status === "draft_ready" ? "success" : latestDraft.status === "blocked" ? "warning" : "info"}>
+                  {latestDraft.status === "draft_ready" ? "Rascunho pronto" : latestDraft.status}
+                </Badge>
+                <Badge variant={latestDraft.sensitivity === "sensitive" ? "danger" : "neutral"}>{latestDraft.intent}</Badge>
+              </div>
+              {latestDraft.status === "draft_ready" ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => prepareMutation.mutate(latestDraft.id)}
+                  disabled={prepareMutation.isPending}
+                >
+                  Preparar na Kommo
+                </Button>
+              ) : null}
+            </div>
+            <p className="mt-3 text-sm font-semibold text-lovable-ink">{latestDraft.summary}</p>
+            {latestDraft.draft_reply ? (
+              <div className="mt-3 rounded-xl border border-lovable-primary/20 bg-lovable-primary/10 p-3 text-sm text-lovable-ink">
+                {latestDraft.draft_reply}
+              </div>
+            ) : null}
+            {latestDraft.blocked_reasons.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-lovable-warning/25 bg-lovable-warning/10 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-lovable-warning">Como liberar</p>
+                <ul className="mt-2 space-y-1 text-xs text-lovable-ink-muted">
+                  {latestDraft.blocked_reasons.map((reason) => (
+                    <li key={reason}>- {personalAiBlockerLabel(reason)}</li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {needsTrainingPlan && onOpenTab ? (
+                    <Button size="sm" variant="secondary" onClick={() => onOpenTab("plano")}>
+                      Abrir plano de treino
+                    </Button>
+                  ) : null}
+                  {canSwitchToTechnicalExplanation ? (
+                    <Button size="sm" variant="ghost" onClick={useBestTechnicalExplanation}>
+                      Usar explicacao tecnica
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {latestDraft.evidence.length > 0 ? (
+              <p className="mt-2 text-xs text-lovable-ink-muted">Evidencias: {latestDraft.evidence.join(", ")}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function movementVideoStatusLabel(review: MovementVideoReview): string {
+  if (review.status === "blocked") return "Bloqueado";
+  if (review.status === "needs_coach_review") return "Revisar";
+  if (review.status === "approved") return "Aprovado";
+  if (review.status === "rejected") return "Rejeitado";
+  return "Pendente";
+}
+
+function movementVideoStatusVariant(review: MovementVideoReview): "neutral" | "success" | "warning" | "danger" | "info" {
+  if (review.status === "blocked") return "warning";
+  if (review.status === "approved") return "success";
+  if (review.status === "rejected") return "danger";
+  if (review.status === "needs_coach_review") return "info";
+  return "neutral";
+}
+
+function getMovementVideoRejectionReason(review: MovementVideoReview): string | null {
+  const reason = review.metadata_json?.rejection_reason;
+  return typeof reason === "string" && reason.trim() ? reason.trim() : null;
+}
+
+function MovementVideoProfilePanel({ memberId, enabled }: { memberId: string; enabled: boolean }) {
+  const queryClient = useQueryClient();
+  const [exerciseName, setExerciseName] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [coachObservation, setCoachObservation] = useState("");
+  const [coachFeedback, setCoachFeedback] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+
+  const reviewsQuery = useQuery({
+    queryKey: ["movement-video", "profile-reviews", memberId],
+    queryFn: () => movementVideoService.listReviews(memberId),
+    enabled,
+    staleTime: 60_000,
+  });
+
+  const reviews = reviewsQuery.data ?? [];
+  const recentReviews = reviews.slice(0, 5);
+  const latestReview = recentReviews[0] ?? null;
+  const latestReviewCanBeReviewed = Boolean(
+    latestReview && latestReview.status !== "blocked" && latestReview.status !== "approved" && latestReview.status !== "rejected",
+  );
+  const effectiveCoachFeedback = coachFeedback.trim() || latestReview?.suggested_feedback?.trim() || "";
+
+  const invalidateReviews = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["movement-video", "profile-reviews", memberId] });
+    await queryClient.invalidateQueries({ queryKey: ["movement-video", "coach-workspace-reviews", memberId] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      movementVideoService.createReview(memberId, {
+        exercise_name: exerciseName.trim(),
+        video_asset_url: videoUrl.trim(),
+      }),
+    onSuccess: async () => {
+      await invalidateReviews();
+      setExerciseName("");
+      setVideoUrl("");
+      toast.success("Video adicionado para review do professor.");
+    },
+    onError: () => toast.error("Nao foi possivel adicionar o video."),
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: (reviewId: string) =>
+      movementVideoService.analyzeReview(reviewId, {
+        coach_observation: coachObservation.trim() || null,
+      }),
+    onSuccess: async (review) => {
+      await invalidateReviews();
+      setCoachObservation("");
+      setCoachFeedback(review.suggested_feedback ?? "");
+      toast.success("Review preparado para revisao.");
+    },
+    onError: () => toast.error("Nao foi possivel preparar o review."),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (reviewId: string) =>
+      movementVideoService.approveReview(reviewId, {
+        coach_feedback: effectiveCoachFeedback,
+      }),
+    onSuccess: async () => {
+      await invalidateReviews();
+      toast.success("Feedback aprovado.");
+    },
+    onError: () => toast.error("Nao foi possivel aprovar o feedback."),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (reviewId: string) =>
+      movementVideoService.rejectReview(reviewId, {
+        reason: rejectReason.trim(),
+      }),
+    onSuccess: async () => {
+      await invalidateReviews();
+      setRejectReason("");
+      toast.success("Review rejeitado com motivo.");
+    },
+    onError: () => toast.error("Nao foi possivel rejeitar o review."),
+  });
+
+  const prepareMutation = useMutation({
+    mutationFn: (reviewId: string) => movementVideoService.prepareKommo(reviewId),
+    onSuccess: async () => {
+      await invalidateReviews();
+      toast.success("Feedback preparado na Kommo.");
+    },
+    onError: () => toast.error("Nao foi possivel preparar na Kommo."),
+  });
+
+  useEffect(() => {
+    setCoachFeedback(latestReview?.suggested_feedback ?? "");
+    setRejectReason("");
+  }, [latestReview?.id, latestReview?.suggested_feedback]);
+
+  if (!enabled) return null;
+
+  const canCreate = exerciseName.trim().length >= 2 && videoUrl.trim().length >= 8 && !createMutation.isPending;
+  const canApprove = Boolean(latestReviewCanBeReviewed && effectiveCoachFeedback.length >= 3 && !approveMutation.isPending);
+  const canReject = Boolean(latestReviewCanBeReviewed && rejectReason.trim().length >= 3 && !rejectMutation.isPending);
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <SectionHeader
+            title="Video de movimento"
+            subtitle="Historico de reviews supervisionados pelo professor. Sem correcao automatica e sem envio autonomo."
+            count={reviews.length}
+          />
+          <Badge variant="info">Coach review</Badge>
+        </div>
+
+        <div className="rounded-2xl border border-lovable-info/20 bg-lovable-info/8 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Adicionar video agora</p>
+          <p className="mt-1 text-sm text-lovable-ink-muted">
+            O professor pode registrar a referencia aqui mesmo. O feedback continua supervisionado.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-[0.8fr,1.2fr]">
+            <Input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Exercicio, ex.: supino" />
+            <Input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="URL segura do video" />
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button size="sm" variant="secondary" onClick={() => createMutation.mutate()} disabled={!canCreate}>
+              {createMutation.isPending ? "Adicionando..." : "Adicionar video"}
+            </Button>
+          </div>
+        </div>
+
+        {reviewsQuery.isLoading ? (
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-4 text-sm text-lovable-ink-muted">
+            Carregando reviews de video...
+          </div>
+        ) : null}
+
+        {reviewsQuery.isError ? (
+          <div className="rounded-2xl border border-lovable-danger/25 bg-lovable-danger/10 p-4 text-sm text-lovable-danger">
+            Nao foi possivel carregar o historico de videos.
+          </div>
+        ) : null}
+
+        {!reviewsQuery.isLoading && !reviewsQuery.isError && recentReviews.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
+            Nenhum video de movimento registrado para este aluno.
+          </div>
+        ) : null}
+
+        {recentReviews.length > 0 ? (
+          <ul className="space-y-3">
+            {recentReviews.map((review) => {
+              const rejectionReason = getMovementVideoRejectionReason(review);
+              return (
+                <li key={review.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Video size={15} className="text-lovable-info" />
+                        <p className="text-sm font-semibold text-lovable-ink">{review.exercise_name}</p>
+                        <Badge variant={movementVideoStatusVariant(review)}>{movementVideoStatusLabel(review)}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">
+                        Criado em {formatDateTime(review.created_at)}
+                        {review.reviewed_at ? ` - Revisado em ${formatDateTime(review.reviewed_at)}` : ""}
+                      </p>
+                    </div>
+                    {review.video_asset_url ? (
+                      <a
+                        className="text-xs font-semibold text-lovable-primary hover:underline"
+                        href={review.video_asset_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir video
+                      </a>
+                    ) : null}
+                  </div>
+
+                  {review.summary ? <p className="mt-3 text-sm text-lovable-ink-muted">{review.summary}</p> : null}
+                  {review.coach_feedback ? (
+                    <div className="mt-3 rounded-xl border border-lovable-success/20 bg-lovable-success/10 p-3 text-sm text-lovable-ink">
+                      {review.coach_feedback}
+                    </div>
+                  ) : null}
+                  {review.blocked_reasons.length > 0 ? (
+                    <p className="mt-3 text-xs text-lovable-warning">Bloqueios: {review.blocked_reasons.join(", ")}</p>
+                  ) : null}
+                  {rejectionReason ? <p className="mt-3 text-xs text-lovable-danger">Rejeitado: {rejectionReason}</p> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {latestReviewCanBeReviewed && latestReview ? (
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Revisar ultimo video</p>
+            <Textarea
+              rows={2}
+              className="mt-3"
+              value={coachObservation}
+              onChange={(event) => setCoachObservation(event.target.value)}
+              placeholder="Observacao do professor antes de preparar o feedback..."
+            />
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" variant="ghost" onClick={() => analyzeMutation.mutate(latestReview.id)} disabled={analyzeMutation.isPending}>
+                {analyzeMutation.isPending ? "Preparando..." : "Preparar review"}
+              </Button>
+            </div>
+
+            {latestReview.suggested_feedback || latestReview.status === "needs_coach_review" ? (
+              <>
+                <Textarea
+                  rows={3}
+                  className="mt-3"
+                  value={coachFeedback}
+                  onChange={(event) => setCoachFeedback(event.target.value)}
+                  placeholder="Feedback final aprovado pelo professor..."
+                />
+                <div className="mt-2 flex justify-end">
+                  <Button size="sm" variant="primary" onClick={() => approveMutation.mutate(latestReview.id)} disabled={!canApprove}>
+                    {approveMutation.isPending ? "Aprovando..." : "Aprovar feedback"}
+                  </Button>
+                </div>
+              </>
+            ) : null}
+
+            <div className="mt-3 rounded-xl border border-lovable-danger/20 bg-lovable-danger/10 p-3">
+              <Textarea
+                rows={2}
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder="Se o video estiver ruim, explique o motivo para o aluno reenviar..."
+              />
+              <div className="mt-2 flex justify-end">
+                <Button size="sm" variant="danger" onClick={() => rejectMutation.mutate(latestReview.id)} disabled={!canReject}>
+                  {rejectMutation.isPending ? "Rejeitando..." : "Rejeitar video"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {latestReview?.status === "approved" ? (
+          <div className="flex justify-end">
+            <Button size="sm" variant="secondary" onClick={() => prepareMutation.mutate(latestReview.id)} disabled={prepareMutation.isPending}>
+              {prepareMutation.isPending ? "Preparando..." : "Preparar na Kommo"}
+            </Button>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MemberTasksPanel({
   tasks,
   todayKey,
@@ -483,6 +974,8 @@ export function MemberProfile360Page() {
   const canCreateTasks = canCreateAssessmentTasks(user?.role);
   const canUpdateTasks = canUpdateAssessmentTasks(user?.role);
   const canViewTimeline = canViewAssessmentTimeline(user?.role);
+  const canUsePersonalAi = user?.role === "owner" || user?.role === "manager" || user?.role === "trainer";
+  const canUseMovementVideo = canUsePersonalAi;
 
   const profileQuery = useQuery({
     queryKey: ["assessments", "profile360", memberId],
@@ -949,6 +1442,9 @@ export function MemberProfile360Page() {
               </div>
             </CardContent>
           </Card>
+
+          <PersonalAiProfilePanel memberId={member.id} memberName={member.full_name} enabled={canUsePersonalAi} onOpenTab={openTab} />
+          <MovementVideoProfilePanel memberId={member.id} enabled={canUseMovementVideo} />
         </div>
       </section>
 

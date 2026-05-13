@@ -72,6 +72,13 @@ export const userService = {
     return data;
   },
 
+  async uploadMyAvatar(file: File): Promise<StaffUser> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post<StaffUser>("/api/v1/users/me/avatar", formData);
+    return data;
+  },
+
   async setUserActive(userId: string, is_active: boolean): Promise<StaffUser> {
     const { data } = await api.patch<StaffUser>(`/api/v1/users/${userId}/activation`, { is_active });
     return data;

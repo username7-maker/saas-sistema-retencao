@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, Checkin, Member, MemberStatus, MessageLog, NPSResponse, Task, TaskStatus
+from app.models import AuditLog, AssessmentAppointment, Checkin, Member, MemberStatus, MessageLog, NPSResponse, Task, TaskStatus
 from app.models.assessment import Assessment
 from app.models.body_composition import BodyCompositionEvaluation
 from app.services.whatsapp_service import normalize_phone
@@ -59,7 +59,16 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
             BodyCompositionEvaluation.evaluation_date <= window_end.date(),
         )
     ) or 0
-    assessment_score = 100 if has_formal_assessment > 0 or has_body_composition > 0 else 0
+    has_historical_appointment = db.scalar(
+        select(func.count(AssessmentAppointment.id)).where(
+            AssessmentAppointment.member_id == member.id,
+            AssessmentAppointment.deleted_at.is_(None),
+            AssessmentAppointment.status.in_(("attended", "completed")),
+            AssessmentAppointment.scheduled_at >= window_start,
+            AssessmentAppointment.scheduled_at <= window_end,
+        )
+    ) or 0
+    assessment_score = 100 if has_formal_assessment > 0 or has_body_composition > 0 or has_historical_appointment > 0 else 0
 
     # 3. Tasks de onboarding completadas (0-100)
     # Conta apenas etapas esperadas ate hoje; D7/D15/D30 futuras nao devem derrubar aluno D1.

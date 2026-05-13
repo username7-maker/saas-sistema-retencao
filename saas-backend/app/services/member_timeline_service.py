@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, Checkin, NPSResponse, RiskAlert, Task
+from app.models import AssessmentAppointment, AuditLog, Checkin, NPSResponse, RiskAlert, Task
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.models.body_composition import BodyCompositionEvaluation
 
@@ -88,6 +88,39 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
             "title": f"Avaliacao #{assessment.assessment_number}",
             "detail": " | ".join(parts) if parts else "Avaliacao registrada",
             "icon": "clipboard-list",
+        })
+
+    appointments = _scalars_all(
+        db,
+        select(AssessmentAppointment)
+        .where(AssessmentAppointment.member_id == member_id, AssessmentAppointment.deleted_at.is_(None))
+        .order_by(AssessmentAppointment.scheduled_at.desc())
+        .limit(20)
+    )
+    for appointment in appointments:
+        status_label = {
+            "scheduled": "Avaliação agendada",
+            "confirmed": "Avaliação confirmada",
+            "attended": "Compareceu a avaliacao",
+            "completed": "Avaliação realizada historicamente",
+            "no_show": "Faltou a avaliacao",
+            "cancelled": "Avaliação cancelada",
+            "rescheduled": "Avaliação remarcada",
+        }.get(appointment.status, "Agenda de avaliação")
+        payment_label = {
+            "pending": "pagamento pendente",
+            "paid": "pagamento pago",
+            "waived": "pagamento isento",
+            "not_required": "pagamento nao requerido",
+            "unknown": "pagamento nao informado",
+        }.get(appointment.payment_status, "pagamento nao informado")
+        evaluator = appointment.evaluator_name_raw or "professor nao informado"
+        events.append({
+            "type": "assessment_appointment",
+            "timestamp": appointment.scheduled_at.isoformat(),
+            "title": status_label,
+            "detail": f"Professor/avaliador: {evaluator} | {payment_label} | Origem: {appointment.source}",
+            "icon": "calendar-check",
         })
 
     constraints = _scalar_or_none(

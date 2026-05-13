@@ -134,7 +134,7 @@ export interface AITriageMetricsSummary {
   same_day_prepared_total: number;
 }
 
-export type WorkQueueSourceType = "task" | "ai_triage" | "assessment_queue";
+export type WorkQueueSourceType = "task" | "ai_triage" | "assessment_queue" | "ai_service_agent" | "student_personal_ai";
 export type WorkQueueState = "do_now" | "awaiting_outcome" | "done";
 export type WorkQueueOutcome =
   | "responded"
@@ -235,6 +235,297 @@ export interface AutopilotMetrics {
   by_domain: Record<string, number>;
   by_template: Record<string, number>;
   blocked_reasons: Record<string, number>;
+}
+
+export interface AiServiceAgentSettings {
+  enabled: boolean;
+  mode: "draft_only";
+  auto_send_enabled: boolean;
+  sensitive_escalation_enabled: boolean;
+  kommo_required: boolean;
+  max_drafts_per_day: number;
+  human_recent_activity_cooldown_hours: number;
+  allowed_intents: string[];
+}
+
+export interface AiServiceAgentDraft {
+  id: string;
+  status: string;
+  gym_id: string;
+  member_id: string | null;
+  lead_id: string | null;
+  intent: string;
+  sensitivity: string;
+  summary: string;
+  draft_reply: string | null;
+  next_action: string;
+  recommended_owner_role: string;
+  blocked_reasons: string[];
+  evidence: string[];
+  received_message: string | null;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiServiceAgentPrepareResult {
+  draft: AiServiceAgentDraft;
+  detail: string;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+}
+
+export interface StudentPersonalAiSettings {
+  enabled: boolean;
+  mode: "draft_only";
+  auto_send_enabled: boolean;
+  kommo_required: boolean;
+  personal_ai_enabled: boolean;
+  movement_video_enabled: boolean;
+  require_member_match: boolean;
+  require_communication_consent: boolean;
+  require_image_consent_for_video: boolean;
+  sensitive_escalation_enabled: boolean;
+  max_drafts_per_day: number;
+  human_recent_activity_cooldown_hours: number;
+  allowed_domains: string[];
+}
+
+export interface StudentPersonalAiDraft {
+  id: string;
+  status: string;
+  gym_id: string;
+  member_id: string | null;
+  lead_id: string | null;
+  intent: string;
+  sensitivity: string;
+  summary: string;
+  draft_reply: string | null;
+  next_action: string;
+  recommended_owner_role: string;
+  blocked_reasons: string[];
+  evidence: string[];
+  received_message: string | null;
+  source_event_id: string | null;
+  message_log_id: string | null;
+  movement_video_review_id: string | null;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudentPersonalAiPrepareResult {
+  draft: StudentPersonalAiDraft;
+  detail: string;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+}
+
+export interface PersonalAiSettings {
+  enabled: boolean;
+  mode: "coach_review";
+  auto_send_enabled: boolean;
+  sensitive_escalation_enabled: boolean;
+  kommo_prepare_enabled: boolean;
+  max_drafts_per_day: number;
+  allowed_domains: string[];
+}
+
+export interface PersonalAiContext {
+  member_id: string;
+  member_name: string;
+  preferred_shift: string | null;
+  lifecycle_stage: string | null;
+  risk_level: string | null;
+  risk_score: number | null;
+  latest_assessment: Record<string, unknown> | null;
+  latest_body_composition: Record<string, unknown> | null;
+  active_training_plan: Record<string, unknown> | null;
+  active_goals: Record<string, unknown>[];
+  constraints: Record<string, unknown> | null;
+  checkins_30d: number;
+  recent_technical_tasks: Record<string, unknown>[];
+  evidence: string[];
+  missing_data: string[];
+}
+
+export interface PersonalAiDraft {
+  id: string;
+  status: string;
+  gym_id: string;
+  member_id: string;
+  intent: string;
+  sensitivity: string;
+  summary: string;
+  draft_reply: string | null;
+  next_action: string;
+  recommended_owner_role: string;
+  blocked_reasons: string[];
+  evidence: string[];
+  question: string;
+  context_snapshot: PersonalAiContext | null;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalAiPrepareResult {
+  draft: PersonalAiDraft;
+  detail: string;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+}
+
+export interface MovementVideoAiSettings {
+  enabled: boolean;
+  mode: "coach_review";
+  auto_send_enabled: boolean;
+  require_image_consent: boolean;
+  store_original_video: boolean;
+  retention_days: number;
+  max_video_mb: number;
+  max_duration_seconds: number;
+  allowed_media_types: string[];
+}
+
+export interface MovementVideoReview {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  trainer_user_id: string | null;
+  exercise_name: string;
+  video_asset_url: string | null;
+  video_asset_hash: string | null;
+  media_type: string | null;
+  file_size_bytes: number | null;
+  duration_seconds: number | null;
+  original_video_stored: boolean;
+  status: string;
+  analysis_status: string;
+  safety_level: string;
+  summary: string | null;
+  detected_points: Record<string, unknown>[];
+  suggested_feedback: string | null;
+  coach_feedback: string | null;
+  blocked_reasons: string[];
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface MovementVideoReviewCreate {
+  exercise_name: string;
+  video_asset_url?: string | null;
+  video_asset_hash?: string | null;
+  media_type?: string | null;
+  file_size_bytes?: number | null;
+  duration_seconds?: number | null;
+  notes?: string | null;
+}
+
+export interface MovementVideoAnalyzeInput {
+  coach_observation?: string | null;
+}
+
+export interface MovementVideoApproveInput {
+  coach_feedback: string;
+}
+
+export interface MovementVideoRejectInput {
+  reason: string;
+}
+
+export interface MovementVideoKommoPrepareResult {
+  review: MovementVideoReview;
+  detail: string;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+}
+
+export type AiReviewCenterSource =
+  | "ai_service_agent"
+  | "personal_ai"
+  | "student_personal_ai"
+  | "movement_video"
+  | "movement_video_review";
+
+export interface AiReviewCenterItem {
+  source_type: AiReviewCenterSource;
+  source_id: string;
+  status: string;
+  domain: string;
+  channel: string | null;
+  subject_name: string;
+  member_id: string | null;
+  lead_id: string | null;
+  intent: string | null;
+  sensitivity: string | null;
+  summary: string | null;
+  received_message: string | null;
+  draft_reply: string | null;
+  next_action: string | null;
+  recommended_owner_role: string | null;
+  blocked_reasons: string[];
+  evidence: string[];
+  badges: string[];
+  context_path: string | null;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
+  review_decision: "approved" | "edited" | "rejected" | "escalated" | null;
+  reviewed_at: string | null;
+  reviewed_by_user_id: string | null;
+  review_notes: string | null;
+  review_latency_minutes: number | null;
+  can_prepare_kommo: boolean;
+  can_reject: boolean;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiReviewCenterMetrics {
+  total: number;
+  ready: number;
+  blocked: number;
+  escalated: number;
+  awaiting_outcome: number;
+  prepared: number;
+  reviewed: number;
+  approved: number;
+  edited: number;
+  rejected: number;
+  review_escalated: number;
+  utilization_rate: number;
+  average_review_minutes: number | null;
+  by_source: Record<string, number>;
+  by_status: Record<string, number>;
+}
+
+export interface AiReviewCenterList {
+  items: AiReviewCenterItem[];
+  metrics: AiReviewCenterMetrics;
+  generated_at: string;
+}
+
+export interface AiReviewCenterActionResult {
+  item: AiReviewCenterItem;
+  detail: string;
+  kommo_contact_id: string | null;
+  kommo_lead_id: string | null;
+  kommo_task_id: string | null;
 }
 
 export interface AutomationJourneyStepTemplate {

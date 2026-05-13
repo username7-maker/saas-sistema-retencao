@@ -25,12 +25,12 @@ from app.services.work_queue_service import (
 
 router = APIRouter(prefix="/work-queue", tags=["work-queue"])
 
-SourceType = Literal["task", "ai_triage", "assessment_queue"]
+SourceType = Literal["task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 StateFilter = Literal["do_now", "awaiting_outcome", "done", "all"]
 ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "evening", "unassigned"]
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
-SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue"]
+SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 
 
 @router.get("/items", response_model=PaginatedResponse[WorkQueueItemOut])

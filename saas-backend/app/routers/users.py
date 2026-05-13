@@ -1,7 +1,8 @@
+from base64 import b64encode
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ class UserUpdate(BaseModel):
     job_title: str | None = Field(default=None, max_length=120)
     work_shift: WorkShift | None = None
     work_shift_scope: list[WorkShift] | None = None
-    avatar_url: str | None = Field(default=None, max_length=500)
+    avatar_url: str | None = None
 
 
 class UserActivationUpdate(BaseModel):
@@ -45,7 +46,32 @@ class UserProfileUpdate(BaseModel):
     job_title: str | None = Field(default=None, max_length=120)
     work_shift: WorkShift | None = None
     work_shift_scope: list[WorkShift] | None = None
-    avatar_url: str | None = Field(default=None, max_length=500)
+    avatar_url: str | None = None
+
+
+ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_AVATAR_UPLOAD_BYTES = 1_500_000
+
+
+async def _read_avatar_upload(file: UploadFile) -> tuple[str, int]:
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Envie uma imagem JPG, PNG ou WebP.",
+        )
+
+    payload = await file.read(MAX_AVATAR_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_AVATAR_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Imagem muito grande. Envie arquivo de ate 1,5 MB.",
+        )
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo de imagem vazio.")
+
+    encoded = b64encode(payload).decode("ascii")
+    return f"data:{content_type};base64,{encoded}", len(payload)
 
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -126,6 +152,32 @@ def update_my_profile_endpoint(
         user=current_user,
         entity_id=current_user.id,
         details={"updated_fields": list(updates.keys())},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/avatar", response_model=UserOut)
+async def upload_my_avatar_endpoint(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: UploadFile = File(...),
+) -> User:
+    avatar_data_url, size_bytes = await _read_avatar_upload(file)
+    current_user.avatar_url = avatar_data_url
+    db.add(current_user)
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="my_avatar_uploaded",
+        entity="user",
+        user=current_user,
+        entity_id=current_user.id,
+        details={"content_type": file.content_type, "size_bytes": size_bytes},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

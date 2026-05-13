@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,8 +9,12 @@ import { useAuth } from "../../hooks/useAuth";
 import { api } from "../../services/api";
 import { userService } from "../../services/userService";
 import { ActuarConnectionTab } from "../../components/settings/ActuarConnectionTab";
+import { AiServiceAgentSettingsTab } from "../../components/settings/AiServiceAgentSettingsTab";
 import { AutopilotSettingsTab } from "../../components/settings/AutopilotSettingsTab";
 import { KommoConnectionTab } from "../../components/settings/KommoConnectionTab";
+import { MovementVideoSettingsTab } from "../../components/settings/MovementVideoSettingsTab";
+import { PersonalAiSettingsTab } from "../../components/settings/PersonalAiSettingsTab";
+import { StudentPersonalAiSettingsTab } from "../../components/settings/StudentPersonalAiSettingsTab";
 import { WhatsAppConnectionTab } from "../../components/settings/WhatsAppConnectionTab";
 import { UserAvatar } from "../../components/common/UserAvatar";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
@@ -34,12 +38,29 @@ const resetSchema = z
 const profileSchema = z.object({
   full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
+  avatar_url: z
+    .string()
+    .refine((value) => !value || isValidAvatarSource(value), "Informe uma URL valida ou envie uma imagem")
+    .optional(),
 });
 
 type ForgotFormValues = z.infer<typeof forgotSchema>;
 type ResetFormValues = z.infer<typeof resetSchema>;
 type ProfileFormValues = z.infer<typeof profileSchema>;
+
+const MAX_AVATAR_UPLOAD_BYTES = 1_500_000;
+const AVATAR_UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+function isValidAvatarSource(value: string) {
+  if (!value) return true;
+  if (/^data:image\/(jpeg|png|webp);base64,/i.test(value)) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 function ForgotPasswordForm() {
   const { user } = useAuth();
@@ -140,6 +161,7 @@ function ProfileForm() {
     register,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<ProfileFormValues>({
@@ -173,6 +195,34 @@ function ProfileForm() {
     onError: () => toast.error("Não foi possível atualizar o perfil."),
   });
 
+  const avatarUploadMutation = useMutation({
+    mutationFn: (file: File) => userService.uploadMyAvatar(file),
+    onSuccess: async (updatedUser) => {
+      setValue("avatar_url", updatedUser.avatar_url ?? "", { shouldDirty: false, shouldValidate: true });
+      await refreshUser();
+      toast.success("Foto do perfil enviada com sucesso.");
+    },
+    onError: () => toast.error("Não foi possível enviar a foto do perfil."),
+  });
+
+  function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!AVATAR_UPLOAD_TYPES.includes(file.type)) {
+      toast.error("Envie uma imagem JPG, PNG ou WebP.");
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
+      toast.error("A foto precisa ter no máximo 1,5 MB.");
+      return;
+    }
+
+    avatarUploadMutation.mutate(file);
+  }
+
   const avatarPreview = watch("avatar_url") || user?.avatar_url || null;
   const jobTitlePreview = watch("job_title") || user?.job_title || null;
 
@@ -190,7 +240,7 @@ function ProfileForm() {
               <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">{jobTitlePreview || user?.role}</p>
             </div>
           </div>
-          <p className="text-xs text-lovable-ink-muted">Por enquanto a foto é configurada por URL. Upload de arquivo pode entrar na próxima iteração, se você quiser.</p>
+          <p className="text-xs text-lovable-ink-muted">A foto pode ser enviada como arquivo ou mantida por URL. Use uma imagem quadrada para melhor enquadramento.</p>
         </CardContent>
       </Card>
 
@@ -210,8 +260,30 @@ function ProfileForm() {
             </FormField>
 
             <div className="md:col-span-2">
-              <FormField label="URL da foto" error={errors.avatar_url?.message}>
-                <Input {...register("avatar_url")} placeholder="https://..." />
+              <FormField label="Enviar foto do perfil">
+                <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4">
+                  <input
+                    id="profile-avatar-upload"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={handleAvatarFileChange}
+                    disabled={avatarUploadMutation.isPending}
+                  />
+                  <label
+                    htmlFor="profile-avatar-upload"
+                    className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-lovable-border bg-lovable-surface px-4 text-sm font-semibold text-lovable-ink transition hover:border-lovable-border-strong hover:bg-lovable-surface-soft"
+                  >
+                    {avatarUploadMutation.isPending ? "Enviando..." : "Escolher imagem"}
+                  </label>
+                  <p className="text-xs text-lovable-ink-muted">JPG, PNG ou WebP até 1,5 MB. O sistema salva no perfil automaticamente.</p>
+                </div>
+              </FormField>
+            </div>
+
+            <div className="md:col-span-2">
+              <FormField label="URL da foto (opcional)" error={errors.avatar_url?.message}>
+                <Input {...register("avatar_url")} placeholder="https://... ou deixe preenchido após enviar arquivo" />
               </FormField>
             </div>
 
@@ -233,6 +305,10 @@ export function SettingsPage() {
   const canManageActuar = user?.role === "owner" || user?.role === "manager";
   const canManageKommo = user?.role === "owner" || user?.role === "manager";
   const canManageAutopilot = user?.role === "owner" || user?.role === "manager";
+  const canManageAiServiceAgent = user?.role === "owner" || user?.role === "manager";
+  const canManagePersonalAi = user?.role === "owner" || user?.role === "manager";
+  const canManageMovementVideo = user?.role === "owner" || user?.role === "manager";
+  const canManageStudentPersonalAi = user?.role === "owner" || user?.role === "manager";
 
   return (
     <section className="space-y-8">
@@ -249,6 +325,10 @@ export function SettingsPage() {
           {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
           {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
           {canManageAutopilot ? <TabsTrigger value="autopilot">Autopilot</TabsTrigger> : null}
+          {canManageAiServiceAgent ? <TabsTrigger value="ai-service-agent">Agente IA</TabsTrigger> : null}
+          {canManagePersonalAi ? <TabsTrigger value="personal-ai">Personal IA</TabsTrigger> : null}
+          {canManageMovementVideo ? <TabsTrigger value="movement-video-ai">Video IA</TabsTrigger> : null}
+          {canManageStudentPersonalAi ? <TabsTrigger value="student-personal-ai">Aluno IA</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile">
@@ -298,6 +378,30 @@ export function SettingsPage() {
         {canManageAutopilot ? (
           <TabsContent value="autopilot">
             <AutopilotSettingsTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageAiServiceAgent ? (
+          <TabsContent value="ai-service-agent">
+            <AiServiceAgentSettingsTab />
+          </TabsContent>
+        ) : null}
+
+        {canManagePersonalAi ? (
+          <TabsContent value="personal-ai">
+            <PersonalAiSettingsTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageMovementVideo ? (
+          <TabsContent value="movement-video-ai">
+            <MovementVideoSettingsTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageStudentPersonalAi ? (
+          <TabsContent value="student-personal-ai">
+            <StudentPersonalAiSettingsTab />
           </TabsContent>
         ) : null}
       </Tabs>

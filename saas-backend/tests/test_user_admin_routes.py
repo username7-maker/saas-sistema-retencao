@@ -257,3 +257,24 @@ def test_user_can_update_own_profile(app, client):
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_user_can_upload_own_avatar_file(app, client):
+    current_user = _current_user(RoleEnum.TRAINER)
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    try:
+        response = client.post(
+            "/api/v1/users/me/avatar",
+            files={"file": ("avatar.png", b"\x89PNG\r\n\x1a\navatar-bytes", "image/png")},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["avatar_url"].startswith("data:image/png;base64,")
+        assert current_user.avatar_url == body["avatar_url"]
+        mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()

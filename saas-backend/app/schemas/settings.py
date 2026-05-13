@@ -60,7 +60,7 @@ class KommoSettingsRead(BaseModel):
 class KommoSettingsUpdate(BaseModel):
     kommo_enabled: bool
     kommo_base_url: str | None = Field(default=None, max_length=255)
-    kommo_access_token: str | None = Field(default=None, max_length=1024)
+    kommo_access_token: str | None = Field(default=None, max_length=4096)
     kommo_default_pipeline_id: str | None = Field(default=None, max_length=40)
     kommo_default_stage_id: str | None = Field(default=None, max_length=40)
     kommo_default_responsible_user_id: str | None = Field(default=None, max_length=40)

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.database import get_current_gym_id, include_all_tenants
-from app.models import Member, MemberStatus
+from app.models import AssessmentAppointment, Member, MemberStatus
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal
 from app.models.body_composition import BodyCompositionEvaluation
 from app.schemas import PaginatedResponse
@@ -93,7 +93,40 @@ def _latest_body_composition_subquery():
     )
 
 
-def _effective_assessment_coverage_columns(latest_assessment_subquery, latest_body_composition_subquery):
+def _latest_historical_appointment_subquery():
+    ranked_appointments = (
+        select(
+            AssessmentAppointment.member_id.label("member_id"),
+            AssessmentAppointment.scheduled_at.label("scheduled_at"),
+            func.row_number()
+            .over(
+                partition_by=AssessmentAppointment.member_id,
+                order_by=(AssessmentAppointment.scheduled_at.desc(), AssessmentAppointment.updated_at.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(
+            AssessmentAppointment.deleted_at.is_(None),
+            AssessmentAppointment.status.in_(("attended", "completed")),
+        )
+        .subquery()
+    )
+
+    return (
+        select(
+            ranked_appointments.c.member_id.label("member_id"),
+            func.date(ranked_appointments.c.scheduled_at).label("last_historical_appointment_date"),
+        )
+        .where(ranked_appointments.c.row_number == 1)
+        .subquery()
+    )
+
+
+def _effective_assessment_coverage_columns(
+    latest_assessment_subquery,
+    latest_body_composition_subquery,
+    latest_historical_appointment_subquery=None,
+):
     assessment_day = func.date(latest_assessment_subquery.c.last_assessment_date)
     body_day = latest_body_composition_subquery.c.last_body_composition_date
     effective_date = case(
@@ -108,7 +141,33 @@ def _effective_assessment_coverage_columns(latest_assessment_subquery, latest_bo
         (body_day >= assessment_day, literal(None)),
         else_=latest_assessment_subquery.c.next_assessment_due,
     )
-    return effective_date, effective_next_due
+    coverage_source = case(
+        (latest_assessment_subquery.c.last_assessment_date.is_(None), case((body_day.is_not(None), literal("body_composition")), else_=literal(None))),
+        (body_day.is_(None), literal("formal_assessment")),
+        (body_day >= assessment_day, literal("body_composition")),
+        else_=literal("formal_assessment"),
+    )
+    if latest_historical_appointment_subquery is None:
+        return effective_date, effective_next_due, coverage_source
+
+    appointment_day = latest_historical_appointment_subquery.c.last_historical_appointment_date
+    base_date = effective_date
+    effective_date = case(
+        (base_date.is_(None), appointment_day),
+        (appointment_day.is_(None), base_date),
+        (appointment_day > base_date, appointment_day),
+        else_=base_date,
+    )
+    effective_next_due = case(
+        (appointment_day.is_not(None), case((base_date.is_(None), literal(None)), (appointment_day > base_date, literal(None)), else_=effective_next_due)),
+        else_=effective_next_due,
+    )
+    coverage_source = case(
+        (effective_date.is_(None), literal(None)),
+        (appointment_day.is_not(None), case((base_date.is_(None), literal("historical_appointment")), (appointment_day > base_date, literal("historical_appointment")), else_=coverage_source)),
+        else_=coverage_source,
+    )
+    return effective_date, effective_next_due, coverage_source
 
 
 def _queue_conditions(last_assessment_date_col, next_assessment_due_col, *, cutoff_90, today, next_7):
@@ -171,9 +230,13 @@ def _operational_queue_filters(last_assessment_date_col, queue_conditions, *, to
     }
 
 
-def _coverage_label(bucket: AssessmentMemberBucket) -> str:
+def _coverage_label(bucket: AssessmentMemberBucket, coverage_source: str | None = None) -> str:
     if bucket == "never":
         return "Nenhuma avaliacao registrada"
+    if coverage_source == "historical_appointment":
+        if bucket == "overdue":
+            return "Avaliacao historica sem dados tecnicos vencida"
+        return "Avaliacao historica sem dados tecnicos"
     if bucket == "overdue":
         return "Cobertura vencida"
     if bucket == "week":
@@ -218,6 +281,7 @@ def _due_label(bucket: AssessmentMemberBucket, next_assessment_due, today):
 def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
     bucket = getattr(row, "queue_bucket")
     next_assessment_due = getattr(row, "next_assessment_due")
+    coverage_source = getattr(row, "coverage_source", None)
     queue_resolution_status = _queue_resolution_status_from_row(row)
     queue_resolution_note = getattr(row, "queue_resolution_note", None) or None
     return AssessmentQueueItemOut(
@@ -231,7 +295,8 @@ def _serialize_queue_item(row, today) -> AssessmentQueueItemOut:
         last_checkin_at=getattr(row, "last_checkin_at"),
         next_assessment_due=next_assessment_due,
         queue_bucket=bucket,
-        coverage_label=_coverage_label(bucket),
+        coverage_label=_coverage_label(bucket, coverage_source),
+        coverage_source=coverage_source,
         due_label=_due_label(bucket, next_assessment_due, today),
         urgency_score=int(getattr(row, "urgency_score") or 0),
         queue_resolution_status=queue_resolution_status,
@@ -258,9 +323,11 @@ def get_assessments_queue(
 
     latest_assessment_subquery = _latest_assessment_subquery()
     latest_body_composition_subquery = _latest_body_composition_subquery()
-    last_assessment_date_col, next_assessment_due_col = _effective_assessment_coverage_columns(
+    latest_historical_appointment_subquery = _latest_historical_appointment_subquery()
+    last_assessment_date_col, next_assessment_due_col, coverage_source_col = _effective_assessment_coverage_columns(
         latest_assessment_subquery,
         latest_body_composition_subquery,
+        latest_historical_appointment_subquery,
     )
     queue_conditions = _queue_conditions(
         last_assessment_date_col,
@@ -340,6 +407,7 @@ def get_assessments_queue(
             Member.last_checkin_at.label("last_checkin_at"),
             Member.updated_at.label("updated_at"),
             next_assessment_due_col.label("next_assessment_due"),
+            coverage_source_col.label("coverage_source"),
             queue_bucket_expr.label("queue_bucket"),
             urgency_score_expr.label("urgency_score"),
             queue_resolution_status_expr.label("queue_resolution_status"),
@@ -348,6 +416,7 @@ def get_assessments_queue(
         .select_from(Member)
         .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
         .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+        .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
         .where(and_(*filters))
     )
 
@@ -356,6 +425,7 @@ def get_assessments_queue(
         .select_from(Member)
         .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
         .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+        .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
         .where(and_(*filters)),
         resolved_gym_id,
     )
@@ -413,9 +483,18 @@ def get_assessments_dashboard(db: Session) -> dict:
                     BodyCompositionEvaluation.evaluation_date >= cutoff_90,
                 ),
             )
+            .outerjoin(
+                AssessmentAppointment,
+                and_(
+                    AssessmentAppointment.member_id == Member.id,
+                    AssessmentAppointment.deleted_at.is_(None),
+                    AssessmentAppointment.status.in_(("attended", "completed")),
+                    func.date(AssessmentAppointment.scheduled_at) >= cutoff_90,
+                ),
+            )
             .where(
                 *base_member_filters,
-                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None)),
+                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None), AssessmentAppointment.id.is_not(None)),
             ),
             resolved_gym_id,
         )
@@ -426,9 +505,17 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(Assessment, and_(Assessment.member_id == Member.id, Assessment.deleted_at.is_(None)))
             .outerjoin(BodyCompositionEvaluation, BodyCompositionEvaluation.member_id == Member.id)
+            .outerjoin(
+                AssessmentAppointment,
+                and_(
+                    AssessmentAppointment.member_id == Member.id,
+                    AssessmentAppointment.deleted_at.is_(None),
+                    AssessmentAppointment.status.in_(("attended", "completed")),
+                ),
+            )
             .where(
                 *base_member_filters,
-                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None)),
+                or_(Assessment.id.is_not(None), BodyCompositionEvaluation.id.is_not(None), AssessmentAppointment.id.is_not(None)),
             ),
             resolved_gym_id,
         )
@@ -437,9 +524,11 @@ def get_assessments_dashboard(db: Session) -> dict:
 
     latest_assessment_subquery = _latest_assessment_subquery()
     latest_body_composition_subquery = _latest_body_composition_subquery()
-    last_assessment_date_col, next_assessment_due_col = _effective_assessment_coverage_columns(
+    latest_historical_appointment_subquery = _latest_historical_appointment_subquery()
+    last_assessment_date_col, next_assessment_due_col, _coverage_source_col = _effective_assessment_coverage_columns(
         latest_assessment_subquery,
         latest_body_composition_subquery,
+        latest_historical_appointment_subquery,
     )
     queue_conditions = _queue_conditions(
         last_assessment_date_col,
@@ -463,6 +552,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
             .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+            .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -473,6 +563,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
             .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+            .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["never"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -484,6 +575,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
             .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+            .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, operational_filters["week"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -495,6 +587,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
             .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+            .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, queue_conditions["never"], ~operational_filters["never"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -505,6 +598,7 @@ def get_assessments_dashboard(db: Session) -> dict:
             .select_from(Member)
             .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
             .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+            .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
             .where(and_(*base_member_filters, queue_conditions["overdue"], ~operational_filters["overdue"], unresolved_queue_expr)),
             resolved_gym_id,
         )
@@ -531,6 +625,7 @@ def get_assessments_dashboard(db: Session) -> dict:
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
                 .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+                .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
                 .where(
                     and_(
                         *base_member_filters,
@@ -550,6 +645,7 @@ def get_assessments_dashboard(db: Session) -> dict:
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
                 .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+                .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["overdue"]))
                 .order_by(*member_ordering)
                 .limit(20),
@@ -564,6 +660,7 @@ def get_assessments_dashboard(db: Session) -> dict:
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
                 .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+                .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["never"]))
                 .order_by(*member_ordering)
                 .limit(20),
@@ -578,6 +675,7 @@ def get_assessments_dashboard(db: Session) -> dict:
                 select(Member)
                 .outerjoin(latest_assessment_subquery, latest_assessment_subquery.c.member_id == Member.id)
                 .outerjoin(latest_body_composition_subquery, latest_body_composition_subquery.c.member_id == Member.id)
+                .outerjoin(latest_historical_appointment_subquery, latest_historical_appointment_subquery.c.member_id == Member.id)
                 .where(and_(*base_member_filters, operational_filters["week"]))
                 .order_by(*member_ordering)
                 .limit(20),

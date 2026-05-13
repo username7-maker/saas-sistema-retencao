@@ -18,7 +18,7 @@ class UserRegister(BaseModel):
     job_title: str | None = Field(default=None, max_length=120)
     work_shift: WorkShiftLiteral | None = None
     work_shift_scope: list[WorkShiftLiteral] | None = None
-    avatar_url: str | None = Field(default=None, max_length=500)
+    avatar_url: str | None = None
 
 
 class GymOwnerRegister(BaseModel):

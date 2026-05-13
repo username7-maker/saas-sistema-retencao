@@ -20,6 +20,7 @@ const FinancialDashboardPage = lazy(() => import("./pages/dashboard/FinancialDas
 const RetentionDashboardPage = lazy(() => import("./pages/dashboard/RetentionDashboardPage").then((m) => ({ default: m.RetentionDashboardPage })));
 const CrmPage = lazy(() => import("./pages/crm/CrmPage").then((m) => ({ default: m.CrmPage })));
 const AITriageInboxPage = lazy(() => import("./pages/ai/AITriageInboxPage"));
+const AiReviewCenterPage = lazy(() => import("./pages/ai/AiReviewCenterPage"));
 const TasksPage = lazy(() => import("./pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const NotificationsPage = lazy(() => import("./pages/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage").then((m) => ({ default: m.AutomationsPage })));
@@ -139,6 +140,14 @@ export default function App() {
           element={
             <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.aiTriage]}>
               <AITriageInboxPage />
+            </GuardedLazyRoute>
+          }
+        />
+        <Route
+          path="/ai/review-center"
+          element={
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.aiReviewCenter]}>
+              <AiReviewCenterPage />
             </GuardedLazyRoute>
           }
         />

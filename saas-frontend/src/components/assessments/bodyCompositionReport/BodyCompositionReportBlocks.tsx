@@ -134,18 +134,19 @@ function DocumentSection({
 export function ReportHeaderCard({
   header,
   dataQualityFlags,
-  parsingConfidence,
 }: {
   header: BodyCompositionReportHeader;
   dataQualityFlags: BodyCompositionDataQualityFlag[];
   parsingConfidence: number | null;
 }) {
+  const visibleQualityFlags = dataQualityFlags.filter((flag) => !flag.toLowerCase().startsWith("ocr"));
+
   return (
     <header className="space-y-5 border-b border-[#b7422f] pb-5">
-      <div className="grid gap-5 lg:grid-cols-[210px_150px_minmax(0,1fr)]">
+      <div className="grid gap-5 lg:grid-cols-[230px_150px_minmax(0,1fr)]">
         <div className="space-y-2">
-          <p className="text-6xl font-black uppercase leading-none tracking-[-0.06em] text-[#b7422f]">AI GYM OS</p>
-          <div className="h-1 w-48 bg-[#b7422f]" />
+          <p className="whitespace-nowrap text-3xl font-black uppercase leading-none tracking-[-0.04em] text-[#b7422f] sm:text-4xl">AI GYM OS</p>
+          <div className="h-1 w-40 bg-[#b7422f]" />
           <p className="max-w-xl text-sm leading-6 text-[#615750]">
             Relatorio premium de composicao corporal estruturado para acompanhamento tecnico, percepcao de valor e impressao limpa.
           </p>
@@ -155,14 +156,13 @@ export function ReportHeaderCard({
         </div>
         <div className="space-y-1 text-left lg:text-right">
           <p className="text-[15px] uppercase tracking-[0.22em] text-[#7a6f68]">Relatorio de bioimpedancia</p>
-          <h1 className="text-4xl font-semibold tracking-[-0.03em] text-[#14110f]">{header.member_name}</h1>
+          <h1 className="break-words text-4xl font-semibold tracking-[-0.03em] text-[#14110f]">{header.member_name}</h1>
           <p className="text-sm text-[#5d554e]">{header.trainer_name || "Professor nao informado"}</p>
           <p className="text-sm text-[#5d554e]">{header.gym_name || "Academia nao informada"}</p>
         </div>
       </div>
 
-      <div className="grid gap-0 border border-[#d8d5d0] bg-[#f7f5f1] sm:grid-cols-5">
-        <HeaderDatum label="ID" value={header.member_name.slice(0, 12).toUpperCase()} />
+      <div className="grid gap-0 border border-[#d8d5d0] bg-[#f7f5f1] sm:grid-cols-4">
         <HeaderDatum label="Altura" value={header.height_cm != null ? `${header.height_cm} cm` : "-"} />
         <HeaderDatum label="Idade" value={header.age_years != null ? `${header.age_years} anos` : "-"} />
         <HeaderDatum label="Sexo" value={formatSexLabel(header.sex)} />
@@ -176,18 +176,15 @@ export function ReportHeaderCard({
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {dataQualityFlags.map((flag) => (
-          <Badge key={flag} variant="neutral" className="border-[#d8d5d0] bg-[#f7f5f1] text-[#554c45]">
-            {flagLabel(flag)}
-          </Badge>
-        ))}
-        {parsingConfidence != null ? (
-          <Badge variant="neutral" className="border-[#d8d5d0] bg-[#f7f5f1] text-[#554c45]">
-            OCR {Math.round(parsingConfidence * 100)}%
-          </Badge>
-        ) : null}
-      </div>
+      {visibleQualityFlags.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {visibleQualityFlags.map((flag) => (
+            <Badge key={flag} variant="neutral" className="border-[#d8d5d0] bg-[#f7f5f1] text-[#554c45]">
+              {flagLabel(flag)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
     </header>
   );
 }

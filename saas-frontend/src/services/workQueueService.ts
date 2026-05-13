@@ -5,7 +5,7 @@ export type WorkQueueListState = "do_now" | "awaiting_outcome" | "done" | "all";
 export type WorkQueueShiftFilter = "my_shift" | "all" | "overnight" | "morning" | "afternoon" | "evening" | "unassigned";
 export type WorkQueueAssigneeFilter = "mine" | "unassigned" | "all";
 export type WorkQueueDomainFilter = "all" | "operations" | "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual";
-export type WorkQueueSourceFilter = "all" | "task" | "ai_triage" | "assessment_queue";
+export type WorkQueueSourceFilter = "all" | "task" | "ai_triage" | "assessment_queue" | "ai_service_agent" | "student_personal_ai";
 
 export interface ListWorkQueueParams {
   state?: WorkQueueListState;

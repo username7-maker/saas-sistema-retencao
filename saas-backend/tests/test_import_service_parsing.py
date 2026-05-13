@@ -2,13 +2,14 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
 from collections import Counter
+from types import SimpleNamespace
 from uuid import uuid4
 import zipfile
 from xml.sax.saxutils import escape
 from unittest.mock import MagicMock, patch
 import pytest
 
-from app.models import Assessment, CheckinSource, Member, MemberStatus
+from app.models import Assessment, AssessmentAppointment, CheckinSource, Member, MemberStatus
 from app.services import import_service
 
 
@@ -1170,3 +1171,104 @@ def test_import_assessments_csv_keeps_existing_legacy_marker_idempotent() -> Non
     assert summary.updated_existing == 0
     assert summary.skipped_duplicates == 1
     assert not any(call.args and isinstance(call.args[0], Assessment) for call in db.add.call_args_list)
+
+
+def test_preview_assessment_appointments_csv_treats_excel_as_operational_agenda() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Erick Bedin",
+        email="erick@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    xlsx_content = _build_xlsx_bytes(
+        headers=["Aluno", "Data", "Hora", "Professor", "Compareceu", "Pagamento", "Obs"],
+        rows=[["Erick Bedin", "01/04/2026", "09:30", "Leonardo Cordova Werlang", "Compareceu", "Pago", "Planilha recepcao"]],
+    )
+
+    with patch.object(import_service, "_fetch_existing_appointment_keys", return_value=set()):
+        preview = import_service.preview_assessment_appointments_csv(db, xlsx_content, filename="agenda.xlsx")
+
+    assert preview.preview_kind == "assessment_appointments"
+    assert preview.total_rows == 1
+    assert preview.valid_rows == 1
+    assert preview.would_create == 1
+    assert preview.errors == []
+    assert preview.sample_rows[0].action == "create_assessment_appointment"
+    assert preview.sample_rows[0].preview["status"] == "attended"
+    assert preview.sample_rows[0].preview["payment_status"] == "paid"
+    assert preview.sample_rows[0].preview["technical_data_present"] is False
+
+
+def test_import_assessment_appointments_csv_creates_appointment_not_technical_assessment() -> None:
+    gym_id = uuid4()
+    trainer_id = uuid4()
+    member = Member(
+        id=uuid4(),
+        gym_id=gym_id,
+        full_name="Erick Bedin",
+        email="erick@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE MENSAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Aluno;Data;Hora;Professor;Compareceu;Pagamento;Obs\n"
+        "Erick Bedin;01/04/2026;09:30;Leonardo Cordova Werlang;Compareceu;Pago;Planilha recepcao\n"
+    ).encode("utf-8")
+
+    with (
+        patch.object(import_service, "_fetch_existing_appointment_keys", return_value=set()),
+        patch.object(
+            import_service,
+            "_build_trainer_lookup",
+            return_value={"leonardo cordova werlang": SimpleNamespace(id=trainer_id)},
+        ),
+        patch.object(import_service, "apply_assessment_appointment_operational_effects") as effects,
+    ):
+        summary = import_service.import_assessment_appointments_csv(db, csv_content, filename="agenda.csv")
+
+    added_appointments = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if call.args and isinstance(call.args[0], AssessmentAppointment)
+    ]
+    added_assessments = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if call.args and isinstance(call.args[0], Assessment)
+    ]
+
+    assert summary.imported == 1
+    assert summary.errors == []
+    assert summary.skipped_duplicates == 0
+    assert len(added_appointments) == 1
+    assert added_assessments == []
+    appointment = added_appointments[0]
+    assert appointment.gym_id == gym_id
+    assert appointment.member_id == member.id
+    assert appointment.scheduled_at.date() == date(2026, 4, 1)
+    assert appointment.status == "attended"
+    assert appointment.payment_status == "paid"
+    assert appointment.evaluator_user_id == trainer_id
+    assert appointment.evaluator_name_raw == "Leonardo Cordova Werlang"
+    assert appointment.source == "excel_assessment_agenda_import"
+    assert appointment.metadata_json["technical_data_present"] is False
+    effects.assert_called_once()
+    db.commit.assert_called_once()

@@ -1,15 +1,17 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, Search } from "lucide-react";
+import { Bot, CheckCircle2, ExternalLink, Search, Video } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { EmptyState, SkeletonList } from "../ui";
-import { Badge, Button, Input, cn } from "../ui2";
+import { Badge, Button, Input, Textarea, cn } from "../ui2";
 import { coachWorkspaceService, type CoachWorkspaceItem, type CoachWorkspaceShift, type CoachWorkspaceState } from "../../services/coachWorkspaceService";
+import { movementVideoService } from "../../services/movementVideoService";
+import { personalAiService } from "../../services/personalAiService";
 import { workQueueService } from "../../services/workQueueService";
 import { useAuth } from "../../hooks/useAuth";
-import type { WorkQueueOutcome } from "../../types";
+import type { MovementVideoReview, WorkQueueOutcome } from "../../types";
 import { getPreferredShiftLabel } from "../../utils/preferredShift";
 
 type QueueMode = "do_now" | "awaiting_outcome" | "all";
@@ -114,6 +116,332 @@ function CoachCard({
         <span>{formatDueAt(item.due_at)}</span>
       </div>
     </button>
+  );
+}
+
+function CoachPersonalAiPanel({ memberId, subjectName }: { memberId: string | null; subjectName: string }) {
+  const queryClient = useQueryClient();
+  const [question, setQuestion] = useState("Como orientar este aluno para resolver esta etapa tecnica?");
+
+  const draftsQuery = useQuery({
+    queryKey: ["personal-ai", "coach-workspace-drafts", memberId],
+    queryFn: () => personalAiService.listDrafts({ member_id: memberId ?? undefined }),
+    enabled: Boolean(memberId),
+    staleTime: 30_000,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      personalAiService.createDraft(memberId ?? "", {
+        question: question.trim(),
+        domain: "routine_support",
+        channel: "internal",
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personal-ai", "coach-workspace-drafts", memberId] });
+      toast.success("Personal IA gerou um rascunho tecnico.");
+    },
+    onError: () => toast.error("Nao foi possivel gerar o rascunho do Personal IA."),
+  });
+
+  const prepareMutation = useMutation({
+    mutationFn: (draftId: string) => personalAiService.prepareKommo(draftId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personal-ai", "coach-workspace-drafts", memberId] });
+      toast.success("Rascunho preparado na Kommo para revisao.");
+    },
+    onError: () => toast.error("Nao foi possivel preparar na Kommo."),
+  });
+
+  if (!memberId) {
+    return (
+      <div className="mt-5 rounded-2xl border border-lovable-border bg-lovable-surface/70 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Personal IA</p>
+        <p className="mt-2 text-sm text-lovable-ink-muted">Sem aluno vinculado para gerar orientacao tecnica.</p>
+      </div>
+    );
+  }
+
+  const latestDraft = draftsQuery.data?.[0] ?? null;
+  const canGenerate = question.trim().length >= 3 && !createMutation.isPending;
+
+  return (
+    <div className="mt-5 rounded-2xl border border-lovable-primary/20 bg-lovable-primary/8 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Bot size={16} className="text-lovable-primary" />
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Personal IA</p>
+        </div>
+        <Badge variant="info">Coach review</Badge>
+      </div>
+      <p className="mt-2 text-sm text-lovable-ink-muted">
+        Gere um rascunho para {subjectName}. O professor revisa; nao ha envio automatico.
+      </p>
+      <Textarea
+        rows={3}
+        className="mt-3"
+        value={question}
+        onChange={(event) => setQuestion(event.target.value)}
+        placeholder="Ex: Como orientar o aluno nesta etapa?"
+      />
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="primary" onClick={() => createMutation.mutate()} disabled={!canGenerate}>
+          {createMutation.isPending ? "Gerando..." : "Gerar rascunho"}
+        </Button>
+      </div>
+
+      {latestDraft ? (
+        <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface/80 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={latestDraft.status === "draft_ready" ? "success" : latestDraft.status === "blocked" ? "warning" : "neutral"}>
+                {latestDraft.status === "draft_ready" ? "Rascunho pronto" : latestDraft.status}
+              </Badge>
+              <Badge variant="neutral">{latestDraft.intent}</Badge>
+            </div>
+            {latestDraft.status === "draft_ready" ? (
+              <Button size="sm" variant="secondary" onClick={() => prepareMutation.mutate(latestDraft.id)} disabled={prepareMutation.isPending}>
+                Kommo
+              </Button>
+            ) : null}
+          </div>
+          {latestDraft.draft_reply ? <p className="mt-3 text-sm text-lovable-ink">{latestDraft.draft_reply}</p> : null}
+          {latestDraft.blocked_reasons.length > 0 ? (
+            <p className="mt-2 text-xs text-lovable-warning">Bloqueios: {latestDraft.blocked_reasons.join(", ")}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function reviewStatusLabel(review: MovementVideoReview): string {
+  if (review.status === "blocked") return "Bloqueado";
+  if (review.status === "needs_coach_review") return "Revisar";
+  if (review.status === "approved") return "Aprovado";
+  if (review.status === "rejected") return "Rejeitado";
+  return "Pendente";
+}
+
+function reviewStatusVariant(review: MovementVideoReview): "warning" | "success" | "danger" | "info" {
+  if (review.status === "blocked") return "warning";
+  if (review.status === "approved") return "success";
+  if (review.status === "rejected") return "danger";
+  return "info";
+}
+
+function getReviewRejectionReason(review: MovementVideoReview): string | null {
+  const reason = review.metadata_json?.rejection_reason;
+  return typeof reason === "string" && reason.trim() ? reason.trim() : null;
+}
+
+function CoachMovementVideoPanel({ memberId }: { memberId: string | null }) {
+  const queryClient = useQueryClient();
+  const [exerciseName, setExerciseName] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [coachObservation, setCoachObservation] = useState("");
+  const [coachFeedback, setCoachFeedback] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+
+  const reviewsQuery = useQuery({
+    queryKey: ["movement-video", "coach-workspace-reviews", memberId],
+    queryFn: () => movementVideoService.listReviews(memberId ?? ""),
+    enabled: Boolean(memberId),
+    staleTime: 30_000,
+  });
+
+  const invalidateReviews = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["movement-video", "coach-workspace-reviews", memberId] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      movementVideoService.createReview(memberId ?? "", {
+        exercise_name: exerciseName.trim(),
+        video_asset_url: videoUrl.trim(),
+      }),
+    onSuccess: async (review) => {
+      await invalidateReviews();
+      setExerciseName("");
+      setVideoUrl("");
+      toast.success(review.status === "blocked" ? "Review criado com bloqueio explicavel." : "Review de video criado.");
+    },
+    onError: () => toast.error("Nao foi possivel criar o review de video."),
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: (reviewId: string) =>
+      movementVideoService.analyzeReview(reviewId, {
+        coach_observation: coachObservation.trim() || null,
+      }),
+    onSuccess: async (review) => {
+      await invalidateReviews();
+      setCoachObservation("");
+      setCoachFeedback(review.suggested_feedback ?? "");
+      toast.success("Review preparado para revisao do professor.");
+    },
+    onError: () => toast.error("Nao foi possivel analisar o review."),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: ({ reviewId, feedback }: { reviewId: string; feedback: string }) =>
+      movementVideoService.approveReview(reviewId, {
+        coach_feedback: feedback,
+      }),
+    onSuccess: async () => {
+      await invalidateReviews();
+      toast.success("Feedback aprovado. Agora pode preparar na Kommo.");
+    },
+    onError: () => toast.error("Nao foi possivel aprovar o feedback."),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (reviewId: string) =>
+      movementVideoService.rejectReview(reviewId, {
+        reason: rejectReason.trim(),
+      }),
+    onSuccess: async () => {
+      await invalidateReviews();
+      setRejectReason("");
+      toast.success("Review rejeitado com motivo registrado.");
+    },
+    onError: () => toast.error("Nao foi possivel rejeitar o review."),
+  });
+
+  const prepareMutation = useMutation({
+    mutationFn: (reviewId: string) => movementVideoService.prepareKommo(reviewId),
+    onSuccess: async () => {
+      await invalidateReviews();
+      toast.success("Feedback de video preparado na Kommo.");
+    },
+    onError: () => toast.error("Nao foi possivel preparar o feedback na Kommo."),
+  });
+
+  const latestReview = reviewsQuery.data?.[0] ?? null;
+  const effectiveCoachFeedback = coachFeedback.trim() || latestReview?.suggested_feedback?.trim() || "";
+  const rejectionReason = latestReview ? getReviewRejectionReason(latestReview) : null;
+
+  useEffect(() => {
+    if (latestReview?.suggested_feedback) {
+      setCoachFeedback(latestReview.suggested_feedback);
+    }
+    setRejectReason("");
+  }, [latestReview?.id, latestReview?.suggested_feedback]);
+
+  if (!memberId) {
+    return null;
+  }
+
+  const canReviewLatest = Boolean(latestReview && latestReview.status !== "blocked" && latestReview.status !== "approved" && latestReview.status !== "rejected");
+  const canCreate = exerciseName.trim().length >= 2 && videoUrl.trim().length >= 8 && !createMutation.isPending;
+  const canApprove = Boolean(canReviewLatest && effectiveCoachFeedback.length >= 3 && !approveMutation.isPending);
+  const canReject = Boolean(
+    canReviewLatest && rejectReason.trim().length >= 3 && !rejectMutation.isPending,
+  );
+
+  return (
+    <div className="mt-5 rounded-2xl border border-lovable-info/20 bg-lovable-info/8 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Video size={16} className="text-lovable-info" />
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Video de movimento</p>
+        </div>
+        <Badge variant="info">Coach review</Badge>
+      </div>
+      <p className="mt-2 text-sm text-lovable-ink-muted">
+        Cole uma referencia segura do video. O sistema organiza o review, mas o professor decide o feedback.
+      </p>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-[0.8fr,1.2fr]">
+        <Input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Exercicio, ex.: agachamento" />
+        <Input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="URL segura do video" />
+      </div>
+      <div className="mt-3 flex justify-end">
+        <Button size="sm" variant="secondary" onClick={() => createMutation.mutate()} disabled={!canCreate}>
+          {createMutation.isPending ? "Criando..." : "Criar review"}
+        </Button>
+      </div>
+
+      {reviewsQuery.isLoading ? <p className="mt-3 text-xs text-lovable-ink-muted">Carregando reviews...</p> : null}
+
+      {latestReview ? (
+        <div className="mt-4 rounded-xl border border-lovable-border bg-lovable-surface/80 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={reviewStatusVariant(latestReview)}>{reviewStatusLabel(latestReview)}</Badge>
+              <Badge variant="neutral">{latestReview.exercise_name}</Badge>
+            </div>
+            {latestReview.status === "approved" ? (
+              <Button size="sm" variant="secondary" onClick={() => prepareMutation.mutate(latestReview.id)} disabled={prepareMutation.isPending}>
+                Kommo
+              </Button>
+            ) : null}
+          </div>
+
+          {latestReview.blocked_reasons.length > 0 ? (
+            <p className="mt-3 text-xs text-lovable-warning">Bloqueios: {latestReview.blocked_reasons.join(", ")}</p>
+          ) : null}
+          {rejectionReason ? <p className="mt-3 text-xs text-lovable-danger">Rejeitado: {rejectionReason}</p> : null}
+
+          {canReviewLatest ? (
+            <>
+              <Textarea
+                rows={2}
+                className="mt-3"
+                value={coachObservation}
+                onChange={(event) => setCoachObservation(event.target.value)}
+                placeholder="Observacao inicial do professor antes de preparar feedback..."
+              />
+              <div className="mt-2 flex justify-end">
+                <Button size="sm" variant="ghost" onClick={() => analyzeMutation.mutate(latestReview.id)} disabled={analyzeMutation.isPending}>
+                  {analyzeMutation.isPending ? "Preparando..." : "Preparar revisao"}
+                </Button>
+              </div>
+            </>
+          ) : null}
+
+          {canReviewLatest ? (
+            <div className="mt-3 rounded-xl border border-lovable-danger/20 bg-lovable-danger/10 p-3">
+              <Textarea
+                rows={2}
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder="Motivo da rejeicao, ex.: video sem angulo suficiente ou precisa refazer o envio..."
+              />
+              <div className="mt-2 flex justify-end">
+                <Button size="sm" variant="danger" onClick={() => rejectMutation.mutate(latestReview.id)} disabled={!canReject}>
+                  {rejectMutation.isPending ? "Rejeitando..." : "Rejeitar review"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {canReviewLatest && (latestReview.suggested_feedback || latestReview.status === "needs_coach_review") ? (
+            <>
+              <Textarea
+                rows={3}
+                className="mt-3"
+                value={coachFeedback}
+                onChange={(event) => setCoachFeedback(event.target.value)}
+                placeholder="Feedback final que o professor aprova..."
+              />
+              <div className="mt-2 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => approveMutation.mutate({ reviewId: latestReview.id, feedback: effectiveCoachFeedback })}
+                  disabled={!canApprove}
+                >
+                  {approveMutation.isPending ? "Aprovando..." : "Aprovar feedback"}
+                </Button>
+              </div>
+            </>
+          ) : null}
+
+          {latestReview.summary ? <p className="mt-3 text-xs text-lovable-ink-muted">{latestReview.summary}</p> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -261,6 +589,9 @@ export function CoachWorkspaceView() {
                   </div>
                 ))}
               </div>
+
+              <CoachPersonalAiPanel memberId={selectedItem.member_id} subjectName={selectedItem.subject_name} />
+              <CoachMovementVideoPanel memberId={selectedItem.member_id} />
 
               <div className="mt-5 flex flex-wrap gap-2">
                 {selectedItem.allowed_outcomes.slice(0, 5).map((outcome) => (

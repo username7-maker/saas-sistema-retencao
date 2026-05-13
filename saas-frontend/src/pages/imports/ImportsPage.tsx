@@ -146,7 +146,7 @@ const CHECKIN_MAPPING_OPTIONS = [
   { value: "source", label: "Origem" },
 ];
 
-const ASSESSMENT_MAPPING_OPTIONS = [
+const ASSESSMENT_APPOINTMENT_MAPPING_OPTIONS = [
   { value: "member_id", label: "ID do membro" },
   { value: "member_name", label: "Nome do membro" },
   { value: "first_name", label: "Primeiro nome" },
@@ -154,15 +154,15 @@ const ASSESSMENT_MAPPING_OPTIONS = [
   { value: "email", label: "Email" },
   { value: "external_id", label: "Matricula" },
   { value: "cpf", label: "CPF" },
-  { value: "assessment_date", label: "Data da avaliacao" },
+  { value: "scheduled_at", label: "Data e hora da avaliacao" },
+  { value: "scheduled_date", label: "Data da avaliacao" },
+  { value: "scheduled_time", label: "Hora da avaliacao" },
   { value: "evaluator_name", label: "Professor/avaliador" },
-  { value: "legacy_assessment_count", label: "Qtd de fichas legadas" },
-  { value: "legacy_status", label: "Situacao legada" },
-  { value: "weight_kg", label: "Peso" },
-  { value: "height_cm", label: "Altura" },
-  { value: "bmi", label: "IMC" },
-  { value: "body_fat_pct", label: "Percentual de gordura" },
-  { value: "lean_mass_kg", label: "Massa magra" },
+  { value: "appointment_status", label: "Comparecimento/status" },
+  { value: "payment_status", label: "Pagamento" },
+  { value: "assessment_type", label: "Tipo de avaliacao" },
+  { value: "notes", label: "Observacoes" },
+  { value: "external_reference", label: "Referencia externa" },
 ];
 
 function buildImportMappingPayload(
@@ -663,35 +663,35 @@ export function ImportsPage() {
 
   const importAssessmentsMutation = useMutation({
     mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
-      importExportService.importAssessments(file, mapping),
+      importExportService.importAssessmentAppointments(file, mapping),
     onSuccess: (summary) => {
       setAssessmentsSummary(summary);
       setAssessmentsPreview(null);
       setAssessmentsPreviewDirty(false);
       refreshImportedDataViews();
       if (summary.imported > 0) {
-        toast.success("Historico legado de avaliacoes importado.");
+        toast.success("Agenda/historico de avaliacoes importado.");
         return;
       }
       if (summary.updated_existing > 0) {
-        toast.success("Marcadores legados do Actuar atualizados nos alunos.");
+        toast.success("Agenda/historico de avaliacoes atualizado.");
         return;
       }
-      toast.success("Arquivo processado sem novas avaliacoes.");
+      toast.success("Arquivo processado sem novas marcacoes.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
   const previewAssessmentsMutation = useMutation({
     mutationFn: ({ file, mapping }: { file: File; mapping?: ImportMappingPayload }) =>
-      importExportService.previewAssessments(file, mapping),
+      importExportService.previewAssessmentAppointments(file, mapping),
     onSuccess: (preview) => {
       setAssessmentsPreview(preview);
       setAssessmentsSummary(null);
       setAssessmentsColumnMappings(preview.resolved_mappings);
       setAssessmentsIgnoredColumns(preview.ignored_columns);
       setAssessmentsPreviewDirty(false);
-      toast.success("Preview de avaliacoes gerado. Revise se ha data antes de confirmar.");
+      toast.success("Preview da agenda/historico gerado. Revise data, presenca, pagamento e professor.");
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -960,10 +960,10 @@ export function ImportsPage() {
 
         <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">
-            Importar historico de avaliacoes
+            Importar agenda/historico de avaliacoes
           </h3>
           <p className="mt-1 text-xs text-lovable-ink-muted">
-            Use export do Actuar/Afig com aluno e data da avaliacao. Se vier apenas Qtd de Fichas, o sistema marca legado sem criar datas.
+            Use a planilha Excel da academia com aluno, data, hora, professor, presenca e pagamento. Isso nao cria avaliacao tecnica.
           </p>
           <input
             type="file"
@@ -1024,7 +1024,7 @@ export function ImportsPage() {
           <PreviewResult preview={assessmentsPreview} allowMissingExport />
           <ReconciliationPanel
             preview={assessmentsPreview}
-            options={ASSESSMENT_MAPPING_OPTIONS}
+            options={ASSESSMENT_APPOINTMENT_MAPPING_OPTIONS}
             columnMappings={assessmentsColumnMappings}
             ignoredColumns={assessmentsIgnoredColumns}
             previewDirty={assessmentsPreviewDirty}
