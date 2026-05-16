@@ -74,6 +74,8 @@ ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "e
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
+DAILY_QUEUE_STALE_BACKLOG_AFTER = timedelta(days=14)
+DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS = {"finance", "trainer"}
 
 TRAINER_TASK_SOURCES = {
     "assessment_training_delivery_check_d8",
@@ -708,6 +710,19 @@ def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, dateti
     )
 
 
+def _as_aware_datetime(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _is_stale_daily_backlog(item: WorkQueueItemOut, now: datetime) -> bool:
+    if item.domain in DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS:
+        return False
+    if item.due_at is None:
+        return False
+    due_at = _as_aware_datetime(item.due_at)
+    return due_at < now - DAILY_QUEUE_STALE_BACKLOG_AFTER
+
+
 def _filter_items(
     items: list[WorkQueueItemOut],
     *,
@@ -718,6 +733,7 @@ def _filter_items(
     domain: DomainFilter,
 ) -> list[WorkQueueItemOut]:
     filtered = []
+    now = _now()
     for item in items:
         if state != "all" and item.state != state:
             continue
@@ -725,16 +741,18 @@ def _filter_items(
             continue
         if domain not in {"all", "operations"} and item.domain != domain:
             continue
-        if state == "do_now" and item.domain == "retention" and is_cold_base_stage(item.retention_stage):
-            continue
-        if state == "do_now" and item.visible_from and item.visible_from > _now():
-            continue
+        if state == "do_now":
+            if item.domain == "retention" and is_cold_base_stage(item.retention_stage):
+                continue
+            if item.visible_from and _as_aware_datetime(item.visible_from) > now:
+                continue
+            if _is_stale_daily_backlog(item, now):
+                continue
         if not _matches_shift(item, current_user, shift):
             continue
         if not _matches_assignee(item, current_user, assignee):
             continue
         filtered.append(item)
-    now = _now()
     return sorted(filtered, key=lambda item: _work_item_score(item, now), reverse=True)
 
 

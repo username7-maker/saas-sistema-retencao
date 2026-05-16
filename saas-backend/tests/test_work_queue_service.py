@@ -376,6 +376,113 @@ def test_filter_hides_future_visible_from_in_do_now():
     assert [item.subject_name for item in result] == ["Aluno visivel"]
 
 
+def test_filter_hides_stale_backlog_from_do_now_but_not_all():
+    user = _user()
+    stale_retention = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno backlog",
+        domain="retention",
+        severity="high",
+        preferred_shift="morning",
+        reason="Retencao antiga sem resultado",
+        primary_action_label="Contato ativo",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        due_at=datetime.now(tz=timezone.utc) - timedelta(days=16),
+        context_path="/tasks",
+        outcome_state="pending",
+        retention_stage="reactivation",
+        retention_stage_label="Reativacao",
+    )
+    current_onboarding = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno atual",
+        domain="onboarding",
+        severity="high",
+        preferred_shift="morning",
+        reason="Onboarding dentro da janela operacional",
+        primary_action_label="Contato D7",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        due_at=datetime.now(tz=timezone.utc) - timedelta(days=2),
+        context_path="/tasks",
+        outcome_state="pending",
+    )
+
+    do_now = _filter_items(
+        [stale_retention, current_onboarding],
+        current_user=user,
+        state="do_now",
+        shift="my_shift",
+        assignee="all",
+        domain="all",
+    )
+    all_items = _filter_items(
+        [stale_retention, current_onboarding],
+        current_user=user,
+        state="all",
+        shift="my_shift",
+        assignee="all",
+        domain="all",
+    )
+
+    assert [item.subject_name for item in do_now] == ["Aluno atual"]
+    assert {item.subject_name for item in all_items} == {"Aluno backlog", "Aluno atual"}
+
+
+def test_filter_keeps_stale_trainer_and_finance_items_in_do_now():
+    user = _user()
+    old_due = datetime.now(tz=timezone.utc) - timedelta(days=30)
+    trainer_item = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno treino",
+        domain="trainer",
+        severity="high",
+        preferred_shift="morning",
+        reason="Feedback tecnico atrasado",
+        primary_action_label="Registrar feedback",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        due_at=old_due,
+        context_path="/tasks",
+        outcome_state="pending",
+        technical_ladder_step="training_feedback_d14",
+    )
+    finance_item = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno financeiro",
+        domain="finance",
+        severity="high",
+        preferred_shift="morning",
+        reason="Pagamento pendente",
+        primary_action_label="Regularizar pendencia",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        due_at=old_due,
+        context_path="/tasks",
+        outcome_state="pending",
+    )
+
+    result = _filter_items(
+        [trainer_item, finance_item],
+        current_user=user,
+        state="do_now",
+        shift="my_shift",
+        assignee="all",
+        domain="all",
+    )
+
+    assert {item.subject_name for item in result} == {"Aluno treino", "Aluno financeiro"}
+
+
 def test_operations_domain_excludes_retention_items():
     user = _user()
     retention_item = WorkQueueItemOut(
