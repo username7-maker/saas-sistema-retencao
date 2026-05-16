@@ -120,7 +120,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title=settings.app_name,
-    description="AI GYM OS - BI e Retencao para academias",
+    description=f"{settings.app_name} - BI e Retencao para academias",
     version="3.0.0",
     docs_url="/docs" if settings.api_docs_enabled else None,
     redoc_url="/redoc" if settings.api_docs_enabled else None,

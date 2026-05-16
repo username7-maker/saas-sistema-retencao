@@ -35,6 +35,9 @@ from app.models import (
     Goal,
     GymAutopilotSettings,
     InAppNotification,
+    KommoDomainRoute,
+    KommoFileAttachment,
+    KommoMemberDomainLink,
     LeadBooking,
     Lead,
     Member,
@@ -54,7 +57,7 @@ from app.models import (
     TrainingPlan,
     User,
 )
-from app.models.base import Base
+from app.models.base import Base as Base
 
 
 engine = create_engine(
@@ -85,6 +88,7 @@ ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
     "member_intelligence.",
     "member_service.",
     "nurturing.",
+    "public_reports.",
     "risk_recalculation.",
     "tenant_guard.",
 )
@@ -130,6 +134,9 @@ TENANT_SCOPED_MODELS = (
     NPSResponse,
     AuditLog,
     InAppNotification,
+    KommoDomainRoute,
+    KommoFileAttachment,
+    KommoMemberDomainLink,
     AutomationExecutionLog,
     AutopilotAction,
     AutopilotEvent,
@@ -286,7 +293,7 @@ def _infer_gym_id_from_relations(session: Session, obj: object) -> UUID | None:
 
 
 @event.listens_for(Session, "before_flush")
-def _assign_gym_on_new_objects(session: Session, flush_context, instances) -> None:  # type: ignore[no-untyped-def,unused-argument]
+def _assign_gym_on_new_objects(session: Session, _flush_context, instances) -> None:  # type: ignore[no-untyped-def,unused-argument]
     tenant_gym_id = get_current_gym_id()
     for obj in session.new:
         if not hasattr(obj, "gym_id"):

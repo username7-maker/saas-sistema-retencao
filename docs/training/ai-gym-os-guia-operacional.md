@@ -1,8 +1,8 @@
-# Guia Operacional do AI Gym OS
+# Guia Operacional do Cordex Gym OS
 
 ## 1. VISAO GERAL DO SISTEMA
 
-O AI Gym OS e o sistema operacional da academia para acompanhar alunos, organizar pendencias, agir sobre risco de evasao, registrar avaliacoes e dar visao gerencial da operacao.
+O Cordex Gym OS e o sistema operacional da academia para acompanhar alunos, organizar pendencias, agir sobre risco de evasao, registrar avaliacoes e dar visao gerencial da operacao.
 
 Na pratica, ele entra na rotina da academia de quatro formas:
 
@@ -1430,7 +1430,7 @@ O que explicar manualmente na apresentacao para evitar mau uso:
 
 ## 9. ROTEIRO PRONTO PARA EU APRESENTAR HOJE
 
-### 1. Abertura: o que e o AI Gym OS
+### 1. Abertura: o que e o Cordex Gym OS
 
 **O que eu digo**
 Este sistema nao e so cadastro. Ele organiza a rotina da academia, mostra quem precisa de atencao e ajuda a equipe a agir no tempo certo.

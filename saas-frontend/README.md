@@ -1,6 +1,6 @@
-﻿# saas-frontend
+# saas-frontend
 
-Frontend React 18 + TypeScript do AI GYM OS.
+Frontend React 18 + TypeScript do Cordex Gym OS.
 
 ## Rodar local
 

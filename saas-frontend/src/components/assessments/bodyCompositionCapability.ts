@@ -6,6 +6,7 @@ import type {
   EvaluationSource,
 } from "../../types";
 import type { BodyCompositionOcrEngine, BodyCompositionOcrResult } from "../../services/bodyCompositionOcr";
+import { PRODUCT_NAME } from "../../config/brand";
 
 export type CapabilityTone = "success" | "warning" | "neutral";
 
@@ -123,7 +124,7 @@ export function resolveActuarCapability(
     return {
       tone: "warning",
       title: "Actuar fora do escopo deste ambiente",
-      description: "A avaliacao fica valida dentro do AI GYM OS e o resumo manual pode apoiar o lancamento externo quando necessario.",
+      description: `A avaliacao fica valida dentro do ${PRODUCT_NAME} e o resumo manual pode apoiar o lancamento externo quando necessario.`,
     };
   }
 
@@ -219,8 +220,8 @@ export function buildUnsupportedFieldsMessage(
   const total = syncStatus?.unsupported_fields?.length ?? 0;
   if (!total) return null;
   return total === 1
-    ? "1 campo permanece apenas no AI GYM OS porque ainda nao tem destino suportado no Actuar."
-    : `${total} campos permanecem apenas no AI GYM OS porque ainda nao tem destino suportado no Actuar.`;
+    ? `1 campo permanece apenas no ${PRODUCT_NAME} porque ainda nao tem destino suportado no Actuar.`
+    : `${total} campos permanecem apenas no ${PRODUCT_NAME} porque ainda nao tem destino suportado no Actuar.`;
 }
 
 export function statusPillToneForSync(syncStatus: ActuarSyncStatus | null | undefined): CapabilityTone {

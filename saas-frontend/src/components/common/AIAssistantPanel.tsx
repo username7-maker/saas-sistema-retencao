@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import type { AIAssistantPayload } from "../../types";
-import { SectionHeader } from "../ui";
 import { Badge, Button, cn } from "../ui2";
 
 interface AIAssistantPanelProps {
@@ -65,22 +64,35 @@ export function AIAssistantPanel({
           Supervisao humana
         </Badge>
       ) : null}
+      {assistantData.prompt_key ? (
+        <Badge variant="info" size="sm" className="normal-case tracking-normal">
+          Agente especialista
+        </Badge>
+      ) : null}
+      {assistantData.prompt_version ? (
+        <Badge variant="neutral" size="sm" className="normal-case tracking-normal">
+          Prompt v{assistantData.prompt_version}
+        </Badge>
+      ) : null}
+      {assistantData.model ? (
+        <Badge variant="neutral" size="sm" className="normal-case tracking-normal">
+          Modelo: {assistantData.model}
+        </Badge>
+      ) : null}
     </div>
   );
 
   return (
     <section className={`min-w-0 rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4 ${className}`.trim()}>
-      {compact ? (
-        <div className="mb-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">{title}</p>
-            {subtitle ? <p className="mt-1 text-sm text-lovable-ink-muted">{subtitle}</p> : null}
-          </div>
-          {badges}
+      <div className={cn("mb-4 min-w-0 space-y-3", compact ? "space-y-3" : "space-y-3")}>
+        <div className="min-w-0">
+          <p className="max-w-full break-words text-sm font-semibold uppercase leading-relaxed tracking-[0.18em] text-lovable-ink-muted">
+            {title}
+          </p>
+          {subtitle ? <p className="mt-1 max-w-prose text-sm leading-relaxed text-lovable-ink-muted">{subtitle}</p> : null}
         </div>
-      ) : (
-        <SectionHeader title={title} subtitle={subtitle} actions={badges} />
-      )}
+        {badges}
+      </div>
 
       <div className={compact ? "space-y-3" : "space-y-4"}>
         <div className="rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3">

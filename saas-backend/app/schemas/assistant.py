@@ -15,3 +15,7 @@ class AIAssistantPayload(BaseModel):
     recommended_channel: str = "context"
     cta_target: str = "/"
     cta_label: str = "Abrir contexto"
+    prompt_key: str | None = None
+    prompt_version: str | None = None
+    model: str | None = None
+    safety_profile: str | None = None

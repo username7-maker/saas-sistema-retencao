@@ -19,6 +19,7 @@ import type {
   BodyCompositionReportHeader,
   BodyCompositionTrend,
 } from "../../../types";
+import { BRAND_ASSETS, PRODUCT_NAME } from "../../../config/brand";
 import { Badge } from "../../ui2";
 
 const SECTION_SERIF = { fontFamily: 'Georgia, "Times New Roman", serif' } as const;
@@ -142,21 +143,17 @@ export function ReportHeaderCard({
   const visibleQualityFlags = dataQualityFlags.filter((flag) => !flag.toLowerCase().startsWith("ocr"));
 
   return (
-    <header className="space-y-5 border-b border-[#b7422f] pb-5">
-      <div className="grid gap-5 lg:grid-cols-[230px_150px_minmax(0,1fr)]">
-        <div className="space-y-2">
-          <p className="whitespace-nowrap text-3xl font-black uppercase leading-none tracking-[-0.04em] text-[#b7422f] sm:text-4xl">AI GYM OS</p>
-          <div className="h-1 w-40 bg-[#b7422f]" />
-          <p className="max-w-xl text-sm leading-6 text-[#615750]">
-            Relatorio premium de composicao corporal estruturado para acompanhamento tecnico, percepcao de valor e impressao limpa.
-          </p>
+    <header className="space-y-4 border-b border-[#6fa7c7] pb-4">
+      <div className="grid gap-5 lg:grid-cols-[210px_minmax(150px,1fr)_260px] lg:items-start">
+        <div className="flex items-start">
+          <img src={BRAND_ASSETS.logoReport} alt={PRODUCT_NAME} className="h-auto w-40 object-contain sm:w-44" />
         </div>
         <div className="flex items-start justify-center">
-          <img src={PROGYM_LOGO_SRC} alt="ProGym" className="h-auto w-32 object-contain" />
+          <img src={PROGYM_LOGO_SRC} alt="ProGym" className="h-auto w-36 object-contain sm:w-40" />
         </div>
-        <div className="space-y-1 text-left lg:text-right">
+        <div className="min-w-0 space-y-1 text-left lg:text-right">
           <p className="text-[15px] uppercase tracking-[0.22em] text-[#7a6f68]">Relatorio de bioimpedancia</p>
-          <h1 className="break-words text-4xl font-semibold tracking-[-0.03em] text-[#14110f]">{header.member_name}</h1>
+          <h1 className="break-words text-3xl font-semibold leading-tight tracking-[-0.03em] text-[#14110f] sm:text-4xl">{header.member_name}</h1>
           <p className="text-sm text-[#5d554e]">{header.trainer_name || "Professor nao informado"}</p>
           <p className="text-sm text-[#5d554e]">{header.gym_name || "Academia nao informada"}</p>
         </div>
@@ -602,7 +599,7 @@ export function InsightPanel({
         <div className="space-y-4">
           <div className="border border-[#d8d5d0] bg-[#fbfaf7] p-4">
             <div className="inline-flex items-center gap-2">
-              <Target size={16} className="text-[#b7422f]" />
+              <Target size={16} className="text-[#1d536f]" />
               <p className="font-semibold text-[#171311]">Observacoes do professor</p>
             </div>
             <p className="mt-3 text-sm leading-6 text-[#5f5650]">

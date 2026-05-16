@@ -44,9 +44,9 @@ export function PersonalAiSettingsTab() {
     onSuccess: async (payload) => {
       setDraft(payload);
       await queryClient.invalidateQueries({ queryKey: ["personal-ai"] });
-      toast.success("Personal IA atualizado.");
+      toast.success("Cordex Coach atualizado.");
     },
-    onError: () => toast.error("Nao foi possivel salvar o Personal IA."),
+    onError: () => toast.error("Nao foi possivel salvar o Cordex Coach."),
   });
 
   const prepareMutation = useMutation({
@@ -63,7 +63,7 @@ export function PersonalAiSettingsTab() {
       <Card>
         <CardContent className="flex items-center gap-3 p-5 text-sm text-lovable-ink-muted">
           <Loader2 size={18} className="animate-spin text-lovable-primary" />
-          Carregando Personal IA...
+          Carregando Cordex Coach...
         </CardContent>
       </Card>
     );
@@ -77,7 +77,7 @@ export function PersonalAiSettingsTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Dumbbell size={18} className="text-lovable-primary" />
-            Personal IA
+            Cordex Coach
           </CardTitle>
           <p className="text-sm text-lovable-ink-muted">
             V1 em modo professor revisa: usa avaliacao, bioimpedancia, treino ativo, metas e restricoes para criar rascunhos tecnicos supervisionados.
@@ -104,7 +104,7 @@ export function PersonalAiSettingsTab() {
                 onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
               />
               <span>
-                <span className="block text-sm font-semibold text-lovable-ink">Habilitar Personal IA</span>
+                <span className="block text-sm font-semibold text-lovable-ink">Habilitar Cordex Coach</span>
                 <span className="mt-1 block text-xs text-lovable-ink-muted">Permite gerar orientacoes tecnicas em rascunho para alunos.</span>
               </span>
             </label>
@@ -143,13 +143,13 @@ export function PersonalAiSettingsTab() {
               ))}
             </div>
             <p className="mt-3 text-xs text-lovable-ink-muted">
-              O Personal IA nao monta treino novo, nao corrige movimento por video, nao da dieta/suplemento e nao responde dor ou lesao sem humano.
+              O Cordex Coach nao monta treino novo, nao corrige movimento por video, nao da dieta/suplemento e nao responde dor ou lesao sem humano.
             </p>
           </div>
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Salvando..." : "Salvar Personal IA"}
+              {saveMutation.isPending ? "Salvando..." : "Salvar Cordex Coach"}
             </Button>
           </div>
         </CardContent>

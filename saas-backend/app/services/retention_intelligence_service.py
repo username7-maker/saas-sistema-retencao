@@ -11,7 +11,6 @@ from app.models import (
     Checkin,
     Member,
     MemberStatus,
-    NPSResponse,
     RiskLevel,
     Task,
     TaskPriority,

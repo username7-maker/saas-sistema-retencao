@@ -93,13 +93,15 @@ export function DiagnosticoPage() {
     },
   });
 
+  const diagnosisStatusValue = diagnosisStatus?.status;
+
   useEffect(() => {
     if (!lastSuccess) {
       return;
     }
 
     const terminalStatuses = new Set(["completed", "failed"]);
-    if (diagnosisStatus && terminalStatuses.has(diagnosisStatus.status)) {
+    if (diagnosisStatusValue && terminalStatuses.has(diagnosisStatusValue)) {
       return;
     }
 
@@ -124,7 +126,7 @@ export function DiagnosticoPage() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [lastSuccess, diagnosisStatus?.status]);
+  }, [lastSuccess, diagnosisStatusValue]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

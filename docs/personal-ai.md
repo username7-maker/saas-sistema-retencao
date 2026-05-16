@@ -52,7 +52,7 @@ O Personal IA bloqueia ou escala quando encontra:
 
 ## Student Personal IA via Kommo
 
-A fase `08.7` leva a entrada do aluno para a Kommo. O aluno pode mandar pergunta tecnica ou video na conversa Kommo; o AI Gym OS prepara rascunho/review para revisao humana.
+A fase `08.7` leva a entrada do aluno para a Kommo. O aluno pode mandar pergunta tecnica ou video na conversa Kommo; o Cordex Gym OS prepara rascunho/review para revisao humana.
 
 Endpoints:
 

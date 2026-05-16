@@ -40,9 +40,9 @@ export function AiServiceAgentSettingsTab() {
     onSuccess: async (payload) => {
       setDraft(payload);
       await queryClient.invalidateQueries({ queryKey: ["ai-service-agent"] });
-      toast.success("Agente IA atualizado.");
+      toast.success("Cordex Agent atualizado.");
     },
-    onError: () => toast.error("Nao foi possivel salvar o Agente IA."),
+    onError: () => toast.error("Nao foi possivel salvar o Cordex Agent."),
   });
 
   const prepareMutation = useMutation({
@@ -59,7 +59,7 @@ export function AiServiceAgentSettingsTab() {
       <Card>
         <CardContent className="flex items-center gap-3 p-5 text-sm text-lovable-ink-muted">
           <Loader2 size={18} className="animate-spin text-lovable-primary" />
-          Carregando Agente IA...
+          Carregando Cordex Agent...
         </CardContent>
       </Card>
     );
@@ -73,7 +73,7 @@ export function AiServiceAgentSettingsTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bot size={18} className="text-lovable-primary" />
-            Agente IA Kommo
+            Cordex Agent Kommo
           </CardTitle>
           <p className="text-sm text-lovable-ink-muted">
             V1 em modo rascunho: le mensagem recebida na Kommo, classifica risco e prepara resposta curta para humano revisar. Autoenvio fica desligado.
@@ -146,7 +146,7 @@ export function AiServiceAgentSettingsTab() {
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Salvando..." : "Salvar Agente IA"}
+              {saveMutation.isPending ? "Salvando..." : "Salvar Cordex Agent"}
             </Button>
           </div>
         </CardContent>

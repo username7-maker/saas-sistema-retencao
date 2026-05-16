@@ -48,7 +48,7 @@ A fase `04.43.14` permite configurar a Kommo como canal principal de comunicacao
 
 Regras V1:
 
-- O AI Gym OS nao faz envio autonomo pela Kommo.
+- O Cordex Gym OS nao faz envio autonomo pela Kommo.
 - A Work Queue cria/atualiza contato/lead e cria uma tarefa na Kommo com contexto, mensagem pronta e link de retorno.
 - O operador confirma e envia pelo ambiente da Kommo.
 - O webhook `/api/v1/kommo/webhook` registra respostas como `kommo_inbound_received`.

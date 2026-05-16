@@ -1,7 +1,7 @@
 # Spec 024 - Student Personal IA Kommo V1
 
 ## Summary
-Aluno aciona Personal IA e envia video pelo canal Kommo. O AI Gym OS gera rascunho/review supervisionado para a equipe responder pela Kommo. V1 nao envia automaticamente.
+Aluno aciona Personal IA e envia video pelo canal Kommo. O Cordex Gym OS gera rascunho/review supervisionado para a equipe responder pela Kommo. V1 nao envia automaticamente.
 
 ## Requirements
 - Kommo webhook deve registrar inbound e resolver aluno por `KommoMemberLink`.

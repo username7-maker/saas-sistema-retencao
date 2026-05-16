@@ -17,6 +17,7 @@ from app.schemas.ai_service_agent import (
 )
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_settings_service import get_or_create_autopilot_settings
+from app.services.ai_prompt_registry_service import AiPromptResult, generate_specialist_text
 from app.services.compliance_service import current_consent_status_map
 from app.services.kommo_service import handoff_member_to_kommo, is_kommo_ready
 
@@ -127,13 +128,20 @@ def process_kommo_inbound_for_ai_agent(
     if blocked_reasons:
         status_value = "blocked" if classification.intent not in SENSITIVE_INTENTS else "escalated"
 
-    draft_reply = None if blocked_reasons or classification.intent in SENSITIVE_INTENTS else _draft_reply_for_member(member, classification.intent)
+    reply_result = None if blocked_reasons or classification.intent in SENSITIVE_INTENTS else _draft_reply_for_member_result(
+        member,
+        classification.intent,
+        received_message=message_text,
+        summary=classification.summary,
+    )
+    draft_reply = reply_result.text if reply_result else None
     metadata = {
         "ai_service_agent_state": status_value,
         "intent": classification.intent,
         "sensitivity": classification.sensitivity,
         "summary": classification.summary,
         "draft_reply": draft_reply,
+        "prompt_metadata": reply_result.metadata if reply_result else None,
         "next_action": classification.next_action,
         "recommended_owner_role": classification.recommended_owner_role,
         "blocked_reasons": blocked_reasons,
@@ -240,7 +248,7 @@ def prepare_ai_service_agent_draft_in_kommo(
     summary = "\n".join(
         part
         for part in [
-            "Agente IA Kommo V1 - revisar resposta antes de enviar.",
+            "Cordex Agent Kommo V1 - revisar resposta antes de enviar.",
             f"Resumo: {metadata.get('summary') or '-'}",
             f"Mensagem recebida: {metadata.get('received_message') or '-'}",
             f"Resposta sugerida: {action.message_body or '-'}",
@@ -331,6 +339,7 @@ def serialize_ai_service_agent_draft(action: AutopilotAction) -> AiServiceAgentD
         blocked_reasons=list(metadata.get("blocked_reasons") or []),
         evidence=list(metadata.get("evidence") or []),
         received_message=metadata.get("received_message"),
+        prompt_metadata=metadata.get("prompt_metadata") if isinstance(metadata.get("prompt_metadata"), dict) else None,
         kommo_contact_id=metadata.get("kommo_contact_id"),
         kommo_lead_id=metadata.get("kommo_lead_id"),
         kommo_task_id=metadata.get("kommo_task_id"),
@@ -406,6 +415,16 @@ def _matched_sensitive_intent(normalized: str) -> tuple[str, str, str] | None:
 
 
 def _draft_reply_for_member(member: Member, intent: str) -> str:
+    return _draft_reply_for_member_result(member, intent).text
+
+
+def _draft_reply_for_member_result(
+    member: Member,
+    intent: str,
+    *,
+    received_message: str | None = None,
+    summary: str | None = None,
+) -> AiPromptResult:
     first_name = ((member.full_name or "").split(" ")[0] or "tudo bem").strip()
     templates = {
         "assessment": f"Oi, {first_name}! Consigo te ajudar com isso. Vou confirmar o melhor encaminhamento com o professor e ja te retorno por aqui.",
@@ -415,7 +434,21 @@ def _draft_reply_for_member(member: Member, intent: str) -> str:
         "onboarding": f"Oi, {first_name}! Bem-vindo(a). Vou te orientar no proximo passo para voce comecar bem.",
         "general": f"Oi, {first_name}! Recebi sua mensagem. Vou verificar o contexto e ja te retorno por aqui.",
     }
-    return templates.get(intent, templates["general"])
+    fallback = templates.get(intent, templates["general"])
+    prompt = (
+        "Prepare uma resposta curta de atendimento para a equipe revisar e enviar na Kommo.\n"
+        f"Aluno: {member.full_name}\n"
+        f"Intent: {intent}\n"
+        f"Resumo: {summary or '-'}\n"
+        f"Mensagem recebida: {received_message or '-'}\n"
+        "Nao envie autonomamente. Se faltar certeza, diga que a equipe vai confirmar e retornar."
+    )
+    return generate_specialist_text(
+        "kommo_service_agent_v1",
+        user_prompt=prompt,
+        fallback_text=fallback,
+        max_output_chars=700,
+    )
 
 
 def _member_has_communication_consent(db: Session, member: Member) -> bool:

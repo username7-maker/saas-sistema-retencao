@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.models import Gym
 from app.services.dashboard_service import (
     get_churn_dashboard,
@@ -35,12 +36,17 @@ _PROGYM_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "progym_lo
 if _PROGYM_LOGO_ASSET.exists():
     PROGYM_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_PROGYM_LOGO_ASSET.read_bytes()).decode("ascii")
 
+CORDEX_REPORT_LOGO_DATA_URI = ""
+_CORDEX_REPORT_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "cordex_logo_report.png"
+if _CORDEX_REPORT_LOGO_ASSET.exists():
+    CORDEX_REPORT_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_CORDEX_REPORT_LOGO_ASSET.read_bytes()).decode("ascii")
+
 
 @dataclass(slots=True)
 class PremiumReportBranding:
     gym_name: str | None = None
     gym_logo_url: str | None = None
-    product_name: str = "AI GYM OS"
+    product_name: str = PRODUCT_NAME
 
 
 @dataclass(slots=True)
@@ -169,7 +175,7 @@ def build_dashboard_report_payload(
     branding = _resolve_branding(db)
     generated_at = datetime.now(tz=timezone.utc)
     report_title = f"Relatorio {dashboard_key.title()}" if dashboard_key != "consolidated" else "Board Pack Consolidado"
-    report_subtitle = "Relatorio premium AI GYM OS"
+    report_subtitle = f"Relatorio premium {PRODUCT_NAME}"
     cover_summary = _build_cover_summary(db, dashboard_key)
 
     if dashboard_key == "executive":
@@ -244,7 +250,7 @@ def build_dashboard_report_payload(
         parameters={"dashboard": dashboard_key},
         cover_summary=cover_summary,
         sections=sections,
-        footer_note="Documento premium gerado pelo AI GYM OS. Dados sujeitos ao recorte temporal e ao escopo do tenant.",
+        footer_note=f"Documento premium gerado pelo {PRODUCT_NAME}. Dados sujeitos ao recorte temporal e ao escopo do tenant.",
     )
 
 
@@ -827,7 +833,6 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     teacher_notes = report.get("teacher_notes") or "Sem observacoes registradas nesta avaliacao."
     methodological_note = report.get("methodological_note") or payload.footer_note or ""
     data_quality_flags = report.get("data_quality_flags", []) or []
-    parsing_confidence = report.get("parsing_confidence")
     technical_scope = payload.report_scope == "technical"
     comparison_priority = {"weight_kg", "body_fat_percent", "muscle_mass_kg", "visceral_fat_level", "bmi"}
     compact_comparison_rows = [row for row in comparison_rows if str(row.get("key")) in comparison_priority]
@@ -835,6 +840,11 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
 
     score_metric = _body_metric_by_key(risk_metrics, "health_score") or _body_metric_by_key(primary_cards, "health_score")
     obesity_metrics = [metric for metric in risk_metrics if metric.get("key") in {"bmi", "body_fat_percent"}]
+    obesity_band_metrics = [
+        metric
+        for metric in risk_metrics
+        if metric.get("key") in {"bmi", "body_fat_percent", "visceral_fat_level", "waist_hip_ratio"}
+    ]
     waist_hip_metric = _body_metric_by_key(risk_metrics, "waist_hip_ratio")
     visceral_metric = _body_metric_by_key(risk_metrics, "visceral_fat_level")
     additional_metrics = [
@@ -883,6 +893,25 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
 
     methodological_note = str(methodological_note or "").strip()
     compact_methodological_note = _truncate_body_text(methodological_note, 170 if technical_scope else 118)
+    detail_sections_html = ""
+    if technical_scope:
+        detail_sections_html = f"""
+      <section class="clinical-section clinical-detail-section">
+        <h2>Historico da Composicao Corporal</h2>
+        {_render_body_history_grid(history_series, limit=5)}
+      </section>
+      <section class="clinical-section clinical-detail-section">
+        <h2>Anterior x Atual</h2>
+        <p class="clinical-section-subtitle">Leitura comparativa da avaliacao anterior contra a leitura atual.</p>
+        {_render_body_comparison_table(comparison_rows)}
+      </section>
+      <section class="clinical-section clinical-detail-section">
+        <h2>Leitura Final</h2>
+        <p class="clinical-section-subtitle">Insights deterministicos e observacoes operacionais da avaliacao.</p>
+        {_render_body_insight_panel(insights, teacher_notes, methodological_note)}
+      </section>
+      {_render_body_segmental_analysis_empty(report.get("segmental_analysis_available"))}
+"""
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -897,9 +926,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       <div class="clinical-sheet-scale">
       <header class="clinical-header">
         <div class="clinical-brand">
-          <div class="clinical-brand-name">{escape(payload.branding.product_name)}</div>
-          <div class="clinical-brand-line"></div>
-          <p>Relatorio premium de composicao corporal estruturado para acompanhamento tecnico e impressao limpa.</p>
+          {f'<img class="clinical-cordex-logo" src="{CORDEX_REPORT_LOGO_DATA_URI}" alt="{escape(payload.branding.product_name)}" />' if CORDEX_REPORT_LOGO_DATA_URI else f'<div class="clinical-brand-name">{escape(payload.branding.product_name)}</div>'}
         </div>
         <div class="clinical-partner-logo-wrap">
           <img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" />
@@ -962,7 +989,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
                 <span>Acima</span>
                 <span>Valor</span>
               </div>
-              {"".join(_render_body_band_row(metric) for metric in [metric for metric in risk_metrics if metric.get("key") in {"bmi", "body_fat_percent"}])}
+              {"".join(_render_body_band_row(metric) for metric in obesity_band_metrics)}
             </div>
           </section>
         </div>
@@ -1019,22 +1046,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
           </section>''' if technical_scope or lead_insight or teacher_notes or methodological_note else ''}
         </aside>
       </section>
-
-      <section class="clinical-section">
-        <h2>Historico da Composicao Corporal</h2>
-        {_render_body_history_grid(history_series, limit=(5 if technical_scope else 4))}
-      </section>
-      <section class="clinical-section clinical-detail-section">
-        <h2>Anterior x Atual</h2>
-        <p class="clinical-section-subtitle">Leitura comparativa da avaliacao anterior contra a leitura atual.</p>
-        {_render_body_comparison_table(comparison_rows)}
-      </section>
-      <section class="clinical-section clinical-detail-section">
-        <h2>Leitura Final</h2>
-        <p class="clinical-section-subtitle">Insights deterministicos e observacoes operacionais da avaliacao.</p>
-        {_render_body_insight_panel(insights, teacher_notes, methodological_note)}
-      </section>
-      {_render_body_segmental_analysis_empty(report.get("segmental_analysis_available"))}
+      {detail_sections_html}
       </div>
     </section>
   </main>
@@ -1633,7 +1645,7 @@ def _body_composition_report_css() -> str:
         --line-soft: #ebe6df;
         --text: #171311;
         --muted: #6f665f;
-        --brand: #b7422f;
+        --brand: #6fa7c7;
         --band-low: #dad5cf;
         --band-mid: #bcc3cc;
         --ok: #0f8c62;
@@ -1652,15 +1664,15 @@ def _body_composition_report_css() -> str:
         padding: 0;
       }
       .clinical-page {
-        width: 202mm;
-        max-width: 202mm;
+        width: 210mm;
+        max-width: 210mm;
         min-height: 297mm;
         height: auto;
         margin: 0 auto;
         background: var(--surface);
         border: 1px solid var(--line);
         box-shadow: none;
-        padding: 5.5mm 6.5mm 4.5mm;
+        padding: 5.5mm 7mm 4.5mm;
         page-break-after: auto;
         break-after: auto;
         overflow: visible;
@@ -1679,10 +1691,10 @@ def _body_composition_report_css() -> str:
       }
       .clinical-header {
         display: grid;
-        grid-template-columns: 210px 138px minmax(0, 1fr);
-        gap: 16px;
+        grid-template-columns: 205px minmax(150px, 1fr) 250px;
+        gap: 12px;
         align-items: start;
-        padding-bottom: 8px;
+        padding-bottom: 9px;
         border-bottom: 1px solid var(--brand);
       }
       .clinical-partner-logo-wrap {
@@ -1692,25 +1704,34 @@ def _body_composition_report_css() -> str:
         padding-top: 0;
       }
       .clinical-progym-logo {
-        width: 122px;
-        max-width: 122px;
+        width: 150px;
+        max-width: 150px;
         height: auto;
         object-fit: contain;
         display: block;
       }
       .clinical-brand-name {
-        font-size: 28px;
+        font-size: 27px;
         font-weight: 900;
-        letter-spacing: -0.06em;
-        color: var(--brand);
+        letter-spacing: -0.035em;
+        color: #1d536f;
         text-transform: uppercase;
-        line-height: 1;
+        line-height: 0.92;
+        max-width: 190px;
+        white-space: normal;
+      }
+      .clinical-cordex-logo {
+        display: block;
+        width: 154px;
+        max-width: 154px;
+        height: auto;
+        object-fit: contain;
       }
       .clinical-brand-line {
-        width: 156px;
+        width: 172px;
         height: 3px;
         background: var(--brand);
-        margin: 8px 0 8px;
+        margin: 9px 0 7px;
       }
       .clinical-brand p,
       .clinical-professional p,
@@ -1726,9 +1747,10 @@ def _body_composition_report_css() -> str:
       .clinical-professional p,
       .clinical-score-copy {
         margin: 4px 0 0;
-        font-size: 9px;
+        font-size: 9.5px;
         line-height: 1.25;
       }
+      .clinical-brand p { max-width: 190px; }
       .clinical-kicker,
       .clinical-meta-card span,
       .clinical-snapshot-card span,
@@ -1746,8 +1768,10 @@ def _body_composition_report_css() -> str:
       }
       .clinical-professional h1 {
         margin: 4px 0;
-        font-size: 22px;
+        font-size: 27px;
         line-height: 1.05;
+        overflow-wrap: anywhere;
+        word-break: normal;
       }
       .clinical-meta-grid {
         display: grid;
@@ -1757,14 +1781,14 @@ def _body_composition_report_css() -> str:
         margin-top: 8px;
       }
       .clinical-meta-card {
-        padding: 6px 8px;
+        padding: 7px 8px;
         border-right: 1px solid var(--line);
       }
       .clinical-meta-last { border-right: 0; }
       .clinical-meta-card strong {
         display: block;
         margin-top: 3px;
-        font-size: 11px;
+        font-size: 14px;
         line-height: 1.15;
         word-break: break-word;
       }
@@ -1788,17 +1812,17 @@ def _body_composition_report_css() -> str:
         display: grid;
         grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 5px;
-        margin-top: 6px;
+        margin-top: 7px;
       }
       .clinical-summary-chip {
         border: 1px solid var(--line);
         background: #fbfaf7;
-        padding: 5px 6px;
+        padding: 6px 7px;
       }
       .clinical-summary-chip strong {
         display: block;
         margin-top: 3px;
-        font-size: 12px;
+        font-size: 20px;
         line-height: 1;
       }
       .clinical-summary-chip span {
@@ -1813,36 +1837,36 @@ def _body_composition_report_css() -> str:
         display: inline-block;
         margin-top: 3px;
         color: #5e554e;
-        font-size: 9px;
+        font-size: 10px;
         line-height: 1.15;
       }
       .clinical-main-grid {
         display: grid;
-        grid-template-columns: 1.66fr 1.06fr;
+        grid-template-columns: 1.58fr 0.98fr;
         gap: 10px;
-        margin-top: 8px;
+        margin-top: 7px;
       }
       .clinical-left-column,
       .clinical-right-column {
         display: grid;
-        gap: 8px;
+        gap: 9px;
       }
       .clinical-section h2 {
-        margin: 0 0 5px;
+        margin: 0 0 7px;
         font-family: Georgia, "Times New Roman", serif;
-        font-size: 17px;
+        font-size: 21px;
         font-weight: 600;
         color: #4f433a;
       }
       .clinical-sidebar-block {
         border-top: 1px solid var(--line);
-        padding-top: 5px;
+        padding-top: 7px;
       }
       .clinical-sidebar-block h3,
       .clinical-note-block h3,
       .clinical-insight-title {
         margin: 0;
-        font-size: 12px;
+        font-size: 16px;
         font-weight: 700;
       }
       .clinical-score {
@@ -1852,12 +1876,12 @@ def _body_composition_report_css() -> str:
         margin-top: 4px;
       }
       .clinical-score strong {
-        font-size: 30px;
+        font-size: 42px;
         line-height: 0.95;
         letter-spacing: -0.05em;
       }
       .clinical-score span {
-        font-size: 12px;
+        font-size: 16px;
         color: #625952;
       }
       .clinical-table-wrap {
@@ -1873,10 +1897,10 @@ def _body_composition_report_css() -> str:
         border-collapse: collapse;
       }
       .clinical-composition-table td {
-        padding: 4px 5px;
+        padding: 7px 8px;
         border-top: 1px solid var(--line-soft);
         vertical-align: top;
-        font-size: 9px;
+        font-size: 10px;
       }
       .clinical-composition-table tr:first-child td { border-top: 0; }
       .clinical-composition-table td:nth-child(1),
@@ -1886,7 +1910,7 @@ def _body_composition_report_css() -> str:
       }
       .clinical-composition-table td:nth-child(3) {
         text-align: right;
-        font-size: 13px;
+        font-size: 19px;
         font-weight: 700;
       }
       .clinical-metric-name {
@@ -1894,19 +1918,19 @@ def _body_composition_report_css() -> str:
       }
       .clinical-metric-unit {
         color: #736962;
-        font-size: 9px;
+        font-size: 10px;
         margin-top: 2px;
       }
       .clinical-band-panel {
         border: 1px solid var(--line);
         background: #fbfaf7;
-        padding: 5px 6px 6px;
+        padding: 7px 9px 8px;
       }
       .clinical-band-head,
       .clinical-band-row {
         display: grid;
-        grid-template-columns: 98px 1fr 64px;
-        gap: 7px;
+        grid-template-columns: 132px 1fr 82px;
+        gap: 9px;
         align-items: center;
       }
       .clinical-band-head {
@@ -1924,7 +1948,7 @@ def _body_composition_report_css() -> str:
         text-align: center;
       }
       .clinical-band-row {
-        padding-top: 5px;
+        padding-top: 7px;
       }
       .clinical-band-name strong {
         display: block;
@@ -1932,13 +1956,13 @@ def _body_composition_report_css() -> str:
       .clinical-band-name span,
       .clinical-status-row strong,
       .clinical-mini-gauge-head span {
-        font-size: 9px;
+        font-size: 10px;
         font-weight: 700;
       }
       .clinical-band-track,
       .clinical-mini-track {
         position: relative;
-        height: 8px;
+        height: 10px;
         border: 1px solid var(--line);
         background: #f1efeb;
         overflow: hidden;
@@ -1966,7 +1990,7 @@ def _body_composition_report_css() -> str:
       }
       .clinical-band-value {
         text-align: right;
-        font-size: 12px;
+        font-size: 15px;
         font-weight: 700;
       }
       .clinical-metric-list,
@@ -1979,7 +2003,7 @@ def _body_composition_report_css() -> str:
         display: flex;
         justify-content: space-between;
         gap: 8px;
-        font-size: 9px;
+        font-size: 10px;
       }
       .clinical-metric-list-row span,
       .clinical-status-row span {
@@ -2110,13 +2134,13 @@ def _body_composition_report_css() -> str:
       }
       .clinical-compact-comparison-row strong {
         display: block;
-        font-size: 8px;
+        font-size: 9px;
       }
       .clinical-compact-comparison-row span {
         display: block;
         color: #6a6059;
-        font-size: 7px;
-        line-height: 1.08;
+        font-size: 8px;
+        line-height: 1.12;
       }
       .clinical-compact-comparison-delta {
         text-align: right;
@@ -2124,8 +2148,8 @@ def _body_composition_report_css() -> str:
       .clinical-sidebar-note p {
         margin: 2px 0 0;
         color: var(--muted);
-        font-size: 7px;
-        line-height: 1.08;
+        font-size: 8px;
+        line-height: 1.15;
       }
       .clinical-note-pair {
         display: grid;
@@ -2134,7 +2158,7 @@ def _body_composition_report_css() -> str:
       .clinical-note-pair span {
         display: block;
         color: #6a6059;
-        font-size: 7px;
+        font-size: 8px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;

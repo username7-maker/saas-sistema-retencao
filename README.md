@@ -1,4 +1,4 @@
-﻿# AI GYM OS - MVP v3.0
+# Cordex Gym OS - MVP v3.0
 
 Plataforma SaaS B2B para academias (800 a 1.500 alunos) com BI, CRM, retencao preditiva, NPS e compliance LGPD.
 

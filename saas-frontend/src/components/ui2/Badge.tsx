@@ -9,11 +9,11 @@ interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 const badgeClasses: Record<BadgeVariant, string> = {
-  neutral: "bg-lovable-surface-soft text-lovable-ink-muted",
+  neutral: "border border-lovable-border/70 bg-lovable-surface-soft/80 text-lovable-ink-muted",
   success: "bg-[hsl(var(--lovable-success)/0.15)] text-[hsl(var(--lovable-success))]",
   warning: "bg-[hsl(var(--lovable-warning)/0.15)] text-[hsl(var(--lovable-warning))]",
   danger: "bg-[hsl(var(--lovable-danger)/0.15)] text-[hsl(var(--lovable-danger))]",
-  info: "bg-blue-500/15 text-blue-400",
+  info: "border border-[hsl(var(--lovable-primary)/0.28)] bg-[hsl(var(--lovable-primary)/0.14)] text-[hsl(var(--lovable-info))]",
 };
 
 const sizeClasses: Record<BadgeSize, string> = {

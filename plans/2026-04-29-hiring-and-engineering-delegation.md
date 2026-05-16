@@ -6,7 +6,7 @@ Source issue: COR-1
 
 ## Company Mission
 
-Help small and mid-sized entrepreneurs improve their businesses using AI and company-built software. Current product focus is AI GYM OS: an operational SaaS for gyms covering retention, CRM, tasks, assessments, premium reports, and AI-assisted daily triage.
+Help small and mid-sized entrepreneurs improve their businesses using AI and company-built software. Current product focus is Cordex Gym OS: an operational SaaS for gyms covering retention, CRM, tasks, assessments, premium reports, and AI-assisted daily triage.
 
 ## Hiring Decision
 

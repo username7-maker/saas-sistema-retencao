@@ -3,8 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, MessageSquareShare, TriangleAlert } from "lucide-react";
 import toast from "react-hot-toast";
 
+import { PRODUCT_NAME } from "../../config/brand";
 import { kommoSettingsService } from "../../services/kommoSettingsService";
+import type { KommoDomainRoute } from "../../types";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
+
+const KOMMO_DOMAINS = [
+  ["retention", "Retencao"],
+  ["onboarding", "Onboarding"],
+  ["assessment", "Avaliacao"],
+  ["body_composition", "Bioimpedancia"],
+  ["finance", "Financeiro"],
+  ["sales", "Comercial"],
+  ["student_ai", "Aluno IA"],
+  ["support", "Suporte"],
+] as const;
 
 export function KommoConnectionTab() {
   const queryClient = useQueryClient();
@@ -24,6 +37,8 @@ export function KommoConnectionTab() {
   const [operatorConfirmedSend, setOperatorConfirmedSend] = useState(true);
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(true);
   const [fallbackChannel, setFallbackChannel] = useState("whatsapp");
+  const [domainRoutes, setDomainRoutes] = useState<KommoDomainRoute[]>([]);
+  const [nativeTestLeadId, setNativeTestLeadId] = useState("");
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -38,6 +53,7 @@ export function KommoConnectionTab() {
     setOperatorConfirmedSend(settingsQuery.data.kommo_operator_confirmed_send_enabled);
     setAutoCloseEnabled(settingsQuery.data.kommo_auto_close_enabled);
     setFallbackChannel(settingsQuery.data.kommo_fallback_channel ?? "whatsapp");
+    setDomainRoutes(ensureDomainRoutes(settingsQuery.data.domain_routes ?? []));
   }, [settingsQuery.data]);
 
   const saveMutation = useMutation({
@@ -54,6 +70,7 @@ export function KommoConnectionTab() {
         kommo_operator_confirmed_send_enabled: operatorConfirmedSend,
         kommo_auto_close_enabled: autoCloseEnabled,
         kommo_fallback_channel: fallbackChannel,
+        domain_routes: domainRoutes,
       }),
     onSuccess: async (payload) => {
       await queryClient.invalidateQueries({ queryKey: ["kommo-settings"] });
@@ -61,7 +78,7 @@ export function KommoConnectionTab() {
       setClearAccessToken(false);
       toast.success(
         payload.automatic_handoff_ready
-          ? "Kommo pronta para receber handoffs do AI GYM OS."
+          ? `Kommo pronta para receber handoffs do ${PRODUCT_NAME}.`
           : "Configuracao da Kommo salva.",
       );
     },
@@ -81,10 +98,26 @@ export function KommoConnectionTab() {
     onError: () => toast.error("Falha ao testar a conexao com a Kommo."),
   });
 
+  const nativeFileTestMutation = useMutation({
+    mutationFn: () => kommoSettingsService.testNativeFileUpload(nativeTestLeadId),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.detail || result.message);
+      }
+    },
+    onError: () => toast.error("Falha ao testar upload nativo da Kommo."),
+  });
+
   const settings = settingsQuery.data;
   const canTest = useMemo(() => {
     return Boolean(enabled && baseUrl.trim() && (accessToken.trim() || settings?.kommo_has_access_token) && !clearAccessToken);
   }, [accessToken, baseUrl, clearAccessToken, enabled, settings?.kommo_has_access_token]);
+
+  function updateRoute(domain: string, patch: Partial<KommoDomainRoute>) {
+    setDomainRoutes((current) => current.map((route) => (route.domain === domain ? { ...route, ...patch } : route)));
+  }
 
   return (
     <Card>
@@ -94,7 +127,7 @@ export function KommoConnectionTab() {
           Kommo como motor de envio
         </CardTitle>
         <p className="text-sm text-lovable-ink-muted">
-          O AI GYM OS decide a acao e entrega o handoff operacional para a Kommo. Assim a academia preserva o numero oficial no canal que ja usa hoje.
+          O {PRODUCT_NAME} decide a acao e aciona o Salesbot da Kommo no dominio certo. Assim a academia preserva o numero oficial no canal que ja usa hoje.
         </p>
       </CardHeader>
 
@@ -112,7 +145,7 @@ export function KommoConnectionTab() {
               <StatusCard
                 title="Canal Kommo"
                 value={settings.kommo_enabled ? "Ativo" : "Desligado"}
-                description="Liga ou desliga o handoff do AI GYM OS para a Kommo nesta academia."
+                description={`Liga ou desliga o handoff do ${PRODUCT_NAME} para a Kommo nesta academia.`}
                 tone={settings.kommo_enabled ? "success" : "warning"}
               />
               <StatusCard
@@ -127,7 +160,7 @@ export function KommoConnectionTab() {
                 description={
                   settings.automatic_handoff_ready
                     ? "As automacoes e os envios manuais ja podem entregar contexto operacional para a Kommo."
-                    : "Ainda faltam URL e token validos para o AI GYM OS conversar com a Kommo."
+                    : `Ainda faltam URL e token validos para o ${PRODUCT_NAME} conversar com a Kommo.`
                 }
                 tone={settings.automatic_handoff_ready ? "success" : "warning"}
               />
@@ -149,7 +182,7 @@ export function KommoConnectionTab() {
               <div>
                 <p className="text-sm font-semibold text-lovable-ink">Habilitar Kommo nesta academia</p>
                 <p className="mt-1 text-xs text-lovable-ink-muted">
-                  Quando ligada, as automacoes podem criar handoffs na Kommo em vez de tentar mandar WhatsApp direto pelo AI GYM OS.
+                  Quando ligada, as automacoes podem acionar Salesbot ou preparar fallback na Kommo em vez de tentar mandar WhatsApp direto pelo {PRODUCT_NAME}.
                 </p>
               </div>
             </label>
@@ -169,7 +202,7 @@ export function KommoConnectionTab() {
                   <option value="manual">Manual</option>
                 </select>
                 <p className="mt-1 text-xs text-lovable-ink-muted">
-                  Quando estiver em Kommo, a Work Queue cria contexto e tarefa na Kommo para o operador confirmar por la.
+                  Quando estiver em Kommo, a Work Queue usa a rota do dominio para enviar ou preparar contexto na Kommo.
                 </p>
               </div>
               <div>
@@ -198,7 +231,7 @@ export function KommoConnectionTab() {
                 <div>
                   <p className="text-sm font-semibold text-lovable-ink">Envio confirmado pelo operador na Kommo</p>
                   <p className="mt-1 text-xs text-lovable-ink-muted">
-                    V1 nao envia autonomamente: cria tarefa/contexto na Kommo e o humano confirma no canal oficial.
+                    V1 exige clique humano no Cordex; depois disso o Salesbot pode enviar pelo canal oficial da Kommo.
                   </p>
                 </div>
               </label>
@@ -263,6 +296,91 @@ export function KommoConnectionTab() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+              <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Roteamento por dominio</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">
+                    Configure onde cada mensagem cai na Kommo. O Salesbot usa os campos de mensagem/PDF para enviar ao numero do aluno.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={nativeTestLeadId}
+                    onChange={(event) => setNativeTestLeadId(event.target.value)}
+                    placeholder="Lead ID opcional para testar anexo"
+                    className="h-9 w-64"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => nativeFileTestMutation.mutate()}
+                    disabled={!canTest || nativeFileTestMutation.isPending}
+                  >
+                    {nativeFileTestMutation.isPending ? "Testando..." : "Testar PDF nativo"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {domainRoutes.map((route) => (
+                  <div key={route.domain} className="rounded-xl border border-lovable-border bg-lovable-bg-muted p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-lovable-ink">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={route.is_enabled}
+                          onChange={(event) => updateRoute(route.domain, { is_enabled: event.target.checked })}
+                        />
+                        {domainLabel(route.domain)}
+                      </label>
+                      <span className="text-[11px] uppercase tracking-wide text-lovable-ink-muted">
+                        {route.salesbot_id ? "Salesbot configurado" : "Falta Salesbot"}
+                      </span>
+                    </div>
+                    <div className="mb-3 grid gap-3 md:grid-cols-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-lovable-ink-muted">Modo PDF</label>
+                        <select
+                          value={route.pdf_delivery_mode || "native_file_required"}
+                          onChange={(event) => updateRoute(route.domain, { pdf_delivery_mode: event.target.value })}
+                          className="h-10 w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 text-xs text-lovable-ink outline-none focus:border-lovable-primary"
+                        >
+                          <option value="native_file_required">Nativo obrigatorio</option>
+                          <option value="native_file_preferred">Nativo preferencial</option>
+                          <option value="link_only">Somente link</option>
+                        </select>
+                      </div>
+                      <RouteInput label="Campo file_uuid" value={route.file_uuid_field_id} onChange={(value) => updateRoute(route.domain, { file_uuid_field_id: value })} />
+                      <RouteInput label="Campo nome arquivo" value={route.file_name_field_id} onChange={(value) => updateRoute(route.domain, { file_name_field_id: value })} />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <RouteInput label="Pipeline" value={route.pipeline_id} onChange={(value) => updateRoute(route.domain, { pipeline_id: value })} />
+                      <RouteInput label="Etapa" value={route.stage_id} onChange={(value) => updateRoute(route.domain, { stage_id: value })} />
+                      <RouteInput label="Salesbot" value={route.salesbot_id} onChange={(value) => updateRoute(route.domain, { salesbot_id: value })} />
+                      <RouteInput label="Responsavel" value={route.responsible_user_id} onChange={(value) => updateRoute(route.domain, { responsible_user_id: value })} />
+                      <RouteInput label="Campo mensagem" value={route.message_field_id} onChange={(value) => updateRoute(route.domain, { message_field_id: value })} />
+                      <RouteInput label="Campo PDF" value={route.pdf_url_field_id} onChange={(value) => updateRoute(route.domain, { pdf_url_field_id: value })} />
+                      <RouteInput label="Campo origem" value={route.source_type_field_id} onChange={(value) => updateRoute(route.domain, { source_type_field_id: value })} />
+                      <RouteInput label="Campo ID origem" value={route.source_id_field_id} onChange={(value) => updateRoute(route.domain, { source_id_field_id: value })} />
+                      <RouteInput label="Campo nota/anexo" value={route.file_attachment_note_field_id} onChange={(value) => updateRoute(route.domain, { file_attachment_note_field_id: value })} />
+                    </div>
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Tags</label>
+                      <Input
+                        value={(route.tags ?? []).join(", ")}
+                        onChange={(event) => updateRoute(route.domain, { tags: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })}
+                        placeholder="retencao, cordex, bioimpedancia"
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] text-lovable-ink-muted">
+                      `Nativo obrigatorio` so marca sucesso se o PDF for anexado na Kommo. `Somente link` mantem o comportamento antigo via campo PDF.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <label className="flex items-center gap-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-3 text-sm text-lovable-ink">
               <input
                 type="checkbox"
@@ -303,10 +421,75 @@ export function KommoConnectionTab() {
                 </div>
               </div>
             ) : null}
+
+            {nativeFileTestMutation.data ? (
+              <div
+                className={`rounded-2xl border p-4 text-sm ${
+                  nativeFileTestMutation.data.success
+                    ? "border-emerald-500/20 bg-emerald-500/8 text-lovable-ink"
+                    : "border-amber-500/20 bg-amber-500/8 text-lovable-ink"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {nativeFileTestMutation.data.success ? (
+                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-400" />
+                  ) : (
+                    <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-400" />
+                  )}
+                  <div>
+                    <p className="font-semibold">{nativeFileTestMutation.data.message}</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      Upload: {nativeFileTestMutation.data.upload_status || "-"} · Anexo: {nativeFileTestMutation.data.attach_status || "-"} · UUID:{" "}
+                      {nativeFileTestMutation.data.file_uuid || "-"}
+                    </p>
+                    {nativeFileTestMutation.data.detail ? <p className="mt-1 text-xs text-lovable-ink-muted">{nativeFileTestMutation.data.detail}</p> : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function ensureDomainRoutes(routes: KommoDomainRoute[]): KommoDomainRoute[] {
+  const existing = new Map(routes.map((route) => [route.domain, route]));
+  return KOMMO_DOMAINS.map(([domain]) => existing.get(domain) ?? emptyRoute(domain));
+}
+
+function emptyRoute(domain: string): KommoDomainRoute {
+  return {
+    domain,
+    is_enabled: true,
+    pipeline_id: null,
+    stage_id: null,
+    salesbot_id: null,
+    channel_source_id: null,
+    responsible_user_id: null,
+    message_field_id: null,
+    pdf_url_field_id: null,
+    pdf_delivery_mode: "native_file_required",
+    file_uuid_field_id: null,
+    file_name_field_id: null,
+    file_attachment_note_field_id: null,
+    source_type_field_id: null,
+    source_id_field_id: null,
+    tags: [],
+  };
+}
+
+function domainLabel(domain: string): string {
+  return KOMMO_DOMAINS.find(([key]) => key === domain)?.[1] ?? domain;
+}
+
+function RouteInput({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string | null) => void }) {
+  return (
+    <div>
+      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-lovable-ink-muted">{label}</label>
+      <Input value={value ?? ""} onChange={(event) => onChange(event.target.value.trim() || null)} placeholder="Opcional" />
+    </div>
   );
 }
 

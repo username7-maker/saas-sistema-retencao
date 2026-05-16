@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -173,15 +174,23 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     assert "Analise da Composicao Corporal" in html
     assert "Pontuacao corporal" in html
-    assert "Historico da Composicao Corporal" in html
+    assert "Historico da Composicao Corporal" not in html
     assert "Comparativo rapido" in html
     assert "Leitura final" in html
+    assert "Gordura visceral" in html
+    assert "Relacao cintura-quadril" in html
     assert "Erick Bedin" in html
     assert "OCR 82%" not in html
     assert "OCR com baixa confianca" not in html
     assert ">ID<" not in html
+    assert "clinical-cordex-logo" in html
     assert "clinical-progym-logo" in html
     assert "data:image/png;base64" in html
+
+    technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
+
+    assert "Historico da Composicao Corporal" in technical_html
+    assert "Anterior x Atual" in technical_html
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

@@ -353,7 +353,7 @@ function BIFoundationMini() {
               <p className="font-display text-xl font-bold text-lovable-ink">
                 {aiFirstOps.human_task_avoidance_rate !== null ? percent(aiFirstOps.human_task_avoidance_rate) : "Sem base"}
               </p>
-              <p className="text-xs text-lovable-ink-muted">resolucao Autopilot</p>
+              <p className="text-xs text-lovable-ink-muted">resolucao Cordex Autopilot</p>
             </div>
           </div>
           <p className="mt-3 text-xs text-lovable-ink-muted">

@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import FinancialEntry, Member, MemberStatus, Task, TaskPriority, TaskStatus, User

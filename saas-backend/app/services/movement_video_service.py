@@ -21,6 +21,7 @@ from app.schemas.movement_video import (
 )
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_settings_service import get_or_create_autopilot_settings
+from app.services.ai_prompt_registry_service import generate_specialist_text, prompt_metadata
 from app.services.compliance_service import current_consent_status_map
 from app.services.kommo_service import handoff_member_to_kommo
 
@@ -199,13 +200,26 @@ def analyze_movement_video_review(
             }
         )
     review.detected_points = detected_points
-    review.suggested_feedback = (
+    fallback_feedback = (
         f"Revisei sua execucao de {review.exercise_name}. Vou deixar um ponto de atencao tecnico "
         "e, se precisar, ajustamos no proximo treino presencial."
     )
+    feedback_result = generate_specialist_text(
+        "movement_video_feedback_v1",
+        user_prompt=(
+            "Prepare um feedback supervisionado para aluno, baseado no video e na observacao do professor.\n"
+            f"Exercicio: {review.exercise_name}\n"
+            f"Observacao do professor: {(payload.coach_observation if payload else None) or '-'}\n"
+            "Nao diga que corrigiu automaticamente. Nao diagnostique dor/lesao. Deve ser aprovado pelo professor."
+        ),
+        fallback_text=fallback_feedback,
+        max_output_chars=900,
+    )
+    review.suggested_feedback = feedback_result.text
     metadata = dict(review.metadata_json or {})
     metadata["analysis_mode"] = "manual_observation"
     metadata["coach_review_required"] = True
+    metadata["prompt_metadata"] = feedback_result.metadata
     review.metadata_json = metadata
     db.add(review)
     if flush:
@@ -257,6 +271,8 @@ def approve_movement_video_review(
             "exercise_name": review.exercise_name,
             "coach_review_required": True,
             "auto_send_enabled": False,
+            "prompt_metadata": (review.metadata_json or {}).get("prompt_metadata")
+            or prompt_metadata("movement_video_feedback_v1", model="deterministic_fallback", fallback_used=True),
         },
         created_at=_now(),
         updated_at=_now(),

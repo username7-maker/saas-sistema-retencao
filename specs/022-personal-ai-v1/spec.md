@@ -2,7 +2,7 @@
 
 ## User Story
 
-Como professor ou gestor, quero que o AI Gym OS prepare orientacoes personalizadas para alunos com base em avaliacao, bioimpedancia, metas, treino e historico real, para responder mais rapido sem substituir a revisao humana.
+Como professor ou gestor, quero que o Cordex Gym OS prepare orientacoes personalizadas para alunos com base em avaliacao, bioimpedancia, metas, treino e historico real, para responder mais rapido sem substituir a revisao humana.
 
 ## Requirements
 

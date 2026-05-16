@@ -155,7 +155,7 @@ def prepare_review_center_item_in_kommo(
         source_id=source_id,
         reviewer_user_id=reviewer_user_id,
         decision="approved",
-        reason="Preparado na Kommo pela Central de Revisao IA.",
+        reason="Preparado na Kommo pela Revisao Cordex.",
     )
     if not (source_type == "movement_video" and item.source_type == "movement_video_review"):
         item = _item_for_source(db, gym_id=gym_id, source_type=source_type, source_id=source_id, fallback_item=item)
@@ -291,7 +291,7 @@ def reject_review_center_item(
 
     if flush:
         db.flush()
-    return AiReviewCenterActionOut(item=item, detail="Item rejeitado na Central de Revisao IA.")
+    return AiReviewCenterActionOut(item=item, detail="Item rejeitado na Revisao Cordex.")
 
 
 def _load_actions(
@@ -648,7 +648,7 @@ def _apply_feedback_to_target(
         if target_kind == "action":
             assert isinstance(target, AutopilotAction)
             target.status = "escalated"
-            target.escalation_reason = feedback["reason"] or "Escalado pela Central de Revisao IA."
+            target.escalation_reason = feedback["reason"] or "Escalado pela Revisao Cordex."
         else:
             assert isinstance(target, MovementVideoReview)
             blocked_reasons = list(target.blocked_reasons or [])
@@ -697,9 +697,9 @@ def _review_latency_minutes(created_at: datetime, reviewed_at: object) -> int | 
 
 def _feedback_detail(decision: str) -> str:
     return {
-        "approved": "Rascunho aprovado pela Central de Revisao IA.",
+        "approved": "Rascunho aprovado pela Revisao Cordex.",
         "edited": "Edicao do rascunho registrada.",
-        "rejected": "Item rejeitado na Central de Revisao IA.",
+        "rejected": "Item rejeitado na Revisao Cordex.",
         "escalated": "Item escalado para decisao humana.",
     }.get(decision, "Feedback registrado.")
 

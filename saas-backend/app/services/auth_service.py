@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -218,7 +219,7 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
     reset_link = f"{settings.frontend_url}/reset-password#token={raw_token}"
     send_email(
         to_email=email,
-        subject="Redefinição de Senha — AI GYM OS",
+        subject=f"Redefinição de Senha — {PRODUCT_NAME}",
         content=(
             f"Olá, {user.full_name}!\n\n"
             f"Clique no link abaixo para redefinir sua senha (válido por {_PASSWORD_RESET_EXPIRY_HOURS}h):\n\n"

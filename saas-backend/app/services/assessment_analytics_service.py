@@ -520,8 +520,6 @@ def get_assessments_dashboard(db: Session) -> dict:
             resolved_gym_id,
         )
     ) or 0
-    never_assessed = max(int(total_members) - int(assessed_total), 0)
-
     latest_assessment_subquery = _latest_assessment_subquery()
     latest_body_composition_subquery = _latest_body_composition_subquery()
     latest_historical_appointment_subquery = _latest_historical_appointment_subquery()
@@ -686,6 +684,7 @@ def get_assessments_dashboard(db: Session) -> dict:
 
     return {
         "total_members": int(total_members),
+        "assessed_total": int(assessed_total),
         "assessed_last_90_days": int(assessed_last_90_days),
         "overdue_assessments": int(operational_overdue_assessments),
         "never_assessed": int(operational_never_assessed),

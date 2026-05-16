@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
 from app.models import AuditLog, Lead, LeadBooking, LeadStage, MessageLog, NurturingSequence
@@ -256,7 +257,7 @@ def _fallback_sales_ai(lead: Lead, diagnosis: dict[str, Any], objections: list[s
         },
         {
             "title": "Plano orientado a recuperacao",
-            "body": "Posicione o AI GYM OS como uma camada de recuperacao de receita e nao apenas mais um dashboard.",
+            "body": f"Posicione o {PRODUCT_NAME} como uma camada de recuperacao de receita e nao apenas mais um dashboard.",
             "usage": "Use no fechamento para conectar retorno financeiro com proximo passo.",
         },
     ]

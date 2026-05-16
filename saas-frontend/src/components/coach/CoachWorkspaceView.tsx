@@ -139,9 +139,9 @@ function CoachPersonalAiPanel({ memberId, subjectName }: { memberId: string | nu
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["personal-ai", "coach-workspace-drafts", memberId] });
-      toast.success("Personal IA gerou um rascunho tecnico.");
+      toast.success("Cordex Coach gerou um rascunho tecnico.");
     },
-    onError: () => toast.error("Nao foi possivel gerar o rascunho do Personal IA."),
+    onError: () => toast.error("Nao foi possivel gerar o rascunho do Cordex Coach."),
   });
 
   const prepareMutation = useMutation({
@@ -156,7 +156,7 @@ function CoachPersonalAiPanel({ memberId, subjectName }: { memberId: string | nu
   if (!memberId) {
     return (
       <div className="mt-5 rounded-2xl border border-lovable-border bg-lovable-surface/70 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Personal IA</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Cordex Coach</p>
         <p className="mt-2 text-sm text-lovable-ink-muted">Sem aluno vinculado para gerar orientacao tecnica.</p>
       </div>
     );
@@ -170,7 +170,7 @@ function CoachPersonalAiPanel({ memberId, subjectName }: { memberId: string | nu
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Bot size={16} className="text-lovable-primary" />
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Personal IA</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Cordex Coach</p>
         </div>
         <Badge variant="info">Coach review</Badge>
       </div>
@@ -473,7 +473,7 @@ export function CoachWorkspaceView() {
     staleTime: 60 * 1000,
   });
 
-  const items = query.data?.items ?? [];
+  const items = useMemo(() => query.data?.items ?? [], [query.data?.items]);
   const filteredItems = useMemo(() => filterItems(items, deferredSearch), [deferredSearch, items]);
   const selectedItem = useMemo(
     () => filteredItems.find((item) => itemKey(item) === selectedKey) ?? filteredItems[0] ?? null,

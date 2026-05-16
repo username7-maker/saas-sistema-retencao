@@ -12,9 +12,9 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "border border-[hsl(var(--lovable-primary)/0.7)] bg-lovable-primary text-white shadow-[0_18px_42px_-24px_hsl(var(--lovable-primary)/0.8)] hover:-translate-y-0.5 hover:brightness-110 focus-visible:ring-lovable-primary/30",
+    "border border-[hsl(var(--lovable-primary)/0.75)] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)),hsl(var(--lovable-info)/0.92))] text-[hsl(207_58%_4%)] shadow-[0_18px_46px_-26px_hsl(var(--lovable-primary)/0.9)] hover:-translate-y-0.5 hover:brightness-110 focus-visible:ring-lovable-primary/30",
   secondary:
-    "border border-lovable-border bg-lovable-surface-soft text-lovable-ink hover:border-lovable-border-strong hover:bg-lovable-surface focus-visible:ring-lovable-border-strong/30",
+    "border border-lovable-border bg-lovable-surface-soft/88 text-lovable-ink hover:border-lovable-border-strong hover:bg-lovable-surface focus-visible:ring-lovable-border-strong/30",
   ghost:
     "border border-transparent text-lovable-ink-muted hover:bg-lovable-surface-soft hover:text-lovable-ink focus-visible:ring-lovable-border-strong/30",
   danger:

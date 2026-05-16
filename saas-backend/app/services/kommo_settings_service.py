@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import include_all_tenants
-from app.models import Gym
+from app.models import Gym, KommoDomainRoute
 from app.schemas.settings import (
     KommoConnectionTestResult,
+    KommoDomainRouteRead,
     KommoSettingsRead,
     KommoSettingsUpdate,
 )
@@ -54,7 +55,10 @@ def update_kommo_settings(
             gym.kommo_access_token_encrypted = normalized_token
 
     db.add(gym)
+    if payload.domain_routes is not None:
+        _upsert_domain_routes(db, gym_id=gym.id, payloads=payload.domain_routes)
     db.flush()
+    db.expire(gym, ["kommo_domain_routes"])
     return serialize_kommo_settings(gym)
 
 
@@ -82,6 +86,7 @@ def serialize_kommo_settings(gym: Gym) -> KommoSettingsRead:
         kommo_operator_confirmed_send_enabled=bool(getattr(gym, "kommo_operator_confirmed_send_enabled", True)),
         kommo_auto_close_enabled=bool(getattr(gym, "kommo_auto_close_enabled", True)),
         kommo_fallback_channel=str(getattr(gym, "kommo_fallback_channel", None) or "whatsapp"),
+        domain_routes=_serialize_domain_routes(gym),
     )
 
 
@@ -97,3 +102,99 @@ def _normalize_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _serialize_domain_routes(gym: Gym) -> list[KommoDomainRouteRead]:
+    routes = sorted(getattr(gym, "kommo_domain_routes", []) or [], key=lambda item: item.domain)
+    if not routes:
+        return [_default_route_read(domain) for domain in DEFAULT_KOMMO_DOMAINS]
+    existing = {route.domain: route for route in routes}
+    serialized: list[KommoDomainRouteRead] = []
+    for domain in DEFAULT_KOMMO_DOMAINS:
+        route = existing.get(domain)
+        serialized.append(_route_to_read(route) if route else _default_route_read(domain))
+    for route in routes:
+        if route.domain not in DEFAULT_KOMMO_DOMAINS:
+            serialized.append(_route_to_read(route))
+    return serialized
+
+
+def _route_to_read(route: KommoDomainRoute) -> KommoDomainRouteRead:
+    return KommoDomainRouteRead(
+        domain=route.domain,
+        is_enabled=bool(route.is_enabled),
+        pipeline_id=_normalize_text(route.pipeline_id),
+        stage_id=_normalize_text(route.stage_id),
+        salesbot_id=_normalize_text(route.salesbot_id),
+        channel_source_id=_normalize_text(route.channel_source_id),
+        responsible_user_id=_normalize_text(route.responsible_user_id),
+        message_field_id=_normalize_text(route.message_field_id),
+        pdf_url_field_id=_normalize_text(route.pdf_url_field_id),
+        pdf_delivery_mode=_normalize_pdf_delivery_mode(getattr(route, "pdf_delivery_mode", None)),
+        file_uuid_field_id=_normalize_text(getattr(route, "file_uuid_field_id", None)),
+        file_name_field_id=_normalize_text(getattr(route, "file_name_field_id", None)),
+        file_attachment_note_field_id=_normalize_text(getattr(route, "file_attachment_note_field_id", None)),
+        source_type_field_id=_normalize_text(route.source_type_field_id),
+        source_id_field_id=_normalize_text(route.source_id_field_id),
+        tags=[str(item).strip() for item in (route.tags or []) if str(item).strip()],
+    )
+
+
+def _default_route_read(domain: str) -> KommoDomainRouteRead:
+    return KommoDomainRouteRead(domain=domain)
+
+
+def _upsert_domain_routes(db: Session, *, gym_id: UUID, payloads) -> None:
+    existing_routes = {
+        route.domain: route
+        for route in db.scalars(
+            select(KommoDomainRoute).where(KommoDomainRoute.gym_id == gym_id)
+        ).all()
+    }
+    for payload in payloads:
+        domain = _normalize_domain(payload.domain)
+        route = existing_routes.get(domain)
+        if route is None:
+            route = KommoDomainRoute(gym_id=gym_id, domain=domain)
+        route.is_enabled = bool(payload.is_enabled)
+        route.pipeline_id = _normalize_text(payload.pipeline_id)
+        route.stage_id = _normalize_text(payload.stage_id)
+        route.salesbot_id = _normalize_text(payload.salesbot_id)
+        route.channel_source_id = _normalize_text(payload.channel_source_id)
+        route.responsible_user_id = _normalize_text(payload.responsible_user_id)
+        route.message_field_id = _normalize_text(payload.message_field_id)
+        route.pdf_url_field_id = _normalize_text(payload.pdf_url_field_id)
+        route.pdf_delivery_mode = _normalize_pdf_delivery_mode(payload.pdf_delivery_mode)
+        route.file_uuid_field_id = _normalize_text(payload.file_uuid_field_id)
+        route.file_name_field_id = _normalize_text(payload.file_name_field_id)
+        route.file_attachment_note_field_id = _normalize_text(payload.file_attachment_note_field_id)
+        route.source_type_field_id = _normalize_text(payload.source_type_field_id)
+        route.source_id_field_id = _normalize_text(payload.source_id_field_id)
+        route.tags = [str(tag).strip() for tag in (payload.tags or []) if str(tag).strip()]
+        db.add(route)
+
+
+def _normalize_domain(value: str) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_")
+    if normalized not in DEFAULT_KOMMO_DOMAINS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Dominio Kommo invalido: {value}")
+    return normalized
+
+
+def _normalize_pdf_delivery_mode(value: str | None) -> str:
+    normalized = (value or "native_file_required").strip().lower()
+    if normalized not in {"native_file_required", "native_file_preferred", "link_only"}:
+        return "native_file_required"
+    return normalized
+
+
+DEFAULT_KOMMO_DOMAINS = (
+    "retention",
+    "onboarding",
+    "assessment",
+    "body_composition",
+    "finance",
+    "sales",
+    "student_ai",
+    "support",
+)

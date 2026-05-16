@@ -57,9 +57,9 @@ export function StudentPersonalAiSettingsTab() {
     onSuccess: async (payload) => {
       setDraft(payload);
       await queryClient.invalidateQueries({ queryKey: ["student-personal-ai"] });
-      toast.success("Personal IA do aluno atualizado.");
+      toast.success("Aluno Cordex atualizado.");
     },
-    onError: () => toast.error("Nao foi possivel salvar o Personal IA do aluno."),
+    onError: () => toast.error("Nao foi possivel salvar Aluno Cordex."),
   });
 
   const prepareMutation = useMutation({
@@ -76,7 +76,7 @@ export function StudentPersonalAiSettingsTab() {
       <Card>
         <CardContent className="flex items-center gap-3 p-5 text-sm text-lovable-ink-muted">
           <Loader2 size={18} className="animate-spin text-lovable-primary" />
-          Carregando Personal IA do aluno...
+          Carregando Aluno Cordex...
         </CardContent>
       </Card>
     );
@@ -90,7 +90,7 @@ export function StudentPersonalAiSettingsTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bot size={18} className="text-lovable-primary" />
-            Personal IA do aluno via Kommo
+            Aluno Cordex via Kommo
           </CardTitle>
           <p className="text-sm text-lovable-ink-muted">
             O aluno escreve ou envia video na Kommo. O sistema identifica o aluno, prepara rascunho/review e entrega para a equipe revisar. Autoenvio fica desligado.
@@ -165,7 +165,7 @@ export function StudentPersonalAiSettingsTab() {
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Salvando..." : "Salvar Personal IA do aluno"}
+              {saveMutation.isPending ? "Salvando..." : "Salvar Aluno Cordex"}
             </Button>
           </div>
         </CardContent>

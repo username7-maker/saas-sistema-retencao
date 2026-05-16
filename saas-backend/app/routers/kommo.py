@@ -2,20 +2,185 @@ from __future__ import annotations
 
 import hashlib
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db, set_current_gym_id
-from app.models import Member, MessageLog
+from app.models import Member, MessageLog, RoleEnum, User
+from app.schemas.kommo import KommoNativeFileUploadTestRequest, KommoNativeFileUploadTestResponse, KommoSendMessageRequest, KommoSendMessageResponse
+from app.services.audit_service import log_audit_event
 from app.services.ai_service_agent_service import process_kommo_inbound_for_ai_agent
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
-from app.services.kommo_service import find_member_link_by_kommo_ids, get_kommo_gym
+from app.services.body_composition_actuar_sync_service import get_body_composition_evaluation_or_404
+from app.services.body_composition_delivery_service import generate_body_composition_pdf, generate_body_composition_technical_pdf
+from app.services.kommo_service import (
+    KommoSalesbotDispatchError,
+    KommoServiceError,
+    find_member_link_by_kommo_ids,
+    get_kommo_gym,
+    send_member_message_via_kommo_salesbot,
+)
+from app.services.kommo_file_service import attach_file_to_lead, create_upload_session, get_kommo_drive_url, upload_file_bytes
+from app.services.member_service import get_member_or_404
+from app.services.public_report_link_service import create_body_composition_report_public_url
 from app.services.student_personal_ai_service import process_kommo_inbound_for_student_personal_ai
 
 router = APIRouter(prefix="/kommo", tags=["kommo"])
+
+
+@router.post("/test-native-file-upload", response_model=KommoNativeFileUploadTestResponse)
+def test_native_file_upload_endpoint(
+    payload: KommoNativeFileUploadTestRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> KommoNativeFileUploadTestResponse:
+    gym = get_kommo_gym(db, current_user.gym_id)
+    file_bytes = b"%PDF-1.4\n% Cordex Kommo upload test\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+    try:
+        drive_url = get_kommo_drive_url(gym)
+        session = create_upload_session(
+            gym=gym,
+            drive_url=drive_url,
+            file_name="cordex-kommo-upload-test.pdf",
+            file_size=len(file_bytes),
+            content_type="application/pdf",
+        )
+        file_uuid = upload_file_bytes(
+            gym=gym,
+            drive_url=drive_url,
+            session=session,
+            file_bytes=file_bytes,
+            content_type="application/pdf",
+        )
+        attach_status = "skipped_no_lead"
+        if payload.lead_id:
+            attach_file_to_lead(gym=gym, lead_id=payload.lead_id, file_uuid=file_uuid)
+            attach_status = "attached"
+    except KommoServiceError as exc:
+        return KommoNativeFileUploadTestResponse(
+            success=False,
+            message="Nao foi possivel validar upload nativo na Kommo.",
+            upload_status="failed",
+            attach_status="failed" if payload.lead_id else None,
+            detail=str(exc),
+        )
+
+    return KommoNativeFileUploadTestResponse(
+        success=True,
+        message="Upload nativo de arquivo validado na Kommo.",
+        file_uuid=file_uuid,
+        upload_status="uploaded",
+        attach_status=attach_status,
+    )
+
+
+@router.post("/send-message", response_model=KommoSendMessageResponse)
+def send_kommo_message_endpoint(
+    request: Request,
+    payload: KommoSendMessageRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> KommoSendMessageResponse:
+    member = get_member_or_404(db, payload.member_id, gym_id=current_user.gym_id)
+    pdf_url = None
+    pdf_bytes = None
+    pdf_filename = None
+    source_id_text = str(payload.source_id)
+    pdf_delivery_mode = payload.pdf_delivery_mode or ("native_file_required" if payload.pdf_kind else None)
+    if payload.pdf_kind and payload.source_type == "body_composition":
+        try:
+            evaluation_id = payload.source_id if isinstance(payload.source_id, UUID) else UUID(str(payload.source_id))
+            evaluation = get_body_composition_evaluation_or_404(
+                db,
+                gym_id=current_user.gym_id,
+                member_id=member.id,
+                evaluation_id=evaluation_id,
+            )
+            pdf_bytes, pdf_filename = (
+                generate_body_composition_technical_pdf(member, evaluation)
+                if payload.pdf_kind == "technical"
+                else generate_body_composition_pdf(member, evaluation)
+            )
+            if pdf_delivery_mode in {"native_file_preferred", "link_only"}:
+                pdf_url = create_body_composition_report_public_url(
+                    gym_id=current_user.gym_id,
+                    member_id=member.id,
+                    evaluation_id=evaluation_id,
+                    pdf_kind=payload.pdf_kind,
+                )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    try:
+        result = send_member_message_via_kommo_salesbot(
+            db,
+            gym_id=current_user.gym_id,
+            member=member,
+            domain=payload.domain,
+            message_text=payload.message_text,
+            source_type=payload.source_type,
+            source_id=source_id_text,
+            pdf_url=pdf_url,
+            pdf_bytes=pdf_bytes,
+            pdf_filename=pdf_filename,
+            pdf_delivery_mode=pdf_delivery_mode,
+            title=f"{payload.domain.replace('_', ' ').title()} - {member.full_name}",
+        )
+    except KommoSalesbotDispatchError as exc:
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (KommoServiceError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="kommo_salesbot_message_queued",
+        entity="kommo",
+        user=current_user,
+        member_id=member.id,
+        entity_id=member.id,
+        details={
+            "domain": payload.domain,
+            "source_type": payload.source_type,
+            "source_id": source_id_text,
+            "status": result.status,
+            "lead_id": result.lead_id,
+            "contact_id": result.contact_id,
+            "salesbot_id": result.salesbot_id,
+            "pdf_url": result.pdf_url,
+            "kommo_file_uuid": result.kommo_file_uuid,
+            "pdf_delivery_mode": result.pdf_delivery_mode,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return KommoSendMessageResponse(
+        status=result.status,
+        delivery_mode=result.delivery_mode,
+        detail=result.detail,
+        member_id=member.id,
+        source_type=payload.source_type,
+        source_id=source_id_text,
+        domain=payload.domain,
+        lead_id=result.lead_id,
+        contact_id=result.contact_id,
+        message_log_id=result.message_log_id,
+        salesbot_id=result.salesbot_id,
+        pdf_url=result.pdf_url,
+        kommo_file_uuid=result.kommo_file_uuid,
+        file_upload_status=result.file_upload_status,
+        file_attach_status=result.file_attach_status,
+        pdf_delivery_mode=result.pdf_delivery_mode,
+        fallback_available=result.fallback_available,
+    )
 
 
 @router.post("/webhook")

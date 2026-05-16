@@ -19,10 +19,10 @@ from app.schemas.student_personal_ai import (
 )
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_settings_service import get_or_create_autopilot_settings
+from app.services.ai_prompt_registry_service import generate_specialist_text, prompt_metadata
 from app.services.compliance_service import current_consent_status_map
 from app.services.kommo_service import handoff_member_to_kommo, is_kommo_ready
 from app.services.personal_ai_service import (
-    _build_personal_ai_reply,
     _requires_active_member_for_personal_ai,
     build_personal_ai_context,
     classify_personal_ai_request,
@@ -214,7 +214,7 @@ def prepare_student_personal_ai_draft_in_kommo(
     metadata = dict(action.metadata_json or {})
     summary = "\n".join(
         [
-            "Personal IA do aluno via Kommo V1 - revisar antes de responder.",
+            "Aluno Cordex via Kommo V1 - revisar antes de responder.",
             f"Mensagem do aluno: {metadata.get('received_message') or '-'}",
             f"Resumo: {metadata.get('summary') or '-'}",
             f"Resposta sugerida: {action.message_body or metadata.get('draft_reply') or '-'}",
@@ -227,7 +227,7 @@ def prepare_student_personal_ai_draft_in_kommo(
         db,
         gym_id=gym_id,
         member=member,
-        title=f"Responder Personal IA - {member.full_name}"[:120],
+        title=f"Responder Aluno Cordex - {member.full_name}"[:120],
         summary=summary,
         source="student_personal_ai",
         due_in_hours=4,
@@ -337,6 +337,7 @@ def serialize_student_personal_ai_draft(action: AutopilotAction) -> StudentPerso
         blocked_reasons=list(metadata.get("blocked_reasons") or []),
         evidence=list(metadata.get("evidence") or []),
         received_message=metadata.get("received_message"),
+        prompt_metadata=metadata.get("prompt_metadata") if isinstance(metadata.get("prompt_metadata"), dict) else None,
         source_event_id=metadata.get("source_event_id"),
         message_log_id=metadata.get("message_log_id"),
         movement_video_review_id=metadata.get("movement_video_review_id"),
@@ -431,17 +432,20 @@ def _process_text_message(
     status_value = "escalated" if sensitivity == "sensitive" else STUDENT_PERSONAL_AI_DRAFT_READY
     if blocked_reasons:
         status_value = "escalated" if sensitivity == "sensitive" else "blocked"
-    draft_reply = None if blocked_reasons or sensitivity == "sensitive" else _build_personal_ai_reply(
+    reply_result = None if blocked_reasons or sensitivity == "sensitive" else _build_student_personal_ai_reply(
         member=member,
         context=context,
         intent=intent,
+        message_text=message_text,
     )
+    draft_reply = reply_result.text if reply_result else None
     metadata = {
         "student_personal_ai_state": status_value,
         "intent": intent,
         "sensitivity": sensitivity,
         "summary": summary,
         "draft_reply": draft_reply,
+        "prompt_metadata": reply_result.metadata if reply_result else None,
         "next_action": next_action,
         "recommended_owner_role": owner_role,
         "blocked_reasons": sorted(set(blocked_reasons)),
@@ -532,16 +536,27 @@ def _process_video_message(
         kommo_lead_id=kommo_lead_id,
     )
     first_name = ((member.full_name or "").split(" ")[0] or "aluno").strip()
-    draft_reply = None if blocked_reasons else (
-        f"Oi, {first_name}! Recebi seu video. Vou pedir para o professor revisar sua execucao e te devolver "
-        "um feedback seguro por aqui. Se sentir dor ou desconforto forte, pare o exercicio e chame a equipe."
+    video_reply_result = None if blocked_reasons else generate_specialist_text(
+        "movement_video_feedback_v1",
+        user_prompt=(
+            "Prepare uma confirmacao curta para aluno que enviou video por Kommo. "
+            f"Aluno: {member.full_name}. Exercicio/caption: {media.caption or 'nao informado'}. "
+            "A resposta deve dizer que o professor vai revisar antes de orientar."
+        ),
+        fallback_text=(
+            f"Oi, {first_name}! Recebi seu video. Vou pedir para o professor revisar sua execucao e te devolver "
+            "um feedback seguro por aqui. Se sentir dor ou desconforto forte, pare o exercicio e chame a equipe."
+        ),
+        max_output_chars=700,
     )
+    draft_reply = video_reply_result.text if video_reply_result else None
     metadata = {
         "student_personal_ai_state": status_value,
         "intent": "movement_video",
         "sensitivity": "normal",
         "summary": "Aluno enviou video pela Kommo para revisao tecnica supervisionada.",
         "draft_reply": draft_reply,
+        "prompt_metadata": video_reply_result.metadata if video_reply_result else prompt_metadata("movement_video_feedback_v1"),
         "next_action": "Professor revisa o video e prepara feedback antes de responder na Kommo.",
         "recommended_owner_role": "coach",
         "blocked_reasons": sorted(set(blocked_reasons)),
@@ -656,6 +671,38 @@ def _create_student_video_review(
     return review
 
 
+def _build_student_personal_ai_reply(
+    *,
+    member: Member,
+    context,
+    intent: str,
+    message_text: str,
+):
+    first_name = ((member.full_name or "").split(" ")[0] or "aluno").strip()
+    fallback = (
+        f"Oi, {first_name}! Recebi sua pergunta. Vou revisar com base no seu treino e no seu historico antes de te orientar. "
+        "Se for ajuste de exercicio, carga, dor ou desconforto, o professor precisa validar antes."
+    )
+    user_prompt = (
+        "Prepare um rascunho curto para responder aluno pela Kommo. Nao envie autonomamente.\n"
+        f"Aluno: {member.full_name}\n"
+        f"Mensagem recebida: {message_text}\n"
+        f"Intencao: {intent}\n"
+        f"Plano ativo: {context.active_training_plan}\n"
+        f"Avaliacao: {context.latest_assessment}\n"
+        f"Bioimpedancia: {context.latest_body_composition}\n"
+        f"Evidencias: {context.evidence}\n"
+        f"Lacunas: {context.missing_data}\n"
+        "Se faltar dado, informe que a equipe vai conferir. Nao prescreva treino novo nem dieta."
+    )
+    return generate_specialist_text(
+        "student_personal_ai_v1",
+        user_prompt=user_prompt,
+        fallback_text=fallback,
+        max_output_chars=900,
+    )
+
+
 def _common_blocked_reasons(
     db: Session,
     *,
@@ -749,7 +796,7 @@ def _get_action_or_404(db: Session, *, gym_id: UUID, draft_id: UUID) -> Autopilo
         )
     )
     if action is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rascunho do Personal IA do aluno nao encontrado.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rascunho do Aluno Cordex nao encontrado.")
     return action
 
 

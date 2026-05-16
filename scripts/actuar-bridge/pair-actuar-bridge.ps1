@@ -15,7 +15,7 @@ if (-not $DeviceName) {
 }
 
 if (-not $PairingCode) {
-  $PairingCode = Read-Host "Cole o codigo de pareamento do AI GYM OS"
+  $PairingCode = Read-Host "Cole o codigo de pareamento do Cordex Gym OS"
 }
 
 if (-not $PairingCode) {

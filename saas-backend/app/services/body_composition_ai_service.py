@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.models import Member
 from app.models.assessment import MemberConstraints, MemberGoal
 from app.models.body_composition import BodyCompositionEvaluation
+from app.services.ai_prompt_registry_service import prompt_metadata, specialist_model, specialist_system_prompt
 from app.utils.claude import _parse_claude_json
 
 
@@ -184,8 +185,7 @@ def _generate_with_openai(
     previous_summary = _summarize_previous(previous_evaluation)
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
-        "Voce e um assistente de apoio operacional para professores de academia.\n"
-        "Analise uma bioimpedancia e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
+        "Analise uma bioimpedancia real e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
         "Regras obrigatorias:\n"
         "- nao diagnosticar doenca\n"
         "- nao sugerir condicao medica\n"
@@ -215,17 +215,15 @@ def _generate_with_openai(
     )
     client = _create_openai_client()
     response = client.responses.parse(
-        model=settings.openai_model,
+        model=specialist_model(),
         input=[
             {
                 "role": "system",
                 "content": [
                     {
                         "type": "input_text",
-                        "text": (
-                            "Gere uma leitura segura e operacional de bioimpedancia para academias. "
-                            "Seja conservador, claro e sem linguagem clinica indevida."
-                        ),
+                        "text": specialist_system_prompt("body_composition_coach_v1")
+                        + "\nTambem gere um campo member_friendly_summary obedecendo ao prompt body_composition_student_v1.",
                     }
                 ],
             },
@@ -239,7 +237,16 @@ def _generate_with_openai(
     parsed = response.output_parsed
     if parsed is None:
         raise RuntimeError("OpenAI nao retornou payload estruturado para a leitura de bioimpedancia.")
-    return _normalize_ai_payload(parsed.model_dump())
+    normalized = _normalize_ai_payload(parsed.model_dump())
+    normalized["training_focus"]["prompt_metadata"] = prompt_metadata(
+        "body_composition_coach_v1",
+        model=specialist_model(),
+    )
+    normalized["training_focus"]["student_prompt_metadata"] = prompt_metadata(
+        "body_composition_student_v1",
+        model=specialist_model(),
+    )
+    return normalized
 
 
 def _generate_with_claude(
@@ -295,7 +302,16 @@ def _generate_with_claude(
         messages=[{"role": "user", "content": prompt}],
     )
     parsed = _parse_claude_json(response.content[0].text.strip())
-    return _normalize_ai_payload(parsed)
+    normalized = _normalize_ai_payload(parsed)
+    normalized["training_focus"]["prompt_metadata"] = prompt_metadata(
+        "body_composition_coach_v1",
+        model=settings.claude_model,
+    )
+    normalized["training_focus"]["student_prompt_metadata"] = prompt_metadata(
+        "body_composition_student_v1",
+        model=settings.claude_model,
+    )
+    return normalized
 
 
 def _generate_deterministic_fallback(
@@ -355,6 +371,16 @@ def _generate_deterministic_fallback(
                 "apoio ao professor, nao substituir avaliacao profissional presencial",
                 "nao usar como diagnostico clinico ou prescricao automatica fechada",
             ],
+            "prompt_metadata": prompt_metadata(
+                "body_composition_coach_v1",
+                model="deterministic_fallback",
+                fallback_used=True,
+            ),
+            "student_prompt_metadata": prompt_metadata(
+                "body_composition_student_v1",
+                model="deterministic_fallback",
+                fallback_used=True,
+            ),
         },
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
     }

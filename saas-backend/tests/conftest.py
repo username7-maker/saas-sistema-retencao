@@ -1,5 +1,5 @@
 """
-Shared fixtures for the AI Gym OS test suite.
+Shared fixtures for the Cordex Gym OS test suite.
 
 Strategy: models use postgresql.UUID so we mock DB sessions rather than
 creating a full in-memory DB, keeping tests fast and dependency-free.

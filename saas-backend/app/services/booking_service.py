@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.config import settings
 from app.database import get_current_gym_id
 from app.models import Lead, LeadBooking, LeadStage, NurturingSequence
@@ -125,7 +126,7 @@ def process_booking_reminders(db: Session) -> dict[str, int]:
         if not phone:
             continue
         reminder_text = (
-            f"Lembrete AI GYM OS: sua call esta agendada para "
+            f"Lembrete {PRODUCT_NAME}: sua call esta agendada para "
             f"{booking.scheduled_for.astimezone(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}. "
             "Vamos te mostrar o diagnostico, a automacao de retencao e o plano recomendado."
         )

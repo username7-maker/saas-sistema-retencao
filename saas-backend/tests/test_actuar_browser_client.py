@@ -132,7 +132,7 @@ def test_build_anamnesis_summary_text_compiles_body_composition_snapshot():
         ]
     )
 
-    assert "Bioimpedancia importada pelo AI GYM OS:" in summary
+    assert "Bioimpedancia importada pelo Cordex Gym OS:" in summary
     assert "Peso (kg): 84,50" in summary
     assert "Percentual de gordura: 23,00" in summary
     assert "Observacoes: Observacao manual" in summary

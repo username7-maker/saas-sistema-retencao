@@ -14,6 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.config import settings
 from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
 from app.models import DiagnosisError, Lead
@@ -199,7 +200,7 @@ def compute_diagnosis_kpis(
 
 
 def generate_diagnosis_pdf(payload: dict[str, Any], kpis: dict[str, Any], top_risk: list[dict[str, Any]]) -> tuple[bytes, str]:
-    filename = f"diagnostico_ai_gym_os_{date.today().isoformat()}.pdf"
+    filename = f"diagnostico_cordex_gym_os_{date.today().isoformat()}.pdf"
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -214,7 +215,7 @@ def generate_diagnosis_pdf(payload: dict[str, Any], kpis: dict[str, Any], top_ri
             pdf.showPage()
             y = height - 50
 
-    write_line("Diagnostico Gratuito - AI GYM OS", size=18, bold=True, step=24)
+    write_line(f"Diagnostico Gratuito - {PRODUCT_NAME}", size=18, bold=True, step=24)
     write_line(f"Academia: {payload['gym_name']}", bold=True)
     write_line(f"Responsavel: {payload['full_name']}")
     write_line(f"Data: {datetime.now(tz=timezone.utc).strftime('%d/%m/%Y')}", step=20)
@@ -275,7 +276,7 @@ def execute_public_diagnosis_job(
     pdf_bytes, filename = generate_diagnosis_pdf(payload, kpis, sorted_risk)
     email_sent = send_email_with_attachment(
         to_email=payload["email"],
-        subject="Seu diagnostico de retencao - AI GYM OS",
+        subject=f"Seu diagnostico de retencao - {PRODUCT_NAME}",
         content=(
             f"Ola {payload['full_name']},\n\n"
             "Seu diagnostico foi processado. Segue o relatorio em anexo.\n"

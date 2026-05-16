@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.cache import dashboard_cache, make_cache_key
 from app.core.config import settings
 from app.database import include_all_tenants
@@ -523,7 +524,7 @@ def _whatsapp_message_for_step(sequence: NurturingSequence, step: int) -> str:
 
     fallback: dict[int, str] = {
         0: (
-            f"Ola {sequence.prospect_name}! Seu diagnostico AI GYM OS ficou pronto. "
+            f"Ola {sequence.prospect_name}! Seu diagnostico {PRODUCT_NAME} ficou pronto. "
             f"Hoje voce tem {at_risk} alunos em risco e R$ {mrr_at_risk:,.2f} de MRR em risco. "
             f"Agende uma conversa: {settings.public_booking_url}"
         ),
@@ -573,7 +574,7 @@ def _email_for_step(sequence: NurturingSequence, step: int) -> tuple[str, str]:
         subject = "Convite: demonstracao de 15 minutos com os dados da sua academia"
         body = (
             f"Ola {sequence.prospect_name},\n\n"
-            "Reservamos uma demonstracao rapida para te mostrar o AI GYM OS usando seus numeros reais.\n"
+            f"Reservamos uma demonstracao rapida para te mostrar o {PRODUCT_NAME} usando seus numeros reais.\n"
             f"Agenda: {settings.public_booking_url}\n\n"
             "A apresentacao leva 15 minutos."
         )

@@ -1,4 +1,4 @@
-import type { KommoConnectionTestResult, KommoSettings, KommoSettingsUpdateInput } from "../types";
+import type { KommoConnectionTestResult, KommoNativeFileUploadTestResult, KommoSettings, KommoSettingsUpdateInput } from "../types";
 import { api } from "./api";
 
 export const kommoSettingsService = {
@@ -14,6 +14,13 @@ export const kommoSettingsService = {
 
   async testConnection(): Promise<KommoConnectionTestResult> {
     const { data } = await api.post<KommoConnectionTestResult>("/api/v1/settings/kommo/test-connection");
+    return data;
+  },
+
+  async testNativeFileUpload(leadId?: string | null): Promise<KommoNativeFileUploadTestResult> {
+    const { data } = await api.post<KommoNativeFileUploadTestResult>("/api/v1/kommo/test-native-file-upload", {
+      lead_id: leadId?.trim() || null,
+    });
     return data;
   },
 };

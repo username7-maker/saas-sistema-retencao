@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Dumbbell, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { useAuth } from "../../hooks/useAuth";
 import { Button, Input } from "../../components/ui2";
+import { BRAND_ASSETS, PRODUCT_NAME, PRODUCT_SHORT_TAGLINE } from "../../config/brand";
 import { resolvePostLoginRoute } from "../../utils/roleAccess";
 
 const loginSchema = z.object({
@@ -53,20 +54,26 @@ export function LoginPage() {
         <div className="absolute bottom-[-180px] left-[35%] h-[420px] w-[420px] rounded-full bg-[hsl(var(--lovable-success)/0.08)] blur-[170px]" />
       </div>
 
-      <div className="relative w-full max-w-md rounded-[30px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-2xl sm:p-8">
+      <div className="relative w-full max-w-md overflow-hidden rounded-[30px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-2xl sm:p-8">
+        <img
+          src={BRAND_ASSETS.orbitWatermark}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 opacity-[0.08]"
+        />
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)),hsl(var(--lovable-info)))] text-white shadow-[0_20px_40px_-22px_hsl(var(--lovable-primary)/0.95)]">
-            <Dumbbell size={24} />
+          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[20px] border border-lovable-border/70 bg-lovable-bg-muted shadow-[0_20px_40px_-22px_hsl(var(--lovable-primary)/0.95)]">
+            <img src={BRAND_ASSETS.markDark} alt="" className="h-11 w-11 object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink sm:text-3xl">AI GYM OS</h1>
+              <h1 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink sm:text-3xl">{PRODUCT_NAME}</h1>
               <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--lovable-primary)/0.15)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--lovable-primary))]">
                 <Sparkles size={11} />
-                Live
+                Core
               </span>
             </div>
-            <p className="mt-2 text-sm text-lovable-ink-muted">Acesso seguro ao sistema de retencao e BI.</p>
+            <p className="mt-2 text-sm text-lovable-ink-muted">Acesso seguro ao sistema de {PRODUCT_SHORT_TAGLINE.toLowerCase()}.</p>
           </div>
         </div>
 

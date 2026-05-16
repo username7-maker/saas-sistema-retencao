@@ -153,8 +153,8 @@ export function MemberDetailDrawer({
     : "Nunca";
 
   return (
-    <Drawer open={open} onClose={onClose} title={member.full_name}>
-      <div className="flex gap-0 border-b border-lovable-border px-2">
+    <Drawer open={open} onClose={onClose} title={member.full_name} widthClassName="sm:!w-[28rem] md:!w-[32rem]">
+      <div className="flex gap-0 overflow-x-auto border-b border-lovable-border px-2">
         {(["overview", "assessment", "behavior", "retention"] as const).map((tab) => {
           const labels = {
             overview: "Visao Geral",
@@ -168,7 +168,7 @@ export function MemberDetailDrawer({
               type="button"
               onClick={() => setActiveTab(tab)}
               className={clsx(
-                "-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold transition",
+                "-mb-px shrink-0 border-b-2 px-3 py-2.5 text-xs font-semibold transition",
                 activeTab === tab
                   ? "border-lovable-primary text-lovable-primary"
                   : "border-transparent text-lovable-ink-muted hover:text-lovable-ink",
@@ -182,7 +182,7 @@ export function MemberDetailDrawer({
 
       {activeTab === "overview" && (
         <div className="space-y-4 p-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant={RISK_VARIANTS[member.risk_level]}>
               Risco {RISK_LABELS[member.risk_level]} ({member.risk_score})
             </Badge>
@@ -205,16 +205,16 @@ export function MemberDetailDrawer({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+            <div className="min-w-0">
               <p className="text-lovable-ink-muted">Email</p>
-              <p className="font-medium text-lovable-ink">{member.email ?? "-"}</p>
+              <p className="break-words font-medium text-lovable-ink">{member.email ?? "-"}</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-lovable-ink-muted">Telefone</p>
               {normalizedPhone && phoneDisplay ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <a href={`tel:${normalizedPhone}`} className="font-medium text-lovable-ink hover:text-lovable-primary">
+                  <a href={`tel:${normalizedPhone}`} className="break-all font-medium text-lovable-ink hover:text-lovable-primary">
                     {phoneDisplay}
                   </a>
                   {whatsappHref ? (

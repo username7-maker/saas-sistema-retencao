@@ -18,7 +18,7 @@ function makeReport(): BodyCompositionReport {
   return {
     header: {
       member_name: "Erick Bedin",
-      gym_name: "AI GYM OS Piloto",
+      gym_name: "ProGym Piloto",
       trainer_name: "Automicai Owner",
       measured_at: "2026-04-14T10:00:00Z",
       age_years: 21,
@@ -134,10 +134,11 @@ describe("BodyCompositionReportPage", () => {
 
     expect(await screen.findByText("Erick Bedin")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
-    expect(screen.getByText("Relatorio premium pronto")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
+    expect(screen.queryByText("Relatorio premium pronto")).not.toBeInTheDocument();
     expect(screen.getByText("% Gordura corporal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Relatorio tecnico" })).toBeInTheDocument();
     expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
   });
 
@@ -147,10 +148,10 @@ describe("BodyCompositionReportPage", () => {
 
     renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Resumo do aluno" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
 
     await waitFor(() => {
-      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "summary", expect.anything());
+      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "technical", expect.anything());
     });
 
     windowOpenSpy.mockRestore();

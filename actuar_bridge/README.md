@@ -1,6 +1,6 @@
 # Actuar Bridge local
 
-Ponte local para o AI GYM OS automatizar o Actuar usando a sessao ja aberta do operador.
+Ponte local para o Cordex Gym OS automatizar o Actuar usando a sessao ja aberta do operador.
 
 ## Modos
 
@@ -10,7 +10,7 @@ Ponte local para o AI GYM OS automatizar o Actuar usando a sessao ja aberta do o
 
 ## Pareamento
 
-1. No AI GYM OS, gere um codigo em `Settings > Actuar`
+1. No Cordex Gym OS, gere um codigo em `Settings > Actuar`
 2. Na estacao local, rode:
 
 ```bash

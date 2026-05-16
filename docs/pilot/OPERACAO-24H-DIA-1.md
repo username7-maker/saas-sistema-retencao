@@ -1,7 +1,7 @@
 ﻿# Operacao 24h - Dia 1 do Piloto
 
 Data alvo: 30/04/2026
-Academia: AI GYM OS Piloto
+Academia: ProGym Piloto
 
 ## Status operacional preparado
 

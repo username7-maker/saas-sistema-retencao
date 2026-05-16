@@ -114,7 +114,7 @@ const PERSONAL_AI_BLOCKER_LABELS: Record<string, string> = {
   member_not_active: "Aluno nao esta ativo para orientacao de treino/rotina.",
   missing_active_training_plan: "Cadastre ou ative um treino antes de orientar rotina.",
   missing_technical_baseline: "Registre avaliacao ou bioimpedancia antes de explicar resultado tecnico.",
-  personal_ai_disabled: "Personal IA esta desligado nas configuracoes.",
+  personal_ai_disabled: "Cordex Coach esta desligado nas configuracoes.",
   domain_disabled: "Este tipo de rascunho esta desativado.",
   daily_draft_limit_reached: "Limite diario de rascunhos atingido.",
   autonomous_prescription_not_allowed: "A IA nao pode prescrever treino novo sozinha.",
@@ -450,9 +450,9 @@ function PersonalAiProfilePanel({
     mutationFn: () => personalAiService.createDraft(memberId, { question: question.trim(), domain, channel: "internal" }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["personal-ai", "drafts", memberId] });
-      toast.success("Personal IA gerou um rascunho para revisao.");
+      toast.success("Cordex Coach gerou um rascunho para revisao.");
     },
-    onError: () => toast.error("Nao foi possivel gerar o rascunho do Personal IA."),
+    onError: () => toast.error("Nao foi possivel gerar o rascunho do Cordex Coach."),
   });
 
   const prepareMutation = useMutation({
@@ -489,7 +489,7 @@ function PersonalAiProfilePanel({
       <CardContent className="space-y-4 pt-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionHeader
-            title="Personal IA"
+            title="Cordex Coach"
             subtitle="Rascunho tecnico para professor revisar. Nao prescreve treino novo e nao envia sozinho."
           />
           <Badge variant="info">Coach review</Badge>
@@ -524,7 +524,7 @@ function PersonalAiProfilePanel({
             </select>
           </label>
           <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pergunta para o Personal IA</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pergunta para o Cordex Coach</span>
             <Textarea
               rows={3}
               value={question}
@@ -1419,14 +1419,14 @@ export function MemberProfile360Page() {
 
           <Card>
             <CardContent className="space-y-4 pt-5">
-              <SectionHeader title="Decisao operacional" subtitle="O que o sistema recomenda fazer agora, considerando tasks, risco, Autopilot e contexto 360." />
+              <SectionHeader title="Decisao operacional" subtitle="O que o sistema recomenda fazer agora, considerando tasks, risco, Cordex Autopilot e contexto 360." />
               <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={nextActionDomain === "relationship" ? "danger" : nextActionDomain === "finance" ? "warning" : "neutral"}>
                     {nextActionDomain}
                   </Badge>
-                  {operationalNextAction?.can_autopilot ? <Badge variant="success">Autopilot possivel</Badge> : null}
-                  {autopilotState ? <Badge variant="neutral">Autopilot: {String(autopilotState)}</Badge> : null}
+                  {operationalNextAction?.can_autopilot ? <Badge variant="success">Cordex Autopilot possivel</Badge> : null}
+                  {autopilotState ? <Badge variant="neutral">Cordex Autopilot: {String(autopilotState)}</Badge> : null}
                 </div>
                 <h3 className="mt-3 font-heading text-lg font-bold text-lovable-ink">{nextActionTitle}</h3>
                 <p className="mt-1 text-sm text-lovable-ink-muted">{nextActionReason}</p>

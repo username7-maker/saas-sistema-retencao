@@ -324,11 +324,11 @@ export function SettingsPage() {
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}
           {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
           {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
-          {canManageAutopilot ? <TabsTrigger value="autopilot">Autopilot</TabsTrigger> : null}
-          {canManageAiServiceAgent ? <TabsTrigger value="ai-service-agent">Agente IA</TabsTrigger> : null}
-          {canManagePersonalAi ? <TabsTrigger value="personal-ai">Personal IA</TabsTrigger> : null}
-          {canManageMovementVideo ? <TabsTrigger value="movement-video-ai">Video IA</TabsTrigger> : null}
-          {canManageStudentPersonalAi ? <TabsTrigger value="student-personal-ai">Aluno IA</TabsTrigger> : null}
+          {canManageAutopilot ? <TabsTrigger value="autopilot">Cordex Autopilot</TabsTrigger> : null}
+          {canManageAiServiceAgent ? <TabsTrigger value="ai-service-agent">Cordex Agent</TabsTrigger> : null}
+          {canManagePersonalAi ? <TabsTrigger value="personal-ai">Cordex Coach</TabsTrigger> : null}
+          {canManageMovementVideo ? <TabsTrigger value="movement-video-ai">Cordex Motion</TabsTrigger> : null}
+          {canManageStudentPersonalAi ? <TabsTrigger value="student-personal-ai">Aluno Cordex</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile">

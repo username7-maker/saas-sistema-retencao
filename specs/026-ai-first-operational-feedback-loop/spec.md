@@ -2,7 +2,7 @@
 
 ## User Story
 
-Como gestor ou operador, quero revisar rascunhos de IA marcando se aproveitei, editei, rejeitei ou escalei, para que o AI Gym OS aprenda operacionalmente quais assistencias sao uteis antes de aumentar automacao.
+Como gestor ou operador, quero revisar rascunhos de IA marcando se aproveitei, editei, rejeitei ou escalei, para que o Cordex Gym OS aprenda operacionalmente quais assistencias sao uteis antes de aumentar automacao.
 
 ## Functional Requirements
 

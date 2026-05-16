@@ -7,10 +7,11 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.config import settings
 from app.models import Lead, NurturingSequence
 from app.schemas.public_diagnosis import PublicProposalRequest
-from app.utils.email import EmailSendResult, send_email_with_attachment, send_email_with_attachment_result
+from app.utils.email import EmailSendResult, send_email_with_attachment_result
 
 SETUP_FEE = Decimal("10000")
 MONTHLY_FEE = Decimal("2500")
@@ -60,7 +61,7 @@ def proposal_financials(payload: PublicProposalRequest) -> dict:
 
 def generate_proposal_pdf(payload: PublicProposalRequest) -> tuple[bytes, str]:
     values = proposal_financials(payload)
-    filename = f"proposta_ai_gym_os_{date.today().isoformat()}.pdf"
+    filename = f"proposta_cordex_gym_os_{date.today().isoformat()}.pdf"
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -77,7 +78,7 @@ def generate_proposal_pdf(payload: PublicProposalRequest) -> tuple[bytes, str]:
             pdf.showPage()
             y = height - 50
 
-    write_line("Proposta Personalizada - AI GYM OS", size=18, bold=True, step=24)
+    write_line(f"Proposta Personalizada - {PRODUCT_NAME}", size=18, bold=True, step=24)
     write_line(f"Academia: {payload.gym_name}", bold=True)
     write_line(f"Responsavel: {payload.prospect_name}")
     write_line(f"Data: {datetime.now(tz=timezone.utc).strftime('%d/%m/%Y')}", step=20)
@@ -119,7 +120,7 @@ def send_proposal_email_delivery(payload: PublicProposalRequest, pdf_bytes: byte
         return EmailSendResult(sent=False, blocked=True, reason="lead_email_missing")
     return send_email_with_attachment_result(
         to_email=payload.email,
-        subject="Sua proposta personalizada - AI GYM OS",
+        subject=f"Sua proposta personalizada - {PRODUCT_NAME}",
         content=(
             f"Ola {payload.prospect_name},\n\n"
             "Segue em anexo sua proposta personalizada com estimativa de ROI e plano recomendado."

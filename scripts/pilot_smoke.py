@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Smoke test for the AI Gym OS pilot environment."""
+"""Smoke test for the Cordex Gym OS pilot environment."""
 
 from __future__ import annotations
 

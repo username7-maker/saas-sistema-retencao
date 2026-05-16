@@ -44,6 +44,17 @@ def _assistant_contract(
     }
 
 
+def _prompt_contract(metadata: dict | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        "prompt_key": metadata.get("prompt_key"),
+        "prompt_version": metadata.get("prompt_version"),
+        "model": metadata.get("model"),
+        "safety_profile": metadata.get("safety_profile"),
+    }
+
+
 def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]) -> AIAssistantPayload:
     factors = onboarding_result.get("factors") or {}
     weakest_key = min(factors, key=factors.get) if factors else "checkin_frequency"
@@ -287,6 +298,7 @@ def build_assessment_assistant(summary: dict[str, Any]) -> AIAssistantPayload:
             f"Benchmark: {summary['benchmark']['position_label']}",
         ],
         **_assistant_contract(),
+        **_prompt_contract(narratives.get("prompt_metadata")),
         confidence_label=str(forecast.get("confidence") or "Moderada").capitalize(),
         recommended_channel="Avaliacao",
         cta_target=f"/assessments/members/{member.id}?tab=registro",
@@ -301,6 +313,7 @@ def build_body_composition_assistant(
 ) -> AIAssistantPayload:
     risk_flags = list(evaluation.ai_risk_flags_json or [])
     focus = evaluation.ai_training_focus_json or {}
+    prompt_info = focus.get("prompt_metadata") if isinstance(focus, dict) else None
     primary_goal_slug = str(focus.get("primary_goal") or "acompanhamento_geral")
     primary_goal = _format_body_goal(primary_goal_slug)
     suggested_focuses = [str(item) for item in focus.get("suggested_focuses") or []]
@@ -326,9 +339,11 @@ def build_body_composition_assistant(
         ),
         evidence=evidence[:5],
         **_assistant_contract(
+            provider="openai" if isinstance(prompt_info, dict) and str(prompt_info.get("model") or "").startswith("gpt") else "system",
             mode="assisted_summary",
             manual_required=bool(evaluation.needs_review),
         ),
+        **_prompt_contract(prompt_info if isinstance(prompt_info, dict) else None),
         confidence_label=_body_confidence_label(evaluation),
         recommended_channel="Explicacao guiada",
         cta_target=f"/assessments/members/{member.id}?tab=plano",

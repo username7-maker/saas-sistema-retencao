@@ -45,3 +45,4 @@ class Gym(Base, TimestampMixin):
     users = relationship("User", back_populates="gym")
     members = relationship("Member", back_populates="gym")
     goals = relationship("Goal")
+    kommo_domain_routes = relationship("KommoDomainRoute", cascade="all, delete-orphan")

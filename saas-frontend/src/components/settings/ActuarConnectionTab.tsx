@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, ShieldCheck, TriangleAlert, Unplug } from "lucide-react";
 import toast from "react-hot-toast";
 
+import { PRODUCT_NAME } from "../../config/brand";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
 import type { ActuarBridgeDevice, ActuarBridgePairingCode, ActuarSyncMode } from "../../types";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
@@ -295,7 +296,7 @@ export function ActuarConnectionTab() {
                 <p className="font-semibold">Metodo recomendado para o piloto</p>
                 <p className="mt-1 text-xs text-lovable-ink-muted">
                   Se o professor estiver com o Actuar aberto em outra aba no mesmo computador, o fluxo mais seguro e previsivel continua sendo o manual assistido:
-                  abrir o Actuar, lancar os campos criticos com apoio do resumo do AI GYM OS e confirmar o sync depois.
+                  abrir o Actuar, lancar os campos criticos com apoio do resumo do {PRODUCT_NAME} e confirmar o sync depois.
                 </p>
               </div>
             ) : null}

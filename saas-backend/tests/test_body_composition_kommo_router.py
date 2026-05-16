@@ -39,26 +39,39 @@ def authed_client(app):
 
 def test_send_body_composition_kommo_returns_dispatch_payload(authed_client):
     client, _fake_db = authed_client
-    fake_handoff = SimpleNamespace(
-        status="sent",
+    fake_outbound = SimpleNamespace(
+        status="queued",
         lead_id="12345",
         contact_id="67890",
-        task_id="54321",
-        detail="Handoff entregue para a Kommo.",
+        message_log_id=uuid.uuid4(),
+        salesbot_id="98765",
+        pdf_url=None,
+        kommo_file_uuid="file-uuid-1",
+        file_upload_status="uploaded",
+        file_attach_status="attached",
+        pdf_delivery_mode="native_file_required",
+        detail="PDF anexado nativamente na Kommo e Salesbot acionado.",
+        delivery_mode="kommo_salesbot_native_file",
+        fallback_available=True,
     )
-    with patch("app.routers.members.send_body_composition_kommo_handoff", return_value=fake_handoff):
+    with patch("app.routers.members.send_body_composition_kommo_salesbot", return_value=fake_outbound):
         response = client.post(f"/api/v1/members/{MEMBER_ID}/body-composition/{EVALUATION_ID}/send-kommo")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "sent"
+    assert payload["status"] == "queued"
     assert payload["lead_id"] == "12345"
-    assert payload["task_id"] == "54321"
+    assert payload["salesbot_id"] == "98765"
+    assert payload["kommo_file_uuid"] == "file-uuid-1"
+    assert payload["file_upload_status"] == "uploaded"
+    assert payload["file_attach_status"] == "attached"
+    assert payload["pdf_delivery_mode"] == "native_file_required"
+    assert payload["delivery_mode"] == "kommo_salesbot_native_file"
 
 
 def test_send_body_composition_kommo_returns_conflict_for_operational_issue(authed_client):
     client, _fake_db = authed_client
-    with patch("app.routers.members.send_body_composition_kommo_handoff", side_effect=ValueError("Kommo nao configurada")):
+    with patch("app.routers.members.send_body_composition_kommo_salesbot", side_effect=ValueError("Kommo nao configurada")):
         response = client.post(f"/api/v1/members/{MEMBER_ID}/body-composition/{EVALUATION_ID}/send-kommo")
 
     assert response.status_code == 409

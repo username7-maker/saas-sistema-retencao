@@ -13,7 +13,6 @@ from app.models import (
     Member,
     MemberStatus,
     MessageLog,
-    RoleEnum,
     Task,
     TaskPriority,
     TaskStatus,

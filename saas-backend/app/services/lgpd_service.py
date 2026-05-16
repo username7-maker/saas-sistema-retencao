@@ -8,6 +8,7 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.models import (
     AuditLog,
     BodyCompositionEvaluation,
@@ -98,7 +99,7 @@ def export_member_pdf(db: Session, member_id: UUID, gym_id: UUID) -> tuple[Bytes
             pdf.showPage()
             y = 800
 
-    write_line("AI GYM OS - Exportacao LGPD")
+    write_line(f"{PRODUCT_NAME} - Exportacao LGPD")
     write_line(f"Gerado em: {datetime.now(tz=timezone.utc).isoformat()}")
     write_line("")
     write_line(f"Membro: {member.full_name}")

@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AutopilotAction, GymAutopilotSettings, Lead, LeadStage, Member, MemberConsentRecord, MemberStatus, MessageLog, Task, TaskStatus
+from app.models import AutopilotAction, GymAutopilotSettings, Lead, LeadStage, Member, MemberConsentRecord, MemberStatus, MessageLog, Task
 from app.services.autopilot_settings_service import get_or_create_autopilot_settings
 
 SENSITIVE_TERMS = {

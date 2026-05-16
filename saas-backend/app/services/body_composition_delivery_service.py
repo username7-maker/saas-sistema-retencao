@@ -13,9 +13,10 @@ from app.services.body_composition_report_service import (
     build_body_composition_premium_pdf_payload,
     build_body_composition_report_read,
 )
-from app.services.kommo_service import KommoHandoffResult, handoff_member_to_kommo
+from app.services.kommo_service import KommoHandoffResult, KommoSalesbotOutboundResult, handoff_member_to_kommo, send_member_message_via_kommo_salesbot
 from app.services.member_service import get_member_or_404
 from app.services.premium_report_service import render_premium_report_pdf
+from app.services.public_report_link_service import create_body_composition_report_public_url
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_document_sync
 
 
@@ -95,6 +96,52 @@ def send_body_composition_kommo_handoff(
         source="body_composition",
         ai_gym_profile_url=_build_member_profile_url(member.id),
         due_in_hours=12,
+    )
+
+
+def send_body_composition_kommo_salesbot(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+    pdf_kind: str = "summary",
+    pdf_delivery_mode: str = "native_file_required",
+) -> KommoSalesbotOutboundResult:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    message = build_body_composition_whatsapp_message(member, evaluation)
+    pdf_bytes, pdf_filename = (
+        generate_body_composition_technical_pdf(member, evaluation)
+        if pdf_kind == "technical"
+        else generate_body_composition_pdf(member, evaluation)
+    )
+    pdf_url = None
+    if pdf_delivery_mode in {"native_file_preferred", "link_only"}:
+        pdf_url = create_body_composition_report_public_url(
+            gym_id=gym_id,
+            member_id=member_id,
+            evaluation_id=evaluation_id,
+            pdf_kind=pdf_kind,
+        )
+    return send_member_message_via_kommo_salesbot(
+        db,
+        gym_id=gym_id,
+        member=member,
+        domain="body_composition",
+        message_text=message,
+        source_type="body_composition",
+        source_id=evaluation_id,
+        pdf_url=pdf_url,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=pdf_filename,
+        pdf_delivery_mode=pdf_delivery_mode,
+        title=f"Bioimpedancia pronta - {member.full_name}",
     )
 
 

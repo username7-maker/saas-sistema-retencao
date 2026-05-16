@@ -351,7 +351,7 @@ export function TasksOnboardingTab({
       atencao: onboardingMembers.filter((member) => memberToPlaybook(member, getResolvedOnboardingScore(member)) === "atencao"),
       critico: onboardingMembers.filter((member) => memberToPlaybook(member, getResolvedOnboardingScore(member)) === "critico"),
     }),
-    [onboardingMembers, onboardingScoreByMemberId],
+    [getResolvedOnboardingScore, onboardingMembers],
   );
 
   useEffect(() => {
@@ -375,7 +375,7 @@ export function TasksOnboardingTab({
     });
     if (!query) return sortedMembers;
     return sortedMembers.filter((member) => member.full_name.toLowerCase().includes(query));
-  }, [activePlaybook, playbookGroups, search, onboardingScoreByMemberId]);
+  }, [activePlaybook, getResolvedOnboardingScore, playbookGroups, search]);
 
   const selectedMember = filteredMembers.find((member) => member.id === selectedMemberId) ?? filteredMembers[0] ?? null;
   const onboardingTasks = useMemo(

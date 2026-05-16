@@ -202,7 +202,7 @@ describe("AITriageInboxPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Execucao da AI Inbox")).toBeInTheDocument();
+    expect(await screen.findByText("Execucao da Central Cordex")).toBeInTheDocument();
     expect((await screen.findAllByText("Ana Silva")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("Observacao opcional para esta acao"), {
       target: { value: "Pode seguir agora." },

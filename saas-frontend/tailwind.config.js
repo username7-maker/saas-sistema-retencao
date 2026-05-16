@@ -6,11 +6,11 @@ export default {
     extend: {
       colors: {
         brand: {
-          50: "#fff7ec",
-          100: "#ffe7cc",
-          300: "#ffc078",
-          500: "#f58a1b",
-          700: "#b66100",
+          50: "#f4f2ec",
+          100: "#dceaf1",
+          300: "#9bc9df",
+          500: "#6fa7c7",
+          700: "#2f6f91",
         },
         lovable: {
           bg: "hsl(var(--lovable-bg))",

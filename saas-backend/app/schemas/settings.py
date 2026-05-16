@@ -43,6 +43,44 @@ class ActuarSettingsResponse(BaseModel):
     last_connection_test: ActuarConnectionTestResult | None = None
 
 
+class KommoDomainRouteRead(BaseModel):
+    domain: str
+    is_enabled: bool = True
+    pipeline_id: str | None = None
+    stage_id: str | None = None
+    salesbot_id: str | None = None
+    channel_source_id: str | None = None
+    responsible_user_id: str | None = None
+    message_field_id: str | None = None
+    pdf_url_field_id: str | None = None
+    pdf_delivery_mode: str = "native_file_required"
+    file_uuid_field_id: str | None = None
+    file_name_field_id: str | None = None
+    file_attachment_note_field_id: str | None = None
+    source_type_field_id: str | None = None
+    source_id_field_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class KommoDomainRouteUpdate(BaseModel):
+    domain: str = Field(max_length=40)
+    is_enabled: bool = True
+    pipeline_id: str | None = Field(default=None, max_length=40)
+    stage_id: str | None = Field(default=None, max_length=40)
+    salesbot_id: str | None = Field(default=None, max_length=40)
+    channel_source_id: str | None = Field(default=None, max_length=80)
+    responsible_user_id: str | None = Field(default=None, max_length=40)
+    message_field_id: str | None = Field(default=None, max_length=40)
+    pdf_url_field_id: str | None = Field(default=None, max_length=40)
+    pdf_delivery_mode: str | None = Field(default=None, pattern="^(native_file_required|native_file_preferred|link_only)$")
+    file_uuid_field_id: str | None = Field(default=None, max_length=40)
+    file_name_field_id: str | None = Field(default=None, max_length=40)
+    file_attachment_note_field_id: str | None = Field(default=None, max_length=40)
+    source_type_field_id: str | None = Field(default=None, max_length=40)
+    source_id_field_id: str | None = Field(default=None, max_length=40)
+    tags: list[str] = Field(default_factory=list)
+
+
 class KommoSettingsRead(BaseModel):
     kommo_enabled: bool
     kommo_base_url: str | None = None
@@ -55,6 +93,7 @@ class KommoSettingsRead(BaseModel):
     kommo_operator_confirmed_send_enabled: bool = True
     kommo_auto_close_enabled: bool = True
     kommo_fallback_channel: str = "whatsapp"
+    domain_routes: list[KommoDomainRouteRead] = Field(default_factory=list)
 
 
 class KommoSettingsUpdate(BaseModel):
@@ -69,6 +108,7 @@ class KommoSettingsUpdate(BaseModel):
     kommo_operator_confirmed_send_enabled: bool | None = None
     kommo_auto_close_enabled: bool | None = None
     kommo_fallback_channel: str | None = Field(default=None, pattern="^(whatsapp|manual)$")
+    domain_routes: list[KommoDomainRouteUpdate] | None = None
 
 
 class KommoConnectionTestResult(BaseModel):

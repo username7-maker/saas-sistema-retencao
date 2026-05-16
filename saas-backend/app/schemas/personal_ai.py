@@ -74,6 +74,7 @@ class PersonalAiDraftOut(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     question: str
     context_snapshot: PersonalAiContextOut | None = None
+    prompt_metadata: dict | None = None
     kommo_contact_id: str | None = None
     kommo_lead_id: str | None = None
     kommo_task_id: str | None = None

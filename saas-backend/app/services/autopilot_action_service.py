@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.models import AutopilotAction, AutopilotEvent, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_policy_service import AutopilotDecision, render_template
@@ -302,7 +303,7 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
     action.executed_at = _now()
     db.add(action)
     metadata = dict(action.metadata_json or {})
-    title = str(metadata.get("task_title") or metadata.get("title") or f"AI Gym OS - {action.policy_key}")[:120]
+    title = str(metadata.get("task_title") or metadata.get("title") or f"{PRODUCT_NAME} - {action.policy_key}")[:120]
     summary_parts = [
         str(metadata.get("task_reason") or metadata.get("reason") or action.policy_key),
     ]

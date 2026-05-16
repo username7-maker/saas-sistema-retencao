@@ -6,11 +6,12 @@ from io import BytesIO
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.models import RoleEnum, User
 from app.services.core_async_job_service import CoreAsyncJobNonRetryableError
 from app.services.audit_service import log_audit_event
 from app.services.premium_report_service import (
-    ALLOWED_DASHBOARD_REPORTS,
+    ALLOWED_DASHBOARD_REPORTS as ALLOWED_DASHBOARD_REPORTS,
     DashboardReportType,
     build_dashboard_report_payload,
     render_premium_report_pdf,
@@ -48,7 +49,7 @@ def send_monthly_reports(db: Session) -> dict[str, object]:
     for user in leadership:
         result = send_email_with_attachment_result(
             user.email,
-            "AI GYM OS - Relatorio Mensal Consolidado",
+            f"{PRODUCT_NAME} - Relatorio Mensal Consolidado",
             "Segue em anexo o relatorio mensal consolidado da sua academia.",
             filename=filename,
             attachment_bytes=attachment,

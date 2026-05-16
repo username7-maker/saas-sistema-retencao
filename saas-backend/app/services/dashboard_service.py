@@ -45,7 +45,6 @@ from app.schemas import (
     LTVPoint,
     NPSEvolutionPoint,
     OperationalDashboard,
-    PaginatedResponse,
     ProjectionPoint,
     RetentionDashboard,
     RetentionPlaybookStep,

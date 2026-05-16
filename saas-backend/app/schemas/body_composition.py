@@ -411,6 +411,15 @@ class BodyCompositionKommoDispatchRead(BaseModel):
     contact_id: str | None = None
     task_id: str | None = None
     detail: str | None = None
+    delivery_mode: str = "handoff_task"
+    message_log_id: UUID | None = None
+    salesbot_id: str | None = None
+    pdf_url: str | None = None
+    kommo_file_uuid: str | None = None
+    file_upload_status: str | None = None
+    file_attach_status: str | None = None
+    pdf_delivery_mode: str | None = None
+    fallback_available: bool = False
 
 
 class ActuarSyncQueueItemRead(BaseModel):

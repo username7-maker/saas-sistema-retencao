@@ -450,7 +450,7 @@ class TestBodyCompositionPremiumReportDomain:
             id=MEMBER_ID,
             full_name="Erick Bedin",
             birthdate=date(2004, 4, 9),
-            gym=SimpleNamespace(name="AI GYM OS Piloto"),
+            gym=SimpleNamespace(name="ProGym Piloto"),
             assigned_user=SimpleNamespace(full_name="Automicai Owner"),
         )
         previous = SimpleNamespace(
@@ -586,7 +586,7 @@ class TestBodyCompositionReportRoute:
             id=MEMBER_ID,
             full_name="Erick Bedin",
             birthdate=date(2004, 4, 9),
-            gym=SimpleNamespace(name="AI GYM OS Piloto"),
+            gym=SimpleNamespace(name="ProGym Piloto"),
             assigned_user=SimpleNamespace(full_name="Automicai Owner"),
         )
         previous = SimpleNamespace(

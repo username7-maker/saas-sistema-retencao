@@ -5,11 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.limiter import limiter, rate_limit_enabled
-from app.database import get_db
+from app.database import get_db, include_all_tenants
+from app.models import BodyCompositionEvaluation, Member
 from app.schemas.public_diagnosis import (
     PublicDiagnosisQueuedResponse,
     PublicDiagnosisStatusRead,
@@ -39,11 +41,57 @@ from app.services.proposal_service import (
     hydrate_proposal_from_lead,
     send_proposal_email_if_needed,
 )
+from app.services.body_composition_delivery_service import (
+    generate_body_composition_pdf,
+    generate_body_composition_technical_pdf,
+)
+from app.services.public_report_link_service import decode_body_composition_report_token
 
 router = APIRouter(prefix="/public", tags=["public"])
 
 _MAX_DIAG_UPLOAD_SIZE = 10 * 1024 * 1024
 _fallback_uploads_by_ip: dict[str, list[datetime]] = defaultdict(list)
+
+
+@router.get("/reports/body-composition/{token}.pdf")
+def public_body_composition_report_pdf(token: str, db: Session = Depends(get_db)) -> Response:
+    payload = decode_body_composition_report_token(token)
+    try:
+        gym_id = UUID(str(payload["gym_id"]))
+        member_id = UUID(str(payload["member_id"]))
+        evaluation_id = UUID(str(payload["evaluation_id"]))
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Link publico de relatorio invalido.") from exc
+
+    member = db.scalar(
+        include_all_tenants(
+            select(Member).where(Member.id == member_id, Member.gym_id == gym_id),
+            reason="public_reports.fetch_member",
+        )
+    )
+    evaluation = db.scalar(
+        include_all_tenants(
+            select(BodyCompositionEvaluation).where(
+                BodyCompositionEvaluation.id == evaluation_id,
+                BodyCompositionEvaluation.gym_id == gym_id,
+                BodyCompositionEvaluation.member_id == member_id,
+            ),
+            reason="public_reports.fetch_body_composition",
+        )
+    )
+    if member is None or evaluation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relatorio nao encontrado.")
+
+    pdf_kind = str(payload.get("pdf_kind") or "summary")
+    if pdf_kind == "technical":
+        pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation)
+    else:
+        pdf_bytes, filename = generate_body_composition_pdf(member, evaluation)
+    headers = {
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 def _apply_fallback_rate_limit(request: Request) -> None:

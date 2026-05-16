@@ -11,7 +11,6 @@ from app.database import get_db
 from app.models import AutomationRule, RoleEnum, User
 from app.models.automation_execution_log import AutomationExecutionLog
 from app.schemas.automation import (
-    AutomationExecutionResult,
     AutomationRuleCreate,
     AutomationRuleOut,
     AutomationRuleUpdate,

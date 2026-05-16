@@ -543,7 +543,7 @@ def _task_title_for_recommendation(snapshot: dict) -> str:
 
 
 def _task_description_for_recommendation(snapshot: dict) -> str:
-    why_now_summary = snapshot.get("why_now_summary") or "Recommendation gerada pela AI Inbox."
+    why_now_summary = snapshot.get("why_now_summary") or "Recomendacao gerada pela Central Cordex."
     expected_impact = snapshot.get("expected_impact") or "Executar follow-up com contexto."
     suggested_message = snapshot.get("suggested_message")
     details = list(snapshot.get("why_now_details") or [])

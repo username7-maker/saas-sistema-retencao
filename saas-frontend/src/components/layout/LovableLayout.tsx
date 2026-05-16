@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  Dumbbell,
   FileText,
   Globe,
   HelpCircle,
@@ -36,6 +35,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
+import { BRAND_ASSETS, PRODUCT_NAME, PRODUCT_SHORT_TAGLINE } from "../../config/brand";
 import { notificationService } from "../../services/notificationService";
 import { canAccessRoute, canManageUsers } from "../../utils/roleAccess";
 import { UserAvatar } from "../common/UserAvatar";
@@ -76,8 +76,8 @@ const navGroups: NavGroup[] = [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
       { to: "/crm", label: "CRM", icon: Users, route: "crm" },
-      { to: "/ai/triage", label: "AI Inbox", icon: Sparkles, route: "aiTriage" },
-      { to: "/ai/review-center", label: "Revisao IA", icon: Bot, route: "aiReviewCenter" },
+      { to: "/ai/triage", label: "Central Cordex", icon: Sparkles, route: "aiTriage" },
+      { to: "/ai/review-center", label: "Revisao Cordex", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -92,7 +92,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Sistema",
     items: [
-      { to: "/automations", label: "Automacoes", icon: Bot, route: "automations" },
+      { to: "/automations", label: "Cordex Autopilot", icon: Bot, route: "automations" },
       { to: "/imports", label: "Importacoes", icon: Upload, route: "imports" },
       { to: "/audit", label: "Auditoria", icon: ScrollText, route: "audit" },
     ],
@@ -105,7 +105,7 @@ const trainerNavGroups: NavGroup[] = [
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
-      { to: "/ai/review-center", label: "Revisao IA", icon: Bot, route: "aiReviewCenter" },
+      { to: "/ai/review-center", label: "Revisao Cordex", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -325,14 +325,14 @@ export function LovableLayout() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,hsl(var(--lovable-primary)),hsl(var(--lovable-info)))] text-white shadow-[0_18px_40px_-20px_hsl(var(--lovable-primary)/0.95)]">
-                      <Dumbbell size={18} />
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-lovable-border/70 bg-lovable-bg-muted shadow-[0_18px_40px_-20px_hsl(var(--lovable-primary)/0.95)]">
+                      <img src={BRAND_ASSETS.markDark} alt="" className="h-9 w-9 object-contain" />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate font-heading text-xl font-bold tracking-tight text-lovable-ink">AI GYM OS</p>
+                      <p className="truncate font-heading text-xl font-bold tracking-tight text-lovable-ink">{PRODUCT_NAME}</p>
                       <p className="mt-0.5 flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">
                         <span className="inline-block h-1.5 w-1.5 rounded-full bg-[hsl(var(--lovable-success))]" />
-                        Retencao inteligente
+                        {PRODUCT_SHORT_TAGLINE}
                       </p>
                       <p className="mt-1 truncate text-xs text-lovable-ink-muted">{userEmail}</p>
                     </div>
@@ -415,7 +415,7 @@ export function LovableLayout() {
         </div>
       </aside>
 
-      <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} title="AI GYM OS">
+      <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} title={PRODUCT_NAME}>
         <SidebarNav onNavigate={() => setMobileOpen(false)} />
       </Drawer>
 

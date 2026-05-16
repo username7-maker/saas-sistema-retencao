@@ -616,7 +616,7 @@ def _student_personal_ai_to_item(db: Session, action: AutopilotAction) -> WorkQu
         primary_label = "Assumir conversa"
     else:
         primary_label = "Revisar aluno"
-    badges = ["Aluno Kommo", "Personal IA", "Draft-only"]
+    badges = ["Aluno Kommo", "Aluno Cordex", "Draft-only"]
     if draft.intent == "movement_video":
         badges.append("Video")
     if action.status == "blocked":
@@ -1374,7 +1374,7 @@ def _update_student_personal_ai_outcome(
     item = _student_personal_ai_to_item(db, action)
     return WorkQueueActionResultOut(
         item=item,
-        detail="Resultado registrado no Personal IA do aluno.",
+        detail="Resultado registrado no Aluno Cordex.",
         prepared_message=item.suggested_message,
         context_path=item.context_path,
         task_id=None,
@@ -1945,7 +1945,7 @@ def update_work_queue_outcome(
     item = _ai_to_item(source)
     return WorkQueueActionResultOut(
         item=item,
-        detail="Resultado registrado na AI Inbox.",
+        detail="Resultado registrado na Central Cordex.",
         prepared_message=item.suggested_message,
         context_path=item.context_path,
         task_id=None,

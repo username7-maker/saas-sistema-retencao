@@ -55,6 +55,7 @@ class StudentPersonalAiDraftOut(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     received_message: str | None = None
+    prompt_metadata: dict | None = None
     source_event_id: str | None = None
     message_log_id: str | None = None
     movement_video_review_id: str | None = None

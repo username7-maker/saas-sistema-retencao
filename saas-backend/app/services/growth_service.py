@@ -6,7 +6,7 @@ from uuid import UUID
 from urllib.parse import quote
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache

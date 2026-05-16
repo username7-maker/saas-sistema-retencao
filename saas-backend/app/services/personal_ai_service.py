@@ -21,7 +21,7 @@ from app.models import (
     Task,
     TrainingPlan,
 )
-from app.models.enums import MemberStatus, TaskStatus
+from app.models.enums import MemberStatus
 from app.schemas.personal_ai import (
     PersonalAiContextOut,
     PersonalAiDraftCreate,
@@ -32,6 +32,7 @@ from app.schemas.personal_ai import (
 )
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_settings_service import get_or_create_autopilot_settings
+from app.services.ai_prompt_registry_service import AiPromptResult, generate_specialist_text
 from app.services.kommo_service import handoff_member_to_kommo
 
 PERSONAL_AI_EXTRA_KEY = "personal_ai"
@@ -195,7 +196,8 @@ def create_personal_ai_draft(
     if blocked_reasons:
         status_value = "blocked" if classification.sensitivity != "sensitive" else "escalated"
 
-    draft_reply = None if blocked_reasons else _build_personal_ai_reply(member=member, context=context, intent=classification.intent)
+    reply_result = None if blocked_reasons else _build_personal_ai_reply_result(member=member, context=context, intent=classification.intent)
+    draft_reply = reply_result.text if reply_result else None
     context_payload = context.model_dump(mode="json")
     metadata = {
         "personal_ai_state": status_value,
@@ -203,6 +205,7 @@ def create_personal_ai_draft(
         "sensitivity": classification.sensitivity,
         "summary": classification.summary,
         "draft_reply": draft_reply,
+        "prompt_metadata": reply_result.metadata if reply_result else None,
         "next_action": classification.next_action,
         "recommended_owner_role": classification.recommended_owner_role,
         "blocked_reasons": blocked_reasons,
@@ -282,7 +285,7 @@ def prepare_personal_ai_draft_in_kommo(
 ) -> PersonalAiPrepareResultOut:
     settings = get_personal_ai_settings(db, gym_id=gym_id)
     if not settings.kommo_prepare_enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Preparacao Kommo do Personal IA esta desativada.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Preparacao Kommo do Cordex Coach esta desativada.")
     action = db.scalar(
         select(AutopilotAction).where(
             AutopilotAction.gym_id == gym_id,
@@ -291,7 +294,7 @@ def prepare_personal_ai_draft_in_kommo(
         )
     )
     if action is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rascunho do Personal IA nao encontrado.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rascunho do Cordex Coach nao encontrado.")
     if action.status != PERSONAL_AI_DRAFT_READY:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este rascunho nao esta pronto para Kommo.")
     member = db.get(Member, action.member_id) if action.member_id else None
@@ -301,7 +304,7 @@ def prepare_personal_ai_draft_in_kommo(
     metadata = dict(action.metadata_json or {})
     summary = "\n".join(
         [
-            "Personal IA V1 - revisar orientacao tecnica antes de enviar.",
+            "Cordex Coach V1 - revisar orientacao tecnica antes de enviar.",
             f"Pergunta: {metadata.get('question') or '-'}",
             f"Resumo: {metadata.get('summary') or '-'}",
             f"Orientacao sugerida: {action.message_body or '-'}",
@@ -313,7 +316,7 @@ def prepare_personal_ai_draft_in_kommo(
         db,
         gym_id=gym_id,
         member=member,
-        title=f"Revisar orientacao Personal IA - {member.full_name}"[:120],
+        title=f"Revisar orientacao Cordex Coach - {member.full_name}"[:120],
         summary=summary,
         source="personal_ai",
         due_in_hours=8,
@@ -404,6 +407,7 @@ def serialize_personal_ai_draft(action: AutopilotAction) -> PersonalAiDraftOut:
         evidence=list(metadata.get("evidence") or []),
         question=str(metadata.get("question") or ""),
         context_snapshot=PersonalAiContextOut(**context_snapshot) if isinstance(context_snapshot, dict) else None,
+        prompt_metadata=metadata.get("prompt_metadata") if isinstance(metadata.get("prompt_metadata"), dict) else None,
         kommo_contact_id=metadata.get("kommo_contact_id"),
         kommo_lead_id=metadata.get("kommo_lead_id"),
         kommo_task_id=metadata.get("kommo_task_id"),
@@ -456,6 +460,10 @@ def _requires_active_member_for_personal_ai(intent: str) -> bool:
 
 
 def _build_personal_ai_reply(*, member: Member, context: PersonalAiContextOut, intent: str) -> str:
+    return _build_personal_ai_reply_result(member=member, context=context, intent=intent).text
+
+
+def _build_personal_ai_reply_result(*, member: Member, context: PersonalAiContextOut, intent: str) -> AiPromptResult:
     first_name = ((member.full_name or "").split(" ")[0] or "aluno").strip()
     plan = context.active_training_plan or {}
     goal = (context.active_goals[0] if context.active_goals else {})
@@ -466,28 +474,49 @@ def _build_personal_ai_reply(*, member: Member, context: PersonalAiContextOut, i
     caution = "Se sentir dor, tontura ou desconforto forte, pare e chame o professor antes de continuar."
 
     if intent == "body_composition_explanation":
-        return (
+        fallback = (
             f"Oi, {first_name}! Pela sua bioimpedancia mais recente, o foco agora e acompanhar tendencia, "
             f"manter regularidade no treino e revisar o plano com o professor. "
             f"Peso: {latest_bio.get('weight_kg') or '-'} kg, gordura: {latest_bio.get('body_fat_percent') or '-'}%, "
             f"massa muscular: {latest_bio.get('skeletal_muscle_kg') or latest_bio.get('muscle_mass_kg') or '-'} kg. {caution}"
         )
-    if intent == "assessment_explanation":
-        return (
+    elif intent == "assessment_explanation":
+        fallback = (
             f"Oi, {first_name}! Sua avaliacao mais recente serve como base para ajustar meta, frequencia e treino. "
             f"Peso: {latest_assessment.get('weight_kg') or '-'} kg, gordura: {latest_assessment.get('body_fat_pct') or '-'}%, "
             f"proxima reavaliacao: {latest_assessment.get('next_assessment_due') or 'a definir'}. {caution}"
         )
-    if intent == "training_guidance":
-        return (
+    elif intent == "training_guidance":
+        fallback = (
             f"Oi, {first_name}! Pelo plano atual ({plan.get('name') or 'treino ativo'}), o foco e executar o que ja foi prescrito, "
             f"com frequencia alvo de {sessions or '-'}x por semana e objetivo: {objective}. "
             "Nao vou mudar exercicios por aqui; qualquer ajuste de carga, exercicio ou dor deve ser validado com o professor. "
             f"{caution}"
         )
-    return (
-        f"Oi, {first_name}! Para evoluir com seguranca, o melhor agora e manter a rotina do treino atual "
-        f"({sessions or '-'}x/semana), registrar feedback do que esta facil ou dificil e revisar com o professor no proximo contato. {caution}"
+    else:
+        fallback = (
+            f"Oi, {first_name}! Para evoluir com seguranca, o melhor agora e manter a rotina do treino atual "
+            f"({sessions or '-'}x/semana), registrar feedback do que esta facil ou dificil e revisar com o professor no proximo contato. {caution}"
+        )
+
+    user_prompt = (
+        "Prepare um rascunho tecnico curto para o professor revisar antes de usar.\n"
+        f"Aluno: {member.full_name}\n"
+        f"Intencao: {intent}\n"
+        f"Plano ativo: {plan}\n"
+        f"Meta principal: {objective}\n"
+        f"Sessoes por semana: {sessions or '-'}\n"
+        f"Avaliacao: {latest_assessment}\n"
+        f"Bioimpedancia: {latest_bio}\n"
+        f"Evidencias: {context.evidence}\n"
+        f"Lacunas: {context.missing_data}\n"
+        "A resposta deve ser segura, sem prescricao autonoma e pronta para revisao humana."
+    )
+    return generate_specialist_text(
+        "personal_ai_coach_v1",
+        user_prompt=user_prompt,
+        fallback_text=fallback,
+        max_output_chars=1200,
     )
 
 

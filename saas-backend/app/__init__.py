@@ -1,1 +1,1 @@
-"""AI GYM OS backend application package."""
+"""Cordex Gym OS backend application package."""

@@ -1,6 +1,6 @@
-﻿# saas-backend
+# saas-backend
 
-API FastAPI do AI GYM OS.
+API FastAPI do Cordex Gym OS.
 
 ## Executar
 

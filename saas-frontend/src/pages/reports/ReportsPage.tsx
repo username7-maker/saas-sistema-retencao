@@ -341,7 +341,7 @@ export default function ReportsPage() {
                         </p>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Autopilot</p>
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Cordex Autopilot</p>
                         <p className="mt-1 font-semibold text-lovable-ink">
                           {biFoundation.data.ai_first_ops.human_task_avoidance_rate !== null
                             ? `${biFoundation.data.ai_first_ops.human_task_avoidance_rate.toFixed(1)}%`

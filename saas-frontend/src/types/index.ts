@@ -23,6 +23,15 @@ export interface TokenPair {
 
 export type RiskLevel = "green" | "yellow" | "red";
 
+export interface AiPromptMetadata {
+  prompt_key?: string | null;
+  prompt_version?: string | null;
+  model?: string | null;
+  safety_profile?: string | null;
+  generated_at?: string | null;
+  fallback_used?: boolean | null;
+}
+
 export interface AIAssistantPayload {
   summary: string;
   why_it_matters: string;
@@ -37,6 +46,10 @@ export interface AIAssistantPayload {
   recommended_channel: string;
   cta_target: string;
   cta_label: string;
+  prompt_key?: string | null;
+  prompt_version?: string | null;
+  model?: string | null;
+  safety_profile?: string | null;
 }
 
 export type AITriageSourceDomain = "retention" | "onboarding";
@@ -263,6 +276,7 @@ export interface AiServiceAgentDraft {
   blocked_reasons: string[];
   evidence: string[];
   received_message: string | null;
+  prompt_metadata?: AiPromptMetadata | null;
   kommo_contact_id: string | null;
   kommo_lead_id: string | null;
   kommo_task_id: string | null;
@@ -309,6 +323,7 @@ export interface StudentPersonalAiDraft {
   blocked_reasons: string[];
   evidence: string[];
   received_message: string | null;
+  prompt_metadata?: AiPromptMetadata | null;
   source_event_id: string | null;
   message_log_id: string | null;
   movement_video_review_id: string | null;
@@ -370,6 +385,7 @@ export interface PersonalAiDraft {
   evidence: string[];
   question: string;
   context_snapshot: PersonalAiContext | null;
+  prompt_metadata?: AiPromptMetadata | null;
   kommo_contact_id: string | null;
   kommo_lead_id: string | null;
   kommo_task_id: string | null;
@@ -1452,6 +1468,8 @@ export interface BodyCompositionTrainingFocus {
   secondary_goal: string;
   suggested_focuses: string[];
   cautions: string[];
+  prompt_metadata?: AiPromptMetadata | null;
+  student_prompt_metadata?: AiPromptMetadata | null;
 }
 
 export interface BodyCompositionSyncAttempt {
@@ -1633,6 +1651,26 @@ export interface KommoSettings {
   kommo_operator_confirmed_send_enabled: boolean;
   kommo_auto_close_enabled: boolean;
   kommo_fallback_channel: "whatsapp" | "manual" | string;
+  domain_routes: KommoDomainRoute[];
+}
+
+export interface KommoDomainRoute {
+  domain: string;
+  is_enabled: boolean;
+  pipeline_id: string | null;
+  stage_id: string | null;
+  salesbot_id: string | null;
+  channel_source_id: string | null;
+  responsible_user_id: string | null;
+  message_field_id: string | null;
+  pdf_url_field_id: string | null;
+  pdf_delivery_mode: "native_file_required" | "native_file_preferred" | "link_only" | string;
+  file_uuid_field_id: string | null;
+  file_name_field_id: string | null;
+  file_attachment_note_field_id: string | null;
+  source_type_field_id: string | null;
+  source_id_field_id: string | null;
+  tags: string[];
 }
 
 export interface KommoConnectionTestResult {
@@ -1641,6 +1679,15 @@ export interface KommoConnectionTestResult {
   message: string;
   detail: string | null;
   base_url: string | null;
+}
+
+export interface KommoNativeFileUploadTestResult {
+  success: boolean;
+  message: string;
+  file_uuid: string | null;
+  upload_status: string | null;
+  attach_status: string | null;
+  detail: string | null;
 }
 
 export interface KommoSettingsUpdateInput {
@@ -1655,6 +1702,7 @@ export interface KommoSettingsUpdateInput {
   kommo_operator_confirmed_send_enabled?: boolean | null;
   kommo_auto_close_enabled?: boolean | null;
   kommo_fallback_channel?: "whatsapp" | "manual" | string | null;
+  domain_routes?: KommoDomainRoute[];
 }
 
 export interface BodyCompositionEvaluation {
@@ -1745,6 +1793,15 @@ export interface BodyCompositionKommoDispatch {
   contact_id: string | null;
   task_id: string | null;
   detail: string | null;
+  delivery_mode: string;
+  message_log_id: string | null;
+  salesbot_id: string | null;
+  pdf_url: string | null;
+  kommo_file_uuid: string | null;
+  file_upload_status: string | null;
+  file_attach_status: string | null;
+  pdf_delivery_mode: string | null;
+  fallback_available: boolean;
 }
 
 export interface BodyCompositionEvaluationCreate {

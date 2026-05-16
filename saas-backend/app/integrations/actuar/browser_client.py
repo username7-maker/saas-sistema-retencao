@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from app.core.branding import PRODUCT_NAME
 from app.core.config import settings
 from app.integrations.actuar.selectors import ACTUAR_FIELD_SELECTORS, ACTUAR_SELECTORS
 from app.services.actuar_member_link_service import normalize_document
@@ -872,7 +873,6 @@ class ActuarBrowserClient:
         external_id = _strip_text(link_data.get("external_id"))
         document = normalize_document(link_data.get("document"))
         full_name = _strip_text(link_data.get("full_name"))
-        birthdate = _strip_text(link_data.get("birthdate"))
         external_code = external_id if external_id and re.fullmatch(r"\d+", external_id) else None
 
         if external_code:
@@ -1408,7 +1408,7 @@ def _build_anamnesis_summary_text(mapped_payload: list[dict[str, Any]]) -> str:
         "visceral_fat": "Gordura visceral",
         "notes": "Observacoes",
     }
-    lines = ["Bioimpedancia importada pelo AI GYM OS:"]
+    lines = [f"Bioimpedancia importada pelo {PRODUCT_NAME}:"]
     for item in mapped_payload:
         value = item.get("value")
         if value is None or value == "":

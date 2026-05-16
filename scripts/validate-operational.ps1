@@ -310,7 +310,7 @@ function Get-ValidationIdentity {
         full_name = "Operational Validation Owner"
         email = "ops-$suffix@example.com"
         password = "OperationalPass123!"
-        gym_name = "AI GYM OS Validation $suffix"
+        gym_name = "Cordex Gym OS Validation $suffix"
         gym_slug = "ops-$suffix"
     }
 

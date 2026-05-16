@@ -1,9 +1,9 @@
-# Roteiro de Apresentacao do AI Gym OS
+# Roteiro de Apresentacao do Cordex Gym OS
 
 ## 1. Abertura
 
 **O que eu digo**
-Hoje o foco nao e aprender todas as telas. O foco e entender como a equipe usa o AI Gym OS para nao perder aluno, nao perder follow-up e atender melhor.
+Hoje o foco nao e aprender todas as telas. O foco e entender como a equipe usa o Cordex Gym OS para nao perder aluno, nao perder follow-up e atender melhor.
 
 **O que eu mostro na tela**
 Menu lateral completo e tela inicial do sistema.
@@ -12,7 +12,7 @@ Menu lateral completo e tela inicial do sistema.
 O sistema e operacional. Ele serve para organizar acao e contexto, nao so para guardar cadastro.
 
 **Qual entendimento eles precisam sair com isso**
-O AI Gym OS entra na rotina da academia inteira, nao so na gestao.
+O Cordex Gym OS entra na rotina da academia inteira, nao so na gestao.
 
 ## 2. Fluxo da recepcao
 

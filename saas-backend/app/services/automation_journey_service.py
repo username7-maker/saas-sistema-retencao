@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
@@ -17,7 +17,6 @@ from app.models import (
     LeadStage,
     Member,
     MemberStatus,
-    RoleEnum,
     Task,
     TaskPriority,
     TaskStatus,

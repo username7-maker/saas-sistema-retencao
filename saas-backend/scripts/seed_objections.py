@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.database import SessionLocal
+from app.core.branding import PRODUCT_NAME
 from app.models import ObjectionResponse
 
 
@@ -16,7 +17,7 @@ DEFAULT_OBJECTIONS = [
         "trigger_keywords": ["tecnofit", "outro sistema", "ja uso", "ja tenho sistema"],
         "objection_summary": "Complementaridade com sistema atual",
         "response_template": (
-            "O AI GYM OS nao substitui seu sistema operacional. Ele complementa a operacao com BI, retencao "
+            f"O {PRODUCT_NAME} nao substitui seu sistema operacional. Ele complementa a operacao com BI, retencao "
             "e automacoes que normalmente o ERP da academia nao entrega."
         ),
     },
@@ -32,7 +33,7 @@ DEFAULT_OBJECTIONS = [
         "trigger_keywords": ["nao tenho tempo", "sem tempo", "muito ocupado", "complicado"],
         "objection_summary": "Falta de tempo para operar",
         "response_template": (
-            "A proposta do AI GYM OS e reduzir trabalho manual. O sistema identifica risco, sugere acoes e "
+            f"A proposta do {PRODUCT_NAME} e reduzir trabalho manual. O sistema identifica risco, sugere acoes e "
             "automatiza boa parte do acompanhamento."
         ),
     },
@@ -72,7 +73,7 @@ DEFAULT_OBJECTIONS = [
         "trigger_keywords": ["academi", "pequen", "poucos alunos"],
         "objection_summary": "Academia pequena demais",
         "response_template": (
-            "Mesmo academias menores sofrem com churn e perda de recorrencia. O AI GYM OS ajuda justamente a "
+            f"Mesmo academias menores sofrem com churn e perda de recorrencia. O {PRODUCT_NAME} ajuda justamente a "
             "priorizar os alunos certos e preservar receita com menos equipe."
         ),
     },

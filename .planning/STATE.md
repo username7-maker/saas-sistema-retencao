@@ -1,9 +1,9 @@
 ---
 milestone: v3.3.0
-phase: 7.2
-plan: "Assessment + Coach Workspace Foundation"
-status: A `7.2` foi aberta como corte staff-first para professores, usando avaliacoes, bioimpedancia, regua tecnica e Work Queue como base real para fila tecnica por turno.
-last_activity: 2026-05-06 - GSD, Spec Kit e Obsidian criados para Coach Workspace V1
+phase: 09.2
+plan: "Cordex Design System V1"
+status: Implementada e validada localmente com lint/build frontend e testes focados backend.
+last_activity: 2026-05-14 - fase `09.2-cordex-design-system-v1` implementada e validada localmente
 ---
 
 # STATE
@@ -13,14 +13,14 @@ last_activity: 2026-05-06 - GSD, Spec Kit e Obsidian criados para Coach Workspac
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Preparar a `7.2` como Coach Workspace staff-first sobre avaliacoes, bioimpedancia e regua tecnica ja existentes.
+**Current focus:** Aplicar Cordex Design System V1 preservando ProGym como tenant do piloto e `ai_gym_*` como legado tecnico.
 
 ## Current Position
 
-**Phase:** 7.2
-**Plan:** `Assessment + Coach Workspace Foundation`
-**Status:** `planned`; contrato GSD/Spec Kit criado.
-**Last activity:** 2026-05-06 - fase `07.2-assessment-coach-workspace-foundation` e spec `018-assessment-coach-workspace-foundation` abertas
+**Phase:** 09.2
+**Plan:** `Cordex Design System V1`
+**Status:** `validated locally`; tokens/assets/labels visuais aplicados para identidade Cordex real.
+**Last activity:** 2026-05-14 - fase `09.2-cordex-design-system-v1` implementada e validada localmente
 
 ## Progress Snapshot
 

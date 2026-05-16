@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, datetime, time
 from typing import Any, Sequence
 
 from app.models import Member

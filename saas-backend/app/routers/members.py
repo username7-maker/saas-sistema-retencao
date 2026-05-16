@@ -59,6 +59,7 @@ from app.services.body_composition_delivery_service import (
     generate_body_composition_pdf,
     generate_body_composition_technical_pdf,
     send_body_composition_kommo_handoff,
+    send_body_composition_kommo_salesbot,
     send_body_composition_whatsapp_summary,
 )
 from app.services.body_composition_service import (
@@ -70,7 +71,7 @@ from app.services.body_composition_service import (
     update_body_composition_evaluation,
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
-from app.services.kommo_service import KommoServiceError
+from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError
 from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
 from app.services.member_intelligence_service import get_member_intelligence_context
 from app.services.member_operational_profile_service import (
@@ -886,6 +887,81 @@ def send_body_composition_kommo_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> BodyCompositionKommoDispatchRead:
     try:
+        outbound = send_body_composition_kommo_salesbot(
+            db,
+            gym_id=current_user.gym_id,
+            member_id=member_id,
+            evaluation_id=evaluation_id,
+            pdf_kind="summary",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except KommoSalesbotDispatchError as exc:
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except KommoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if outbound.status not in {"queued", "sent"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=outbound.detail or "A Kommo nao recebeu o envio desta bioimpedancia.")
+
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="body_composition_kommo_salesbot_queued",
+        entity="body_composition",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={
+            "status": outbound.status,
+            "lead_id": outbound.lead_id,
+            "contact_id": outbound.contact_id,
+            "salesbot_id": outbound.salesbot_id,
+            "message_log_id": str(outbound.message_log_id) if outbound.message_log_id else None,
+            "pdf_url": outbound.pdf_url,
+            "kommo_file_uuid": outbound.kommo_file_uuid,
+            "file_upload_status": outbound.file_upload_status,
+            "file_attach_status": outbound.file_attach_status,
+            "pdf_delivery_mode": outbound.pdf_delivery_mode,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return BodyCompositionKommoDispatchRead(
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        status=outbound.status,
+        lead_id=outbound.lead_id,
+        contact_id=outbound.contact_id,
+        task_id=None,
+        detail=outbound.detail,
+        delivery_mode=outbound.delivery_mode,
+        salesbot_id=outbound.salesbot_id,
+        message_log_id=outbound.message_log_id,
+        pdf_url=outbound.pdf_url,
+        kommo_file_uuid=outbound.kommo_file_uuid,
+        file_upload_status=outbound.file_upload_status,
+        file_attach_status=outbound.file_attach_status,
+        pdf_delivery_mode=outbound.pdf_delivery_mode,
+        fallback_available=outbound.fallback_available,
+    )
+
+
+@router.post(
+    "/{member_id}/body-composition/{evaluation_id}/prepare-kommo",
+    response_model=BodyCompositionKommoDispatchRead,
+)
+def prepare_body_composition_kommo_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> BodyCompositionKommoDispatchRead:
+    try:
         handoff = send_body_composition_kommo_handoff(
             db,
             gym_id=current_user.gym_id,
@@ -903,7 +979,7 @@ def send_body_composition_kommo_endpoint(
     context = get_request_context(request)
     log_audit_event(
         db,
-        action="body_composition_kommo_sent",
+        action="body_composition_kommo_handoff_prepared",
         entity="body_composition",
         user=current_user,
         member_id=member_id,
@@ -926,6 +1002,8 @@ def send_body_composition_kommo_endpoint(
         contact_id=handoff.contact_id,
         task_id=handoff.task_id,
         detail=handoff.detail,
+        delivery_mode="handoff_task",
+        fallback_available=False,
     )
 
 

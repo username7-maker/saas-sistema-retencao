@@ -7,13 +7,15 @@ from urllib.parse import urlparse
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.branding import PRODUCT_NAME
+
 DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
-    app_name: str = "AI GYM OS"
+    app_name: str = PRODUCT_NAME
     api_prefix: str = "/api/v1"
     environment: str = "development"
     debug: bool = False
@@ -45,6 +47,7 @@ class Settings(BaseSettings):
     claude_max_tokens: int = 250
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
+    openai_specialist_model: str = "gpt-5.4-mini"
     openai_vision_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: int = 20
     body_composition_image_ai_enabled: bool = False

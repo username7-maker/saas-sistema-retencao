@@ -1,8 +1,9 @@
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.branding import PRODUCT_NAME
 from app.core.cache import invalidate_dashboard_cache
 from app.models import AuditLog, Member, MemberStatus, NPSSentiment, NPSTrigger, NPSResponse, RiskLevel
 from app.schemas import NPSEvolutionPoint, NPSResponseCreate
@@ -177,7 +178,7 @@ def _send_nps_email(db: Session, member: Member, trigger: NPSTrigger) -> bool:
         return False
     sent = send_email(
         member.email,
-        "Pesquisa NPS AI GYM OS",
+        f"Pesquisa NPS {PRODUCT_NAME}",
         f"Ola {member.full_name}, compartilhe seu NPS para melhorarmos sua experiencia.",
     )
     if not sent:

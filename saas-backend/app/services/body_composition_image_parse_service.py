@@ -536,7 +536,7 @@ def _choose_value_source(
     field_name: str,
     ai_value: Any,
     local_value: Any,
-    local_warnings: list[BodyCompositionOcrWarning] | None = None,
+    _local_warnings: list[BodyCompositionOcrWarning] | None = None,
 ) -> str | None:
     ai_plausible = _is_plausible(field_name, ai_value)
     local_plausible = _is_plausible(field_name, local_value)

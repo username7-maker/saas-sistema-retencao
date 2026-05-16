@@ -478,3 +478,37 @@ Status:
 - [x] plan
 - [x] execute
 - [ ] verify/validate
+
+### Phase 09.1: Cordex Gym OS Rebrand V1
+
+**Goal:** Trocar a marca visivel do produto para Cordex Gym OS, mantendo Cordex como fornecedor, ProGym como tenant do piloto e `ai_gym_*` como legado tecnico.
+**Requirements**: `BRAND-01`, `BRAND-02`
+**Depends on:** Phase 8.10
+**Plans:** 1 plan
+
+Plans:
+- [x] 09.1-PLAN.md - rebrand visual/comercial com constantes centralizadas, assets Cordex e preservacao de contratos tecnicos
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [x] verify/validate
+
+### Phase 09.2: Cordex Design System V1
+
+**Goal:** Transformar o rebrand textual em identidade visual real Cordex, mantendo dark tecnico, nucleo azul e orbitas como linguagem visual sem alterar contratos tecnicos.
+**Requirements**: `BRAND-DS-01`, `BRAND-DS-02`, `BRAND-DS-03`, `BRAND-DS-04`, `BRAND-DS-05`, `BRAND-DS-06`
+**Depends on:** Phase 09.1
+**Plans:** 1 plan
+
+Plans:
+- [x] 09.2-PLAN.md - Cordex Design System V1 com tokens, assets, shell, componentes base, labels Cordex e relatorios
+
+Status:
+- [x] context
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [x] verify/validate

@@ -19,7 +19,7 @@ type ToggleKey =
   | "nps_enabled";
 
 const toggleLabels: Array<{ key: ToggleKey; label: string; description: string; warning?: boolean }> = [
-  { key: "autopilot_enabled", label: "Autopilot ativo", description: "Liga a camada de auto-resolucao e escalonamento auditavel." },
+  { key: "autopilot_enabled", label: "Cordex Autopilot ativo", description: "Liga a camada de auto-resolucao e escalonamento auditavel." },
   { key: "autopilot_auto_close_enabled", label: "Auto-fechamento", description: "Permite fechar tasks por eventos reais como check-in, pagamento e resposta." },
   {
     key: "autopilot_auto_send_enabled",
@@ -112,9 +112,9 @@ export function AutopilotSettingsTab() {
     onSuccess: (settings) => {
       setDraft(settings);
       void queryClient.invalidateQueries({ queryKey: ["autopilot"] });
-      toast.success("Autopilot atualizado.");
+      toast.success("Cordex Autopilot atualizado.");
     },
-    onError: () => toast.error("Nao foi possivel salvar Autopilot."),
+    onError: () => toast.error("Nao foi possivel salvar Cordex Autopilot."),
   });
 
   function setToggle(key: ToggleKey, value: boolean) {
@@ -142,7 +142,7 @@ export function AutopilotSettingsTab() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Task Autopilot</CardTitle>
+          <CardTitle>Cordex Autopilot</CardTitle>
           <p className="text-sm text-lovable-ink-muted">
             Comece pelo modo seguro: auto-fechamento ligado e auto-envio desligado. O sistema reduz tasks humanas sem atravessar atendimento sensivel.
           </p>
@@ -183,7 +183,7 @@ export function AutopilotSettingsTab() {
 
           <div className="flex justify-end">
             <Button onClick={() => updateMutation.mutate(draft)} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? "Salvando..." : "Salvar Autopilot"}
+              {updateMutation.isPending ? "Salvando..." : "Salvar Cordex Autopilot"}
             </Button>
           </div>
         </CardContent>

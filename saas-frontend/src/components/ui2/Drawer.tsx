@@ -16,14 +16,14 @@ export function Drawer({ open, onClose, title, side = "left", widthClassName, ch
     <>
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-[hsl(var(--lovable-bg)/0.72)] backdrop-blur-sm transition",
+          "fixed inset-0 z-40 bg-[hsl(var(--lovable-bg)/0.78)] backdrop-blur-md transition",
           open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
         onClick={onClose}
       />
       <aside
         className={cn(
-          "fixed top-0 z-50 h-full w-full max-w-full border-lovable-border bg-lovable-surface/96 shadow-panel backdrop-blur-xl transition-transform sm:w-80 sm:max-w-[88vw]",
+          "fixed top-0 z-50 h-full w-full max-w-full border-lovable-border/85 bg-[linear-gradient(160deg,hsl(var(--lovable-surface)/0.98),hsl(var(--lovable-bg-muted)/0.96))] shadow-panel backdrop-blur-xl transition-transform sm:w-80 sm:max-w-[88vw]",
           widthClassName,
           side === "left"
             ? "left-0 border-r " + (open ? "translate-x-0" : "-translate-x-full")

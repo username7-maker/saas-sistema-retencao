@@ -2,7 +2,7 @@
 
 ## User Story
 
-Como gestor da academia, quero que a equipe execute comunicação operacional pela Kommo, mantendo o AI Gym OS como cérebro de prioridade, contexto, mensagem pronta e registro de resultado.
+Como gestor da academia, quero que a equipe execute comunicação operacional pela Kommo, mantendo o Cordex Gym OS como cérebro de prioridade, contexto, mensagem pronta e registro de resultado.
 
 ## Requirements
 

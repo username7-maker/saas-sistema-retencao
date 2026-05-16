@@ -1,4 +1,5 @@
 import { cn } from "../ui2";
+import { COMPANY_NAME } from "../../config/brand";
 
 interface UserAvatarProps {
   fullName?: string | null;
@@ -14,7 +15,7 @@ const sizeClasses: Record<NonNullable<UserAvatarProps["size"]>, string> = {
 };
 
 function getInitials(fullName?: string | null): string {
-  return (fullName ?? "AI Gym")
+  return (fullName ?? COMPANY_NAME)
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)

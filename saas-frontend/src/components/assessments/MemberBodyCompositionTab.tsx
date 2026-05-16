@@ -35,6 +35,7 @@ import type {
   EvaluationSource,
 } from "../../types";
 import { useAuth } from "../../hooks/useAuth";
+import { PRODUCT_NAME } from "../../config/brand";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
 import { canManageActuarSync } from "../../utils/roleAccess";
 import { Button } from "../ui2/Button";
@@ -608,18 +609,40 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const sendKommoMutation = useMutation({
     mutationFn: (evaluationId: string) => bodyCompositionService.sendKommoHandoff(memberId, evaluationId),
     onSuccess: (payload) => {
-      if (payload.status === "sent") {
-        toast.success("Handoff da bioimpedancia enviado para a Kommo.");
+      if (payload.status === "queued" || payload.status === "sent") {
+        if (payload.kommo_file_uuid && payload.file_attach_status === "attached") {
+          toast.success("PDF anexado nativamente na Kommo e Salesbot acionado.");
+          return;
+        }
+        toast.success(payload.detail || "Salesbot acionado pela Kommo. Aguardando resposta pelo canal oficial.");
         return;
       }
-      toast.error(payload.detail || "A Kommo nao recebeu o handoff desta bioimpedancia.");
+      toast.error(payload.detail || "A Kommo nao recebeu o envio desta bioimpedancia.");
     },
     onError: (error) => {
       if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
         toast.error(error.response.data.detail);
         return;
       }
-      toast.error("Nao foi possivel enviar esta bioimpedancia para a Kommo.");
+      toast.error("Nao foi possivel enviar o PDF pela Kommo.");
+    },
+  });
+
+  const prepareKommoMutation = useMutation({
+    mutationFn: (evaluationId: string) => bodyCompositionService.prepareKommoHandoff(memberId, evaluationId),
+    onSuccess: (payload) => {
+      if (payload.status === "sent") {
+        toast.success("Fallback preparado na Kommo para o operador.");
+        return;
+      }
+      toast.error(payload.detail || "A Kommo nao recebeu o fallback desta bioimpedancia.");
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel preparar esta bioimpedancia na Kommo.");
     },
   });
 
@@ -956,7 +979,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     onClick={() => reportEvaluationId && sendKommoMutation.mutate(reportEvaluationId)}
                   >
                     <Link2 size={14} />
-                    {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
+                    {sendKommoMutation.isPending ? "Enviando..." : "Enviar PDF nativo via Kommo"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={!canSendReportKommo || prepareKommoMutation.isPending}
+                    onClick={() => reportEvaluationId && prepareKommoMutation.mutate(reportEvaluationId)}
+                  >
+                    <Link2 size={14} />
+                    {prepareKommoMutation.isPending ? "Preparando..." : "Preparar na Kommo"}
                   </Button>
                 </div>
               </div>
@@ -1197,6 +1230,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     title="IA da bioimpedancia"
                     subtitle="Achados principais, comparacao com o exame anterior e orientacao inicial para o coach."
                   />
+                  {focusEvaluation.ai_training_focus_json?.prompt_metadata ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/25 px-4 py-3 text-xs text-lovable-ink-muted">
+                      <StatusPill tone="neutral">Agente especialista</StatusPill>
+                      <StatusPill tone="neutral">
+                        Prompt v{focusEvaluation.ai_training_focus_json.prompt_metadata.prompt_version ?? "-"}
+                      </StatusPill>
+                      <StatusPill tone="neutral">
+                        Modelo: {focusEvaluation.ai_training_focus_json.prompt_metadata.model ?? "-"}
+                      </StatusPill>
+                    </div>
+                  ) : null}
                   <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
                     <p className="mt-2 text-sm text-lovable-ink">{resolveCoachSummary(focusEvaluation) || "Resumo ainda nao gerado."}</p>
@@ -1225,7 +1269,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                         onClick={() => focusEvaluation?.id && sendKommoMutation.mutate(focusEvaluation.id)}
                       >
                         <Link2 size={14} />
-                        {sendKommoMutation.isPending ? "Enviando..." : "Enviar para Kommo"}
+                        {sendKommoMutation.isPending ? "Enviando..." : "Enviar PDF nativo via Kommo"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={!canSendKommoHandoff || prepareKommoMutation.isPending}
+                        onClick={() => focusEvaluation?.id && prepareKommoMutation.mutate(focusEvaluation.id)}
+                      >
+                        <Link2 size={14} />
+                        {prepareKommoMutation.isPending ? "Preparando..." : "Preparar na Kommo"}
                       </Button>
                     </div>
                     <div className="mt-3 space-y-1 text-xs text-lovable-ink-muted">
@@ -1235,7 +1289,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                           : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF pelo canal direto."}
                       </p>
                       <p>
-                        Kommo: cria um handoff operacional com resumo, alertas e link do exame no AI GYM OS para a equipe usar o numero oficial por la.
+                        Kommo: anexa o PDF nativamente no lead e aciona o Salesbot no pipeline configurado. Se a rota ainda nao estiver pronta, use Preparar na Kommo como fallback.
                       </p>
                     </div>
                   </div>
@@ -1395,7 +1449,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   {unsupportedFieldsMessage ? (
                     <div className="space-y-2 rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3 text-sm text-lovable-ink">
                       <div>
-                        <p className="font-semibold">Campos mantidos apenas no AI GYM OS</p>
+                        <p className="font-semibold">Campos mantidos apenas no {PRODUCT_NAME}</p>
                         <p className="mt-1 text-xs text-lovable-ink-muted">{unsupportedFieldsMessage}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">

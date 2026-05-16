@@ -12,7 +12,7 @@ import type { AiReviewCenterItem } from "../../types";
 const sourceOptions = [
   { value: "all", label: "Todas as origens" },
   { value: "ai_service_agent", label: "Atendimento" },
-  { value: "personal_ai", label: "Personal IA" },
+  { value: "personal_ai", label: "Cordex Coach" },
   { value: "student_personal_ai", label: "Aluno Kommo" },
   { value: "movement_video", label: "Video aprovado" },
   { value: "movement_video_review", label: "Review de video" },
@@ -60,6 +60,11 @@ function humanizeStatus(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+function getPromptMetadata(item: AiReviewCenterItem): Record<string, unknown> | null {
+  const metadata = item.metadata?.prompt_metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : null;
+}
+
 export default function AiReviewCenterPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -80,7 +85,7 @@ export default function AiReviewCenterPage() {
     staleTime: 30_000,
   });
 
-  const items = reviewQuery.data?.items ?? [];
+  const items = useMemo(() => reviewQuery.data?.items ?? [], [reviewQuery.data?.items]);
   const selectedItem = useMemo(() => items.find((item) => item.source_id === selectedId) ?? items[0] ?? null, [items, selectedId]);
 
   useEffect(() => {
@@ -134,8 +139,8 @@ export default function AiReviewCenterPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Central de Revisao IA"
-        subtitle="Rascunhos e reviews gerados pela IA para revisao humana antes de qualquer envio."
+        title="Revisao Cordex"
+        subtitle="Rascunhos e reviews gerados pelos agentes Cordex para revisao humana antes de qualquer envio."
       />
 
       <section className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
@@ -173,13 +178,13 @@ export default function AiReviewCenterPage() {
         <SkeletonList rows={5} />
       ) : reviewQuery.isError ? (
         <div className="rounded-[28px] border border-lovable-danger/40 bg-lovable-danger/10 p-8 text-center text-sm text-lovable-danger">
-          Erro ao carregar a central de revisao IA.
+          Erro ao carregar a Revisao Cordex.
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-[28px] border border-lovable-border bg-lovable-surface/78 p-12 text-center">
           <CheckCircle2 className="mx-auto h-10 w-10 text-lovable-success" />
           <h2 className="mt-4 text-lg font-semibold text-lovable-ink">Nenhum rascunho aguardando revisao</h2>
-          <p className="mt-2 text-sm text-lovable-ink-muted">Quando Atendimento IA, Personal IA ou Video gerarem itens, eles aparecem aqui.</p>
+          <p className="mt-2 text-sm text-lovable-ink-muted">Quando Cordex Agent, Cordex Coach ou Cordex Motion gerarem itens, eles aparecem aqui.</p>
         </div>
       ) : (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(420px,0.72fr)]">
@@ -295,6 +300,7 @@ function ReviewInspector({
   if (!item) return null;
   const blocked = item.blocked_reasons.length > 0 || item.status === "blocked" || item.status === "escalated";
   const hasEditedReply = editedReply.trim().length > 0 && editedReply.trim() !== (item.draft_reply ?? "").trim();
+  const promptMetadata = getPromptMetadata(item);
 
   return (
     <aside className="rounded-[28px] border border-lovable-border bg-lovable-surface/88 p-5 shadow-panel xl:sticky xl:top-24 xl:self-start">
@@ -316,6 +322,15 @@ function ReviewInspector({
           <p className="mt-2 text-sm text-lovable-ink-muted">
             Este item nao deve ser enviado sem decisao humana. Motivos: {item.blocked_reasons.join(", ") || "estado sensivel"}.
           </p>
+        </div>
+      ) : null}
+
+      {promptMetadata ? (
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Badge variant="info" size="sm">Agente especialista</Badge>
+          <Badge variant="neutral" size="sm">Prompt v{String(promptMetadata.prompt_version ?? "-")}</Badge>
+          <Badge variant="neutral" size="sm">Modelo: {String(promptMetadata.model ?? "-")}</Badge>
+          <Badge variant="neutral" size="sm">{String(promptMetadata.safety_profile ?? "safety")}</Badge>
         </div>
       ) : null}
 

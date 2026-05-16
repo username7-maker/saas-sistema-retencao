@@ -2,13 +2,13 @@
 
 ## User Story
 
-Como recepcao ou gestor, quero que o AI Gym OS leia mensagens recebidas na Kommo, entenda o contexto do aluno/lead e prepare uma resposta segura para revisao humana, reduzindo tempo de atendimento sem perder controle operacional.
+Como recepcao ou gestor, quero que o Cordex Gym OS leia mensagens recebidas na Kommo, entenda o contexto do aluno/lead e prepare uma resposta segura para revisao humana, reduzindo tempo de atendimento sem perder controle operacional.
 
 ## Requirements
 
 - Receber eventos Kommo de mensagem inbound com validacao de seguranca.
 - Resolver aluno/lead pelo vinculo Kommo ou telefone.
-- Usar contexto canonico do AI Gym OS antes de sugerir resposta.
+- Usar contexto canonico do Cordex Gym OS antes de sugerir resposta.
 - Classificar intencao, dominio, sensibilidade e dono recomendado.
 - Gerar resposta sugerida curta e operacional.
 - Criar handoff para Kommo/Work Queue sem autoenvio na V1.

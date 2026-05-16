@@ -15,7 +15,7 @@ Como professor e gestor, quero que uma bioimpedancia conte como avaliacao tecnic
 - RF7: Bioimpedancia deve contar como cobertura tecnica na fila de avaliacao pendente.
 - RF8: Endpoints de bioimpedancia devem aceitar opcao para nao sincronizar Actuar.
 - RF9: Frontend deve oferecer `Salvar apenas no sistema` e preservar `Salvar e enviar ao Actuar`.
-- RF10: Relatorio premium de bioimpedancia deve exibir o logo ProGym ao lado da marca AI Gym OS.
+- RF10: Relatorio premium de bioimpedancia deve exibir o logo ProGym ao lado da marca Cordex Gym OS.
 - RF11: Work Queue deve enviar primeira avaliacao para operacao/recepcao e tarefas tecnicas para professor.
 
 ## Requisitos Nao Funcionais
@@ -34,4 +34,4 @@ Como professor e gestor, quero que uma bioimpedancia conte como avaliacao tecnic
 - CA5: Botao Actuar preserva sync.
 - CA6: Professor nao recebe task de primeira avaliacao.
 - CA7: Professor recebe D+8/D+14/D+90 tecnicos.
-- CA8: Relatorio premium mostra ProGym + AI Gym OS no cabecalho.
+- CA8: Relatorio premium mostra ProGym + Cordex Gym OS no cabecalho.

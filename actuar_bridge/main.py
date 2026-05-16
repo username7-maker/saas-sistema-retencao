@@ -11,10 +11,10 @@ from actuar_bridge.runner import ActuarBridgeRunner
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Actuar Bridge local para AI GYM OS")
+    parser = argparse.ArgumentParser(description="Actuar Bridge local para Cordex Gym OS")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    pair_parser = subparsers.add_parser("pair", help="Parear esta estacao com o AI GYM OS")
+    pair_parser = subparsers.add_parser("pair", help="Parear esta estacao com o Cordex Gym OS")
     pair_parser.add_argument("--api-base-url", required=True)
     pair_parser.add_argument("--pairing-code", required=True)
     pair_parser.add_argument("--device-name", required=True)

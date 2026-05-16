@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, MessageCircle, Printer } from "lucide-react";
+import { ArrowLeft, Download, Printer } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -16,7 +16,7 @@ import {
   RightRailSummary,
 } from "../../components/assessments/bodyCompositionReport/BodyCompositionReportBlocks";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "../../components/ui2";
+import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 
 const PERIOD_OPTIONS = [
@@ -26,7 +26,7 @@ const PERIOD_OPTIONS = [
   { key: "all", label: "Todo historico", days: null },
 ] as const;
 
-export function BodyCompositionReportPage() {
+function BodyCompositionReportPage() {
   const { memberId, evaluationId } = useParams<{ memberId: string; evaluationId: string }>();
   const [periodKey, setPeriodKey] = useState<(typeof PERIOD_OPTIONS)[number]["key"]>("all");
 
@@ -102,13 +102,13 @@ export function BodyCompositionReportPage() {
           Voltar para bioimpedancia
         </Link>
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" onClick={() => void handleOpenPdf("technical")}>
+            <Download size={14} />
+            Abrir PDF
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("summary")}>
             <Download size={14} />
             Resumo do aluno
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("technical")}>
-            <Download size={14} />
-            Relatorio tecnico
           </Button>
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer size={14} />
@@ -125,41 +125,7 @@ export function BodyCompositionReportPage() {
             parsingConfidence={report.parsing_confidence}
           />
 
-          <div className="mt-5 print:hidden">
-            <Card className="border-[#d8d5d0] bg-[#fffdf9] shadow-none">
-              <CardHeader>
-                <CardTitle className="text-[#171311]">Relatorio premium pronto</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm text-[#5f5650]">
-                    Este laudo ja esta pronto para acompanhamento, compartilhamento com o aluno e exportacao.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {report.data_quality_flags.map((flag) => (
-                      <Badge key={flag} variant="neutral" className="border-[#d8d5d0] bg-[#f7f5f1] text-[#554c45]">
-                        {flag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="primary" onClick={() => void handleOpenPdf("summary")}>
-                    <Download size={14} />
-                    Abrir PDF
-                  </Button>
-                  <Link to={`/assessments/members/${memberId}?tab=bioimpedancia`}>
-                    <Button size="sm" variant="secondary">
-                      <MessageCircle size={14} />
-                      Voltar ao workspace
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="mt-6 space-y-6">
+          <div className="mt-4 space-y-6">
             <MetricHighlights metrics={report.primary_cards} />
 
             <div className="grid gap-8 xl:grid-cols-[1.9fr_0.95fr]">
@@ -194,6 +160,12 @@ export function BodyCompositionReportPage() {
                     key={option.key}
                     size="sm"
                     variant={periodKey === option.key ? "primary" : "secondary"}
+                    aria-pressed={periodKey === option.key}
+                    className={
+                      periodKey === option.key
+                        ? "border-[#1d536f] bg-[#6fa7c7] text-[#061019] shadow-none hover:bg-[#7db6d4]"
+                        : "border-[#1d536f]/80 bg-[#fbfaf7] text-[#1d536f] shadow-none hover:bg-[#edf6fa]"
+                    }
                     onClick={() => setPeriodKey(option.key)}
                   >
                     {option.label}

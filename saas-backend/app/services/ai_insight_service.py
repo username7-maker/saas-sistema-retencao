@@ -133,7 +133,6 @@ def _build_executive_prompt(data: dict) -> str:
 def _fallback_insight(data: dict) -> str:
     churn = data.get("churn_rate", 0)
     red = data.get("risk_distribution", {}).get("red", 0)
-    yellow = data.get("risk_distribution", {}).get("yellow", 0)
     nps = data.get("nps_avg", 0)
 
     insights = []

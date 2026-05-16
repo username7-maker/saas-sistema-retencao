@@ -127,7 +127,7 @@ function outcomeChannel(item: WorkQueueItem): "kommo" | "whatsapp" {
 }
 
 function formatSourceLabel(item: WorkQueueItem): string {
-  if (item.source_type === "ai_triage") return "AI Inbox";
+  if (item.source_type === "ai_triage") return "Central Cordex";
   if (item.source_type === "assessment_queue") return "Fila de avaliacoes";
   if (item.source_type === "ai_service_agent") return "Agente Kommo";
   if (item.source_type === "student_personal_ai") return "Aluno Kommo";
@@ -293,7 +293,7 @@ export function WorkExecutionView({
   });
 
   const activeQuery = mode === "awaiting_outcome" ? awaitingQuery : mode === "all" ? allQuery : doNowQuery;
-  const activeItems = activeQuery.data?.items ?? [];
+  const activeItems = useMemo(() => activeQuery.data?.items ?? [], [activeQuery.data?.items]);
   const filteredItems = useMemo(() => filterItems(activeItems, deferredSearch), [activeItems, deferredSearch]);
   const selectedItem = useMemo(
     () => filteredItems.find((item) => itemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
@@ -473,7 +473,7 @@ export function WorkExecutionView({
       return;
     }
     if (selectedItem.source_type !== "task") {
-      toast.error("Comentario direto esta disponivel para tasks. Na AI Inbox, registre junto do resultado.");
+      toast.error("Comentario direto esta disponivel para tasks. Na Central Cordex, registre junto do resultado.");
       return;
     }
     commentMutation.mutate({ item: selectedItem, note });

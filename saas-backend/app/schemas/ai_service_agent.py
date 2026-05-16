@@ -45,6 +45,7 @@ class AiServiceAgentDraftOut(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     received_message: str | None = None
+    prompt_metadata: dict | None = None
     kommo_contact_id: str | None = None
     kommo_lead_id: str | None = None
     kommo_task_id: str | None = None

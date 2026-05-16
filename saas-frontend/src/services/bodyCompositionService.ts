@@ -208,6 +208,13 @@ export const bodyCompositionService = {
     return data;
   },
 
+  async prepareKommoHandoff(memberId: string, evaluationId: string): Promise<BodyCompositionKommoDispatch> {
+    const { data } = await api.post<BodyCompositionKommoDispatch>(
+      `/api/v1/members/${memberId}/body-composition/${evaluationId}/prepare-kommo`,
+    );
+    return data;
+  },
+
   async upsertActuarLink(
     memberId: string,
     payload: {

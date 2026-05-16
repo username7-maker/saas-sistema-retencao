@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, func
+from sqlalchemy import Boolean, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

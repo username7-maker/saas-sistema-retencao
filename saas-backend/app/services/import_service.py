@@ -536,7 +536,6 @@ def _build_mapping_preview(
     if valid_rows == 0:
         blocking_issues.append("Nenhuma linha valida foi encontrada com o mapeamento atual.")
 
-    mapping_required = any(column.status in {"needs_mapping", "conflict"} for column in source_columns)
     can_confirm = valid_rows > 0 and not conflicting_targets
     return recognized_columns, unrecognized_columns, source_columns, conflicting_targets, blocking_issues, can_confirm
 

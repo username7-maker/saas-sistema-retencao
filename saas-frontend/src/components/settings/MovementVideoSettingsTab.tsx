@@ -42,9 +42,9 @@ export function MovementVideoSettingsTab() {
     onSuccess: async (payload) => {
       setDraft(payload);
       await queryClient.invalidateQueries({ queryKey: ["movement-video-ai"] });
-      toast.success("Corretor de movimento atualizado.");
+      toast.success("Cordex Motion atualizado.");
     },
-    onError: () => toast.error("Nao foi possivel salvar o corretor de movimento."),
+    onError: () => toast.error("Nao foi possivel salvar o Cordex Motion."),
   });
 
   if (settingsQuery.isLoading) {
@@ -52,7 +52,7 @@ export function MovementVideoSettingsTab() {
       <Card>
         <CardContent className="flex items-center gap-3 p-5 text-sm text-lovable-ink-muted">
           <Loader2 size={18} className="animate-spin text-lovable-primary" />
-          Carregando corretor de movimento...
+          Carregando Cordex Motion...
         </CardContent>
       </Card>
     );
@@ -64,7 +64,7 @@ export function MovementVideoSettingsTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Video size={18} className="text-lovable-primary" />
-            Corretor de movimento por video
+            Cordex Motion
           </CardTitle>
           <p className="text-sm text-lovable-ink-muted">
             V1 supervisionada: o video vira evidencia para o professor revisar. O sistema nao da diagnostico autonomo e nao envia feedback sozinho.
@@ -86,7 +86,7 @@ export function MovementVideoSettingsTab() {
                 onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
               />
               <span>
-                <span className="block text-sm font-semibold text-lovable-ink">Habilitar corretor por video</span>
+                <span className="block text-sm font-semibold text-lovable-ink">Habilitar Cordex Motion</span>
                 <span className="mt-1 block text-xs text-lovable-ink-muted">Permite criar reviews de video para professor revisar.</span>
               </span>
             </label>
@@ -158,7 +158,7 @@ export function MovementVideoSettingsTab() {
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Salvando..." : "Salvar corretor de movimento"}
+              {saveMutation.isPending ? "Salvando..." : "Salvar Cordex Motion"}
             </Button>
           </div>
         </CardContent>
