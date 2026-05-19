@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.branding import PRODUCT_NAME
 from app.database import include_all_tenants
-from app.models import Gym, KommoDomainRoute, KommoMemberDomainLink, KommoMemberLink, Member, MessageLog
+from app.models import Gym, KommoDomainRoute, KommoMemberDomainLink, KommoMemberLink, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
 
 
@@ -402,6 +402,157 @@ def send_member_message_via_kommo_salesbot(
     )
 
 
+def send_lead_message_via_kommo_salesbot(
+    db: Session,
+    *,
+    gym_id: UUID,
+    lead: Lead,
+    domain: str,
+    message_text: str,
+    source_type: str,
+    source_id: str | UUID,
+    title: str | None = None,
+) -> KommoSalesbotOutboundResult:
+    gym = get_kommo_gym(db, gym_id)
+    normalized_domain = _normalize_domain(domain)
+    if not is_kommo_ready(gym):
+        raise KommoServiceError("Kommo nao configurada para esta academia.")
+    if not lead.phone:
+        raise KommoServiceError("Lead sem telefone cadastrado para envio pela Kommo.")
+
+    route = _get_domain_route(db, gym_id=gym.id, domain=normalized_domain)
+    _validate_salesbot_route(route, requires_pdf=False)
+    lead_title = title or f"{normalized_domain.replace('_', ' ').title()} - {lead.full_name}"
+    source_id_text = str(source_id)
+    payload = [
+        _build_salesbot_lead_payload_for_lead(
+            route=route,
+            lead=lead,
+            title=lead_title,
+            message_text=message_text,
+            source_type=source_type,
+            source_id=source_id_text,
+        )
+    ]
+    created = _kommo_request(gym=gym, method="POST", path="/api/v4/leads/complex", json=payload)
+    kommo_lead_id, kommo_contact_id = _extract_complex_lead_ids(created)
+
+    try:
+        _run_salesbot(gym=gym, route=route, lead_id=kommo_lead_id)
+    except KommoServiceError as exc:
+        failed_log = MessageLog(
+            gym_id=gym.id,
+            member_id=None,
+            lead_id=lead.id,
+            channel="kommo",
+            recipient=lead.phone,
+            template_name=f"kommo_{normalized_domain}",
+            content=message_text,
+            status="failed",
+            direction="outbound",
+            event_type="kommo_salesbot_outbound_failed",
+            provider_message_id=str(route.salesbot_id) if route else None,
+            error_detail=str(exc),
+            extra_data={
+                "delivery_mode": "salesbot_outbound",
+                "domain": normalized_domain,
+                "source_type": source_type,
+                "source_id": source_id_text,
+                "kommo_contact_id": kommo_contact_id,
+                "kommo_lead_id": kommo_lead_id,
+                "salesbot_id": route.salesbot_id if route else None,
+                "pipeline_id": route.pipeline_id if route else None,
+                "stage_id": route.stage_id if route else None,
+            },
+        )
+        db.add(failed_log)
+        db.flush()
+        failed_result = KommoSalesbotOutboundResult(
+            status="failed",
+            contact_id=kommo_contact_id,
+            lead_id=kommo_lead_id,
+            message_log_id=failed_log.id,
+            salesbot_id=route.salesbot_id if route else None,
+            detail=str(exc),
+            delivery_mode="salesbot_outbound",
+        )
+        record_event(
+            db,
+            gym_id=gym.id,
+            event_type="kommo_salesbot_outbound_failed",
+            source="kommo_salesbot",
+            lead_id=lead.id,
+            metadata={
+                "domain": normalized_domain,
+                "source_type": source_type,
+                "source_id": source_id_text,
+                "message_log_id": str(failed_log.id),
+                "kommo_contact_id": kommo_contact_id,
+                "kommo_lead_id": kommo_lead_id,
+                "salesbot_id": route.salesbot_id if route else None,
+                "error": str(exc),
+            },
+            deduplication_key=f"kommo:salesbot:lead:failed:{failed_log.id}",
+            flush=False,
+        )
+        raise KommoSalesbotDispatchError(str(exc), result=failed_result) from exc
+
+    log = MessageLog(
+        gym_id=gym.id,
+        member_id=None,
+        lead_id=lead.id,
+        channel="kommo",
+        recipient=lead.phone,
+        template_name=f"kommo_{normalized_domain}",
+        content=message_text,
+        status="queued",
+        direction="outbound",
+        event_type="kommo_salesbot_outbound",
+        provider_message_id=str(route.salesbot_id),
+        extra_data={
+            "delivery_mode": "salesbot_outbound",
+            "domain": normalized_domain,
+            "source_type": source_type,
+            "source_id": source_id_text,
+            "kommo_contact_id": kommo_contact_id,
+            "kommo_lead_id": kommo_lead_id,
+            "salesbot_id": route.salesbot_id,
+            "pipeline_id": route.pipeline_id,
+            "stage_id": route.stage_id,
+            "channel_source_id": route.channel_source_id,
+        },
+    )
+    db.add(log)
+    db.flush()
+    record_event(
+        db,
+        gym_id=gym.id,
+        event_type="kommo_salesbot_outbound_queued",
+        source="kommo_salesbot",
+        lead_id=lead.id,
+        metadata={
+            "domain": normalized_domain,
+            "source_type": source_type,
+            "source_id": source_id_text,
+            "message_log_id": str(log.id),
+            "kommo_contact_id": kommo_contact_id,
+            "kommo_lead_id": kommo_lead_id,
+            "salesbot_id": route.salesbot_id,
+        },
+        deduplication_key=f"kommo:salesbot:lead:{log.id}",
+        flush=False,
+    )
+    return KommoSalesbotOutboundResult(
+        status="queued",
+        contact_id=kommo_contact_id,
+        lead_id=kommo_lead_id,
+        message_log_id=log.id,
+        salesbot_id=route.salesbot_id,
+        detail=_salesbot_success_detail("salesbot_outbound"),
+        delivery_mode="salesbot_outbound",
+    )
+
+
 def normalize_kommo_base_url(value: str | None) -> str | None:
     if value is None:
         return None
@@ -570,6 +721,37 @@ def _build_salesbot_lead_payload(
         title=title,
         message_text=message_text,
         pdf_url=pdf_url,
+        source_type=source_type,
+        source_id=source_id,
+    )
+    embedded = payload.setdefault("_embedded", {})
+    embedded["contacts"] = [contact_payload]
+    return payload
+
+
+def _build_salesbot_lead_payload_for_lead(
+    *,
+    route: KommoDomainRoute,
+    lead: Lead,
+    title: str,
+    message_text: str,
+    source_type: str,
+    source_id: str,
+) -> dict[str, Any]:
+    contact_payload: dict[str, Any] = {"name": lead.full_name}
+    contact_fields: list[dict[str, Any]] = []
+    if lead.phone:
+        contact_fields.append({"field_code": "PHONE", "values": [{"value": lead.phone, "enum_code": "WORK"}]})
+    if lead.email:
+        contact_fields.append({"field_code": "EMAIL", "values": [{"value": lead.email, "enum_code": "WORK"}]})
+    if contact_fields:
+        contact_payload["custom_fields_values"] = contact_fields
+
+    payload = _build_salesbot_lead_update_payload(
+        route=route,
+        title=title,
+        message_text=message_text,
+        pdf_url=None,
         source_type=source_type,
         source_id=source_id,
     )

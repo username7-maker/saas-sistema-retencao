@@ -25,14 +25,15 @@ import { QuickActions } from "../../components/common/QuickActions";
 import { useAuth } from "../../hooks/useAuth";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
 import { dashboardService, type RetentionQueueItem } from "../../services/dashboardService";
+import { kommoMessageService } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
 import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
-import { getPermissionAwareMessage } from "../../utils/httpErrors";
+import { getHttpErrorDetail, getPermissionAwareMessage } from "../../utils/httpErrors";
 import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
 import { canResolveRetentionAlert } from "../../utils/roleAccess";
-import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
+import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
 type QueuePreferredShift = "all" | "overnight" | "morning" | "afternoon" | "evening";
@@ -311,6 +312,22 @@ function RetentionQueueDrawer({
   const normalizedPhone = normalizeWhatsAppPhone(item?.phone);
   const phoneDisplay = formatPhoneDisplay(item?.phone);
   const whatsappHref = item ? buildWhatsAppHref(item.phone, item.assistant?.suggested_message, item.full_name) : null;
+  const sendKommoMutation = useMutation({
+    mutationFn: async () => {
+      if (!item) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      return kommoMessageService.sendMessage({
+        member_id: item.member_id,
+        domain: "retention",
+        message_text: buildWhatsAppMessage(item.full_name, item.assistant?.suggested_message),
+        source_type: "retention_alert",
+        source_id: item.alert_id,
+      });
+    },
+    onSuccess: () => toast.success("Mensagem enviada pela Kommo."),
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Nao foi possivel enviar pela Kommo.")),
+  });
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", item?.member_id],
     queryFn: async () => {
@@ -538,6 +555,15 @@ function RetentionQueueDrawer({
               >
                 <MessageCircle size={14} />
                 WhatsApp
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => sendKommoMutation.mutate()}
+                disabled={sendKommoMutation.isPending}
+              >
+                <MessageCircle size={14} />
+                {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => onOpenProfile(item.member_id)}>
                 <ArrowUpRight size={14} />

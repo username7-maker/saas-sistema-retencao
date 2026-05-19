@@ -592,7 +592,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     mutationFn: (evaluationId: string) => bodyCompositionService.sendWhatsAppSummary(memberId, evaluationId),
     onSuccess: (payload) => {
       if (payload.status === "sent") {
-        toast.success("Resumo do aluno e PDF enviados pelo WhatsApp.");
+        toast.success("Relatorio tecnico completo enviado pelo WhatsApp.");
         return;
       }
       toast.error(payload.error_detail || "O envio por WhatsApp nao foi concluido.");
@@ -602,7 +602,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         toast.error(error.response.data.detail);
         return;
       }
-      toast.error("Nao foi possivel enviar o resumo do aluno no WhatsApp.");
+      toast.error("Nao foi possivel enviar o relatorio tecnico no WhatsApp.");
     },
   });
 
@@ -969,7 +969,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     onClick={() => reportEvaluationId && sendWhatsAppMutation.mutate(reportEvaluationId)}
                   >
                     <MessageCircle size={14} />
-                    {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar WhatsApp"}
+                    {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar relatorio WhatsApp"}
                   </Button>
                   <Button
                     type="button"

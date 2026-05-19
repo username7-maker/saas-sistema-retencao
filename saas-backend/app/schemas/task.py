@@ -17,7 +17,7 @@ TaskEventType = Literal[
     "forwarded",
     "delinquency_stage_updated",
 ]
-TaskContactChannel = Literal["whatsapp", "call", "in_person", "other"]
+TaskContactChannel = Literal["whatsapp", "kommo", "call", "in_person", "other"]
 TaskOutcome = Literal[
     "responded",
     "no_response",

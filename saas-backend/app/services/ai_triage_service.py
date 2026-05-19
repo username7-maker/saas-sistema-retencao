@@ -393,7 +393,7 @@ def _requires_explicit_approval(recommendation: AITriageRecommendation, snapshot
 def _primary_action_type(snapshot: dict) -> str:
     channel = snapshot.get("recommended_channel")
     suggested_message = snapshot.get("suggested_message")
-    if channel in {"whatsapp", "call", "in_app"} and suggested_message:
+    if channel in {"whatsapp", "kommo", "call", "in_app"} and suggested_message:
         return "prepare_outbound_message"
     if channel == "task":
         return "create_task"
@@ -407,6 +407,8 @@ def _primary_action_label(snapshot: dict, action_type: str) -> str:
     if action_type == "prepare_outbound_message":
         if channel == "whatsapp":
             return "Preparar WhatsApp"
+        if channel == "kommo":
+            return "Preparar Kommo"
         if channel == "call":
             return "Preparar ligacao"
         return "Preparar mensagem"

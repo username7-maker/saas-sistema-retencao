@@ -7,10 +7,12 @@ import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard";
 import { PreferredShiftBadge } from "../common/PreferredShiftBadge";
 import { Badge, Button, Drawer, Input, Select, Textarea } from "../ui2";
+import { kommoMessageService, type KommoSendDomain } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import { taskService, type UpdateTaskPayload } from "../../services/taskService";
 import type { Member, Task, TaskEvent } from "../../types";
-import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
+import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import type { StaffUser } from "../../services/userService";
 import {
   PRIORITY_LABELS,
@@ -38,6 +40,21 @@ interface TaskDetailDrawerProps {
   onDeleteRequest: (taskId: string) => void;
   onStatusChange: (taskId: string, status: Task["status"]) => void;
   onOpenContext: (task: Task) => void;
+}
+
+function normalizeTaskKommoDomain(task: Task): KommoSendDomain {
+  const rawDomain = typeof task.extra_data?.domain === "string" ? task.extra_data.domain : null;
+  const rawSource = typeof task.extra_data?.source === "string" ? task.extra_data.source : null;
+  const value = (rawDomain ?? rawSource ?? "").toLowerCase();
+
+  if (value.includes("retention")) return "retention";
+  if (value.includes("onboarding")) return "onboarding";
+  if (value.includes("finance") || value.includes("delinquency")) return "finance";
+  if (value.includes("sales") || value.includes("crm")) return "sales";
+  if (value.includes("body_composition")) return "body_composition";
+  if (value.includes("assessment") || value.includes("trainer") || value.includes("coach")) return "assessment";
+  if (value.includes("support") || value.includes("nps")) return "support";
+  return "retention";
 }
 
 export function TaskDetailDrawer({
@@ -97,6 +114,34 @@ export function TaskDetailDrawer({
     },
     onError: () => toast.error("Erro ao registrar historico da tarefa."),
   });
+  const sendKommoMutation = useMutation({
+    mutationFn: async () => {
+      if (!task?.member_id || !relatedMember) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+
+      const message = buildWhatsAppMessage(
+        relatedMember.full_name,
+        (assistantQuery.data?.suggested_message ?? suggestedMessage ?? task.description ?? task.title) || null,
+      );
+
+      return kommoMessageService.sendMessage({
+        member_id: task.member_id,
+        domain: normalizeTaskKommoDomain(task),
+        message_text: message,
+        source_type: "task",
+        source_id: task.id,
+      });
+    },
+    onSuccess: () => {
+      toast.success("Mensagem enviada via Kommo.");
+      void queryClient.invalidateQueries({ queryKey: ["tasks", task?.id, "events"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: (error) => {
+      toast.error(getHttpErrorDetail(error, "Nao foi possivel enviar pela Kommo."));
+    },
+  });
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", task?.member_id],
     queryFn: async () => {
@@ -147,7 +192,7 @@ export function TaskDetailDrawer({
     return labels[event.event_type] ?? event.event_type;
   }
 
-  function quickEvent(label: string, contactChannel: "whatsapp" | "call" | "in_person" | "other") {
+  function quickEvent(label: string, contactChannel: "whatsapp" | "kommo" | "call" | "in_person" | "other") {
     createEventMutation.mutate({
       event_type: "contact_attempt",
       contact_channel: contactChannel,
@@ -332,6 +377,17 @@ export function TaskDetailDrawer({
                           WhatsApp indisponivel
                         </span>
                       )}
+                      {activeTask.member_id && relatedMember ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={sendKommoMutation.isPending}
+                          onClick={() => sendKommoMutation.mutate()}
+                        >
+                          <MessageCircle size={12} />
+                          {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -350,6 +406,9 @@ export function TaskDetailDrawer({
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" disabled={createEventMutation.isPending} onClick={() => quickEvent("WhatsApp enviado.", "whatsapp")}>
                 WhatsApp enviado
+              </Button>
+              <Button size="sm" variant="secondary" disabled={createEventMutation.isPending} onClick={() => quickEvent("Kommo enviado.", "kommo")}>
+                Kommo enviado
               </Button>
               <Button size="sm" variant="secondary" disabled={createEventMutation.isPending} onClick={() => quickEvent("Ligacao feita.", "call")}>
                 Ligacao feita

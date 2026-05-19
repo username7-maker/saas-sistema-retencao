@@ -112,7 +112,7 @@ def generate_acquisition_qualification(payload: AcquisitionCaptureInput) -> Acqu
         next_action = "Priorizar contato e preparar aula experimental."
     elif score >= 45:
         label = "warm"
-        next_action = "Completar qualificacao e chamar no WhatsApp."
+        next_action = "Completar qualificacao e acionar no canal principal."
     else:
         label = "cold"
         next_action = "Qualificar interesse antes de mover no funil."

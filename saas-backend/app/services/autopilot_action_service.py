@@ -11,7 +11,7 @@ from app.models import AutopilotAction, AutopilotEvent, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_policy_service import AutopilotDecision, render_template
 from app.services.autopilot_safety_service import check_autopilot_safety
-from app.services.kommo_service import handoff_member_to_kommo
+from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError, send_member_message_via_kommo_salesbot
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
 
@@ -304,37 +304,34 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
     db.add(action)
     metadata = dict(action.metadata_json or {})
     title = str(metadata.get("task_title") or metadata.get("title") or f"{PRODUCT_NAME} - {action.policy_key}")[:120]
-    summary_parts = [
-        str(metadata.get("task_reason") or metadata.get("reason") or action.policy_key),
-    ]
-    if action.message_body:
-        summary_parts.extend(["", "Mensagem pronta:", action.message_body])
-    result = handoff_member_to_kommo(
-        db,
-        gym_id=action.gym_id,
-        member=member,
-        title=title,
-        summary="\n".join(summary_parts).strip(),
-        source=action.policy_key,
-        ai_gym_profile_url=str(metadata.get("context_path") or "") or None,
-        due_in_hours=int(metadata.get("due_in_hours") or 24),
-    )
-    if result.status == "sent":
+    try:
+        result = send_member_message_via_kommo_salesbot(
+            db,
+            gym_id=action.gym_id,
+            member=member,
+            domain=action.domain,
+            message_text=action.message_body or str(metadata.get("task_reason") or metadata.get("reason") or action.policy_key),
+            source_type=action.policy_key,
+            source_id=action.related_task_id or action.id,
+            title=title,
+        )
         metadata.update(
             {
                 "kommo_contact_id": result.contact_id,
                 "kommo_lead_id": result.lead_id,
-                "kommo_task_id": result.task_id,
-                "operator_confirmed_send": True,
+                "kommo_message_log_id": str(result.message_log_id) if result.message_log_id else None,
+                "salesbot_id": result.salesbot_id,
+                "delivery_mode": result.delivery_mode,
+                "operator_confirmed_send": False,
+                "salesbot_outbound": True,
             }
         )
         action.status = "awaiting_outcome"
         action.metadata_json = metadata
-        _record_kommo_message_log(db, action=action, member=member, result=result)
         record_event(
             db,
             gym_id=action.gym_id,
-            event_type="kommo_handoff_created",
+            event_type="kommo_salesbot_queued",
             source="autopilot",
             member_id=action.member_id,
             task_id=action.related_task_id,
@@ -342,24 +339,57 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
             metadata={
                 "kommo_contact_id": result.contact_id,
                 "kommo_lead_id": result.lead_id,
-                "kommo_task_id": result.task_id,
+                "message_log_id": str(result.message_log_id) if result.message_log_id else None,
+                "salesbot_id": result.salesbot_id,
+                "delivery_mode": result.delivery_mode,
                 "template_key": action.template_key,
             },
             flush=False,
         )
-    else:
+    except KommoSalesbotDispatchError as exc:
+        result = exc.result
+        metadata.update(
+            {
+                "kommo_contact_id": result.contact_id,
+                "kommo_lead_id": result.lead_id,
+                "message_log_id": str(result.message_log_id) if result.message_log_id else None,
+                "salesbot_id": result.salesbot_id,
+                "delivery_mode": result.delivery_mode,
+            }
+        )
         action.status = "failed"
-        action.failure_reason = result.detail or result.status
+        action.failure_reason = str(exc)
         action.metadata_json = metadata
         record_event(
             db,
             gym_id=action.gym_id,
-            event_type="kommo_handoff_failed",
+            event_type="kommo_salesbot_failed",
             source="autopilot",
             member_id=action.member_id,
             task_id=action.related_task_id,
             autopilot_action_id=action.id,
-            metadata={"detail": result.detail, "status": result.status},
+            metadata={
+                "detail": str(exc),
+                "kommo_contact_id": result.contact_id,
+                "kommo_lead_id": result.lead_id,
+                "salesbot_id": result.salesbot_id,
+                "delivery_mode": result.delivery_mode,
+            },
+            flush=False,
+        )
+    except KommoServiceError as exc:
+        action.status = "failed"
+        action.failure_reason = str(exc)
+        action.metadata_json = metadata
+        record_event(
+            db,
+            gym_id=action.gym_id,
+            event_type="kommo_salesbot_failed",
+            source="autopilot",
+            member_id=action.member_id,
+            task_id=action.related_task_id,
+            autopilot_action_id=action.id,
+            metadata={"detail": str(exc), "template_key": action.template_key},
             flush=False,
         )
     db.add(action)

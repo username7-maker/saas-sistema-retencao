@@ -34,6 +34,7 @@ import { Badge, Button, Card, CardContent, Dialog, Input, Skeleton, Tabs, TabsCo
 import { CreateTaskModal } from "../tasks/CreateTaskModal";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService, type AssessmentSummary360 } from "../../services/assessmentService";
+import { kommoMessageService, type KommoSendDomain } from "../../services/kommoMessageService";
 import { memberTimelineService } from "../../services/memberTimelineService";
 import { memberService } from "../../services/memberService";
 import { movementVideoService } from "../../services/movementVideoService";
@@ -51,7 +52,8 @@ import {
   canViewAssessmentTimeline,
   getVisibleAssessmentWorkspaceTabs,
 } from "../../utils/roleAccess";
-import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
+import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   formatDueDate,
   getTaskOperationalScore,
@@ -96,6 +98,17 @@ const TASK_STATUS_MAP = {
   done: { label: STATUS_LABELS.done, variant: "success" as const },
   cancelled: { label: STATUS_LABELS.cancelled, variant: "danger" as const },
 };
+
+function normalizeKommoDomain(value: unknown): KommoSendDomain {
+  if (value === "retention") return "retention";
+  if (value === "onboarding") return "onboarding";
+  if (value === "finance" || value === "financial") return "finance";
+  if (value === "sales" || value === "crm") return "sales";
+  if (value === "student_ai") return "student_ai";
+  if (value === "support" || value === "nps") return "support";
+  if (value === "body_composition") return "body_composition";
+  return "assessment";
+}
 
 type PersonalAiDomain =
   | "routine_support"
@@ -1120,6 +1133,33 @@ export function MemberProfile360Page() {
     },
   });
 
+  const sendKommoMutation = useMutation({
+    mutationFn: async () => {
+      const member = memberQuery.data;
+      const summary = summary360Query.data;
+      if (!memberId || !member) {
+        throw new Error("MEMBRO_INVALIDO");
+      }
+      const operationalAction = operationalProfileQuery.data?.next_best_action;
+      const suggestedMessage = summary?.assistant?.suggested_message ?? summary?.next_best_action?.suggested_message;
+      return kommoMessageService.sendMessage({
+        member_id: memberId,
+        domain: normalizeKommoDomain(operationalAction?.domain),
+        message_text: buildWhatsAppMessage(member.full_name, suggestedMessage),
+        source_type: "member_profile_360",
+        source_id: memberId,
+      });
+    },
+    onSuccess: () => toast.success("Mensagem enviada pela Kommo."),
+    onError: (error) => {
+      if (error instanceof Error && error.message === "MEMBRO_INVALIDO") {
+        toast.error("Membro invalido para envio pela Kommo.");
+        return;
+      }
+      toast.error(getHttpErrorDetail(error, "Nao foi possivel enviar pela Kommo."));
+    },
+  });
+
   function openTab(tab: AssessmentWorkspaceTab) {
     openTabWithSearchParams(searchParams, tab, setSearchParams);
   }
@@ -1352,6 +1392,15 @@ export function MemberProfile360Page() {
                       WhatsApp indisponivel
                     </span>
                   )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => sendKommoMutation.mutate()}
+                    disabled={!normalizedPhone || sendKommoMutation.isPending}
+                  >
+                    <MessageCircle size={12} />
+                    {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
+                  </Button>
                   {birthdayDisplay ? (
                     <span
                       title={birthdayFullDate ?? undefined}

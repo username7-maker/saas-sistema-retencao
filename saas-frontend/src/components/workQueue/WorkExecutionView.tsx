@@ -785,7 +785,7 @@ export function WorkExecutionView({
                         size="sm"
                         variant="secondary"
                         className="justify-start"
-                        onClick={() => recordOutcome("payment_promised", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                        onClick={() => selectedItem && recordOutcome("payment_promised", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
                         disabled={isMutating}
                       >
                         <CalendarClock className="h-4 w-4" />
@@ -805,7 +805,7 @@ export function WorkExecutionView({
                         size="sm"
                         variant="secondary"
                         className="justify-start"
-                        onClick={() => recordOutcome("payment_link_sent", { contact_channel: "whatsapp", noteOverride: "Link ou instrucao de pagamento enviada." })}
+                        onClick={() => selectedItem && recordOutcome("payment_link_sent", { contact_channel: outcomeChannel(selectedItem), noteOverride: "Link ou instrucao de pagamento enviada." })}
                         disabled={isMutating}
                       >
                         <MessageCircle className="h-4 w-4" />
@@ -815,7 +815,7 @@ export function WorkExecutionView({
                         size="sm"
                         variant="secondary"
                         className="justify-start"
-                        onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                        onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
                         disabled={isMutating}
                       >
                         <Clock3 className="h-4 w-4" />
@@ -913,7 +913,7 @@ export function WorkExecutionView({
                             size="sm"
                             variant="secondary"
                             className="justify-start"
-                            onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                            onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
                             disabled={isMutating}
                           >
                             <Clock3 className="h-4 w-4" />
@@ -937,7 +937,7 @@ export function WorkExecutionView({
                             size="sm"
                             variant="secondary"
                             className="justify-start"
-                            onClick={() => recordOutcome("no_response", { contact_channel: "whatsapp", snooze_preset: "tomorrow" })}
+                            onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
                             disabled={isMutating}
                           >
                             <Clock3 className="h-4 w-4" />

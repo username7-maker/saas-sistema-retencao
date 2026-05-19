@@ -69,7 +69,7 @@ def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]
 
     cta_target = f"/assessments/members/{member.id}?tab=overview"
     cta_label = "Abrir perfil 360"
-    recommended_channel = "WhatsApp"
+    recommended_channel = "Canal principal"
     next_best_action = "Reforcar a rotina do aluno nas proximas 24 horas."
     suggested_message = (
         f"Oi {first_name(member.full_name)}, vi que seu comeco ainda esta instavel. "
@@ -92,7 +92,7 @@ def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]
     elif weakest_key == "member_response":
         cta_target = f"/assessments/members/{member.id}?tab=contexto"
         cta_label = "Abrir contexto"
-        recommended_channel = "WhatsApp"
+        recommended_channel = "Canal principal"
         next_best_action = "Fazer contato curto e entender o que esta travando a resposta do aluno."
 
     confidence_label = "Alta" if score >= 70 else "Moderada" if score >= 40 else "Prioridade imediata"
@@ -153,7 +153,7 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
         risk_score = int(getattr(member, "risk_score", 0) or 0)
         risk_level = getattr(member, "risk_level", RiskLevel.YELLOW)
         churn_label = _CHURN_LABELS.get(getattr(member, "churn_type", None), "sinal de evasao ativo")
-        recommended_channel = "Ligacao" if risk_level == RiskLevel.RED else "WhatsApp"
+        recommended_channel = "Ligacao" if risk_level == RiskLevel.RED else "Canal principal"
         return AIAssistantPayload(
             summary=(
                 f"{member.full_name} entrou nesta task porque tem risco {risk_level.value} e sinais de {churn_label}."
@@ -239,7 +239,7 @@ def build_retention_assistant(item: Any) -> AIAssistantPayload:
     risk_level = getattr(item, "risk_level", RiskLevel.YELLOW)
     days_without_checkin = getattr(item, "days_without_checkin", None)
     forecast_60d = getattr(item, "forecast_60d", None)
-    recommended_channel = "Ligacao" if risk_level == RiskLevel.RED else "WhatsApp"
+    recommended_channel = "Ligacao" if risk_level == RiskLevel.RED else "Canal principal"
 
     evidence = [
         f"Risk score: {getattr(item, 'risk_score', 0)}",

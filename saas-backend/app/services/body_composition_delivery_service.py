@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -39,7 +40,13 @@ def send_body_composition_whatsapp_summary(
         raise ValueError("Aluno sem telefone cadastrado para envio por WhatsApp.")
 
     message = build_body_composition_whatsapp_message(member, evaluation)
-    pdf_bytes, filename = generate_body_composition_pdf(member, evaluation)
+    previous_evaluation = get_previous_body_composition_evaluation(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
     return send_whatsapp_document_sync(
         db,
         phone=member.phone,
@@ -105,7 +112,7 @@ def send_body_composition_kommo_salesbot(
     gym_id: UUID,
     member_id: UUID,
     evaluation_id: UUID,
-    pdf_kind: str = "summary",
+    pdf_kind: str = "technical",
     pdf_delivery_mode: str = "native_file_required",
 ) -> KommoSalesbotOutboundResult:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
@@ -116,10 +123,16 @@ def send_body_composition_kommo_salesbot(
         evaluation_id=evaluation_id,
     )
     message = build_body_composition_whatsapp_message(member, evaluation)
+    previous_evaluation = get_previous_body_composition_evaluation(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
     pdf_bytes, pdf_filename = (
-        generate_body_composition_technical_pdf(member, evaluation)
+        generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
         if pdf_kind == "technical"
-        else generate_body_composition_pdf(member, evaluation)
+        else generate_body_composition_pdf(member, evaluation, previous_evaluation)
     )
     pdf_url = None
     if pdf_delivery_mode in {"native_file_preferred", "link_only"}:
@@ -155,6 +168,25 @@ def build_body_composition_whatsapp_message(member: Member, evaluation: BodyComp
     return (
         f"Oi {first_name}! Separei o resumo da sua bioimpedancia em PDF. "
         f"{summary} Se quiser, na proxima conversa a gente transforma isso em metas simples e objetivas para a sua rotina."
+    )
+
+
+def get_previous_body_composition_evaluation(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> BodyCompositionEvaluation | None:
+    return db.scalar(
+        select(BodyCompositionEvaluation)
+        .where(
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.id != evaluation_id,
+        )
+        .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        .limit(1)
     )
 
 

@@ -1662,7 +1662,7 @@ def send_and_wait_work_queue_item(
         current_user=current_user,
         event_type="contact_attempt",
         note=payload.operator_note,
-        contact_channel="whatsapp",
+        contact_channel=effective_channel,
         metadata_json={
             "source": "work_queue_send_and_wait",
             "autopilot_action_id": str(action.id),

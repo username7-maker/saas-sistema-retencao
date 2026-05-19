@@ -38,7 +38,7 @@ AUDIENCE_META: dict[str, dict[str, str]] = {
         "objective": "Priorizar leads com maior chance de virar matricula.",
         "cta": "Preparar abordagem",
         "summary": "Leads com score alto, aula experimental ou sinais claros de intencao.",
-        "experiment": "Teste abordagem curta por WhatsApp contra ligacao consultiva para leads com aula agendada.",
+        "experiment": "Teste abordagem curta pelo canal principal contra ligacao consultiva para leads com aula agendada.",
     },
     "conversion_stale_leads": {
         "label": "Leads parados",
@@ -52,7 +52,7 @@ AUDIENCE_META: dict[str, dict[str, str]] = {
         "objective": "Trazer de volta alunos ativos que reduziram presenca.",
         "cta": "Preparar reativacao",
         "summary": "Alunos ativos com muitos dias sem check-in.",
-        "experiment": "Teste convite para treino guiado contra check-in por WhatsApp com professor.",
+        "experiment": "Teste convite para treino guiado pelo canal principal contra check-in com professor.",
     },
     "renewal_attention": {
         "label": "Renovacao com atencao",
@@ -125,7 +125,7 @@ def prepare_growth_opportunity(
     if opportunity.consent_required and not opportunity.consent_ok:
         warnings.append("Consentimento de comunicacao ausente ou nao confirmado. Revise antes de enviar mensagem.")
     if channel == "whatsapp" and not opportunity.contact:
-        warnings.append("Contato sem telefone. Use tarefa interna ou atualize o cadastro antes do WhatsApp.")
+        warnings.append("Contato sem telefone. Use tarefa interna ou atualize o cadastro antes do canal principal.")
 
     task_id = None
     crm_note_created = False

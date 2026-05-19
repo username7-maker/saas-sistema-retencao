@@ -10,19 +10,24 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db, set_current_gym_id
-from app.models import Member, MessageLog, RoleEnum, User
+from app.models import Lead, Member, MessageLog, RoleEnum, User
 from app.schemas.kommo import KommoNativeFileUploadTestRequest, KommoNativeFileUploadTestResponse, KommoSendMessageRequest, KommoSendMessageResponse
 from app.services.audit_service import log_audit_event
 from app.services.ai_service_agent_service import process_kommo_inbound_for_ai_agent
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.body_composition_actuar_sync_service import get_body_composition_evaluation_or_404
-from app.services.body_composition_delivery_service import generate_body_composition_pdf, generate_body_composition_technical_pdf
+from app.services.body_composition_delivery_service import (
+    generate_body_composition_pdf,
+    generate_body_composition_technical_pdf,
+    get_previous_body_composition_evaluation,
+)
 from app.services.kommo_service import (
     KommoSalesbotDispatchError,
     KommoServiceError,
     find_member_link_by_kommo_ids,
     get_kommo_gym,
+    send_lead_message_via_kommo_salesbot,
     send_member_message_via_kommo_salesbot,
 )
 from app.services.kommo_file_service import attach_file_to_lead, create_upload_session, get_kommo_drive_url, upload_file_bytes
@@ -86,12 +91,23 @@ def send_kommo_message_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
 ) -> KommoSendMessageResponse:
-    member = get_member_or_404(db, payload.member_id, gym_id=current_user.gym_id)
+    if bool(payload.member_id) == bool(payload.lead_id):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe member_id ou lead_id, mas nao ambos.")
+
+    member = get_member_or_404(db, payload.member_id, gym_id=current_user.gym_id) if payload.member_id else None
+    lead = None
+    if payload.lead_id:
+        lead = db.get(Lead, payload.lead_id)
+        if lead is None or lead.gym_id != current_user.gym_id or lead.deleted_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead nao encontrado")
+
     pdf_url = None
     pdf_bytes = None
     pdf_filename = None
     source_id_text = str(payload.source_id)
     pdf_delivery_mode = payload.pdf_delivery_mode or ("native_file_required" if payload.pdf_kind else None)
+    if payload.pdf_kind and not member:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Envio de PDF pela Kommo exige member_id.")
     if payload.pdf_kind and payload.source_type == "body_composition":
         try:
             evaluation_id = payload.source_id if isinstance(payload.source_id, UUID) else UUID(str(payload.source_id))
@@ -101,10 +117,16 @@ def send_kommo_message_endpoint(
                 member_id=member.id,
                 evaluation_id=evaluation_id,
             )
+            previous_evaluation = get_previous_body_composition_evaluation(
+                db,
+                gym_id=current_user.gym_id,
+                member_id=member.id,
+                evaluation_id=evaluation_id,
+            )
             pdf_bytes, pdf_filename = (
-                generate_body_composition_technical_pdf(member, evaluation)
+                generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
                 if payload.pdf_kind == "technical"
-                else generate_body_composition_pdf(member, evaluation)
+                else generate_body_composition_pdf(member, evaluation, previous_evaluation)
             )
             if pdf_delivery_mode in {"native_file_preferred", "link_only"}:
                 pdf_url = create_body_composition_report_public_url(
@@ -117,20 +139,32 @@ def send_kommo_message_endpoint(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     try:
-        result = send_member_message_via_kommo_salesbot(
-            db,
-            gym_id=current_user.gym_id,
-            member=member,
-            domain=payload.domain,
-            message_text=payload.message_text,
-            source_type=payload.source_type,
-            source_id=source_id_text,
-            pdf_url=pdf_url,
-            pdf_bytes=pdf_bytes,
-            pdf_filename=pdf_filename,
-            pdf_delivery_mode=pdf_delivery_mode,
-            title=f"{payload.domain.replace('_', ' ').title()} - {member.full_name}",
-        )
+        if member:
+            result = send_member_message_via_kommo_salesbot(
+                db,
+                gym_id=current_user.gym_id,
+                member=member,
+                domain=payload.domain,
+                message_text=payload.message_text,
+                source_type=payload.source_type,
+                source_id=source_id_text,
+                pdf_url=pdf_url,
+                pdf_bytes=pdf_bytes,
+                pdf_filename=pdf_filename,
+                pdf_delivery_mode=pdf_delivery_mode,
+                title=f"{payload.domain.replace('_', ' ').title()} - {member.full_name}",
+            )
+        else:
+            result = send_lead_message_via_kommo_salesbot(
+                db,
+                gym_id=current_user.gym_id,
+                lead=lead,
+                domain=payload.domain,
+                message_text=payload.message_text,
+                source_type=payload.source_type,
+                source_id=source_id_text,
+                title=f"{payload.domain.replace('_', ' ').title()} - {lead.full_name}",
+            )
     except KommoSalesbotDispatchError as exc:
         db.commit()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -143,9 +177,10 @@ def send_kommo_message_endpoint(
         action="kommo_salesbot_message_queued",
         entity="kommo",
         user=current_user,
-        member_id=member.id,
-        entity_id=member.id,
+        member_id=member.id if member else None,
+        entity_id=member.id if member else lead.id,
         details={
+            "local_lead_id": str(lead.id) if lead else None,
             "domain": payload.domain,
             "source_type": payload.source_type,
             "source_id": source_id_text,
@@ -166,7 +201,8 @@ def send_kommo_message_endpoint(
         status=result.status,
         delivery_mode=result.delivery_mode,
         detail=result.detail,
-        member_id=member.id,
+        member_id=member.id if member else None,
+        local_lead_id=lead.id if lead else None,
         source_type=payload.source_type,
         source_id=source_id_text,
         domain=payload.domain,

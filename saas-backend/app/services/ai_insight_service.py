@@ -151,7 +151,7 @@ def _fallback_insight(data: dict) -> str:
     if red > 0:
         insights.append(
             f"{red} aluno(s) em risco vermelho precisam de contato imediato. "
-            "Priorize ligacoes e WhatsApp para estes alunos hoje."
+            "Priorize ligacoes e o canal principal para estes alunos hoje."
         )
 
     if nps < 7:
@@ -379,7 +379,7 @@ def _fallback_retention_insight(red_count: int, yellow_count: int) -> str:
     if red_count > 0 and yellow_count > 0:
         return (
             f"Atencao: {red_count} aluno(s) em risco critico e {yellow_count} em risco moderado. "
-            "Priorize contato telefonico para os vermelhos e WhatsApp para os amarelos. "
+            "Priorize contato telefonico para os vermelhos e o canal principal para os amarelos. "
             "Alunos com mais de 14 dias inativos tem 70% mais chance de cancelar."
         )
     if red_count > 0:

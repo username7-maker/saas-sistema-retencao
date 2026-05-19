@@ -1,14 +1,17 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, CheckCircle2, MessageCircle, Phone, Rocket, Search } from "lucide-react";
+import toast from "react-hot-toast";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
+import { kommoMessageService } from "../../services/kommoMessageService";
 import { memberService, type OnboardingCockpitMember, type OnboardingScoreResult } from "../../services/memberService";
 import type { Member, Task } from "../../types";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
 import { getPreferredShiftLabel, matchesPreferredShift } from "../../utils/preferredShift";
-import { buildWhatsAppHref, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
+import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 import {
   PLAYBOOK_META,
   type OnboardingPlaybookKey,
@@ -81,6 +84,18 @@ function OnboardingScorePanel({
     queryKey: ["onboarding-score", member.id],
     queryFn: () => memberService.getOnboardingScore(member.id),
     staleTime: 60_000,
+  });
+  const sendKommoMutation = useMutation({
+    mutationFn: () =>
+      kommoMessageService.sendMessage({
+        member_id: member.id,
+        domain: "onboarding",
+        message_text: buildWhatsAppMessage(member.full_name, scoreQuery.data?.assistant?.suggested_message),
+        source_type: "onboarding_score",
+        source_id: member.id,
+      }),
+    onSuccess: () => toast.success("Mensagem de onboarding enviada pela Kommo."),
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Nao foi possivel enviar pela Kommo.")),
   });
 
   useEffect(() => {
@@ -162,6 +177,15 @@ function OnboardingScorePanel({
                   WhatsApp indisponivel
                 </span>
               )}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => sendKommoMutation.mutate()}
+                disabled={sendKommoMutation.isPending}
+              >
+                <MessageCircle size={12} />
+                {sendKommoMutation.isPending ? "Enviando..." : "Enviar Kommo"}
+              </Button>
             </div>
           </div>
           <div className="max-w-sm">

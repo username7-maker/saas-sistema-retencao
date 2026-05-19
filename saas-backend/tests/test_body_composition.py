@@ -259,7 +259,7 @@ class TestListBodyComposition:
 
 class TestBodyCompositionDelivery:
     @patch("app.services.body_composition_delivery_service.send_whatsapp_document_sync")
-    @patch("app.services.body_composition_delivery_service.generate_body_composition_pdf")
+    @patch("app.services.body_composition_delivery_service.generate_body_composition_technical_pdf")
     @patch("app.services.body_composition_delivery_service.get_gym_instance", return_value="gym_instance")
     @patch("app.services.body_composition_delivery_service.get_body_composition_evaluation_or_404")
     @patch("app.services.body_composition_delivery_service.get_member_or_404")

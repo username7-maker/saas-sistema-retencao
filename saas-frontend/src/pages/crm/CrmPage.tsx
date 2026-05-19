@@ -12,8 +12,10 @@ import { MemberIntelligenceMiniCard } from "../../components/common/MemberIntell
 import { EmptyState, FilterBar, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
 import { Badge, Button, Card, CardContent, Dialog, Drawer, FormField, Input, Select, Textarea } from "../../components/ui2";
 import { crmService, normalizeLeadNotes } from "../../services/crmService";
+import { kommoMessageService, type KommoSendDomain } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import type { AcquisitionLeadSummary, GrowthAudience, GrowthAudienceId, GrowthOpportunity, Lead, LeadNoteEntry } from "../../types";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
 import { canDeleteLead, canMutateCrm } from "../../utils/roleAccess";
 
 const LEAD_SOURCES = [
@@ -108,6 +110,13 @@ const GROWTH_CHANNEL_LABEL: Record<GrowthOpportunity["channel"], string> = {
   crm_note: "Nota CRM",
   kommo: "Kommo",
 };
+
+function getGrowthKommoDomain(opportunity: GrowthOpportunity): KommoSendDomain {
+  if (opportunity.subject_type === "lead") return "sales";
+  if (opportunity.audience_id === "nps_recovery") return "support";
+  if (opportunity.audience_id === "upsell_promoters") return "sales";
+  return "retention";
+}
 
 const QUALIFICATION_BADGE_MAP: Record<string, { label: string; variant: "success" | "warning" | "neutral" }> = {
   hot: { label: "Quente", variant: "success" },
@@ -423,7 +432,9 @@ interface GrowthOsPanelProps {
   selectedAudienceId: GrowthAudienceId | "all";
   onSelectAudience: (audienceId: GrowthAudienceId | "all") => void;
   onPrepare: (opportunity: GrowthOpportunity) => void;
+  onSendKommo: (opportunity: GrowthOpportunity) => void;
   preparingOpportunityId: string | null;
+  sendingKommoOpportunityId: string | null;
   canPrepare: boolean;
 }
 
@@ -432,7 +443,9 @@ function GrowthOsPanel({
   selectedAudienceId,
   onSelectAudience,
   onPrepare,
+  onSendKommo,
   preparingOpportunityId,
+  sendingKommoOpportunityId,
   canPrepare,
 }: GrowthOsPanelProps) {
   const total = audiences.reduce((sum, audience) => sum + audience.count, 0);
@@ -506,6 +519,7 @@ function GrowthOsPanel({
             visibleItems.map((item) => {
               const priority = GROWTH_PRIORITY_BADGE[item.priority];
               const isPreparing = preparingOpportunityId === item.id;
+              const isSendingKommo = sendingKommoOpportunityId === item.id;
               return (
                 <div
                   key={item.id}
@@ -533,7 +547,7 @@ function GrowthOsPanel({
                       <span className="font-semibold text-lovable-ink">Score:</span> {item.score}
                     </p>
                   </div>
-                  <div className="flex items-center justify-start lg:justify-end">
+                  <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                     <Button
                       type="button"
                       size="sm"
@@ -542,6 +556,15 @@ function GrowthOsPanel({
                       onClick={() => onPrepare(item)}
                     >
                       {isPreparing ? "Preparando..." : item.channel === "whatsapp" ? "Preparar WhatsApp" : "Criar tarefa"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!canPrepare || isSendingKommo}
+                      onClick={() => onSendKommo(item)}
+                    >
+                      {isSendingKommo ? "Enviando..." : "Enviar Kommo"}
                     </Button>
                   </div>
                 </div>
@@ -1070,6 +1093,24 @@ export function CrmPage() {
     onError: () => toast.error("Nao foi possivel preparar esta oportunidade."),
   });
 
+  const sendGrowthKommoMutation = useMutation({
+    mutationFn: (opportunity: GrowthOpportunity) =>
+      kommoMessageService.sendMessage({
+        member_id: opportunity.subject_type === "member" ? opportunity.subject_id : undefined,
+        lead_id: opportunity.subject_type === "lead" ? opportunity.subject_id : undefined,
+        domain: getGrowthKommoDomain(opportunity),
+        message_text: opportunity.suggested_message,
+        source_type: "growth_opportunity",
+        source_id: opportunity.id,
+      }),
+    onSuccess: () => {
+      toast.success("Mensagem enviada para a Kommo.");
+      void queryClient.invalidateQueries({ queryKey: ["crm", "growth", "audiences"] });
+      void queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+    },
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Nao foi possivel enviar esta oportunidade pela Kommo.")),
+  });
+
   useEffect(() => {
     const leadId = searchParams.get("leadId");
     if (!leadId || !leadsQuery.data?.items.length) {
@@ -1269,7 +1310,9 @@ export function CrmPage() {
           selectedAudienceId={selectedGrowthAudienceId}
           onSelectAudience={setSelectedGrowthAudienceId}
           onPrepare={(opportunity) => prepareGrowthMutation.mutate(opportunity)}
+          onSendKommo={(opportunity) => sendGrowthKommoMutation.mutate(opportunity)}
           preparingOpportunityId={prepareGrowthMutation.variables?.id ?? null}
+          sendingKommoOpportunityId={sendGrowthKommoMutation.variables?.id ?? null}
           canPrepare={canMutate}
         />
       )}

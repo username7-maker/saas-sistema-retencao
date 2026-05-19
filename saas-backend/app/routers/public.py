@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -83,10 +83,23 @@ def public_body_composition_report_pdf(token: str, db: Session = Depends(get_db)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relatorio nao encontrado.")
 
     pdf_kind = str(payload.get("pdf_kind") or "summary")
+    previous_evaluation = db.scalar(
+        include_all_tenants(
+            select(BodyCompositionEvaluation)
+            .where(
+                BodyCompositionEvaluation.gym_id == gym_id,
+                BodyCompositionEvaluation.member_id == member_id,
+                BodyCompositionEvaluation.id != evaluation_id,
+            )
+            .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+            .limit(1),
+            reason="public_reports.fetch_body_composition_history",
+        )
+    )
     if pdf_kind == "technical":
-        pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation)
+        pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
     else:
-        pdf_bytes, filename = generate_body_composition_pdf(member, evaluation)
+        pdf_bytes, filename = generate_body_composition_pdf(member, evaluation, previous_evaluation)
     headers = {
         "Content-Disposition": f'inline; filename="{filename}"',
         "Cache-Control": "no-store",

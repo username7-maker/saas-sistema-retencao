@@ -5,7 +5,9 @@ import clsx from "clsx";
 import type { Member } from "../../types";
 import { automationService } from "../../services/automationService";
 import { dashboardService } from "../../services/dashboardService";
+import { kommoMessageService } from "../../services/kommoMessageService";
 import { taskService } from "../../services/taskService";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
 
 type QuickActionMember = Pick<Member, "id" | "full_name" | "phone" | "risk_level" | "risk_score">;
 
@@ -72,6 +74,30 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
       onActionComplete?.();
     } catch {
       setResult("error", "Falha ao enviar WhatsApp");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendKommo = async () => {
+    if (!member.phone) {
+      setResult("error", "Aluno sem telefone cadastrado");
+      return;
+    }
+    setSending(true);
+    try {
+      await kommoMessageService.sendMessage({
+        member_id: member.id,
+        domain: "retention",
+        message_text: whatsAppMessage,
+        source_type: "quick_member_action",
+        source_id: member.id,
+      });
+      setResult("success", "Mensagem enviada pela Kommo!");
+      setShowWhatsApp(false);
+      onActionComplete?.();
+    } catch (error) {
+      setResult("error", getHttpErrorDetail(error, "Falha ao enviar pela Kommo"));
     } finally {
       setSending(false);
     }
@@ -163,7 +189,7 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
       {showWhatsApp && (
         <div className="rounded-lg border border-lovable-border bg-lovable-surface p-3">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-lovable-ink">Mensagem WhatsApp</p>
+            <p className="text-xs font-semibold text-lovable-ink">Mensagem para aluno</p>
             <button
               type="button"
               aria-label="Fechar"
@@ -179,15 +205,26 @@ export function QuickActions({ member, onActionComplete }: QuickActionsProps) {
             rows={3}
             className="w-full rounded-md border border-lovable-border bg-lovable-surface px-2 py-1.5 text-sm text-lovable-ink placeholder:text-lovable-ink-muted focus:border-lovable-primary focus:outline-none focus:ring-1 focus:ring-lovable-primary/30"
           />
-          <button
-            type="button"
-            onClick={handleSendWhatsApp}
-            disabled={sending || !whatsAppMessage.trim()}
-            className="mt-2 flex items-center gap-1 rounded-full bg-lovable-success px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-          >
-            <Send size={12} />
-            {sending ? "Enviando..." : "Enviar"}
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              disabled={sending || !whatsAppMessage.trim()}
+              className="flex items-center gap-1 rounded-full bg-lovable-success px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              <Send size={12} />
+              {sending ? "Enviando..." : "Enviar WhatsApp"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSendKommo}
+              disabled={sending || !whatsAppMessage.trim()}
+              className="flex items-center gap-1 rounded-full border border-lovable-primary/45 bg-lovable-primary/12 px-3 py-1 text-xs font-semibold text-lovable-primary hover:bg-lovable-primary/18 disabled:opacity-50"
+            >
+              <Send size={12} />
+              {sending ? "Enviando..." : "Enviar Kommo"}
+            </button>
+          </div>
         </div>
       )}
 

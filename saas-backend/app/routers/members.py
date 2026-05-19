@@ -892,7 +892,7 @@ def send_body_composition_kommo_endpoint(
             gym_id=current_user.gym_id,
             member_id=member_id,
             evaluation_id=evaluation_id,
-            pdf_kind="summary",
+            pdf_kind="technical",
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

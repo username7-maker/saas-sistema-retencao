@@ -4,8 +4,10 @@ import clsx from "clsx";
 
 import { automationService } from "../../services/automationService";
 import { crmService } from "../../services/crmService";
+import { kommoMessageService } from "../../services/kommoMessageService";
 import { taskService } from "../../services/taskService";
 import type { Lead } from "../../types";
+import { getHttpErrorDetail } from "../../utils/httpErrors";
 
 type CallOutcome = "answered" | "no_answer" | "voicemail" | "invalid_number";
 
@@ -62,6 +64,30 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
       onActionComplete?.();
     } catch {
       setFeedback({ type: "error", text: "Falha ao enviar WhatsApp" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendKommo = async () => {
+    if (!lead.phone) {
+      setFeedback({ type: "error", text: "Lead sem telefone cadastrado" });
+      return;
+    }
+    setSending(true);
+    try {
+      await kommoMessageService.sendMessage({
+        lead_id: lead.id,
+        domain: "sales",
+        message_text: whatsAppMessage,
+        source_type: "crm_lead",
+        source_id: lead.id,
+      });
+      setFeedback({ type: "success", text: "Mensagem enviada via Kommo!" });
+      setShowWhatsApp(false);
+      onActionComplete?.();
+    } catch (error) {
+      setFeedback({ type: "error", text: getHttpErrorDetail(error, "Falha ao enviar pela Kommo") });
     } finally {
       setSending(false);
     }
@@ -164,7 +190,7 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
       {showWhatsApp ? (
         <div className="rounded-lg border border-lovable-border bg-lovable-surface p-3">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-lovable-ink">Mensagem WhatsApp</p>
+            <p className="text-xs font-semibold text-lovable-ink">Mensagem para lead</p>
             <button
               type="button"
               aria-label="Fechar"
@@ -180,15 +206,26 @@ export function QuickLeadActions({ lead, onActionComplete }: QuickLeadActionsPro
             rows={3}
             className="w-full rounded-md border border-lovable-border bg-lovable-surface px-2 py-1.5 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none focus:ring-1 focus:ring-lovable-primary"
           />
-          <button
-            type="button"
-            onClick={handleSendWhatsApp}
-            disabled={sending || !whatsAppMessage.trim()}
-            className="mt-2 flex items-center gap-1 rounded-full bg-lovable-success px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-          >
-            <Send size={12} />
-            {sending ? "Enviando..." : "Enviar"}
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              disabled={sending || !whatsAppMessage.trim()}
+              className="flex items-center gap-1 rounded-full bg-lovable-success px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              <Send size={12} />
+              {sending ? "Enviando..." : "Enviar WhatsApp"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSendKommo}
+              disabled={sending || !whatsAppMessage.trim()}
+              className="flex items-center gap-1 rounded-full border border-lovable-primary/40 bg-lovable-primary/12 px-3 py-1 text-xs font-semibold text-lovable-primary hover:bg-lovable-primary/18 disabled:opacity-50"
+            >
+              <Send size={12} />
+              {sending ? "Enviando..." : "Enviar Kommo"}
+            </button>
+          </div>
         </div>
       ) : null}
 

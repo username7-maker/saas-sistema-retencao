@@ -1027,7 +1027,7 @@ export type TaskEventType =
   | "forwarded"
   | "delinquency_stage_updated";
 
-export type TaskContactChannel = "whatsapp" | "call" | "in_person" | "other";
+export type TaskContactChannel = "whatsapp" | "kommo" | "call" | "in_person" | "other";
 
 export interface TaskEvent {
   id: string;

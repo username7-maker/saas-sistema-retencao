@@ -17,7 +17,8 @@ KommoSendDomain = Literal[
 
 
 class KommoSendMessageRequest(BaseModel):
-    member_id: UUID
+    member_id: UUID | None = None
+    lead_id: UUID | None = None
     domain: KommoSendDomain
     message_text: str = Field(min_length=1, max_length=3000)
     source_type: str = Field(min_length=1, max_length=80)
@@ -30,7 +31,8 @@ class KommoSendMessageResponse(BaseModel):
     status: str
     delivery_mode: str
     detail: str | None = None
-    member_id: UUID
+    member_id: UUID | None = None
+    local_lead_id: UUID | None = None
     source_type: str
     source_id: str
     domain: str
