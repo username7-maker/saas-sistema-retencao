@@ -192,10 +192,16 @@ export function TaskDetailDrawer({
   }
 
   return (
-    <Drawer open={open} onClose={onClose} side="right" title="Detalhe da tarefa">
+    <Drawer
+      open={open}
+      onClose={onClose}
+      side="right"
+      title="Detalhe da tarefa"
+      widthClassName="sm:!w-[34rem] sm:!max-w-[94vw] lg:!w-[38rem] xl:!w-[40rem]"
+    >
       <div className="space-y-5 p-4">
         {assistantQuery.data ? (
-          <AIAssistantPanel assistant={assistantQuery.data} />
+          <AIAssistantPanel assistant={assistantQuery.data} compact />
         ) : assistantQuery.isLoading ? (
           <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
             Carregando recomendacao da IA...
