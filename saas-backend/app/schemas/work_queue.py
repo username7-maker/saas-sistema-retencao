@@ -48,6 +48,13 @@ class WorkQueueItemOut(BaseModel):
     primary_action_label: str
     primary_action_type: str
     suggested_message: str | None = None
+    message_source: str | None = None
+    prompt_key: str | None = None
+    prompt_version: str | None = None
+    model: str | None = None
+    safety_profile: str | None = None
+    message_fallback_used: bool = False
+    message_blocked_reasons: list[str] = Field(default_factory=list)
     requires_confirmation: bool = False
     state: WorkQueueState
     due_at: datetime | None = None

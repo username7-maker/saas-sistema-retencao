@@ -50,6 +50,8 @@ export interface AIAssistantPayload {
   prompt_version?: string | null;
   model?: string | null;
   safety_profile?: string | null;
+  message_source?: string | null;
+  blocked_reasons?: string[];
 }
 
 export type AITriageSourceDomain = "retention" | "onboarding";
@@ -186,6 +188,13 @@ export interface WorkQueueItem {
   primary_action_label: string;
   primary_action_type: string;
   suggested_message: string | null;
+  message_source?: string | null;
+  prompt_key?: string | null;
+  prompt_version?: string | null;
+  model?: string | null;
+  safety_profile?: string | null;
+  message_fallback_used?: boolean;
+  message_blocked_reasons?: string[];
   requires_confirmation: boolean;
   state: WorkQueueState;
   due_at: string | null;

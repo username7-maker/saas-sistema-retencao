@@ -87,4 +87,11 @@ export const workQueueService = {
     );
     return data;
   },
+
+  async regenerateMessage(sourceType: WorkQueueItem["source_type"], sourceId: string): Promise<WorkQueueActionResult> {
+    const { data } = await api.post<WorkQueueActionResult>(
+      `/api/v1/work-queue/items/${sourceType}/${sourceId}/regenerate-message`,
+    );
+    return data;
+  },
 };

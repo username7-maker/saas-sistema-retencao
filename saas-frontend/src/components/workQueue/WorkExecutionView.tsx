@@ -134,6 +134,19 @@ function formatSourceLabel(item: WorkQueueItem): string {
   return "Task";
 }
 
+function messageBadge(item: WorkQueueItem): { label: string; variant: "info" | "success" | "warning" | "neutral" } | null {
+  if ((item.message_blocked_reasons ?? []).length > 0 || item.message_source === "blocked_by_safety") {
+    return { label: "Bloqueado por seguranca", variant: "warning" };
+  }
+  if (item.message_source === "ai_specialist" || (item.prompt_key && !item.message_fallback_used)) {
+    return { label: "Mensagem por IA", variant: "success" };
+  }
+  if (item.suggested_message) {
+    return { label: "Template seguro", variant: "neutral" };
+  }
+  return null;
+}
+
 function getHttpDetail(error: unknown): string {
   if (typeof error === "object" && error !== null && "response" in error) {
     const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
@@ -207,6 +220,11 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
         {item.channel_status === "fallback_whatsapp" ? (
           <Badge variant="warning" size="sm">
             Fallback WhatsApp
+          </Badge>
+        ) : null}
+        {messageBadge(item) ? (
+          <Badge variant={messageBadge(item)?.variant ?? "neutral"} size="sm">
+            {messageBadge(item)?.label}
           </Badge>
         ) : null}
         {(item.autopilot_badges ?? []).slice(0, 2).map((badge) => (
@@ -394,6 +412,18 @@ export function WorkExecutionView({
     onError: (error) => toast.error(getHttpDetail(error)),
   });
 
+  const regenerateMessageMutation = useMutation({
+    mutationFn: ({ item }: { item: WorkQueueItem }) => workQueueService.regenerateMessage(item.source_type, item.source_id),
+    onSuccess: (result) => {
+      setSelectedKey(itemKey(result.item));
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
+      toast.success(result.detail || "Rascunho regenerado.");
+    },
+    onError: (error) => toast.error(getHttpDetail(error)),
+  });
+
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
     setConfirmingKey(null);
@@ -412,12 +442,18 @@ export function WorkExecutionView({
 
   const isLoading = activeQuery.isLoading;
   const isError = activeQuery.isError;
-  const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending || sendAndWaitMutation.isPending;
+  const isMutating =
+    executeMutation.isPending ||
+    outcomeMutation.isPending ||
+    commentMutation.isPending ||
+    sendAndWaitMutation.isPending ||
+    regenerateMessageMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
   const isFinanceItem = selectedItem?.domain === "finance";
   const isTechnicalTrainerItem = selectedItem?.domain === "trainer" && Boolean(selectedItem.technical_ladder_step);
+  const canRegenerateMessage = userRole === "owner" || userRole === "manager" || userRole === "receptionist";
 
   function markExecutionStartedForAction(item: WorkQueueItem) {
     if (item.state !== "do_now") return;
@@ -650,10 +686,39 @@ export function WorkExecutionView({
                 </div>
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Mensagem pronta</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Mensagem pronta</p>
+                    {messageBadge(selectedItem) ? (
+                      <Badge variant={messageBadge(selectedItem)?.variant ?? "neutral"} size="sm">
+                        {messageBadge(selectedItem)?.label}
+                      </Badge>
+                    ) : null}
+                  </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm font-medium text-lovable-ink">
                     {selectedItem.suggested_message || "Sem mensagem automatica. Use o contexto e registre o resultado da acao."}
                   </p>
+                  {selectedItem.prompt_key ? (
+                    <p className="mt-2 text-xs text-lovable-ink-muted">
+                      {selectedItem.prompt_key}
+                      {selectedItem.model ? ` - ${selectedItem.model}` : ""}
+                    </p>
+                  ) : null}
+                  {(selectedItem.message_blocked_reasons ?? []).length > 0 ? (
+                    <p className="mt-2 text-xs font-semibold text-lovable-warning">
+                      Bloqueios: {selectedItem.message_blocked_reasons?.join(", ")}
+                    </p>
+                  ) : null}
+                  {canRegenerateMessage && ["task", "ai_triage"].includes(selectedItem.source_type) ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-3"
+                      onClick={() => regenerateMessageMutation.mutate({ item: selectedItem })}
+                      disabled={isMutating}
+                    >
+                      Regenerar rascunho
+                    </Button>
+                  ) : null}
                 </div>
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">

@@ -5,3 +5,6 @@ Retencao e reativacao devem usar o roteador de comunicacao. Quando Kommo for can
 
 ## PDFs Operacionais
 Quando uma acao operacional depender de arquivo, o padrao deve ser anexo nativo na Kommo. Links temporarios sao fallback explicito para contingencia, nao o caminho principal.
+
+## Copy Agent
+Retencao e reativacao devem usar rascunho especialista quando o contexto for seguro. Aluno 30+ dias recebe copy de reativacao, nao lembrete simples; base fria permanece campanha/fallback.
