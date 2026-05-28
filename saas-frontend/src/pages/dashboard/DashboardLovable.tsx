@@ -158,7 +158,7 @@ function IntelligenceMap({
             <div key={node.id} className="contents">
               <div className="rounded-[22px] border border-lovable-border/70 bg-lovable-surface/62 p-4">
                 <div className="flex items-center gap-3">
-                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", node.tone === "danger" ? "border-rose-400/24 bg-rose-400/12 text-rose-200" : "border-blue-400/18 bg-blue-400/10 text-blue-300")}>
+                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", node.tone === "danger" ? "border-lovable-danger/24 bg-lovable-danger/12 text-lovable-danger" : "border-blue-400/18 bg-blue-400/10 text-blue-300")}>
                     <Icon size={18} />
                   </span>
                   <div>
@@ -193,9 +193,9 @@ function IntelligenceMap({
         })}
       </div>
       <div className="mt-4 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-emerald-400" /> Influência positiva</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-amber-400" /> Atenção necessária</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-rose-400" /> Alto risco</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-success" /> Influência positiva</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-warning" /> Atenção necessária</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-danger" /> Alto risco</span>
       </div>
     </CommandCard>
   );

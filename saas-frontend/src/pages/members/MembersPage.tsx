@@ -4,7 +4,8 @@ import { Edit2, Eye, RefreshCw, Trash2, Users } from "lucide-react";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 
-import { EmptyState, FilterBar, KPIStrip, PageHeader, SkeletonList, StatusBadge } from "../../components/ui";
+import { EmptyState, FilterBar, SkeletonList, StatusBadge } from "../../components/ui";
+import { MetricCard } from "../../components/ui2/command";
 import { PreferredShiftBadge } from "../../components/common/PreferredShiftBadge";
 import {
   Badge,
@@ -172,34 +173,36 @@ export function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Membros"
-        subtitle="Gestão e acompanhamento da base de alunos"
-        actions={
-          canManageDirectory || canSyncPreferredShifts ? (
+      <div className="relative overflow-hidden rounded-[18px] border border-[rgba(59,130,246,0.26)] bg-[radial-gradient(ellipse_70%_55%_at_85%_10%,rgba(59,130,246,0.08),transparent_65%),linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Gestão</p>
+            <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Membros</span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Gestão e acompanhamento da base de alunos.</p>
+          </div>
+          {(canManageDirectory || canSyncPreferredShifts) ? (
             <div className="flex flex-wrap items-center gap-2">
               {canSyncPreferredShifts ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => syncPreferredShiftsMutation.mutate()}
-                  disabled={syncPreferredShiftsMutation.isPending}
-                  title="Recalcula o turno preferido usando os horarios recentes de check-in."
-                >
+                <Button variant="secondary" onClick={() => syncPreferredShiftsMutation.mutate()} disabled={syncPreferredShiftsMutation.isPending} title="Recalcula o turno preferido usando os horarios recentes de check-in.">
                   <RefreshCw size={15} className={syncPreferredShiftsMutation.isPending ? "animate-spin" : undefined} />
                   Recalcular turnos
                 </Button>
               ) : null}
               {canManageDirectory ? (
-                <Button variant="primary" onClick={() => setAddOpen(true)}>
-                  + Adicionar Membro
-                </Button>
+                <Button variant="primary" onClick={() => setAddOpen(true)}>+ Adicionar Membro</Button>
               ) : null}
             </div>
-          ) : undefined
-        }
-      />
+          ) : null}
+        </div>
+      </div>
 
-      <KPIStrip items={kpiItems} />
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {kpiItems.map((kpi, i) => (
+          <MetricCard key={kpi.label} label={kpi.label} value={String(kpi.value)} tone={kpi.tone} className={`stagger-${Math.min(i + 1, 4)}`} />
+        ))}
+      </div>
 
       <div className="space-y-2">
         <FilterBar

@@ -164,7 +164,7 @@ export function OperationalDashboardPage() {
                     <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
                     <p className="truncate text-xs text-lovable-ink-muted">{member.plan_name}</p>
                   </div>
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/12 text-amber-300">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-lovable-warning/12 text-lovable-warning">
                     <CalendarDays size={16} />
                   </span>
                 </div>
