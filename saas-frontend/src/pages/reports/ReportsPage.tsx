@@ -110,13 +110,13 @@ function buildQueuedStatus(jobId: string, jobType: string, status: string): Asyn
 function dispatchStatusTone(status?: string | null): string {
   switch (status) {
     case "completed":
-      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+      return "bg-lovable-success/15 text-lovable-success border-lovable-success/30";
     case "failed":
-      return "bg-rose-500/15 text-rose-300 border-rose-500/30";
+      return "bg-lovable-danger/15 text-lovable-danger border-lovable-danger/30";
     case "processing":
-      return "bg-amber-500/15 text-amber-200 border-amber-500/30";
+      return "bg-lovable-warning/15 text-lovable-warning border-lovable-warning/30";
     default:
-      return "bg-white/5 text-lovable-ink-muted border-white/10";
+      return "bg-lovable-surface-soft text-lovable-ink-muted border-lovable-border";
   }
 }
 
@@ -223,7 +223,7 @@ export default function ReportsPage() {
       </header>
 
       <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
-        <Card className="border-white/10 bg-white/[0.03]">
+        <Card className="border-white/[0.07] bg-lovable-surface/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Sparkles size={18} className="text-lovable-primary" />
@@ -239,11 +239,11 @@ export default function ReportsPage() {
               const isLoading = loadingByType[card.type];
 
               return (
-                <article key={card.type} className="rounded-3xl border border-white/10 bg-[#121827] p-4">
+                <article key={card.type} className="rounded-3xl border border-white/[0.07] bg-lovable-surface p-4">
                   <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
                       <div className="mb-2 flex flex-wrap gap-2">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
+                        <span className="rounded-full border border-white/[0.07] bg-lovable-surface-soft px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
                           {card.cadence}
                         </span>
                         <span className="rounded-full border border-lovable-primary/25 bg-lovable-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-lovable-primary-light">
@@ -261,7 +261,7 @@ export default function ReportsPage() {
                     {card.highlights.map((highlight) => (
                       <span
                         key={highlight}
-                        className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-lovable-ink-muted"
+                        className="rounded-full border border-white/[0.07] bg-lovable-surface-soft px-2.5 py-1 text-xs text-lovable-ink-muted"
                       >
                         {highlight}
                       </span>
@@ -283,7 +283,7 @@ export default function ReportsPage() {
         </Card>
 
         <div className="space-y-4">
-          <Card className="border-white/10 bg-white/[0.03]">
+          <Card className="border-white/[0.07] bg-lovable-surface/50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <BarChart3 size={18} className="text-lovable-primary" />
@@ -299,7 +299,7 @@ export default function ReportsPage() {
               ) : biFoundation.data ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                    <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                       <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Cohort</p>
                       <p className="mt-1 font-semibold text-lovable-ink">
                         {latestCohort ? `${latestCohort.retained_rate.toFixed(1)}%` : "Sem base"}
@@ -308,21 +308,21 @@ export default function ReportsPage() {
                         {latestCohort ? `${latestCohort.active}/${latestCohort.joined} ativos` : "Sem cohort recente"}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                    <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                       <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">LTV</p>
                       <p className="mt-1 font-semibold text-lovable-ink">
                         {latestLtv && latestLtv.ltv > 0 ? currency(latestLtv.ltv) : "Sem base"}
                       </p>
                       <p className="mt-1 text-xs text-lovable-ink-muted">Estimativa mensal</p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                    <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                       <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Forecast 3m</p>
                       <p className="mt-1 font-semibold text-lovable-ink">
                         {forecast3m ? currency(forecast3m.projected_revenue) : "Sem base"}
                       </p>
                       <p className="mt-1 text-xs text-lovable-ink-muted">Projecao de receita</p>
                     </div>
-                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Follow-up</p>
                       <p className="mt-1 font-semibold text-lovable-ink">
                         {biFoundation.data.follow_up_impact.acceptance_rate !== null
@@ -331,7 +331,7 @@ export default function ReportsPage() {
                       </p>
                         <p className="mt-1 text-xs text-lovable-ink-muted">Impacto em 30 dias</p>
                       </div>
-                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Execucao 7d</p>
                         <p className="mt-1 font-semibold text-lovable-ink">
                           {biFoundation.data.staff_execution.completed_tasks_7d}
@@ -340,7 +340,7 @@ export default function ReportsPage() {
                           {biFoundation.data.staff_execution.overdue_open_tasks} vencidas abertas
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-white/10 bg-[#121827] p-3">
+                      <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-lovable-ink-muted">Cordex Autopilot</p>
                         <p className="mt-1 font-semibold text-lovable-ink">
                           {biFoundation.data.ai_first_ops.human_task_avoidance_rate !== null
@@ -364,7 +364,7 @@ export default function ReportsPage() {
                       {biFoundation.data.data_quality_flags.map((flag) => (
                         <span
                           key={flag}
-                          className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200"
+                          className="rounded-full border border-lovable-warning/25 bg-lovable-warning/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-lovable-warning"
                         >
                           {flag.replace(/_/g, " ")}
                         </span>
@@ -378,7 +378,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-white/[0.03]">
+          <Card className="border-white/[0.07] bg-lovable-surface/50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <CalendarDays size={18} className="text-lovable-primary" />
@@ -389,7 +389,7 @@ export default function ReportsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#121827] px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-lovable-surface px-4 py-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">Ultimo disparo</p>
                   <p className="mt-1 text-sm font-semibold text-lovable-ink">{dispatchStatusLabel(dispatchStatus?.status)}</p>
@@ -402,7 +402,7 @@ export default function ReportsPage() {
                 O consolidado premium e o material indicado para owner, gerencia e reunioes mensais de resultado.
               </p>
               {dispatchStatus ? (
-                <div className="rounded-2xl border border-white/10 bg-[#121827] p-4 text-sm">
+                <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4 text-sm">
                   <p className="text-lovable-ink-muted">
                     Tentativas: <span className="font-semibold text-lovable-ink">{dispatchStatus.attempt_count}</span>
                   </p>
@@ -418,7 +418,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-white/[0.03]">
+          <Card className="border-white/[0.07] bg-lovable-surface/50">
             <CardHeader>
               <CardTitle className="text-lg">Laudos de avaliacao</CardTitle>
               <CardDescription>
@@ -426,11 +426,11 @@ export default function ReportsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-lovable-ink-muted">
-              <div className="rounded-2xl border border-white/10 bg-[#121827] p-4">
+              <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4">
                 <p className="font-semibold text-lovable-ink">Resumo do aluno</p>
                 <p className="mt-1">Versao mais enxuta, com leitura corporal, comparativo e proximos passos.</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-[#121827] p-4">
+              <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4">
                 <p className="font-semibold text-lovable-ink">Relatorio tecnico</p>
                 <p className="mt-1">Versao para coach com painel tecnico, comparativo e direcao de acompanhamento.</p>
               </div>
@@ -448,15 +448,15 @@ export default function ReportsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-[#121827] p-4">
+          <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">1. Analise</p>
             <p className="mt-2 text-sm text-lovable-ink-muted">Baixe o relatório certo para a frente certa: executivo, retenção, comercial, financeiro ou operacional.</p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-[#121827] p-4">
+          <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">2. Compartilhe</p>
             <p className="mt-2 text-sm text-lovable-ink-muted">Use o consolidado como board pack mensal e os laudos de avaliação dentro do contexto do aluno.</p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-[#121827] p-4">
+          <div className="rounded-2xl border border-white/[0.07] bg-lovable-surface p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">3. Execute</p>
             <p className="mt-2 text-sm text-lovable-ink-muted">Converta os alertas e ações recomendadas dos PDFs em tarefas, follow-ups e revisão de metas.</p>
           </div>

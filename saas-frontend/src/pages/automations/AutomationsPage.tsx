@@ -23,21 +23,23 @@ import { canDeleteAutomationRules, canSeedAutomationRules } from "../../utils/ro
 
 // ─── Metadata ────────────────────────────────────────────────────────────────
 
+/* Chip colors mapped to theme tokens — inline style because bg opacity on arbitrary CSS vars
+   requires actual rgba/hsl strings; no Tailwind class can compute "hsl(var(--x)/0.12)" at build time */
 const TRIGGER_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  inactivity_days:   { label: "Inatividade",      icon: "⏸", color: "#E24B4A", bg: "#FCEBEB" },
-  risk_level_change: { label: "Mudança de Risco",  icon: "⚠", color: "#BA7517", bg: "#FAEEDA" },
-  nps_score:         { label: "NPS Baixo",          icon: "📉", color: "#185FA5", bg: "#E6F1FB" },
-  lead_stale:        { label: "Lead Parado",         icon: "🧊", color: "#5E5B52", bg: "#EDEBE3" },
-  birthday:          { label: "Aniversário",         icon: "🎂", color: "#7C3DB3", bg: "#F3ECFC" },
-  checkin_streak:    { label: "Sequência",           icon: "🔥", color: "#0F7553", bg: "#E1F5EE" },
+  inactivity_days:   { label: "Inatividade",      icon: "⏸", color: "hsl(var(--lovable-danger))",  bg: "hsl(var(--lovable-danger)/0.12)"  },
+  risk_level_change: { label: "Mudança de Risco",  icon: "⚠", color: "hsl(var(--lovable-warning))", bg: "hsl(var(--lovable-warning)/0.12)" },
+  nps_score:         { label: "NPS Baixo",          icon: "📉", color: "hsl(var(--lovable-info))",    bg: "hsl(var(--lovable-info)/0.12)"    },
+  lead_stale:        { label: "Lead Parado",         icon: "🧊", color: "hsl(var(--lovable-ink-muted))", bg: "hsl(var(--lovable-surface-soft))" },
+  birthday:          { label: "Aniversário",         icon: "🎂", color: "rgba(139,92,246,0.9)",        bg: "rgba(139,92,246,0.12)"            },
+  checkin_streak:    { label: "Sequência",           icon: "🔥", color: "hsl(var(--lovable-success))", bg: "hsl(var(--lovable-success)/0.12)" },
 };
 
 const ACTION_META: Record<string, { label: string; Icon: React.ElementType; color: string; bg: string }> = {
-  create_task:   { label: "Criar Tarefa", Icon: ListTodo,      color: "#185FA5", bg: "#E6F1FB" },
-  send_whatsapp: { label: "WhatsApp",     Icon: MessageSquare, color: "#0F7553", bg: "#E1F5EE" },
-  send_to_kommo: { label: "Kommo",        Icon: MessageSquare, color: "#7C3DB3", bg: "#F3ECFC" },
-  send_email:    { label: "E-mail",       Icon: Mail,          color: "#5E5B52", bg: "#EDEBE3" },
-  notify:        { label: "Notificação",  Icon: Bell,          color: "#BA7517", bg: "#FAEEDA" },
+  create_task:   { label: "Criar Tarefa", Icon: ListTodo,      color: "hsl(var(--lovable-info))",    bg: "hsl(var(--lovable-info)/0.12)"    },
+  send_whatsapp: { label: "WhatsApp",     Icon: MessageSquare, color: "hsl(var(--lovable-success))", bg: "hsl(var(--lovable-success)/0.12)" },
+  send_to_kommo: { label: "Kommo",        Icon: MessageSquare, color: "rgba(139,92,246,0.9)",        bg: "rgba(139,92,246,0.12)"            },
+  send_email:    { label: "E-mail",       Icon: Mail,          color: "hsl(var(--lovable-ink-muted))", bg: "hsl(var(--lovable-surface-soft))" },
+  notify:        { label: "Notificação",  Icon: Bell,          color: "hsl(var(--lovable-warning))", bg: "hsl(var(--lovable-warning)/0.12)" },
 };
 
 const TEMPLATES = [
@@ -162,7 +164,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
       <div className="flex items-center gap-3 p-4">
         {/* Trigger chip */}
         <div className="flex items-center gap-2 rounded-xl px-3 py-2 shrink-0"
-          style={{ background: tm?.bg ?? "#F0EEE8", color: tm?.color ?? "#888" }}>
+          style={{ background: tm?.bg ?? "hsl(var(--lovable-surface-soft))", color: tm?.color ?? "hsl(var(--lovable-ink-muted))" }}>
           <span className="text-base leading-none">{tm?.icon ?? "◆"}</span>
           <div className="hidden sm:block">
             <p className="text-[9px] font-semibold uppercase tracking-wider opacity-60 leading-none mb-0.5">
@@ -176,7 +178,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
 
         {/* Action chip */}
         <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 shrink-0"
-          style={{ background: am?.bg ?? "#F0EEE8", color: am?.color ?? "#888" }}>
+          style={{ background: am?.bg ?? "hsl(var(--lovable-surface-soft))", color: am?.color ?? "hsl(var(--lovable-ink-muted))" }}>
           <ActionIcon size={13} />
           <span className="text-[11px] font-semibold hidden sm:inline whitespace-nowrap">{am?.label ?? rule.action_type}</span>
         </div>
@@ -222,7 +224,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
               onClick={() => setConfirmDel(true)}
               aria-label={`Excluir ${rule.name}`}
               title={`Excluir ${rule.name}`}
-              className="p-1.5 rounded-lg text-lovable-ink-muted hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100">
+              className="p-1.5 rounded-lg text-lovable-ink-muted hover:text-lovable-danger hover:bg-lovable-danger/10 transition opacity-0 group-hover:opacity-100">
               <Trash2 size={14} />
             </button>
           ) : null}
@@ -236,7 +238,7 @@ function RulePipelineCard({ rule, onToggle, onEdit, onDelete, isToggling, canDel
             <button type="button" onClick={() => setConfirmDel(false)}
               className="text-xs px-3 py-1 rounded-full border border-lovable-border hover:bg-white transition">Cancelar</button>
             <button type="button" onClick={() => { onDelete(); setConfirmDel(false); }}
-              className="text-xs px-3 py-1 rounded-full bg-red-500 text-white hover:bg-red-600 transition">Excluir</button>
+              className="text-xs px-3 py-1 rounded-full bg-lovable-danger text-white hover:opacity-90 transition">Excluir</button>
           </div>
         </div>
       )}
@@ -257,10 +259,10 @@ function StatsStrip({ rules }: { rules: AutomationRule[] }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
       {[
-        { label: "Regras ativas", value: `${active}/${rules.length}`, icon: Zap, accent: "#1D9E75" },
-        { label: "Total execuções", value: execTotal.toLocaleString("pt-BR"), icon: Activity, accent: "#185FA5" },
-        { label: "Regras inativas", value: String(inactive), icon: ToggleLeft, accent: "#5E5B52" },
-        { label: "Última execução", value: lastExec ? formatDate(lastExec.last_executed_at) ?? "—" : "—", icon: Clock, accent: "#BA7517" },
+        { label: "Regras ativas", value: `${active}/${rules.length}`, icon: Zap, accent: "hsl(var(--lovable-success))" },
+        { label: "Total execuções", value: execTotal.toLocaleString("pt-BR"), icon: Activity, accent: "hsl(var(--lovable-info))" },
+        { label: "Regras inativas", value: String(inactive), icon: ToggleLeft, accent: "hsl(var(--lovable-ink-muted))" },
+        { label: "Última execução", value: lastExec ? formatDate(lastExec.last_executed_at) ?? "—" : "—", icon: Clock, accent: "hsl(var(--lovable-warning))" },
       ].map(s => (
         <div key={s.label} className="rounded-2xl border border-lovable-border bg-lovable-surface px-4 py-3 flex items-center gap-3">
           <div className="rounded-xl p-2" style={{ background: s.accent + "18" }}>
@@ -340,11 +342,11 @@ function ExecResultsPanel({ results, rules, onClose }: {
   const skipped = results.filter(r => r.status === "skipped").length;
   const errors  = results.filter(r => r.status === "error").length;
   const STATUS_ICON: Record<string, React.ReactNode> = {
-    created:  <CheckCircle2 size={11} className="text-emerald-500" />,
-    notified: <CheckCircle2 size={11} className="text-emerald-500" />,
-    sent:     <CheckCircle2 size={11} className="text-emerald-500" />,
+    created:  <CheckCircle2 size={11} className="text-lovable-success" />,
+    notified: <CheckCircle2 size={11} className="text-lovable-success" />,
+    sent:     <CheckCircle2 size={11} className="text-lovable-success" />,
     skipped:  <ChevronRight size={11} className="text-lovable-ink-muted" />,
-    error:    <XCircle      size={11} className="text-red-500" />,
+    error:    <XCircle      size={11} className="text-lovable-danger" />,
   };
 
   return (
@@ -352,7 +354,7 @@ function ExecResultsPanel({ results, rules, onClose }: {
       <div className="flex items-center justify-between border-b border-lovable-border px-4 py-3 bg-lovable-surface-soft">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-lovable-ink">Resultado</p>
-          <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700">
+          <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-lovable-success/12 text-lovable-success">
             <CheckCircle2 size={9} />{acted} ações
           </span>
           {skipped > 0 && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-lovable-surface-soft text-lovable-ink-muted">{skipped} ignorados</span>}
@@ -378,7 +380,7 @@ function ExecResultsPanel({ results, rules, onClose }: {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-lovable-ink">{rule?.name ?? ruleId}</p>
                   <span className={clsx("text-[10px] font-semibold rounded-full px-2 py-0.5",
-                    actedCount > 0 ? "bg-emerald-100 text-emerald-700" : "bg-lovable-surface-soft text-lovable-ink-muted")}>
+                    actedCount > 0 ? "bg-lovable-success/12 text-lovable-success" : "bg-lovable-surface-soft text-lovable-ink-muted")}>
                     {actedCount > 0 ? `${actedCount} ações` : "sem ações"}
                   </span>
                 </div>
@@ -535,9 +537,9 @@ function RuleFormDrawer({ open, mode, rule, prefillTemplate, onClose, onSaved }:
               }
             />
             {actionType === "send_whatsapp" && msgValue && (
-              <div className="mt-2 rounded-xl p-3" style={{ background: "#E8F9F0", border: "1px solid #1D9E7530" }}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "#0F6E56" }}>Preview</p>
-                <p className="text-xs" style={{ color: "#0F6E56" }}>
+              <div className="mt-2 rounded-xl p-3" style={{ background: "hsl(var(--lovable-success)/0.10)", border: "1px solid hsl(var(--lovable-success)/0.22)" }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "hsl(var(--lovable-success))" }}>Preview</p>
+                <p className="text-xs" style={{ color: "hsl(var(--lovable-success))" }}>
                   {msgValue
                     .replace(/\{nome\}/g, "Ana Silva")
                     .replace(/\{plano\}/g, "Mensal")
