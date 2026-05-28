@@ -29,7 +29,8 @@ import { kommoMessageService } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
-import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
+import { CommandCard, MetricCard } from "../../components/ui2/command";
+import { EmptyState, FilterBar, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
 import { getHttpErrorDetail, getPermissionAwareMessage } from "../../utils/httpErrors";
 import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
 import { canResolveRetentionAlert } from "../../utils/roleAccess";
@@ -795,11 +796,17 @@ export function RetentionDashboardPage() {
   if (summaryQuery.isError) {
     return (
       <section className="space-y-6">
-        <PageHeader
-          title="Retenção"
-          subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
-          actions={<DashboardActions dashboard="retention" theme="dark" />}
-        />
+        <CommandCard variant="elevated">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
+              <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+                <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Dashboard de Retenção</span>
+              </h2>
+            </div>
+            <DashboardActions dashboard="retention" theme="dark" />
+          </div>
+        </CommandCard>
         <EmptyState
           icon={AlertTriangle}
           title="Não foi possível carregar a visão de retenção"
@@ -812,19 +819,38 @@ export function RetentionDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <PageHeader
-        title="Retenção"
-        subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
-        actions={<DashboardActions dashboard="retention" theme="dark" />}
-        breadcrumb={[{ label: "Dashboards", href: "/dashboard/executive" }, { label: "Retenção" }]}
-      />
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard de Retenção
+              </span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Fila operacional de alunos com aviso ativo e playbooks sugeridos.</p>
+          </div>
+          <DashboardActions dashboard="retention" theme="dark" />
+        </div>
+      </CommandCard>
 
       {summaryQuery.isLoading ? (
         <SummarySkeleton />
       ) : (
         <div className="space-y-4">
           <AiInsightCard dashboard="retention" />
-          <KPIStrip items={kpis} />
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {kpis.map((kpi, i) => (
+              <MetricCard
+                key={kpi.label}
+                label={kpi.label}
+                value={String(kpi.value)}
+                tone={kpi.tone}
+                currency={kpi.label.includes("MRR")}
+                className={`stagger-${Math.min(i + 1, 4)}`}
+              />
+            ))}
+          </div>
           {retentionDataNotes.length > 0 ? (
             <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/92 px-4 py-4 text-sm text-lovable-ink-muted shadow-panel backdrop-blur-xl">
               <p className="font-medium text-lovable-ink">Leitura do painel</p>
@@ -837,27 +863,22 @@ export function RetentionDashboardPage() {
           ) : null}
           {churnHighlights.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {churnHighlights.map((item) => (
-                <article
+              {churnHighlights.map((item, i) => (
+                <MetricCard
                   key={item.key}
-                  className="rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 shadow-panel backdrop-blur-xl"
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
-                    {item.label}
-                  </p>
-                  <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-3xl font-bold text-lovable-ink">{item.pct}%</p>
-                    <p className="text-sm font-semibold text-lovable-ink-muted">{item.count} alunos</p>
-                  </div>
-                  <p className="mt-2 text-sm text-lovable-ink-muted">{item.description}</p>
-                </article>
+                  label={item.label}
+                  value={`${item.pct}%`}
+                  subtitle={`${item.count} alunos · ${item.description}`}
+                  tone="danger"
+                  className={`stagger-${Math.min(i + 1, 4)}`}
+                />
               ))}
             </div>
           ) : null}
         </div>
       )}
 
-      <section className="rounded-[24px] border border-lovable-border bg-lovable-surface/95 p-4 shadow-panel backdrop-blur-xl">
+      <CommandCard>
         <SectionHeader
           title="Fila operacional"
           subtitle="Todos os avisos ativos ficam acessíveis por busca e paginação, sem truncamento escondido."
@@ -1134,7 +1155,7 @@ export function RetentionDashboardPage() {
             </div>
           )}
         </div>
-      </section>
+      </CommandCard>
 
       <RetentionQueueDrawer
         item={selectedItem}

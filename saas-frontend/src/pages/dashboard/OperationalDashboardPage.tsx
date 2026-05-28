@@ -99,23 +99,29 @@ export function OperationalDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-4 rounded-[28px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-surface)/0.96),hsl(var(--lovable-bg-muted)/0.78))] p-5 shadow-panel md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-lovable-ink-muted">Operação</p>
-          <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink">Dashboard Operacional</h2>
-          <p className="mt-1 text-sm text-lovable-ink-muted">Check-ins em tempo real, mapa por horário e alunos inativos há 7+ dias.</p>
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-lovable-ink-muted">
-            <span className={`inline-block h-2 w-2 rounded-full ${isRealtimeConnected ? "animate-pulse bg-lovable-success" : "bg-lovable-ink-muted/40"}`} />
-            {isRealtimeConnected ? "Tempo real: conectado" : "Tempo real: desconectado"}
-            {realtimeEvents > 0 ? (
-              <span className="ml-1 rounded-full bg-lovable-primary/15 px-1.5 py-0.5 font-medium text-lovable-primary">
-                {realtimeEvents} evento{realtimeEvents !== 1 ? "s" : ""}
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Operação</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard Operacional
               </span>
-            ) : null}
-          </p>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Check-ins em tempo real, mapa por horário e alunos inativos há 7+ dias.</p>
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-lovable-ink-muted">
+              <span className={`inline-block h-2 w-2 rounded-full ${isRealtimeConnected ? "animate-pulse bg-lovable-success" : "bg-lovable-ink-muted/40"}`} />
+              {isRealtimeConnected ? "Tempo real: conectado" : "Tempo real: desconectado"}
+              {realtimeEvents > 0 ? (
+                <span className="ml-1 rounded-full bg-[rgba(59,130,246,0.15)] px-1.5 py-0.5 font-medium text-blue-300">
+                  {realtimeEvents} evento{realtimeEvents !== 1 ? "s" : ""}
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <DashboardActions dashboard="operational" />
         </div>
-        <DashboardActions dashboard="operational" />
-      </header>
+      </CommandCard>
 
       <AiInsightCard dashboard="operational" />
 
@@ -128,6 +134,7 @@ export function OperationalDashboardPage() {
           trendDirection={isRealtimeConnected ? "up" : "flat"}
           icon={Activity}
           tone="success"
+          className="stagger-1"
         />
         <MetricCard
           label="Inativos 7+ dias"
@@ -137,6 +144,7 @@ export function OperationalDashboardPage() {
           trendDirection={query.data.inactive_7d_total > 0 ? "down" : "up"}
           icon={Clock}
           tone={query.data.inactive_7d_total > 0 ? "warning" : "success"}
+          className="stagger-2"
         />
       </div>
 

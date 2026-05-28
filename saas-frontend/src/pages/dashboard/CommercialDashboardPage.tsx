@@ -89,22 +89,28 @@ export function CommercialDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-4 rounded-[28px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-surface)/0.96),hsl(var(--lovable-bg-muted)/0.78))] p-5 shadow-panel md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-lovable-ink-muted">Comercial</p>
-          <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink">Dashboard Comercial</h2>
-          <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline, conversão por origem, follow-up e oportunidades paradas.</p>
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard Comercial
+              </span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline, conversão por origem, follow-up e oportunidades paradas.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <DashboardActions dashboard="commercial" />
+            <Link
+              to="/crm"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-[rgba(59,130,246,0.55)] bg-[rgba(59,130,246,0.18)] px-4 text-xs font-semibold uppercase tracking-wider text-blue-200 transition-colors hover:bg-[rgba(59,130,246,0.28)] hover:text-white"
+            >
+              Abrir CRM Kanban
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <DashboardActions dashboard="commercial" />
-          <Link
-            to="/crm"
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-[hsl(var(--lovable-primary)/0.75)] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)),hsl(var(--lovable-info)/0.92))] px-4 text-xs font-semibold uppercase tracking-wider text-[hsl(207_58%_4%)] shadow-[0_18px_46px_-26px_hsl(var(--lovable-primary)/0.9)] hover:brightness-110"
-          >
-            Abrir CRM Kanban
-          </Link>
-        </div>
-      </header>
+      </CommandCard>
 
       <AiInsightCard dashboard="commercial" />
 
@@ -115,6 +121,8 @@ export function CommercialDashboardPage() {
           subtitle="Custo de aquisição estimado"
           icon={Target}
           tone={hasCommercialBase ? "warning" : "neutral"}
+          currency={hasCommercialBase}
+          className="stagger-1"
         />
         <MetricCard
           label="Leads em proposta"
@@ -122,6 +130,7 @@ export function CommercialDashboardPage() {
           subtitle="Oportunidades em negociação"
           icon={Briefcase}
           tone="info"
+          className="stagger-2"
         />
         <MetricCard
           label="Fechados"
@@ -129,6 +138,7 @@ export function CommercialDashboardPage() {
           subtitle="Conversões registradas no funil"
           icon={Trophy}
           tone="success"
+          className="stagger-3"
         />
       </div>
 

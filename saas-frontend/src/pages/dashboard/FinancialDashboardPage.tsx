@@ -152,14 +152,20 @@ export function FinancialDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-4 rounded-[28px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-surface)/0.96),hsl(var(--lovable-bg-muted)/0.78))] p-5 shadow-panel md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-lovable-ink-muted">Financeiro</p>
-          <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink">Dashboard Financeiro</h2>
-          <p className="mt-1 text-sm text-lovable-ink-muted">Receita mensal, inadimplência, caixa e projeção operacional.</p>
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Financeiro</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard Financeiro
+              </span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Receita mensal, inadimplência, caixa e projeção operacional.</p>
+          </div>
+          <DashboardActions dashboard="financial" />
         </div>
-        <DashboardActions dashboard="financial" />
-      </header>
+      </CommandCard>
 
       <AiInsightCard dashboard="financial" />
 
@@ -180,27 +186,28 @@ export function FinancialDashboardPage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} subtitle="Alunos com cobrança em atraso" icon={AlertTriangle} tone="danger" />
-        <MetricCard label="Caixa líquido hoje" value={BRL(dailyNetCash)} subtitle="Resultado do dia" icon={CircleDollarSign} tone={dailyNetCash >= 0 ? "success" : "danger"} />
-        <MetricCard label="Recebíveis abertos" value={BRL(openReceivables)} subtitle="Entradas ainda pendentes" icon={Banknote} tone="warning" />
-        <MetricCard label="Receita em risco" value={BRL(revenueAtRisk)} subtitle="MRR sob atenção financeira" icon={TrendingUp} tone="danger" />
+        <MetricCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} subtitle="Alunos com cobrança em atraso" icon={AlertTriangle} tone="danger" className="stagger-1" />
+        <MetricCard label="Caixa líquido hoje" value={BRL(dailyNetCash)} subtitle="Resultado do dia" icon={CircleDollarSign} tone={dailyNetCash >= 0 ? "success" : "danger"} currency className="stagger-2" />
+        <MetricCard label="Recebíveis abertos" value={BRL(openReceivables)} subtitle="Entradas ainda pendentes" icon={Banknote} tone="warning" currency className="stagger-3" />
+        <MetricCard label="Receita em risco" value={BRL(revenueAtRisk)} subtitle="MRR sob atenção financeira" icon={TrendingUp} tone="danger" currency className="stagger-4" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="DRE: Receita do mês" value={BRL(query.data.dre_basic?.revenue ?? 0)} subtitle="Receita reconhecida" icon={CircleDollarSign} tone="success" />
-        <MetricCard label="DRE: Despesas do mês" value={BRL(query.data.dre_basic?.expenses ?? 0)} subtitle="Saídas reconhecidas" icon={FileText} tone="warning" />
-        <MetricCard label="DRE: Resultado" value={BRL(query.data.dre_basic?.net_result ?? 0)} subtitle="Resultado operacional" icon={TrendingUp} tone={(query.data.dre_basic?.net_result ?? 0) >= 0 ? "success" : "danger"} />
+        <MetricCard label="DRE: Receita do mês" value={BRL(query.data.dre_basic?.revenue ?? 0)} subtitle="Receita reconhecida" icon={CircleDollarSign} tone="success" currency />
+        <MetricCard label="DRE: Despesas do mês" value={BRL(query.data.dre_basic?.expenses ?? 0)} subtitle="Saídas reconhecidas" icon={FileText} tone="warning" currency />
+        <MetricCard label="DRE: Resultado" value={BRL(query.data.dre_basic?.net_result ?? 0)} subtitle="Resultado operacional" icon={TrendingUp} tone={(query.data.dre_basic?.net_result ?? 0) >= 0 ? "success" : "danger"} currency />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="A receber atrasado" value={BRL(overdueReceivables)} subtitle="Valor vencido" icon={AlertTriangle} tone="danger" />
-        <MetricCard label="A pagar aberto" value={BRL(openPayables)} subtitle="Compromissos pendentes" icon={Banknote} tone="warning" />
+        <MetricCard label="A receber atrasado" value={BRL(overdueReceivables)} subtitle="Valor vencido" icon={AlertTriangle} tone="danger" currency />
+        <MetricCard label="A pagar aberto" value={BRL(openPayables)} subtitle="Compromissos pendentes" icon={Banknote} tone="warning" currency />
         <MetricCard
           label="Projeção 12 meses"
           value={proj12 && hasFinancialBase ? BRL(proj12.projected_revenue) : "Sem base"}
           subtitle="Forecast financeiro"
           icon={TrendingUp}
           tone="success"
+          currency={proj12 != null && hasFinancialBase}
         />
       </div>
 
