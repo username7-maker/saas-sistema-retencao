@@ -29,6 +29,13 @@ export default {
           cyan: "#00c8ff",
           orange: "#f97316",
         },
+        /* Dark Intelligence — explicit depth layers */
+        layer: {
+          base: "#0A0B0F",
+          surface: "#0E1018",
+          elevated: "#101320",
+          sidebar: "#0C0E14",
+        },
         lovable: {
           bg: "hsl(var(--lovable-bg))",
           "bg-muted": "hsl(var(--lovable-bg-muted))",
@@ -47,13 +54,19 @@ export default {
         },
       },
       fontFamily: {
+        ui: ["'Inter'", "'Barlow'", "sans-serif"],
+        body: ["'Inter'", "'Barlow'", "'Plus Jakarta Sans'", "sans-serif"],
         heading: ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
-        body: ["'Barlow'", "'Plus Jakarta Sans'", "sans-serif"],
         display: ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
+        mono: ["'JetBrains Mono'", "ui-monospace", "monospace"],
       },
       boxShadow: {
         panel: "var(--shadow-panel)",
         lovable: "var(--shadow-lovable)",
+        card: "0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)",
+        "glow-blue": "var(--glow-blue)",
+        "glow-violet": "var(--glow-violet)",
+        "glow-danger": "var(--glow-danger)",
         "glow-green": "0 0 20px rgba(34, 197, 94, 0.45)",
         "glow-red": "0 0 20px rgba(255, 59, 48, 0.5)",
         "glow-cyan": "0 0 20px rgba(0, 200, 255, 0.4)",

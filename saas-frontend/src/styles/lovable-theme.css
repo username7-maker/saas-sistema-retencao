@@ -51,46 +51,58 @@
   --shadow-panel:
     0 26px 90px -44px hsl(207 80% 4% / 0.5),
     inset 0 1px 0 hsl(0 0% 100% / 0.45);
+
+  /* Dark Intelligence — glow tokens (consumed only in .dark) */
+  --glow-blue: 0 0 12px rgba(59, 130, 246, 0.28);
+  --glow-violet: 0 0 12px rgba(139, 92, 246, 0.28);
+  --glow-danger: 0 0 12px rgba(255, 59, 59, 0.3);
 }
 
 .dark {
-  --lovable-bg: 0 0% 0%;
-  --lovable-bg-muted: 0 0% 4%;
-  --lovable-surface: 0 0% 7%;
-  --lovable-surface-soft: 0 0% 10%;
-  --lovable-border: 0 0% 15%;
-  --lovable-border-strong: 193 100% 50%;
-  --lovable-ink: 0 0% 97%;
-  --lovable-ink-muted: 0 0% 62%;
-  --lovable-primary: 193 100% 50%;
-  --lovable-primary-soft: 193 100% 10%;
-  --lovable-success: 142 71% 45%;
-  --lovable-warning: 24 95% 53%;
-  --lovable-danger: 3 100% 59%;
-  --lovable-info: 193 100% 50%;
-  --lovable-ai: 258 90% 66%;
-  --lovable-sidebar: 0 0% 0%;
-  --lovable-topbar: 0 0% 4%;
-  --lovable-elevated: 0 0% 8%;
-  --lovable-chart-grid: 0 0% 18%;
-  --lovable-chart-stroke: 193 100% 50%;
-  --lovable-brand: #22c55e;
-  --lovable-muted: #a1a1aa;
-  --cordex-command-bg: #000000;
-  --cordex-command-surface: rgba(8, 8, 8, 0.92);
-  --cordex-command-surface-strong: rgba(16, 16, 16, 0.96);
-  --cordex-command-border: rgba(255, 255, 255, 0.09);
-  --cordex-command-border-hot: rgba(0, 200, 255, 0.32);
+  /* Dark Intelligence — layered depth (no flat black) */
+  --lovable-bg: 228 15% 6%;          /* #0A0B0F base */
+  --lovable-bg-muted: 228 18% 7%;    /* #0C0E14 sidebar */
+  --lovable-surface: 228 20% 8%;     /* #0E1018 cards */
+  --lovable-surface-soft: 228 22% 9%;/* #101320 elevated */
+  --lovable-border: 228 8% 14%;          /* visual ~ white @ 7% over bg */
+  --lovable-border-strong: 217 70% 50%;
+  --lovable-ink: 220 10% 96%;
+  --lovable-ink-muted: 220 10% 55%;
+  --lovable-primary: 217 91% 60%;        /* #3B82F6 blue */
+  --lovable-primary-soft: 217 91% 10%;
+  --lovable-success: 158 64% 42%;        /* #10B981 */
+  --lovable-warning: 38 92% 50%;         /* #F59E0B */
+  --lovable-danger: 0 100% 61%;          /* #FF3B3B */
+  --lovable-info: 217 91% 60%;
+  --lovable-ai: 258 90% 66%;             /* #8B5CF6 violet — IA identity */
+  --lovable-sidebar: 228 18% 7%;
+  --lovable-topbar: 228 15% 6%;
+  --lovable-elevated: 228 22% 9%;
+  --lovable-chart-grid: 228 8% 12%;      /* visual ~ white @ 5% over bg */
+  --lovable-chart-stroke: 217 80% 62%;
+  --lovable-brand: #3b82f6;
+  --lovable-muted: #5b6171;
+  --cordex-command-bg: #0a0b0f;
+  --cordex-command-surface: rgba(14, 16, 24, 0.92);
+  --cordex-command-surface-strong: rgba(16, 19, 32, 0.96);
+  --cordex-command-border: rgba(255, 255, 255, 0.07);
+  --cordex-command-border-hot: rgba(59, 130, 246, 0.32);
   --cordex-command-cyan: #00c8ff;
-  --cordex-command-grid: rgba(0, 200, 255, 0.055);
-  --cordex-command-glow: 0 28px 110px -52px rgba(0, 200, 255, 0.72);
+  --cordex-command-grid: rgba(59, 130, 246, 0.055);
+  --cordex-command-glow: 0 28px 110px -52px rgba(59, 130, 246, 0.72);
   --shadow-lovable:
     0 30px 120px -52px rgba(0, 0, 0, 0.96),
-    0 14px 44px -28px rgba(0, 200, 255, 0.28);
+    0 14px 44px -28px rgba(59, 130, 246, 0.22);
   --shadow-panel:
-    0 28px 86px -42px rgba(0, 0, 0, 0.98),
-    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Dark-only glow refresh */
+  --glow-blue: 0 0 12px rgba(59, 130, 246, 0.28);
+  --glow-violet: 0 0 12px rgba(139, 92, 246, 0.30);
+  --glow-danger: 0 0 12px rgba(255, 59, 59, 0.30);
 }
+
 
 @keyframes pi-pulse {
   0%,
@@ -139,16 +151,64 @@
   animation: pi-count-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Stagger entrance utilities — apply .stagger-N to cards for incremental load animation */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.stagger-1 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 50ms;
+}
+.stagger-2 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 100ms;
+}
+.stagger-3 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 150ms;
+}
+.stagger-4 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-1,
+  .stagger-2,
+  .stagger-3,
+  .stagger-4,
+  .pi-count-in,
+  .pi-pulse,
+  .pi-pulse-green {
+    animation: none;
+  }
+}
+
 body {
-  background:
-    linear-gradient(180deg, rgba(0, 200, 255, 0.04), transparent 260px),
-    hsl(var(--lovable-bg));
+  background: hsl(var(--lovable-bg));
   color: hsl(var(--lovable-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
 }
 
-body::before {
+/* Dark-only ambient: subtle blue glow top + violet accent right */
+.dark body {
+  background:
+    radial-gradient(ellipse 800px 400px at 100% 0%, rgba(139, 92, 246, 0.05), transparent 60%),
+    radial-gradient(ellipse 600px 300px at 0% 0%, rgba(59, 130, 246, 0.04), transparent 55%),
+    hsl(var(--lovable-bg));
+}
+
+/* Subtle grid only in light mode — removed in dark for cleaner depth */
+:root body::before {
   content: "";
   position: fixed;
   inset: 0;
@@ -159,6 +219,10 @@ body::before {
     linear-gradient(90deg, hsl(var(--lovable-primary) / 0.038) 1px, transparent 1px);
   background-size: 92px 92px;
   mask-image: radial-gradient(circle at 50% 20%, black 0%, transparent 72%);
+}
+
+.dark body::before {
+  content: none;
 }
 
 body::after {
