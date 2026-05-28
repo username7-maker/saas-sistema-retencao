@@ -16,14 +16,14 @@ export function PremiumEmptyState({ icon: Icon = Inbox, title, description, acti
   return (
     <div
       className={cn(
-        "flex min-h-[180px] flex-col items-center justify-center rounded-[24px] border border-dashed border-lovable-border/80 bg-[linear-gradient(145deg,hsl(var(--lovable-surface)/0.54),hsl(var(--lovable-bg-muted)/0.44))] px-6 py-8 text-center",
+        "flex min-h-[180px] flex-col items-center justify-center rounded-[24px] border border-dashed border-white/[0.07] bg-[linear-gradient(145deg,rgba(14,16,24,0.60),rgba(10,11,15,0.50))] px-6 py-8 text-center",
         className,
       )}
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-lovable-border/70 bg-lovable-surface-soft/72 text-[hsl(var(--lovable-primary))] shadow-panel">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgba(59,130,246,0.22)] bg-[rgba(59,130,246,0.07)] text-blue-400">
         <Icon size={20} />
       </div>
-      <h3 className="mt-4 font-heading text-base font-bold text-lovable-ink">{title}</h3>
+      <h3 className="mt-4 font-ui text-sm font-semibold text-lovable-ink">{title}</h3>
       {description ? <p className="mt-2 max-w-lg text-sm leading-relaxed text-lovable-ink-muted">{description}</p> : null}
       {action ? <div className="mt-5">{action}</div> : null}
     </div>

@@ -25,7 +25,8 @@ export function AIInsightPanel({
     <CommandCard variant="ai">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-[rgba(0,200,255,0.3)] bg-[rgba(0,200,255,0.12)] text-[var(--pi-cyan)] shadow-[var(--pi-glow-cyan)]">
+          {/* Violet = IA identity */}
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-[rgba(139,92,246,0.32)] bg-[rgba(139,92,246,0.12)] text-violet-400 shadow-[var(--glow-violet)]">
             <Bot size={17} />
           </div>
           <div>
@@ -33,12 +34,12 @@ export function AIInsightPanel({
             <h3 className="font-heading text-base font-bold text-lovable-ink">{title}</h3>
           </div>
         </div>
-        <StatusPill tone="integration" dot>Live</StatusPill>
+        <StatusPill tone="ai" dot>Live</StatusPill>
       </div>
 
-      <div className="rounded-[18px] border border-[rgba(0,200,255,0.18)] bg-[rgba(0,200,255,0.055)] p-4">
+      <div className="rounded-[18px] border border-[rgba(139,92,246,0.18)] bg-[rgba(139,92,246,0.055)] p-4">
         <div className="flex items-start gap-3">
-          <Sparkles size={16} className="mt-0.5 text-[var(--pi-cyan)]" />
+          <Sparkles size={16} className="mt-0.5 text-violet-400" />
           <div className="min-w-0">
             <p className="text-sm leading-relaxed text-lovable-ink">{summary}</p>
             {updatedAt ? <p className="mt-3 text-xs text-lovable-ink-muted">{updatedAt}</p> : null}
@@ -60,7 +61,7 @@ export function AIInsightPanel({
         <div className="mt-4 space-y-2">
           {items.map((item, index) => (
             <div key={index} className="flex items-start gap-2 text-sm text-lovable-ink-muted">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--lovable-primary))]" />
+              <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500/60" />
               <span>{item}</span>
             </div>
           ))}

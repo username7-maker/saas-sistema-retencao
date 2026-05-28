@@ -21,34 +21,36 @@ interface MetricCardProps {
 
 const toneClasses: Record<MetricTone, { icon: string; value: string; card: string }> = {
   neutral: {
-    icon: "text-zinc-200 bg-white/[0.04] border-white/[0.08]",
+    icon: "text-zinc-300 bg-white/[0.04] border-white/[0.08]",
     value: "text-lovable-ink",
-    card: "hover:border-white/20",
+    card: "hover:border-white/[0.14]",
   },
   info: {
-    icon: "text-[var(--pi-cyan)] bg-[rgba(0,200,255,0.12)] border-[rgba(0,200,255,0.28)]",
+    // Blue = primary / navigation accent
+    icon: "text-blue-400 bg-[rgba(59,130,246,0.14)] border-[rgba(59,130,246,0.28)]",
     value: "text-lovable-ink",
-    card: "hover:border-[rgba(0,200,255,0.48)] hover:shadow-[0_0_24px_rgba(0,200,255,0.13)]",
+    card: "hover:border-[rgba(59,130,246,0.44)] hover:shadow-[var(--glow-blue)]",
   },
   success: {
-    icon: "text-[var(--pi-green)] bg-[rgba(34,197,94,0.12)] border-[rgba(34,197,94,0.26)]",
+    icon: "text-emerald-400 bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.26)]",
     value: "text-lovable-ink",
-    card: "hover:border-[rgba(34,197,94,0.44)] hover:shadow-[0_0_24px_rgba(34,197,94,0.12)]",
+    card: "hover:border-[rgba(16,185,129,0.42)] hover:shadow-[0_0_20px_rgba(16,185,129,0.14)]",
   },
   warning: {
-    icon: "text-[var(--pi-orange)] bg-[rgba(249,115,22,0.12)] border-[rgba(249,115,22,0.3)]",
-    value: "text-[var(--pi-orange)]",
-    card: "hover:border-[rgba(249,115,22,0.48)] hover:shadow-[0_0_24px_rgba(249,115,22,0.12)]",
+    icon: "text-amber-400 bg-[rgba(245,158,11,0.12)] border-[rgba(245,158,11,0.30)]",
+    value: "text-amber-300",
+    card: "hover:border-[rgba(245,158,11,0.46)] hover:shadow-[0_0_20px_rgba(245,158,11,0.12)]",
   },
   danger: {
-    icon: "text-[var(--pi-red)] bg-[rgba(255,59,48,0.12)] border-[rgba(255,59,48,0.3)]",
-    value: "text-[var(--pi-red)]",
-    card: "hover:border-[rgba(255,59,48,0.48)] hover:shadow-[0_0_24px_rgba(255,59,48,0.14)]",
+    icon: "text-rose-400 bg-[rgba(255,59,59,0.12)] border-[rgba(255,59,59,0.30)]",
+    value: "text-rose-300",
+    card: "hover:border-[rgba(255,59,59,0.44)] hover:shadow-[var(--glow-danger)]",
   },
   ai: {
-    icon: "text-[var(--pi-cyan)] bg-[rgba(0,200,255,0.12)] border-[rgba(0,200,255,0.34)]",
-    value: "text-[var(--pi-cyan)]",
-    card: "hover:border-[rgba(0,200,255,0.5)] hover:shadow-[0_0_28px_rgba(0,200,255,0.16)]",
+    // Violet = IA identity
+    icon: "text-violet-400 bg-[rgba(139,92,246,0.14)] border-[rgba(139,92,246,0.30)]",
+    value: "text-violet-300",
+    card: "hover:border-[rgba(139,92,246,0.46)] hover:shadow-[var(--glow-violet)]",
   },
 };
 
@@ -81,16 +83,21 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-[18px] border border-white/[0.08] bg-[linear-gradient(145deg,rgba(16,16,16,0.96),rgba(3,3,3,0.88))] p-4 shadow-panel backdrop-blur-xl",
-        "transition duration-200 hover:-translate-y-0.5",
+        // Surface uses new depth token; before: adds subtle top-edge gradient
+        "group relative overflow-hidden rounded-[18px] border border-white/[0.07]",
+        "bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.92))]",
+        "p-4 shadow-card backdrop-blur-xl",
+        "transition-all duration-200 hover:-translate-y-[1px]",
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-16",
+        "before:bg-[linear-gradient(180deg,rgba(255,255,255,0.025),transparent_60%)]",
         toneConfig.card,
         className,
       )}
     >
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-lovable-ink-muted">{label}</p>
-          <div className={cn("pi-count-in mt-2 font-display text-4xl font-bold tracking-tight md:text-5xl", toneConfig.value)}>
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-lovable-ink-muted">{label}</p>
+          <div className={cn("num pi-count-in mt-2 text-4xl font-semibold md:text-5xl", toneConfig.value)}>
             {value}
           </div>
         </div>
