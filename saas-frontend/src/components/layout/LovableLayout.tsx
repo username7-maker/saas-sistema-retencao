@@ -8,8 +8,6 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
-  Globe,
-  HelpCircle,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -67,17 +65,17 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/operational", label: "Operacional", icon: Activity, route: "dashboardOperational" },
       { to: "/dashboard/commercial", label: "Comercial", icon: Briefcase, route: "dashboardCommercial" },
       { to: "/dashboard/financial", label: "Financeiro", icon: Wallet, route: "dashboardFinancial" },
-      { to: "/dashboard/retention", label: "Retencao", icon: ShieldAlert, route: "dashboardRetention" },
+      { to: "/dashboard/retention", label: "Retenção", icon: ShieldAlert, route: "dashboardRetention" },
     ],
   },
   {
-    label: "Gestao",
+    label: "Gestão",
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
-      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
+      { to: "/assessments", label: "Avaliações", icon: ClipboardList, route: "assessments" },
       { to: "/crm", label: "CRM", icon: Users, route: "crm" },
       { to: "/ai/triage", label: "Central Cordex", icon: Sparkles, route: "aiTriage" },
-      { to: "/ai/review-center", label: "Revisao Cordex", icon: Bot, route: "aiReviewCenter" },
+      { to: "/ai/review-center", label: "Revisão Cordex", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -86,14 +84,14 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/goals", label: "Metas", icon: Target, route: "goals" },
       { to: "/nps", label: "NPS", icon: Star, route: "nps" },
-      { to: "/reports", label: "Relatorios", icon: FileText, route: "reports" },
+      { to: "/reports", label: "Relatórios", icon: FileText, route: "reports" },
     ],
   },
   {
     label: "Sistema",
     items: [
       { to: "/automations", label: "Cordex Autopilot", icon: Bot, route: "automations" },
-      { to: "/imports", label: "Importacoes", icon: Upload, route: "imports" },
+      { to: "/imports", label: "Importações", icon: Upload, route: "imports" },
       { to: "/audit", label: "Auditoria", icon: ScrollText, route: "audit" },
     ],
   },
@@ -104,8 +102,8 @@ const trainerNavGroups: NavGroup[] = [
     label: "Treino",
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
-      { to: "/assessments", label: "Avaliacoes", icon: ClipboardList, route: "assessments" },
-      { to: "/ai/review-center", label: "Revisao Cordex", icon: Bot, route: "aiReviewCenter" },
+      { to: "/assessments", label: "Avaliações", icon: ClipboardList, route: "assessments" },
+      { to: "/ai/review-center", label: "Revisão Cordex", icon: Bot, route: "aiReviewCenter" },
       { to: "/tasks", label: "Tarefas", icon: CheckSquare, route: "tasks" },
     ],
   },
@@ -113,7 +111,7 @@ const trainerNavGroups: NavGroup[] = [
 
 function resolveHeaderSearchConfig(pathname: string): HeaderSearchConfig | null {
   if (pathname.startsWith("/dashboard/retention")) {
-    return { param: "search", placeholder: "Buscar alertas, aluno ou plano..." };
+    return { param: "search", placeholder: "Buscar alertas, aluno, segmento ou plano..." };
   }
   if (pathname.startsWith("/tasks")) {
     return { param: "search", placeholder: "Buscar tarefas, aluno ou lead..." };
@@ -131,9 +129,9 @@ function resolveActiveGroup(pathname: string, groups: NavGroup[] = navGroups): s
 }
 
 function resolveCurrentSection(pathname: string): string {
-  if (pathname.startsWith("/settings/users")) return "Usuarios";
-  if (pathname.startsWith("/settings")) return "Configuracoes";
-  if (pathname.startsWith("/notifications")) return "Notificacoes";
+  if (pathname.startsWith("/settings/users")) return "Usuários";
+  if (pathname.startsWith("/settings")) return "Configurações";
+  if (pathname.startsWith("/notifications")) return "Notificações";
 
   for (const group of navGroups) {
     const item = group.items.find((candidate) => pathname.startsWith(candidate.to));
@@ -173,13 +171,13 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <nav className="space-y-4 px-3 pb-2">
-      {groups.map((group) => {
+    <nav className="space-y-1 px-3 pb-2">
+      {groups.map((group, groupIndex) => {
         const isOpen = openGroups.includes(group.label);
         const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
 
         return (
-          <div key={group.label} className="space-y-1.5">
+          <div key={group.label} className={cn("space-y-1", groupIndex > 0 && "border-t border-white/[0.04] pt-2")}>
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
@@ -191,7 +189,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             </button>
 
             {isOpen ? (
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
 
@@ -203,19 +201,27 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                       title={item.label}
                       className={({ isActive }) =>
                         cn(
-                          "group flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                          /* border-l always present (3px) so layout never shifts on activation */
+                          "group flex items-center justify-between gap-3 rounded-2xl border border-transparent border-l-[3px] py-2 pl-[calc(0.75rem-3px)] pr-3 text-sm font-medium transition-all duration-200",
                           isActive
-                            ? "border border-[hsl(var(--lovable-primary)/0.34)] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)/0.24),hsl(var(--lovable-info)/0.18))] text-lovable-ink shadow-[0_16px_40px_-24px_hsl(var(--lovable-primary)/0.95)]"
-                            : "border border-transparent text-lovable-ink-muted hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink",
+                            ? "border-l-[hsl(var(--lovable-primary))] bg-[rgba(59,130,246,0.10)] text-lovable-ink"
+                            : "border-l-transparent text-lovable-ink-muted hover:border-lovable-border/40 hover:border-l-transparent hover:bg-lovable-surface-soft/55 hover:text-lovable-ink",
                         )
                       }
                     >
-                      <span className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72 text-lovable-ink-muted transition group-hover:border-lovable-border-strong/70 group-hover:bg-lovable-surface/80 group-hover:text-lovable-ink">
-                          <Icon size={15} />
+                      {({ isActive }) => (
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className={cn(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition",
+                            isActive
+                              ? "border-[rgba(59,130,246,0.30)] bg-[rgba(59,130,246,0.12)] text-blue-400"
+                              : "border-lovable-border/55 bg-lovable-surface-soft/68 text-lovable-ink-muted group-hover:border-lovable-border-strong/50 group-hover:text-lovable-ink",
+                          )}>
+                            <Icon size={15} />
+                          </span>
+                          <span className="truncate">{item.label}</span>
                         </span>
-                        <span className="truncate">{item.label}</span>
-                      </span>
+                      )}
                     </NavLink>
                   );
                 })}
@@ -242,7 +248,6 @@ export function LovableLayout() {
   const canOpenUserDirectory = canManageUsers(user?.role);
   const canViewNotifications = canAccessRoute(user?.role, "notifications");
   const profileTarget = canOpenUserDirectory ? "/settings/users" : "/settings";
-  const showHelpCenter = canAccessRoute(user?.role, "reports");
 
   const { data: notifications } = useQuery({
     queryKey: ["notifications", "unread-count"],
@@ -300,14 +305,8 @@ export function LovableLayout() {
 
   return (
     <div className="relative min-h-dvh overflow-x-clip bg-lovable-bg font-body text-lovable-ink">
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-24 -top-20 h-[420px] w-[420px] rounded-full bg-[hsl(var(--lovable-primary)/0.22)] blur-[150px]" />
-        <div className="absolute right-[-140px] top-[10%] h-[360px] w-[360px] rounded-full bg-[hsl(var(--lovable-info)/0.16)] blur-[150px]" />
-        <div className="absolute bottom-[-180px] left-[28%] h-[440px] w-[440px] rounded-full bg-[hsl(var(--lovable-success)/0.09)] blur-[170px]" />
-      </div>
-
       <aside aria-label="Main navigation" className="fixed inset-y-0 left-0 z-30 hidden w-72 p-3 lg:block">
-        <div className="flex h-full flex-col rounded-[30px] border border-lovable-border/70 bg-[hsl(var(--lovable-sidebar)/0.94)] shadow-panel backdrop-blur-2xl">
+        <div className="flex h-full flex-col rounded-[30px] border border-lovable-border/70 bg-[linear-gradient(180deg,hsl(var(--lovable-sidebar)/0.98),hsl(var(--lovable-bg-muted)/0.93))] shadow-panel backdrop-blur-2xl">
           <div className="px-4 pt-4">
             <div className="relative">
               <button
@@ -359,7 +358,7 @@ export function LovableLayout() {
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-lovable-ink transition hover:bg-lovable-surface-soft"
                   >
                     <UserCog size={15} />
-                    Usuarios
+                    Usuários
                   </button>
                   <p className="px-3 pb-1 text-[11px] uppercase tracking-[0.18em] text-lovable-ink-muted">
                     Gerencie perfis e acessos
@@ -368,20 +367,6 @@ export function LovableLayout() {
               ) : null}
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-2xl border border-lovable-border/60 bg-lovable-surface/55 px-3 py-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Integracoes</p>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-lg border border-lovable-border/60 bg-lovable-surface-soft/72 p-1.5 text-lovable-ink-muted">
-                  <Globe size={12} />
-                </span>
-                <span className="rounded-lg border border-lovable-border/60 bg-lovable-surface-soft/72 p-1.5 text-lovable-ink-muted">
-                  <Activity size={12} />
-                </span>
-                <span className="rounded-lg border border-lovable-border/60 bg-lovable-surface-soft/72 p-1.5 text-[hsl(var(--lovable-primary))]">
-                  <Sparkles size={12} />
-                </span>
-              </div>
-            </div>
           </div>
 
           <div className="mt-4 flex-1 overflow-y-auto">
@@ -397,20 +382,8 @@ export function LovableLayout() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72">
                 <Settings size={15} />
               </span>
-              Configuracoes
+              Configurações
             </button>
-            {showHelpCenter ? (
-              <button
-                type="button"
-                onClick={() => navigate("/reports")}
-                className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-sm font-medium text-lovable-ink-muted transition hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72">
-                  <HelpCircle size={15} />
-                </span>
-                Central de ajuda
-              </button>
-            ) : null}
           </div>
         </div>
       </aside>
@@ -421,7 +394,7 @@ export function LovableLayout() {
 
       <div className="min-h-dvh lg:ml-72">
         <header role="banner" className="sticky top-0 z-20 px-3 pt-3 sm:px-4 md:px-6 lg:px-7">
-          <div className="rounded-[24px] border border-lovable-border/70 bg-[hsl(var(--lovable-topbar)/0.92)] px-3 py-3 shadow-panel backdrop-blur-2xl sm:px-4">
+          <div className="rounded-[24px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-topbar)/0.96),hsl(var(--lovable-surface)/0.88))] px-3 py-3 shadow-panel backdrop-blur-2xl sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Button
@@ -440,21 +413,22 @@ export function LovableLayout() {
                 </div>
               </div>
 
-              <div className="hidden w-full max-w-md items-center lg:flex">
-                <div className="relative w-full">
-                  <Search
-                    size={16}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted"
-                  />
-                  <Input
-                    value={headerSearch}
-                    onChange={(event) => setHeaderSearch(event.target.value)}
-                    placeholder={searchConfig?.placeholder ?? "Busca contextual indisponivel nesta tela"}
-                    disabled={!searchConfig}
-                    className="h-11 rounded-2xl border-lovable-border/60 bg-lovable-surface/62 pl-10 shadow-none"
-                  />
+              {searchConfig ? (
+                <div className="hidden w-full max-w-xl items-center lg:flex">
+                  <div className="relative w-full">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted"
+                    />
+                    <Input
+                      value={headerSearch}
+                      onChange={(event) => setHeaderSearch(event.target.value)}
+                      placeholder={searchConfig.placeholder}
+                      className="h-11 rounded-2xl border-lovable-border/70 bg-lovable-surface/72 pl-10 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.04)]"
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div className="flex shrink-0 items-center justify-end gap-2 self-start sm:self-auto">
                 <Button

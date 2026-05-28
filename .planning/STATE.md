@@ -1,9 +1,9 @@
 ---
 milestone: v3.3.0
-phase: 09.2
-plan: "Cordex Design System V1"
-status: Implementada e validada localmente com lint/build frontend e testes focados backend.
-last_activity: 2026-05-14 - fase `09.2-cordex-design-system-v1` implementada e validada localmente
+phase: 04.35
+plan: "Upload real de foto e funcoes mais ricas por usuario"
+status: Publicada e validada no piloto; V1 entregou upload de avatar para equipe e separacao clara entre cargo exibido e papel de acesso.
+last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
 ---
 
 # STATE
@@ -13,14 +13,14 @@ last_activity: 2026-05-14 - fase `09.2-cordex-design-system-v1` implementada e v
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Aplicar Cordex Design System V1 preservando ProGym como tenant do piloto e `ai_gym_*` como legado tecnico.
+**Current focus:** Fechar identidade de equipe com upload real de avatar e separacao clara entre cargo exibido e papel de acesso.
 
 ## Current Position
 
-**Phase:** 09.2
-**Plan:** `Cordex Design System V1`
-**Status:** `validated locally`; tokens/assets/labels visuais aplicados para identidade Cordex real.
-**Last activity:** 2026-05-14 - fase `09.2-cordex-design-system-v1` implementada e validada localmente
+**Phase:** 04.35
+**Plan:** `Upload real de foto e funcoes mais ricas por usuario`
+**Status:** `published/validated`; V1 aplica upload real para avatar de equipe e reduz URL manual como caminho principal.
+**Last activity:** 2026-05-28 - fase 04.35 publicada no piloto.
 
 ## Progress Snapshot
 

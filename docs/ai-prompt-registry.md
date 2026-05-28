@@ -3,7 +3,7 @@
 O AI First OS usa prompts versionados por agente especialista para gerar textos supervisionados.
 
 ## Modelo padrao
-`OPENAI_SPECIALIST_MODEL=gpt-5.4-mini`
+`OPENAI_SPECIALIST_MODEL=gpt-4.1-mini`
 
 `OPENAI_MODEL` e `OPENAI_VISION_MODEL` continuam disponiveis para fluxos legados, baratos ou OCR/visao.
 

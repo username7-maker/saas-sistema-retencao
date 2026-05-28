@@ -1,23 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, RotateCcw, Trash2, UserPlus } from "lucide-react";
+import { ChevronDown, Copy, KeyRound, Pencil, RotateCcw, Trash2, UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { UserAvatar } from "../../components/common/UserAvatar";
-import { userService, type StaffUser, type StaffWorkShift } from "../../services/userService";
+import { userService, type StaffUser, type StaffUserCreateResponse, type StaffWorkShift } from "../../services/userService";
 import { useAuth } from "../../hooks/useAuth";
-import { Badge, Button, Dialog, Drawer, FormField, Input, Select } from "../../components/ui2";
+import { Badge, Button, Dialog, Drawer, FormField, Input, Select, cn } from "../../components/ui2";
 import { canChangeUserRole, canCreateUsers, canEditTargetUserProfile, canEditTargetUserRole, canToggleTargetUser, getAssignableUserRoles } from "../../utils/roleAccess";
 import { formatPreferredShiftScope, getPreferredShiftLabel } from "../../utils/preferredShift";
 
 const ROLE_LABELS: Record<StaffUser["role"], string> = {
-  owner: "Proprietário",
+  owner: "Proprietario",
   manager: "Gerente",
-  receptionist: "Recepcionista",
+  receptionist: "Recepcao",
   salesperson: "Comercial",
   trainer: "Instrutor",
 };
@@ -40,6 +40,62 @@ const SHIFT_OPTIONS = [
 
 const SHIFT_SCOPE_OPTIONS = SHIFT_OPTIONS.filter((option) => option.value) as { value: StaffWorkShift; label: string }[];
 const workShiftSchema = z.enum(["overnight", "morning", "afternoon", "evening"]);
+const MAX_AVATAR_UPLOAD_BYTES = 1_500_000;
+const AVATAR_UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+const createSchema = z
+  .object({
+    full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
+    email: z.string().email("E-mail invalido"),
+    role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
+    password_setup: z.enum(["manual", "invite", "temporary"]),
+    password: z.string().optional().or(z.literal("")),
+    confirm_password: z.string().optional().or(z.literal("")),
+    job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
+    work_shift: workShiftSchema.optional().or(z.literal("")),
+    work_shift_scope: z.array(workShiftSchema).optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.password_setup !== "manual") return;
+    if (!values.password || values.password.length < 8) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Senha deve ter pelo menos 8 caracteres",
+      });
+    }
+    if (values.password !== values.confirm_password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirm_password"],
+        message: "As senhas nao coincidem",
+      });
+    }
+  });
+
+const editSchema = z.object({
+  full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
+  role: z.enum(["manager", "receptionist", "salesperson", "trainer"]).optional(),
+  job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
+  work_shift: workShiftSchema.optional().or(z.literal("")),
+  work_shift_scope: z.array(workShiftSchema).optional(),
+});
+
+type CreateFormValues = z.infer<typeof createSchema>;
+type EditFormValues = z.infer<typeof editSchema>;
+
+interface TemporaryPasswordNotice {
+  title: string;
+  email: string;
+  password: string;
+}
+
+function roleOptionsFor(assignableRoles: StaffUser["role"][]) {
+  return assignableRoles.map((value) => ({
+    value,
+    label: ROLE_LABELS[value],
+  }));
+}
 
 function resolveWorkShiftScope(primary: string | null | undefined, scope: StaffWorkShift[] | undefined): StaffWorkShift[] {
   const resolved: StaffWorkShift[] = [];
@@ -53,86 +109,128 @@ function resolveWorkShiftScope(primary: string | null | undefined, scope: StaffW
   return resolved;
 }
 
-const createSchema = z.object({
-  full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  email: z.string().email("E-mail inválido"),
-  password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
-  role: z.enum(["manager", "receptionist", "salesperson", "trainer"]),
-  job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: workShiftSchema.optional().or(z.literal("")),
-  work_shift_scope: z.array(workShiftSchema).optional(),
-  avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
-});
-
-const editSchema = z.object({
-  full_name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  role: z.enum(["manager", "receptionist", "salesperson", "trainer"]).optional(),
-  job_title: z.string().max(120, "Cargo muito longo").optional().or(z.literal("")),
-  work_shift: workShiftSchema.optional().or(z.literal("")),
-  work_shift_scope: z.array(workShiftSchema).optional(),
-  avatar_url: z.string().url("Informe uma URL válida para a foto").optional().or(z.literal("")),
-});
-
-type CreateFormValues = z.infer<typeof createSchema>;
-type EditFormValues = z.infer<typeof editSchema>;
-
-function roleOptionsFor(assignableRoles: StaffUser["role"][]) {
-  return assignableRoles.map((value) => ({
-    value,
-    label: ROLE_LABELS[value],
-  }));
+function validateAvatarFile(file: File): string | null {
+  if (!AVATAR_UPLOAD_TYPES.includes(file.type)) {
+    return "Envie uma imagem JPG, PNG ou WebP.";
+  }
+  if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
+    return "A foto precisa ter no maximo 1,5 MB.";
+  }
+  return null;
 }
 
+function canResetTargetPassword(actorRole: StaffUser["role"] | null | undefined, targetRole: StaffUser["role"], isSelf: boolean): boolean {
+  if (isSelf) return false;
+  if (actorRole === "owner") return targetRole !== "owner";
+  if (actorRole === "manager") return targetRole === "receptionist" || targetRole === "salesperson" || targetRole === "trainer";
+  return false;
+}
+
+function PasswordNoticeDialog({ notice, onClose }: { notice: TemporaryPasswordNotice | null; onClose: () => void }) {
+  async function copyPassword() {
+    if (!notice) return;
+    try {
+      await navigator.clipboard?.writeText(notice.password);
+      toast.success("Senha copiada.");
+    } catch {
+      toast.error("Nao foi possivel copiar automaticamente.");
+    }
+  }
+
+  return (
+    <Dialog
+      open={Boolean(notice)}
+      onClose={onClose}
+      title={notice?.title ?? "Senha provisoria"}
+      description={notice ? `Envie esta senha para ${notice.email}. Ela sera exibida apenas agora.` : undefined}
+    >
+      {notice ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">Senha provisoria</p>
+            <code className="mt-2 block break-all rounded-xl bg-lovable-surface px-3 py-2 font-mono text-sm text-lovable-ink">
+              {notice.password}
+            </code>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={copyPassword}>
+              <Copy size={14} />
+              Copiar senha
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Fechar
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Dialog>
+  );
+}
 interface CreateUserDrawerProps {
   open: boolean;
   onClose: () => void;
-  onSaved: (createdUser: StaffUser) => void;
+  onSaved: (createdUser: StaffUserCreateResponse) => void;
   assignableRoles: StaffUser["role"][];
 }
 
 function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUserDrawerProps) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const options = roleOptionsFor(assignableRoles);
   const {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
     defaultValues: {
       role: (options[0]?.value ?? "receptionist") as CreateFormValues["role"],
+      password_setup: "manual",
+      password: "",
+      confirm_password: "",
       job_title: "",
       work_shift: "",
       work_shift_scope: [],
-      avatar_url: "",
     },
   });
+  const passwordSetup = watch("password_setup");
 
   const createMutation = useMutation({
     mutationFn: userService.createUser,
     onSuccess: (createdUser) => {
-      toast.success("Usuário criado com sucesso.");
+      if (createdUser.setup_status === "temporary_password_generated") {
+        toast.success("Usuario criado com senha provisoria.");
+      } else if (createdUser.setup_status === "invite_sent") {
+        toast.success("Usuario criado. O convite para definir senha foi enviado.");
+      } else {
+        toast.success("Usuario criado com senha inicial definida.");
+      }
       reset();
+      setAdvancedOpen(false);
       onSaved(createdUser);
       onClose();
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {
-      toast.error(err?.response?.data?.detail ?? "Erro ao criar usuário.");
+      toast.error(err?.response?.data?.detail ?? "Erro ao criar usuario.");
     },
   });
 
   const isPending = isSubmitting || createMutation.isPending;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Novo usuário">
+    <Drawer open={open} onClose={onClose} title="Novo usuario">
       <form
         onSubmit={handleSubmit((values) =>
           createMutation.mutate({
-            ...values,
+            full_name: values.full_name,
+            email: values.email,
+            role: values.role,
+            password_setup: values.password_setup,
+            password: values.password_setup === "manual" ? values.password : null,
             job_title: values.job_title?.trim() || null,
             work_shift: values.work_shift || null,
             work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
-            avatar_url: values.avatar_url?.trim() || null,
           }),
         )}
         className="flex flex-col gap-4 p-4"
@@ -145,10 +243,6 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
           <Input {...register("email")} type="email" placeholder="email@academia.com" />
         </FormField>
 
-        <FormField label="Senha provisória" required error={errors.password?.message}>
-          <Input {...register("password")} type="password" placeholder="Mínimo 8 caracteres" />
-        </FormField>
-
         <FormField label="Papel de acesso" required error={errors.role?.message}>
           <Select {...register("role")}>
             {options.map((option) => (
@@ -159,39 +253,78 @@ function CreateUserDrawer({ open, onClose, onSaved, assignableRoles }: CreateUse
           </Select>
         </FormField>
 
-        <FormField label="Cargo exibido" error={errors.job_title?.message}>
-          <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepção, Comercial" />
-        </FormField>
-
-        <FormField label="Turno operacional" error={errors.work_shift?.message}>
-          <Select {...register("work_shift")}>
-            {SHIFT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+        <FormField label="Senha" required error={errors.password_setup?.message}>
+          <Select {...register("password_setup")}>
+            <option value="manual">Digitar senha agora</option>
+            <option value="invite">Usuario cria a senha por convite</option>
+            <option value="temporary">Gerar senha provisoria agora</option>
           </Select>
         </FormField>
 
-        <FormField label="Turnos cobertos na fila">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-lovable-border bg-lovable-surface-soft/50 p-3">
-            {SHIFT_SCOPE_OPTIONS.map((option) => (
-              <label key={option.value} className="flex items-center gap-2 text-xs font-semibold text-lovable-ink">
-                <input type="checkbox" value={option.value} {...register("work_shift_scope")} className="accent-lovable-primary" />
-                {option.label}
-              </label>
-            ))}
-          </div>
-          <p className="mt-1 text-[11px] text-lovable-ink-muted">Use para lideres que cobrem mais de um turno, como Noite + Madrugada.</p>
-        </FormField>
+        {passwordSetup === "manual" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField label="Senha inicial" required error={errors.password?.message}>
+              <Input {...register("password")} type="password" placeholder="Minimo de 8 caracteres" autoComplete="new-password" />
+            </FormField>
 
-        <FormField label="URL da foto" error={errors.avatar_url?.message}>
-          <Input {...register("avatar_url")} placeholder="https://..." />
-        </FormField>
+            <FormField label="Confirmar senha" required error={errors.confirm_password?.message}>
+              <Input {...register("confirm_password")} type="password" placeholder="Repita a senha" autoComplete="new-password" />
+            </FormField>
+          </div>
+        ) : null}
+
+        <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 px-3 py-2 text-xs text-lovable-ink-muted">
+          Digite a senha inicial quando for criar o acesso imediatamente. Use convite por e-mail quando o provedor estiver funcionando, ou gere senha provisoria quando solicitado.
+        </div>
+
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft/45">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold text-lovable-ink"
+            onClick={() => setAdvancedOpen((current) => !current)}
+            aria-expanded={advancedOpen}
+          >
+            Opcoes avancadas
+            <ChevronDown size={15} className={cn("transition", advancedOpen ? "rotate-180" : "")} />
+          </button>
+
+          {advancedOpen ? (
+            <div className="space-y-4 border-t border-lovable-border p-3">
+              <FormField label="Cargo exibido" error={errors.job_title?.message}>
+                <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepcao, Comercial" />
+              </FormField>
+
+              <FormField label="Turno operacional" error={errors.work_shift?.message}>
+                <Select {...register("work_shift")}>
+                  {SHIFT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+
+              <FormField label="Turnos cobertos na fila">
+                <div className="grid grid-cols-2 gap-2 rounded-2xl border border-lovable-border bg-lovable-surface-soft/50 p-3">
+                  {SHIFT_SCOPE_OPTIONS.map((option) => (
+                    <label key={option.value} className="flex items-center gap-2 text-xs font-semibold text-lovable-ink">
+                      <input type="checkbox" value={option.value} {...register("work_shift_scope")} className="accent-lovable-primary" />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+
+              <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/60 p-3 text-xs text-lovable-ink-muted">
+                A foto da equipe e enviada depois, ao editar o usuario. Assim o acesso pode ser criado rapidamente sem depender de URL manual.
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="flex gap-2 pt-2">
           <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-            {isPending ? "Criando..." : "Criar usuário"}
+            {isPending ? "Criando..." : "Criar usuario"}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
@@ -214,6 +347,7 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
   const canEditRole = user ? canEditTargetUserRole(currentUserRole, user.role, false) : false;
   const assignableRoles = getAssignableUserRoles(currentUserRole);
   const options = roleOptionsFor(assignableRoles);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_url ?? null);
 
   const {
     register,
@@ -232,56 +366,75 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
       job_title: user.job_title ?? "",
       work_shift: user.work_shift ?? "",
       work_shift_scope: user.work_shift_scope ?? [],
-      avatar_url: user.avatar_url ?? "",
     });
+    setAvatarPreview(user.avatar_url ?? null);
   }, [reset, user]);
 
   const editMutation = useMutation({
     mutationFn: async (values: EditFormValues) => {
-      if (!user) {
-        throw new Error("Usuário ausente");
-      }
+      if (!user) throw new Error("Usuario ausente");
 
-        const profilePayload = {
-          full_name: values.full_name,
-          job_title: values.job_title?.trim() || null,
-          work_shift: values.work_shift || null,
-          work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
-          avatar_url: values.avatar_url?.trim() || null,
-        };
+      const profilePayload = {
+        full_name: values.full_name,
+        job_title: values.job_title?.trim() || null,
+        work_shift: values.work_shift || null,
+        work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
+      };
 
       if (canEditRole && values.role && values.role !== user.role) {
-        await userService.updateUser(user.id, {
-          full_name: values.full_name,
-          job_title: values.job_title?.trim() || null,
-          work_shift: values.work_shift || null,
-          work_shift_scope: resolveWorkShiftScope(values.work_shift || null, values.work_shift_scope),
-          avatar_url: values.avatar_url?.trim() || null,
-          role: values.role,
-        });
+        await userService.updateUser(user.id, { ...profilePayload, role: values.role });
         return;
       }
 
       await userService.updateUserProfile(user.id, profilePayload);
     },
     onSuccess: () => {
-      toast.success("Usuário atualizado com sucesso.");
+      toast.success("Usuario atualizado com sucesso.");
       onSaved();
       onClose();
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {
-      toast.error(err?.response?.data?.detail ?? "Erro ao atualizar usuário.");
+      toast.error(err?.response?.data?.detail ?? "Erro ao atualizar usuario.");
     },
   });
+
+  const avatarUploadMutation = useMutation({
+    mutationFn: (file: File) => {
+      if (!user) throw new Error("Usuario ausente");
+      return userService.uploadUserAvatar(user.id, file);
+    },
+    onSuccess: (updatedUser) => {
+      setAvatarPreview(updatedUser.avatar_url ?? null);
+      toast.success("Foto do usuario enviada com sucesso.");
+      onSaved();
+    },
+    onError: (err: { response?: { data?: { detail?: string } } }) => {
+      toast.error(err?.response?.data?.detail ?? "Nao foi possivel enviar a foto do usuario.");
+    },
+  });
+
+  function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const error = validateAvatarFile(file);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    avatarUploadMutation.mutate(file);
+  }
 
   const isPending = isSubmitting || editMutation.isPending;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Editar usuário" side="right">
+    <Drawer open={open} onClose={onClose} title="Editar usuario" side="right">
       {user ? (
         <form onSubmit={handleSubmit((values) => editMutation.mutate(values))} className="flex flex-col gap-4 p-4">
           <div className="flex items-center gap-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft/60 p-3">
-            <UserAvatar fullName={user.full_name} avatarUrl={user.avatar_url} size="md" />
+            <UserAvatar fullName={user.full_name} avatarUrl={avatarPreview} size="md" />
             <div>
               <p className="text-sm font-semibold text-lovable-ink">{user.full_name}</p>
               <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">{user.job_title || ROLE_LABELS[user.role]}</p>
@@ -305,7 +458,27 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
           ) : null}
 
           <FormField label="Cargo exibido" error={errors.job_title?.message}>
-            <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepção, Comercial" />
+            <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepcao, Comercial" />
+          </FormField>
+
+          <FormField label="Foto da equipe">
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4">
+              <input
+                id={`team-avatar-upload-${user.id}`}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={handleAvatarFileChange}
+                disabled={avatarUploadMutation.isPending}
+              />
+              <label
+                htmlFor={`team-avatar-upload-${user.id}`}
+                className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-lovable-border bg-lovable-surface px-4 text-sm font-semibold text-lovable-ink transition hover:border-lovable-border-strong hover:bg-lovable-surface-soft"
+              >
+                {avatarUploadMutation.isPending ? "Enviando..." : "Escolher imagem"}
+              </label>
+              <p className="text-xs text-lovable-ink-muted">JPG, PNG ou WebP ate 1,5 MB. Cargo e foto mudam a identidade exibida; papel muda permissao.</p>
+            </div>
           </FormField>
 
           <FormField label="Turno operacional" error={errors.work_shift?.message}>
@@ -327,16 +500,11 @@ function EditUserDrawer({ open, onClose, user, currentUserRole, onSaved }: EditU
                 </label>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-lovable-ink-muted">Marque todos os turnos que este login deve enxergar no Meu turno.</p>
-          </FormField>
-
-          <FormField label="URL da foto" error={errors.avatar_url?.message}>
-            <Input {...register("avatar_url")} placeholder="https://..." />
           </FormField>
 
           <div className="flex gap-2 pt-2">
             <Button type="submit" variant="primary" disabled={isPending} className="flex-1">
-              {isPending ? "Salvando..." : "Salvar alterações"}
+              {isPending ? "Salvando..." : "Salvar alteracoes"}
             </Button>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancelar
@@ -355,6 +523,7 @@ function UserRow({
   onDeactivate,
   onActivate,
   onEdit,
+  onResetPassword,
   isPending,
   canChangeStatus,
 }: {
@@ -364,12 +533,14 @@ function UserRow({
   onDeactivate: (user: StaffUser) => void;
   onActivate: (user: StaffUser) => void;
   onEdit: (user: StaffUser) => void;
+  onResetPassword: (user: StaffUser) => void;
   isPending: boolean;
   canChangeStatus: boolean;
 }) {
   const isSelf = user.id === currentUserId;
   const canToggle = canChangeStatus && canToggleTargetUser(currentUserRole, user.role, isSelf);
   const canEdit = canEditTargetUserProfile(currentUserRole, user.role, isSelf);
+  const canResetPassword = canResetTargetPassword(currentUserRole, user.role, isSelf);
 
   return (
     <article className="flex flex-col gap-4 rounded-2xl border border-lovable-border bg-lovable-surface p-4 md:flex-row md:items-center md:justify-between">
@@ -402,6 +573,13 @@ function UserRow({
           </Button>
         ) : null}
 
+        {canResetPassword ? (
+          <Button type="button" variant="secondary" size="sm" onClick={() => onResetPassword(user)} disabled={isPending}>
+            <KeyRound size={14} />
+            Resetar senha
+          </Button>
+        ) : null}
+
         {canToggle ? (
           user.is_active ? (
             <Button type="button" variant="danger" size="sm" onClick={() => onDeactivate(user)} disabled={isPending}>
@@ -425,6 +603,8 @@ export function UsersPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
   const [userToDeactivate, setUserToDeactivate] = useState<StaffUser | null>(null);
+  const [userToResetPassword, setUserToResetPassword] = useState<StaffUser | null>(null);
+  const [temporaryPasswordNotice, setTemporaryPasswordNotice] = useState<TemporaryPasswordNotice | null>(null);
   const [roleFilter, setRoleFilter] = useState<StaffUser["role"] | "all">("all");
   const queryClient = useQueryClient();
 
@@ -437,15 +617,34 @@ export function UsersPage() {
   const toggleMutation = useMutation({
     mutationFn: ({ userId, is_active }: { userId: string; is_active: boolean }) => userService.setUserActive(userId, is_active),
     onSuccess: (_, variables) => {
-      toast.success(variables.is_active ? "Usuário reativado com sucesso." : "Usuário desativado com sucesso.");
+      toast.success(variables.is_active ? "Usuario reativado com sucesso." : "Usuario desativado com sucesso.");
       setUserToDeactivate(null);
       void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: () => toast.error("Não foi possível atualizar o usuário."),
+    onError: () => toast.error("Nao foi possivel atualizar o usuario."),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (targetUser: StaffUser) => ({
+      targetUser,
+      result: await userService.resetUserPassword(targetUser.id),
+    }),
+    onSuccess: ({ targetUser, result }) => {
+      setUserToResetPassword(null);
+      setTemporaryPasswordNotice({
+        title: "Senha redefinida",
+        email: targetUser.email,
+        password: result.temporary_password,
+      });
+      toast.success("Senha provisoria gerada.");
+    },
+    onError: (err: { response?: { data?: { detail?: string } } }) => {
+      toast.error(err?.response?.data?.detail ?? "Nao foi possivel resetar a senha.");
+    },
   });
 
   if (usersQuery.isLoading) {
-    return <LoadingPanel text="Carregando usuários..." />;
+    return <LoadingPanel text="Carregando usuarios..." />;
   }
 
   const allUsers = usersQuery.data ?? [];
@@ -456,18 +655,19 @@ export function UsersPage() {
   const canCreateTeamUsers = canCreateUsers(currentUser?.role);
   const canEditRoles = canChangeUserRole(currentUser?.role);
   const canChangeStatus = canCreateTeamUsers;
+  const isPending = toggleMutation.isPending || resetPasswordMutation.isPending;
 
   return (
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuários</h2>
-          <p className="text-sm text-lovable-ink-muted">Gerencie a equipe, personalize perfil exibido e atribua papéis de acesso.</p>
+          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Usuarios</h2>
+          <p className="text-sm text-lovable-ink-muted">Crie acessos, defina senha inicial, ajuste papeis e gerencie reset de senha.</p>
         </div>
         {canCreateTeamUsers ? (
           <Button variant="primary" onClick={() => setDrawerOpen(true)}>
             <UserPlus size={14} />
-            Novo usuário
+            Novo usuario
           </Button>
         ) : null}
       </header>
@@ -480,27 +680,27 @@ export function UsersPage() {
           onChange={(event) => setRoleFilter(event.target.value as StaffUser["role"] | "all")}
           className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-1.5 text-sm text-lovable-ink focus:outline-none focus:ring-2 focus:ring-lovable-primary"
         >
-          <option value="all">Todos os papéis</option>
-          <option value="owner">Proprietário</option>
+          <option value="all">Todos os papeis</option>
+          <option value="owner">Proprietario</option>
           <option value="manager">Gerente</option>
-          <option value="receptionist">Recepcionista</option>
+          <option value="receptionist">Recepcao</option>
           <option value="salesperson">Comercial</option>
           <option value="trainer">Instrutor</option>
         </select>
-        <span className="text-xs text-lovable-ink-muted">{users.length} usuário{users.length !== 1 ? "s" : ""}</span>
-        {canEditRoles ? <Badge variant="info">Owner pode alterar papéis</Badge> : null}
+        <span className="text-xs text-lovable-ink-muted">{users.length} usuario{users.length !== 1 ? "s" : ""}</span>
+        {canEditRoles ? <Badge variant="info">Owner altera papeis</Badge> : null}
       </div>
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-8 text-center">
           <p className="text-lovable-ink-muted">
             {hasFilteredOutUsers
-              ? `Nenhum usuário com papel ${filteredRoleLabel} neste filtro.`
-              : "Nenhum usuário cadastrado além de você."}
+              ? `Nenhum usuario com papel ${filteredRoleLabel} neste filtro.`
+              : "Nenhum usuario cadastrado alem de voce."}
           </p>
           {hasFilteredOutUsers ? (
             <Button type="button" variant="secondary" size="sm" className="mt-4" onClick={() => setRoleFilter("all")}>
-              Ver todos os papéis
+              Ver todos os papeis
             </Button>
           ) : null}
         </div>
@@ -512,11 +712,12 @@ export function UsersPage() {
               user={staff}
               currentUserId={currentUser?.id ?? ""}
               currentUserRole={currentUser?.role ?? "owner"}
-              isPending={toggleMutation.isPending}
+              isPending={isPending}
               canChangeStatus={canChangeStatus}
               onDeactivate={(targetUser) => setUserToDeactivate(targetUser)}
               onActivate={(targetUser) => toggleMutation.mutate({ userId: targetUser.id, is_active: true })}
               onEdit={setEditingUser}
+              onResetPassword={setUserToResetPassword}
             />
           ))}
         </div>
@@ -534,6 +735,13 @@ export function UsersPage() {
             return [...existing, createdUser];
           });
           setRoleFilter(createdUser.role);
+          if (createdUser.temporary_password) {
+            setTemporaryPasswordNotice({
+              title: "Usuario criado",
+              email: createdUser.email,
+              password: createdUser.temporary_password,
+            });
+          }
           void queryClient.invalidateQueries({ queryKey: ["users"] });
         }}
         assignableRoles={assignableRoles}
@@ -547,13 +755,41 @@ export function UsersPage() {
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
       />
 
+      <PasswordNoticeDialog notice={temporaryPasswordNotice} onClose={() => setTemporaryPasswordNotice(null)} />
+
+      <Dialog
+        open={Boolean(userToResetPassword)}
+        onClose={() => setUserToResetPassword(null)}
+        title="Resetar senha"
+        description={
+          userToResetPassword
+            ? `Uma nova senha provisoria sera gerada para ${userToResetPassword.full_name} e exibida apenas uma vez.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setUserToResetPassword(null)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (userToResetPassword) resetPasswordMutation.mutate(userToResetPassword);
+            }}
+            disabled={resetPasswordMutation.isPending}
+          >
+            {resetPasswordMutation.isPending ? "Gerando..." : "Gerar senha provisoria"}
+          </Button>
+        </div>
+      </Dialog>
+
       <Dialog
         open={Boolean(userToDeactivate)}
         onClose={() => setUserToDeactivate(null)}
-        title="Desativar usuário"
+        title="Desativar usuario"
         description={
           userToDeactivate
-            ? `${userToDeactivate.full_name} perderá acesso ao sistema agora, mas poderá ser reativado depois. Deseja continuar?`
+            ? `${userToDeactivate.full_name} perdera acesso ao sistema agora, mas podera ser reativado depois. Deseja continuar?`
             : undefined
         }
       >

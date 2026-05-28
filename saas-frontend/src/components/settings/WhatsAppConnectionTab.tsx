@@ -120,6 +120,7 @@ export function WhatsAppConnectionTab() {
       if (data.status === "connected") {
         setPhase("connected");
         setStatus(await whatsappConnectionService.getStatus());
+        toast.success("WhatsApp ja estava autenticado. Sessao reaproveitada.");
         return;
       }
 
@@ -162,6 +163,12 @@ export function WhatsAppConnectionTab() {
         setQrCode(data.qrcode);
         setPhase("qr");
         startPolling();
+        return;
+      }
+      if (data.status === "connected") {
+        setPhase("connected");
+        setStatus(await whatsappConnectionService.getStatus());
+        toast.success("WhatsApp ja estava autenticado. Sessao reaproveitada.");
         return;
       }
       startPolling();

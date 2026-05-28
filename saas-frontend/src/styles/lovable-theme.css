@@ -4,15 +4,16 @@
   --lovable-surface: 42 28% 97%;
   --lovable-surface-soft: 210 20% 94%;
   --lovable-border: 203 18% 80%;
-  --lovable-border-strong: 201 22% 58%;
+  --lovable-border-strong: 199 76% 52%;
   --lovable-ink: 205 27% 10%;
   --lovable-ink-muted: 202 14% 42%;
-  --lovable-primary: 201 44% 61%;
-  --lovable-primary-soft: 201 70% 91%;
-  --lovable-success: 160 68% 39%;
-  --lovable-warning: 38 84% 56%;
-  --lovable-danger: 350 72% 58%;
-  --lovable-info: 201 65% 61%;
+  --lovable-primary: 199 89% 48%;
+  --lovable-primary-soft: 199 82% 91%;
+  --lovable-success: 160 84% 39%;
+  --lovable-warning: 38 92% 52%;
+  --lovable-danger: 0 84% 60%;
+  --lovable-info: 217 91% 60%;
+  --lovable-ai: 258 90% 66%;
   --lovable-sidebar: 207 44% 8%;
   --lovable-topbar: 207 38% 9%;
   --lovable-elevated: 207 34% 12%;
@@ -20,72 +21,208 @@
   --lovable-chart-stroke: 201 48% 58%;
   --lovable-brand: #6fa7c7;
   --lovable-muted: #748993;
+  --pi-green: #22c55e;
+  --pi-red: #ff3b30;
+  --pi-cyan: #00c8ff;
+  --pi-orange: #f97316;
+  --pi-glow-green: 0 0 18px rgba(34, 197, 94, 0.45);
+  --pi-glow-red: 0 0 18px rgba(255, 59, 48, 0.5);
+  --pi-glow-cyan: 0 0 18px rgba(0, 200, 255, 0.4);
+  --pi-glow-orange: 0 0 18px rgba(249, 115, 22, 0.42);
   --cordex-carbon: #05090d;
   --cordex-carbon-raised: #0a1118;
   --cordex-orbit: #172632;
-  --cordex-nucleus: #6fa7c7;
-  --cordex-nucleus-strong: #86c7ec;
+  --cordex-nucleus: #38bdf8;
+  --cordex-nucleus-strong: #60a5fa;
   --cordex-offwhite: #f4f2ec;
+  --cordex-command-bg: #05080d;
+  --cordex-command-surface: rgba(15, 23, 32, 0.86);
+  --cordex-command-surface-strong: rgba(17, 24, 39, 0.92);
+  --cordex-command-border: rgba(148, 163, 184, 0.14);
+  --cordex-command-border-hot: rgba(56, 189, 248, 0.24);
+  --cordex-command-cyan: #38bdf8;
+  --cordex-command-blue: #3b82f6;
+  --cordex-command-purple: #8b5cf6;
+  --cordex-command-grid: rgba(56, 189, 248, 0.06);
+  --cordex-command-glow: 0 32px 100px -54px rgba(56, 189, 248, 0.75);
   --shadow-lovable:
     0 24px 80px -38px hsl(207 65% 8% / 0.36),
     0 10px 28px -20px hsl(201 58% 44% / 0.18);
   --shadow-panel:
     0 26px 90px -44px hsl(207 80% 4% / 0.5),
     inset 0 1px 0 hsl(0 0% 100% / 0.45);
+
+  /* Dark Intelligence — glow tokens (consumed only in .dark) */
+  --glow-blue: 0 0 12px rgba(59, 130, 246, 0.28);
+  --glow-violet: 0 0 12px rgba(139, 92, 246, 0.28);
+  --glow-danger: 0 0 12px rgba(255, 59, 59, 0.3);
 }
 
 .dark {
-  --lovable-bg: 207 58% 3%;
-  --lovable-bg-muted: 207 45% 5%;
-  --lovable-surface: 207 34% 9%;
-  --lovable-surface-soft: 207 30% 12%;
-  --lovable-border: 202 28% 16%;
-  --lovable-border-strong: 201 31% 31%;
-  --lovable-ink: 195 28% 96%;
-  --lovable-ink-muted: 202 15% 66%;
-  --lovable-primary: 201 49% 62%;
-  --lovable-primary-soft: 201 42% 16%;
-  --lovable-success: 160 70% 42%;
-  --lovable-warning: 38 84% 57%;
-  --lovable-danger: 350 72% 62%;
-  --lovable-info: 201 72% 65%;
-  --lovable-sidebar: 207 58% 4%;
-  --lovable-topbar: 207 46% 6%;
-  --lovable-elevated: 207 36% 10%;
-  --lovable-chart-grid: 202 24% 20%;
-  --lovable-chart-stroke: 201 56% 65%;
-  --lovable-brand: #6fa7c7;
-  --lovable-muted: #91a6b2;
+  /* Dark Intelligence — layered depth (no flat black) */
+  --lovable-bg: 228 15% 6%;          /* #0A0B0F base */
+  --lovable-bg-muted: 228 18% 7%;    /* #0C0E14 sidebar */
+  --lovable-surface: 228 20% 8%;     /* #0E1018 cards */
+  --lovable-surface-soft: 228 22% 9%;/* #101320 elevated */
+  --lovable-border: 228 8% 14%;          /* visual ~ white @ 7% over bg */
+  --lovable-border-strong: 217 70% 50%;
+  --lovable-ink: 220 10% 96%;
+  --lovable-ink-muted: 220 10% 55%;
+  --lovable-primary: 217 91% 60%;        /* #3B82F6 blue */
+  --lovable-primary-soft: 217 91% 10%;
+  --lovable-success: 158 64% 42%;        /* #10B981 */
+  --lovable-warning: 38 92% 50%;         /* #F59E0B */
+  --lovable-danger: 0 100% 61%;          /* #FF3B3B */
+  --lovable-info: 217 91% 60%;
+  --lovable-ai: 258 90% 66%;             /* #8B5CF6 violet — IA identity */
+  --lovable-sidebar: 228 18% 7%;
+  --lovable-topbar: 228 15% 6%;
+  --lovable-elevated: 228 22% 9%;
+  --lovable-chart-grid: 228 8% 12%;      /* visual ~ white @ 5% over bg */
+  --lovable-chart-stroke: 217 80% 62%;
+  --lovable-brand: #3b82f6;
+  --lovable-muted: #5b6171;
+  --cordex-command-bg: #0a0b0f;
+  --cordex-command-surface: rgba(14, 16, 24, 0.92);
+  --cordex-command-surface-strong: rgba(16, 19, 32, 0.96);
+  --cordex-command-border: rgba(255, 255, 255, 0.07);
+  --cordex-command-border-hot: rgba(59, 130, 246, 0.32);
+  --cordex-command-cyan: #00c8ff;
+  --cordex-command-grid: rgba(59, 130, 246, 0.055);
+  --cordex-command-glow: 0 28px 110px -52px rgba(59, 130, 246, 0.72);
   --shadow-lovable:
-    0 30px 120px -52px hsl(207 100% 2% / 0.92),
-    0 14px 38px -24px hsl(201 60% 54% / 0.24);
+    0 30px 120px -52px rgba(0, 0, 0, 0.96),
+    0 14px 44px -28px rgba(59, 130, 246, 0.22);
   --shadow-panel:
-    0 28px 86px -42px hsl(207 100% 2% / 0.95),
-    inset 0 1px 0 hsl(196 100% 92% / 0.05);
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Dark-only glow refresh */
+  --glow-blue: 0 0 12px rgba(59, 130, 246, 0.28);
+  --glow-violet: 0 0 12px rgba(139, 92, 246, 0.30);
+  --glow-danger: 0 0 12px rgba(255, 59, 59, 0.30);
+}
+
+
+@keyframes pi-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.5);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(255, 59, 48, 0);
+  }
+}
+
+@keyframes pi-pulse-green {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes pi-count-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.pi-pulse {
+  animation: pi-pulse 2s ease-in-out infinite;
+}
+
+.pi-pulse-green {
+  animation: pi-pulse-green 2.5s ease-in-out infinite;
+}
+
+.pi-count-in {
+  animation: pi-count-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger entrance utilities — apply .stagger-N to cards for incremental load animation */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.stagger-1 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 50ms;
+}
+.stagger-2 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 100ms;
+}
+.stagger-3 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 150ms;
+}
+.stagger-4 {
+  animation: stagger-in 0.3s both;
+  animation-delay: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-1,
+  .stagger-2,
+  .stagger-3,
+  .stagger-4,
+  .pi-count-in,
+  .pi-pulse,
+  .pi-pulse-green {
+    animation: none;
+  }
 }
 
 body {
-  background:
-    radial-gradient(circle at 12% 4%, hsl(var(--lovable-info) / 0.14) 0%, transparent 28%),
-    radial-gradient(circle at 92% 8%, hsl(var(--lovable-primary) / 0.12) 0%, transparent 26%),
-    radial-gradient(circle at 48% 112%, hsl(var(--lovable-primary) / 0.1) 0%, transparent 34%),
-    linear-gradient(135deg, hsl(207 58% 3%) 0%, hsl(207 46% 5%) 46%, hsl(205 42% 7%) 100%);
+  background: hsl(var(--lovable-bg));
   color: hsl(var(--lovable-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
 }
 
-body::before {
+/* Dark-only ambient: subtle blue glow top + violet accent right */
+.dark body {
+  background:
+    radial-gradient(ellipse 800px 400px at 100% 0%, rgba(139, 92, 246, 0.05), transparent 60%),
+    radial-gradient(ellipse 600px 300px at 0% 0%, rgba(59, 130, 246, 0.04), transparent 55%),
+    hsl(var(--lovable-bg));
+}
+
+/* Subtle grid only in light mode — removed in dark for cleaner depth */
+:root body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -2;
   pointer-events: none;
   background-image:
-    linear-gradient(hsl(var(--lovable-primary) / 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--lovable-primary) / 0.035) 1px, transparent 1px);
-  background-size: 88px 88px;
+    linear-gradient(hsl(var(--lovable-primary) / 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--lovable-primary) / 0.038) 1px, transparent 1px);
+  background-size: 92px 92px;
   mask-image: radial-gradient(circle at 50% 20%, black 0%, transparent 72%);
+}
+
+.dark body::before {
+  content: none;
 }
 
 body::after {
@@ -98,7 +235,7 @@ body::after {
   height: 620px;
   pointer-events: none;
   background: url("/brand/cordex-orbit-watermark.png") center / contain no-repeat;
-  opacity: 0.45;
+  opacity: 0.16;
   filter: blur(0.2px);
 }
 

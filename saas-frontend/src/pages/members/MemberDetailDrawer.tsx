@@ -536,7 +536,29 @@ export function MemberDetailDrawer({
             const retentionProbability = assessmentSummary.forecast.probability_60d;
             const ninetyDayProbability = assessmentSummary.forecast.corrected_probability_90d;
             const statusTone =
-              retentionProbability >= 60 ? "border-green-200 bg-green-50" : retentionProbability >= 40 ? "border-yellow-200 bg-yellow-50" : "border-red-200 bg-red-50";
+              retentionProbability >= 60
+                ? "border-lovable-success/30 bg-lovable-success/10"
+                : retentionProbability >= 40
+                  ? "border-lovable-warning/30 bg-lovable-warning/10"
+                  : "border-lovable-danger/30 bg-lovable-danger/10";
+            const statusTextTone =
+              retentionProbability >= 60
+                ? "text-lovable-success"
+                : retentionProbability >= 40
+                  ? "text-lovable-warning"
+                  : "text-lovable-danger";
+            const forecastTone =
+              ninetyDayProbability >= 60
+                ? "text-lovable-success"
+                : ninetyDayProbability >= 40
+                  ? "text-lovable-warning"
+                  : "text-lovable-danger";
+            const forecastBarTone =
+              ninetyDayProbability >= 60
+                ? "bg-lovable-success"
+                : ninetyDayProbability >= 40
+                  ? "bg-lovable-warning"
+                  : "bg-lovable-danger";
 
             return (
               <>
@@ -546,10 +568,10 @@ export function MemberDetailDrawer({
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="text-[10px] font-semibold uppercase text-lovable-ink-muted">Probabilidade de permanencia</p>
-                      <p className="text-sm font-bold text-lovable-ink">{retentionProbability}% em 60 dias</p>
+                      <p className={clsx("text-sm font-bold", statusTextTone)}>{retentionProbability}% em 60 dias</p>
                     </div>
                     {assessmentSummary.status ? (
-                      <span className="rounded-full border border-lovable-border bg-white/70 px-2 py-1 text-[10px] font-semibold text-lovable-ink">
+                      <span className="rounded-full border border-lovable-border bg-lovable-surface/80 px-2 py-1 text-[10px] font-semibold text-lovable-ink">
                         {assessmentSummary.status}
                       </span>
                     ) : null}
@@ -561,19 +583,11 @@ export function MemberDetailDrawer({
                   <div className="flex items-center gap-3">
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-lovable-surface-soft">
                       <div
-                        className={clsx(
-                          "h-2 rounded-full transition-all",
-                          ninetyDayProbability >= 60 ? "bg-green-500" : ninetyDayProbability >= 40 ? "bg-yellow-400" : "bg-red-500",
-                        )}
+                        className={clsx("h-2 rounded-full transition-all", forecastBarTone)}
                         style={{ width: `${ninetyDayProbability}%` }}
                       />
                     </div>
-                    <span
-                      className={clsx(
-                        "text-sm font-bold",
-                        ninetyDayProbability >= 60 ? "text-green-600" : ninetyDayProbability >= 40 ? "text-yellow-600" : "text-red-600",
-                      )}
-                    >
+                    <span className={clsx("text-sm font-bold", forecastTone)}>
                       {ninetyDayProbability}%
                     </span>
                   </div>
@@ -599,7 +613,7 @@ export function MemberDetailDrawer({
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-lovable-primary">Playbook sugerido</p>
                     <div className="space-y-2">
                       {assessmentSummary.actions.slice(0, 3).map((action) => (
-                        <div key={action.key} className="rounded-lg border border-lovable-border bg-white/70 px-3 py-2">
+                        <div key={action.key} className="rounded-lg border border-lovable-border bg-lovable-surface-soft/80 px-3 py-2">
                           <p className="text-xs font-semibold text-lovable-ink">{action.title}</p>
                           <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
                         </div>

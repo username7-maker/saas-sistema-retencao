@@ -14,6 +14,7 @@ from app.models import (
     AutopilotAction,
     Assessment,
     BodyCompositionEvaluation,
+    Lead,
     Member,
     MemberStatus,
     RoleEnum,
@@ -40,7 +41,6 @@ from app.services.ai_triage_service import (
     get_ai_triage_recommendation_or_404,
     prepare_ai_triage_recommendation_action,
     serialize_ai_triage_recommendation,
-    sync_ai_triage_recommendations,
     update_ai_triage_recommendation_outcome,
 )
 from app.services.ai_service_agent_service import (
@@ -59,7 +59,13 @@ from app.services.audit_service import log_audit_event
 from app.services.automation_journey_service import handle_task_outcome_for_journey
 from app.services.assessment_analytics_service import get_assessments_queue
 from app.services.assessment_service import update_assessment_queue_resolution
-from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
+from app.services.operational_message_ai_service import generate_operational_message_draft
+from app.services.preferred_shift_service import (
+    PreferredShiftDiagnostic,
+    normalize_preferred_shift,
+    normalize_preferred_shift_scope,
+    preferred_shift_diagnostics_from_checkins,
+)
 from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     is_cold_base_stage,
@@ -74,6 +80,7 @@ ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "e
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
+BucketFilter = str
 DAILY_QUEUE_STALE_BACKLOG_AFTER = timedelta(days=14)
 DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS = {"finance", "trainer"}
 
@@ -234,6 +241,71 @@ def _technical_ladder_step_label(step: str | None) -> str | None:
     return None
 
 
+def _parse_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped.startswith("d"):
+            stripped = stripped[1:]
+        try:
+            return int(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _onboarding_bucket_from_day(day: int | None) -> tuple[str, str]:
+    if day is None:
+        return "onboarding_unknown", "Onboarding sem dia"
+    if day <= 0:
+        return "onboarding_d0", "Dia 0"
+    if day == 1:
+        return "onboarding_d1", "Dia 1"
+    if day <= 6:
+        return "onboarding_d2_d6", "Dia 2-6"
+    return "onboarding_d7_plus", "Dia 7+"
+
+
+def _task_onboarding_day(extra: dict) -> int | None:
+    day = _parse_int(extra.get("day_offset"))
+    if day is not None:
+        return day
+    return _parse_int(extra.get("onboarding_stage_key"))
+
+
+def _execution_bucket_for_task(task: Task, *, domain: str, retention_payload: dict, technical_step: str | None) -> tuple[str | None, str | None]:
+    extra = _task_extra(task)
+    if domain == "onboarding":
+        return _onboarding_bucket_from_day(_task_onboarding_day(extra))
+    if domain == "retention":
+        stage = retention_payload.get("retention_stage")
+        label = retention_payload.get("retention_stage_label")
+        if stage and label:
+            return f"retention_{stage}", str(label)
+        return "retention_monitoring", "Monitoramento"
+    if domain == "trainer" and technical_step:
+        label = _technical_ladder_step_label(technical_step)
+        return f"trainer_{technical_step}", label or "Etapa tecnica"
+    if domain == "finance":
+        return "finance_delinquency", "Inadimplencia"
+    if domain == "commercial":
+        return "commercial_lead", "Lead comercial"
+    return None, None
+
+
+def _execution_bucket_for_ai(item) -> tuple[str | None, str | None]:
+    if item.source_domain == "onboarding":
+        return _onboarding_bucket_from_day(_parse_int(item.metadata.get("days_since_join")))
+    if item.source_domain == "retention":
+        stage = item.metadata.get("retention_stage")
+        payload = retention_stage_payload(str(stage) if stage else None)
+        return f"retention_{payload['retention_stage']}", str(payload["retention_stage_label"])
+    return None, None
+
+
 def _task_action_label(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "").lower()
     extra = _task_extra(task)
@@ -254,7 +326,7 @@ def _task_action_label(task: Task) -> str:
         return str(extra.get("primary_action_label") or task.title or "Executar etapa da jornada")
     if source == "delinquency" or extra.get("domain") == "finance":
         return str(extra.get("primary_action_label") or "Cobrar inadimplencia")
-    if task.suggested_message:
+    if _effective_task_message(task):
         return "Usar mensagem pronta"
     if task.status == TaskStatus.DOING:
         return "Registrar resultado"
@@ -265,17 +337,83 @@ def _task_action_label(task: Task) -> str:
     return "Iniciar tarefa"
 
 
-def _task_to_item(task: Task) -> WorkQueueItemOut:
+def _message_metadata_from_task(task: Task) -> dict:
+    extra = _task_extra(task)
+    metadata = extra.get("ai_message_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _effective_task_message(task: Task) -> str | None:
+    extra = _task_extra(task)
+    ai_message = extra.get("ai_suggested_message")
+    if isinstance(ai_message, str) and ai_message.strip():
+        return ai_message.strip()
+    return task.suggested_message
+
+
+def _work_queue_message_fields(
+    *,
+    message: str | None,
+    metadata: dict | None = None,
+    source: str | None = None,
+    blocked_reasons: list | None = None,
+) -> dict:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    reasons = blocked_reasons
+    if reasons is None:
+        raw_reasons = metadata.get("blocked_reasons")
+        reasons = raw_reasons if isinstance(raw_reasons, list) else []
+    message_source = source or metadata.get("message_source")
+    if not message_source:
+        message_source = "template_safe" if message else None
+    return {
+        "suggested_message": message,
+        "message_source": message_source,
+        "prompt_key": metadata.get("prompt_key"),
+        "prompt_version": metadata.get("prompt_version"),
+        "model": metadata.get("model"),
+        "safety_profile": metadata.get("safety_profile"),
+        "message_fallback_used": bool(metadata.get("fallback_used")),
+        "message_blocked_reasons": [str(reason) for reason in reasons],
+    }
+
+
+def _task_shift_diagnostics(db: Session, task: Task) -> dict[UUID, PreferredShiftDiagnostic]:
+    if not getattr(task, "member", None):
+        return {}
+    return preferred_shift_diagnostics_from_checkins(db, [task.member])
+
+
+def _task_to_item(
+    task: Task,
+    *,
+    shift_diagnostics: dict[UUID, PreferredShiftDiagnostic] | None = None,
+) -> WorkQueueItemOut:
     member_name = task.member.full_name if task.member else None
     lead_name = task.lead.full_name if task.lead else None
     subject_name = member_name or lead_name or task.title
     subject_phone = (task.member.phone if task.member else None) or (task.lead.phone if task.lead else None)
     reason = task.description or task.title
     preferred_shift = getattr(task.member, "preferred_shift", None) if task.member else None
+    shift_diagnostic = shift_diagnostics.get(task.member_id) if shift_diagnostics and task.member_id else None
     extra = _task_extra(task)
+    domain = _task_domain(task)
     retention_stage = extra.get("retention_stage") or (getattr(task.member, "retention_stage", None) if task.member else None)
-    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if _task_domain(task) == "retention" else {}
+    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if domain == "retention" else {}
     technical_step = str(extra.get("technical_ladder_step") or "") or None
+    execution_bucket, execution_bucket_label = _execution_bucket_for_task(
+        task,
+        domain=domain,
+        retention_payload=retention_payload,
+        technical_step=technical_step,
+    )
+    effective_message = _effective_task_message(task)
+    message_fields = _work_queue_message_fields(
+        message=effective_message,
+        metadata=_message_metadata_from_task(task),
+        source=str(extra.get("ai_message_source") or "") or None,
+        blocked_reasons=extra.get("ai_message_blocked_reasons") if isinstance(extra.get("ai_message_blocked_reasons"), list) else None,
+    )
     return WorkQueueItemOut(
         source_type="task",
         source_id=task.id,
@@ -283,13 +421,16 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         member_id=task.member_id,
         lead_id=task.lead_id,
         subject_phone=subject_phone,
-        domain=_task_domain(task),
+        domain=domain,
         severity=_task_severity(task),
         preferred_shift=preferred_shift,
+        preferred_shift_status=shift_diagnostic["status"] if shift_diagnostic else None,
+        preferred_shift_reason=shift_diagnostic["reason"] if shift_diagnostic else None,
+        preferred_shift_counts=shift_diagnostic["counts"] if shift_diagnostic else {},
         reason=reason[:260],
         primary_action_label=_task_action_label(task),
-        primary_action_type="open_context" if not task.suggested_message else "prepare_outbound_message",
-        suggested_message=task.suggested_message,
+        primary_action_type="open_context" if not effective_message else "prepare_outbound_message",
+        **message_fields,
         requires_confirmation=False,
         state=_task_state(task),  # type: ignore[arg-type]
         due_at=task.due_date,
@@ -302,6 +443,8 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
         technical_ladder_step=technical_step,
         technical_ladder_step_label=_technical_ladder_step_label(technical_step),
+        execution_bucket=execution_bucket,
+        execution_bucket_label=execution_bucket_label,
         autopilot_state=str(extra.get("autopilot_state") or "") or None,
         autopilot_badges=_task_autopilot_badges(task),
         execution_channel=str(extra.get("work_queue_execution_channel") or "") or None,
@@ -511,6 +654,8 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     subject_phone = item.metadata.get("subject_phone")
     retention_stage = item.metadata.get("retention_stage")
     retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if item.source_domain == "retention" else {}
+    message_fields = _work_queue_message_fields(message=item.suggested_message, metadata=item.metadata)
+    execution_bucket, execution_bucket_label = _execution_bucket_for_ai(item)
     return WorkQueueItemOut(
         source_type="ai_triage",
         source_id=item.id,
@@ -524,7 +669,7 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
         reason=item.operator_summary or item.why_now_summary,
         primary_action_label=item.primary_action_label or item.recommended_action,
         primary_action_type=str(item.primary_action_type or "create_task"),
-        suggested_message=item.suggested_message,
+        **message_fields,
         requires_confirmation=item.requires_explicit_approval,
         state=_ai_state(recommendation),  # type: ignore[arg-type]
         due_at=None,
@@ -534,6 +679,8 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
         retention_stage=retention_payload.get("retention_stage"),
         retention_stage_label=retention_payload.get("retention_stage_label"),
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
+        execution_bucket=execution_bucket,
+        execution_bucket_label=execution_bucket_label,
     )
 
 
@@ -688,6 +835,13 @@ def _matches_assignee(item: WorkQueueItemOut, current_user: User, assignee: Assi
     return item.assigned_to_user_id == current_user.id
 
 
+def _matches_bucket(item: WorkQueueItemOut, bucket: BucketFilter) -> bool:
+    normalized = (bucket or "all").strip()
+    if not normalized or normalized == "all":
+        return True
+    return item.execution_bucket == normalized
+
+
 def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, datetime]:
     severity_weight = {"critical": 500, "urgent": 500, "high": 350, "medium": 180, "low": 80}.get(item.severity, 120)
     state_weight = {"do_now": 200, "awaiting_outcome": 140, "done": -500}.get(item.state, 0)
@@ -731,6 +885,7 @@ def _filter_items(
     shift: ShiftFilter,
     assignee: AssigneeFilter,
     domain: DomainFilter,
+    bucket: BucketFilter = "all",
 ) -> list[WorkQueueItemOut]:
     filtered = []
     now = _now()
@@ -740,6 +895,8 @@ def _filter_items(
         if domain == "operations" and item.domain in {"retention", "trainer"}:
             continue
         if domain not in {"all", "operations"} and item.domain != domain:
+            continue
+        if not _matches_bucket(item, bucket):
             continue
         if state == "do_now":
             if item.domain == "retention" and is_cold_base_stage(item.retention_stage):
@@ -777,13 +934,16 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
         .unique()
         .all()
     )
-    return [_task_to_item(task) for task in tasks if not is_task_operationally_archived(task)]
+    shift_diagnostics = preferred_shift_diagnostics_from_checkins(db, [task.member for task in tasks if task.member is not None])
+    return [_task_to_item(task, shift_diagnostics=shift_diagnostics) for task in tasks if not is_task_operationally_archived(task)]
 
 
 def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         return []
-    sync_ai_triage_recommendations(db, gym_id=current_user.gym_id)
+    # Keep Work Queue list reads cheap and predictable. AI triage refresh can call
+    # OpenAI many times, so it must run through its own endpoint/job, not every
+    # time /tasks renders.
     recommendations = list(
         db.scalars(
             select(AITriageRecommendation)
@@ -869,6 +1029,7 @@ def list_work_queue_items(
     assignee: AssigneeFilter = "all",
     domain: DomainFilter = "all",
     source: SourceFilter = "all",
+    bucket: BucketFilter = "all",
     page: int = 1,
     page_size: int = 25,
 ) -> PaginatedResponse[WorkQueueItemOut]:
@@ -887,7 +1048,7 @@ def list_work_queue_items(
     if source in {"all", "student_personal_ai"}:
         items.extend(_list_student_personal_ai_items(db, current_user))
 
-    filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain)
+    filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain, bucket=bucket)
     total = len(filtered)
     start = (page - 1) * page_size
     return PaginatedResponse(items=filtered[start : start + page_size], total=total, page=page, page_size=page_size)
@@ -905,7 +1066,7 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         if is_task_operationally_archived(task):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
-        return _task_to_item(task)
+        return _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
 
     if source_type == "assessment_queue":
         if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
@@ -947,6 +1108,142 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
     return _ai_to_item(recommendation)
+
+
+def regenerate_work_queue_message(
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+) -> WorkQueueActionResultOut:
+    if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+
+    if source_type == "task":
+        task = db.scalar(
+            select(Task)
+            .options(joinedload(Task.member), joinedload(Task.lead))
+            .where(Task.id == source_id, Task.deleted_at.is_(None))
+        )
+        if task is None or is_task_operationally_archived(task):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
+        _ensure_task_access(task, current_user)
+        base_message = _effective_task_message(task) or _default_task_message(task)
+        draft = generate_operational_message_draft(
+            db,
+            domain=_task_domain(task),
+            base_message=base_message,
+            member=task.member,
+            lead=task.lead,
+            task=task,
+            context={"source": str((_task_extra(task).get("source") or "manual")), "priority": task.priority.value},
+        )
+        extra = _task_extra(task)
+        extra.update(
+            {
+                "ai_suggested_message": draft.message,
+                "ai_message_metadata": draft.metadata,
+                "ai_message_source": draft.message_source,
+                "ai_message_blocked_reasons": draft.blocked_reasons,
+                "ai_message_regenerated_at": _now().isoformat(),
+                "ai_message_regenerated_by_user_id": str(current_user.id),
+            }
+        )
+        task.extra_data = extra
+        if draft.message:
+            task.suggested_message = draft.message
+        db.add(task)
+        record_task_event(
+            db,
+            task=task,
+            current_user=current_user,
+            event_type="updated",
+            outcome="ai_message_regenerated",
+            note="Rascunho operacional regenerado pela IA.",
+            metadata_json={
+                "source": "cordex_copy_agent",
+                "message_source": draft.message_source,
+                "prompt_key": draft.metadata.get("prompt_key"),
+                "blocked_reasons": draft.blocked_reasons,
+            },
+            flush=False,
+        )
+        db.flush()
+        item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
+        return WorkQueueActionResultOut(
+            item=item,
+            detail="Rascunho regenerado. Revise antes de enviar.",
+            prepared_message=item.suggested_message,
+            context_path=item.context_path,
+            task_id=task.id,
+            supported=True,
+        )
+
+    if source_type == "ai_triage":
+        recommendation = get_ai_triage_recommendation_or_404(db, recommendation_id=source_id, gym_id=current_user.gym_id)
+        snapshot = dict(recommendation.payload_snapshot or {})
+        metadata = dict(snapshot.get("metadata") or {})
+        member = db.get(Member, recommendation.member_id) if recommendation.member_id else None
+        lead = db.get(Lead, recommendation.lead_id) if recommendation.lead_id else None
+        base_message = snapshot.get("suggested_message") or _default_snapshot_message(snapshot)
+        draft = generate_operational_message_draft(
+            db,
+            domain=recommendation.source_domain,
+            base_message=base_message,
+            member=member,
+            lead=lead,
+            context={**metadata, "recommended_action": snapshot.get("recommended_action")},
+        )
+        snapshot["suggested_message"] = draft.message
+        metadata.update(
+            {
+                "message_source": draft.message_source,
+                "prompt_key": draft.metadata.get("prompt_key"),
+                "prompt_version": draft.metadata.get("prompt_version"),
+                "model": draft.metadata.get("model"),
+                "safety_profile": draft.metadata.get("safety_profile"),
+                "fallback_used": draft.fallback_used,
+                "blocked_reasons": draft.blocked_reasons,
+                "ai_message_regenerated_at": _now().isoformat(),
+                "ai_message_regenerated_by_user_id": str(current_user.id),
+            }
+        )
+        snapshot["metadata"] = metadata
+        recommendation.payload_snapshot = snapshot
+        recommendation.last_refreshed_at = _now()
+        db.add(recommendation)
+        db.flush()
+        item = _ai_to_item(recommendation)
+        return WorkQueueActionResultOut(
+            item=item,
+            detail="Rascunho regenerado. Revise antes de enviar.",
+            prepared_message=item.suggested_message,
+            context_path=item.context_path,
+            task_id=None,
+            supported=True,
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Regenerar rascunho esta disponivel para tasks e recomendacoes da Central Cordex.",
+    )
+
+
+def _default_task_message(task: Task) -> str:
+    if task.member is not None:
+        name = (task.member.full_name or "Aluno").strip().split(" ")[0] or "Aluno"
+        return f"Oi {name}, passando para falar sobre: {task.title}."
+    if task.lead is not None:
+        name = (task.lead.full_name or "Oi").strip().split(" ")[0] or "Oi"
+        return f"Oi {name}, posso te ajudar com o proximo passo?"
+    return task.description or task.title
+
+
+def _default_snapshot_message(snapshot: dict) -> str:
+    subject = str(snapshot.get("subject_name") or "Aluno").strip().split(" ")[0] or "Aluno"
+    action = str(snapshot.get("recommended_action") or "acompanhar seu caso").strip()
+    return f"Oi {subject}, passando para {action.lower()}."
 
 
 def _execute_assessment_queue_item(
@@ -1039,11 +1336,11 @@ def _execute_task(
         flush=False,
     )
     db.flush()
-    item = _task_to_item(task)
+    item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
     return WorkQueueActionResultOut(
         item=item,
         detail="Task colocada em execucao. Registre o resultado apos o contato.",
-        prepared_message=task.suggested_message,
+        prepared_message=item.suggested_message,
         context_path=item.context_path,
         task_id=task.id,
         supported=True,
@@ -1479,7 +1776,7 @@ def send_and_wait_work_queue_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
     _ensure_task_access(task, current_user)
 
-    message = (payload.message or task.suggested_message or "").strip()
+    message = (payload.message or _effective_task_message(task) or "").strip()
     if not message:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Mensagem obrigatoria para envio.")
     if not (task.member or task.lead):
@@ -1676,7 +1973,7 @@ def send_and_wait_work_queue_item(
         flush=False,
     )
     db.flush()
-    item = _task_to_item(task)
+    item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
     if action.status == "awaiting_outcome":
         detail = (
             "Handoff criado na Kommo. A task ficou aguardando resposta na Kommo para o Autopilot resolver ou escalar."
@@ -1867,11 +2164,11 @@ def update_work_queue_outcome(
             note=payload.note,
         )
         db.flush()
-        item = _task_to_item(task)
+        item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
         return WorkQueueActionResultOut(
             item=item,
             detail="Resultado registrado na task.",
-            prepared_message=task.suggested_message,
+            prepared_message=_effective_task_message(task),
             context_path=item.context_path,
             task_id=task.id,
         )

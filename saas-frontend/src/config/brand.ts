@@ -1,7 +1,7 @@
 export const COMPANY_NAME = "Cordex";
 export const PRODUCT_NAME = "Cordex Gym OS";
 export const PRODUCT_TAGLINE = "Sistema operacional inteligente para academias";
-export const PRODUCT_SHORT_TAGLINE = "Retencao inteligente";
+export const PRODUCT_SHORT_TAGLINE = "Retenção inteligente";
 
 export const BRAND_ASSETS = {
   logoFull: "/brand/cordex-logo-full.jpeg",
@@ -14,21 +14,25 @@ export const BRAND_ASSETS = {
 } as const;
 
 export const BRAND_COLORS = {
-  ink: "#eef4f6",
-  inkMuted: "#91a6b2",
-  carbon: "#05090d",
-  carbonRaised: "#0a1118",
-  carbonSoft: "#101923",
+  ink: "#e5edf5",
+  inkMuted: "#8b9bad",
+  carbon: "#05080d",
+  carbonRaised: "#0b1118",
+  carbonSoft: "#0f1720",
   orbit: "#172632",
-  nucleus: "#6fa7c7",
-  nucleusStrong: "#86c7ec",
+  nucleus: "#38bdf8",
+  nucleusStrong: "#3b82f6",
+  ai: "#8b5cf6",
+  success: "#10b981",
+  warning: "#f59e0b",
+  danger: "#ef4444",
   offWhite: "#f4f2ec",
 } as const;
 
 export const BRAND_SURFACES = {
-  shell: "linear-gradient(135deg, #05090d 0%, #081019 48%, #0b1720 100%)",
-  panel: "linear-gradient(145deg, rgba(12, 22, 31, 0.96), rgba(8, 14, 20, 0.94))",
-  nucleusGlow: "0 24px 70px -34px rgba(111, 167, 199, 0.9)",
+  shell: "linear-gradient(135deg, #05080d 0%, #06101a 48%, #08111d 100%)",
+  panel: "linear-gradient(145deg, rgba(15, 23, 32, 0.92), rgba(8, 17, 29, 0.88))",
+  nucleusGlow: "0 32px 100px -54px rgba(56, 189, 248, 0.75)",
 } as const;
 
 export const BRAND_MOTION = {

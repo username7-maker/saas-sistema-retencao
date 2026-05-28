@@ -97,7 +97,7 @@ def _next_business_time(settings: GymAutopilotSettings, now: datetime) -> dateti
 def _recent_auto_messages_count(db: Session, *, gym_id: UUID, member_id: UUID | None, lead_id: UUID | None, window: timedelta) -> int:
     filters = [
         MessageLog.gym_id == gym_id,
-        MessageLog.channel == "whatsapp",
+        MessageLog.channel.in_(["whatsapp", "kommo"]),
         MessageLog.direction == "outbound",
         MessageLog.created_at >= _now() - window,
         MessageLog.status.in_(["pending", "sent", "delivered", "read"]),

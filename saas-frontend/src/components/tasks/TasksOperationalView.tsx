@@ -2,7 +2,8 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Filter, FolderSearch, Inbox, SearchX, SlidersHorizontal } from "lucide-react";
 
-import { EmptyState, FilterBar, KPIStrip, SectionHeader, SkeletonList } from "../ui";
+import { EmptyState, FilterBar, SectionHeader, SkeletonList } from "../ui";
+import { MetricCard } from "../ui2/command";
 import { Button, Dialog, Select, Tabs, TabsList, TabsTrigger } from "../ui2";
 import type { CreateTaskPayload, UpdateTaskPayload } from "../../services/taskService";
 import type { StaffUser } from "../../services/userService";
@@ -253,7 +254,11 @@ export function TasksOperationalView({
 
   return (
     <div className="space-y-6">
-      <KPIStrip items={kpiItems} />
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {kpiItems.map((kpi, i) => (
+          <MetricCard key={kpi.label} label={kpi.label} value={String(kpi.value)} tone={kpi.tone} className={`stagger-${Math.min(i + 1, 4)}`} />
+        ))}
+      </div>
 
       <section className="sticky top-4 z-20 space-y-3 rounded-2xl border border-lovable-border bg-lovable-bg/95 px-3 py-3 backdrop-blur">
         <FilterBar

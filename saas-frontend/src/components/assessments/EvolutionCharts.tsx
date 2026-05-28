@@ -92,16 +92,18 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
           <div className="mt-3 h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={frequencyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.6)" />
                 <XAxis dataKey="label" tickFormatter={shortMonthLabel} stroke="hsl(var(--lovable-ink-muted))" />
                 <YAxis stroke="hsl(var(--lovable-ink-muted))" />
                 <Tooltip
                   labelFormatter={(value) => shortMonthLabel(String(value))}
                   formatter={(value) => [`${value} check-ins`, "Frequencia"]}
                   contentStyle={{
-                    background: "hsl(var(--lovable-surface))",
-                    border: "1px solid hsl(var(--lovable-border))",
-                    borderRadius: "0.75rem",
+                    background: "rgba(14,16,24,0.97)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "12px",
+                    padding: "10px 14px",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
                   }}
                 />
                 <Bar dataKey="checkins" fill="hsl(var(--lovable-primary))" radius={[8, 8, 0, 0]} />
@@ -117,7 +119,7 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
             {hasCompositionData ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={compositionData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.6)" />
                   <XAxis dataKey="label" tickFormatter={shortMonthLabel} stroke="hsl(var(--lovable-ink-muted))" />
                   <YAxis stroke="hsl(var(--lovable-ink-muted))" />
                   <Tooltip
@@ -129,17 +131,22 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
                         : [`${Number(value).toFixed(1)}%`, "% gordura"];
                     }}
                     contentStyle={{
-                      background: "hsl(var(--lovable-surface))",
-                      border: "1px solid hsl(var(--lovable-border))",
-                      borderRadius: "0.75rem",
+                      background: "rgba(14,16,24,0.97)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: "12px",
+                      padding: "10px 14px",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
                     }}
+                    labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px" }}
+                    itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
+                    cursor={{ stroke: "rgba(255,255,255,0.10)", strokeDasharray: "3 3" }}
                   />
                   <Legend />
                   <Line
                     type="monotone"
                     dataKey="lean_mass"
                     name="Massa magra"
-                    stroke="#22c55e"
+                    stroke="hsl(var(--lovable-success))"
                     strokeWidth={2.5}
                     connectNulls
                     dot={{ r: 3 }}
@@ -148,7 +155,7 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
                     type="monotone"
                     dataKey="body_fat"
                     name="% gordura"
-                    stroke="#ef4444"
+                    stroke="hsl(var(--lovable-danger))"
                     strokeWidth={2.5}
                     connectNulls
                     dot={{ r: 3 }}
@@ -175,7 +182,7 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
           {hasLoadData ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={loadData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.6)" />
                 <XAxis dataKey="label" tickFormatter={shortMonthLabel} stroke="hsl(var(--lovable-ink-muted))" />
                 <YAxis stroke="hsl(var(--lovable-ink-muted))" />
                 <Tooltip
@@ -185,9 +192,11 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
                     return [`${Number(value).toFixed(1)}`, "Carga"];
                   }}
                   contentStyle={{
-                    background: "hsl(var(--lovable-surface))",
-                    border: "1px solid hsl(var(--lovable-border))",
-                    borderRadius: "0.75rem",
+                    background: "rgba(14,16,24,0.97)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "12px",
+                    padding: "10px 14px",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
                   }}
                 />
                 <Line type="monotone" dataKey="load" stroke="hsl(var(--lovable-primary))" strokeWidth={2.5} connectNulls dot={{ r: 3 }} />

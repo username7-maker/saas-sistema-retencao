@@ -218,24 +218,26 @@ describe("DashboardLovable", () => {
     dashboardHooks.useBIFoundationDashboard.mockReturnValue(queryResult(biFoundationData));
   });
 
-  it("renders the reorganized dashboard with header, KPIs, weekly summary, chart toggle, AI and ROI", async () => {
+  it("renders the command center dashboard with hero, KPIs, intelligence map, chart and action queue", async () => {
     renderPage();
 
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Visao geral operacional e estrategica da academia")).toBeInTheDocument();
+    expect(screen.getByText("Resumo executivo")).toBeInTheDocument();
+    expect(screen.getByText("Visão executiva")).toBeInTheDocument();
+    expect(screen.getByText("Briefing inteligente")).toBeInTheDocument();
 
-    expect(screen.getByText("Total membros")).toBeInTheDocument();
-    expect(screen.getByText("Ativos")).toBeInTheDocument();
-    expect(screen.getByText("Churn")).toBeInTheDocument();
-    expect(screen.getByText("Receita")).toBeInTheDocument();
+    expect(screen.getByText("Total de membros")).toBeInTheDocument();
+    expect(screen.getAllByText("Alunos ativos").length).toBeGreaterThan(0);
+    expect(screen.getByText("Churn médio")).toBeInTheDocument();
+    expect(screen.getByText("Receita / MRR")).toBeInTheDocument();
 
-    expect(screen.getByText("Resumo semanal")).toBeInTheDocument();
-    expect(screen.getByText("Check-ins 7d")).toBeInTheDocument();
+    expect(screen.getByText("Check-ins 7D")).toBeInTheDocument();
     expect(screen.getByText("Novos alunos")).toBeInTheDocument();
+    expect(screen.getByText("MRR em risco")).toBeInTheDocument();
+    expect(screen.getByText("Mapa de Inteligência Operacional")).toBeInTheDocument();
 
     expect(screen.getByTestId("area-chart")).toHaveAttribute("data-points", "6");
 
-    fireEvent.click(screen.getByRole("button", { name: "3M" }));
+    fireEvent.click(screen.getByRole("button", { name: "3 meses" }));
     await waitFor(() => {
       expect(screen.getByTestId("area-chart")).toHaveAttribute("data-points", "3");
     });
@@ -245,11 +247,9 @@ describe("DashboardLovable", () => {
       expect(screen.getByTestId("area-chart")).toHaveAttribute("data-points", "7");
     });
 
-    expect(screen.getByText("AI Insight Card")).toBeInTheDocument();
-    expect(screen.getByText("ROI Summary Card")).toBeInTheDocument();
-    expect(screen.getByText("Execucao e ativacao")).toBeInTheDocument();
-    expect(screen.getByText("Revisar alunos com receita em risco")).toBeInTheDocument();
-    expect(screen.getByText(/Acoes prioritarias/i)).toBeInTheDocument();
+    expect(screen.getByText("Fila de ações sugeridas")).toBeInTheDocument();
+    expect(screen.getByText("Matriz de risco")).toBeInTheDocument();
+    expect(screen.getByText("Segmentos prioritários para decisão de retenção.")).toBeInTheDocument();
     expect(screen.getAllByText("Ana Silva").length).toBeGreaterThan(0);
     expect(screen.getByText("Lead Maria")).toBeInTheDocument();
   });
@@ -267,9 +267,9 @@ describe("DashboardLovable", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Nenhuma acao prioritaria no momento")).toBeInTheDocument();
+    expect(await screen.findByText("Nenhuma ação urgente")).toBeInTheDocument();
     expect(
-      screen.getByText("A fila esta sob controle. Volte mais tarde para acompanhar novas oportunidades."),
+      screen.getByText("A operação não tem fila crítica no recorte atual."),
     ).toBeInTheDocument();
   });
 
@@ -291,10 +291,10 @@ describe("DashboardLovable", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Sem base historica util para o grafico")).toBeInTheDocument();
+    expect(await screen.findByText("Sem base histórica suficiente")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "O piloto ainda nao acumulou NPS ou churn com variacao suficiente. Assim que houver respostas e cancelamentos registrados, a curva aparece aqui com contexto real.",
+        "Assim que houver NPS, check-ins e cancelamentos registrados, a curva de tendência aparece aqui.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();

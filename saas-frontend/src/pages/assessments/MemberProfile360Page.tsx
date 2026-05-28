@@ -99,6 +99,8 @@ const TASK_STATUS_MAP = {
   cancelled: { label: STATUS_LABELS.cancelled, variant: "danger" as const },
 };
 
+const SHOW_PROFILE_COACH_PANELS = false;
+
 function normalizeKommoDomain(value: unknown): KommoSendDomain {
   if (value === "retention") return "retention";
   if (value === "onboarding") return "onboarding";
@@ -1404,7 +1406,7 @@ export function MemberProfile360Page() {
                   {birthdayDisplay ? (
                     <span
                       title={birthdayFullDate ?? undefined}
-                      className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200"
+                      className="inline-flex items-center gap-2 rounded-full border border-lovable-warning/25 bg-lovable-warning/10 px-3 py-1.5 text-xs font-medium text-lovable-warning"
                     >
                       <CalendarDays size={12} />
                       {`Aniversario ${birthdayDisplay}${birthdayMeta ? ` - ${birthdayMeta}` : ""}`}
@@ -1492,8 +1494,12 @@ export function MemberProfile360Page() {
             </CardContent>
           </Card>
 
-          <PersonalAiProfilePanel memberId={member.id} memberName={member.full_name} enabled={canUsePersonalAi} onOpenTab={openTab} />
-          <MovementVideoProfilePanel memberId={member.id} enabled={canUseMovementVideo} />
+          {SHOW_PROFILE_COACH_PANELS ? (
+            <>
+              <PersonalAiProfilePanel memberId={member.id} memberName={member.full_name} enabled={canUsePersonalAi} onOpenTab={openTab} />
+              <MovementVideoProfilePanel memberId={member.id} enabled={canUseMovementVideo} />
+            </>
+          ) : null}
         </div>
       </section>
 

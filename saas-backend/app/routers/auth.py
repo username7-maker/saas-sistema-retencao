@@ -113,6 +113,20 @@ def _resolve_refresh_token(request: Request, payload: RefreshTokenInput | None) 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
 
 
+def _email_delivery_failure_detail(reason: str | None) -> str:
+    if reason == "resend_api_key_missing":
+        return "Servico de e-mail sem chave do Resend. Configure o envio ou solicite reset ao administrador."
+    if reason == "resend_permission_denied":
+        return "Servico de e-mail sem permissao de envio no Resend. Corrija a chave ou solicite reset ao administrador."
+    if reason == "resend_rate_limited":
+        return "Servico de e-mail temporariamente limitado pelo Resend. Tente novamente em alguns minutos."
+    if reason == "resend_validation_error":
+        return "Servico de e-mail recusou o payload de envio. Corrija a configuracao ou solicite reset ao administrador."
+    if reason == "sender_identity_unverified":
+        return "Remetente ou dominio de e-mail nao verificado. Corrija o remetente ou solicite reset ao administrador."
+    return "Nao foi possivel enviar o e-mail de redefinicao. Solicite reset ao administrador."
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/hour")
 def register_user(request: Request, payload: GymOwnerRegister, db: Annotated[Session, Depends(get_db)]) -> User:
@@ -229,7 +243,18 @@ def logout_session(
 @router.post("/forgot-password", response_model=APIMessage)
 @limiter.limit("3/hour")
 def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Annotated[Session, Depends(get_db)]) -> APIMessage:
-    request_password_reset(db, email=payload.email, gym_slug=payload.gym_slug)
+    if not settings.email_delivery_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servico de e-mail indisponivel. Solicite reset ao administrador.",
+        )
+
+    outcome = request_password_reset(db, email=payload.email, gym_slug=payload.gym_slug)
+    if outcome.requested and outcome.email_result and not outcome.email_result.sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE if outcome.email_result.blocked else status.HTTP_502_BAD_GATEWAY,
+            detail=_email_delivery_failure_detail(outcome.email_result.reason),
+        )
     return APIMessage(message="Se o e-mail estiver cadastrado, você receberá as instruções em breve.")
 
 

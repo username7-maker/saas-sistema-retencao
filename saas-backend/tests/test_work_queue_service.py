@@ -11,6 +11,7 @@ from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, Work
 from app.services.work_queue_service import (
     _filter_items,
     _matches_shift,
+    _task_to_item,
     execute_work_queue_item,
     list_work_queue_items,
     update_work_queue_outcome,
@@ -225,6 +226,34 @@ def test_trainer_technical_outcome_training_missing_keeps_open_for_tomorrow(monk
     assert task.extra_data["technical_followup_required"] is True
 
 
+def test_task_to_item_includes_preferred_shift_diagnostic_when_unassigned():
+    member_id = uuid.uuid4()
+    member = SimpleNamespace(
+        id=member_id,
+        full_name="Aluno sem turno",
+        phone=None,
+        preferred_shift=None,
+    )
+    task = _task(member_id=member_id, member=member)
+
+    item = _task_to_item(
+        task,
+        shift_diagnostics={
+            member_id: {
+                "status": "no_recent_checkins",
+                "reason": "Sem check-in recente/importado nos ultimos 30 dias.",
+                "counts": {"overnight": 0, "morning": 0, "afternoon": 0, "evening": 0},
+                "lookback_days": 30,
+            }
+        },
+    )
+
+    assert item.preferred_shift is None
+    assert item.preferred_shift_status == "no_recent_checkins"
+    assert item.preferred_shift_reason == "Sem check-in recente/importado nos ultimos 30 dias."
+    assert item.preferred_shift_counts["morning"] == 0
+
+
 def test_matches_my_shift_for_overnight_user():
     user = _user()
     user.work_shift = "overnight"
@@ -323,6 +352,56 @@ def test_my_shift_without_configured_shift_does_not_match_all_turns():
 
     assert _matches_shift(morning_item, user, "my_shift") is False
     assert _matches_shift(unassigned_item, user, "my_shift") is True
+
+
+def test_filter_items_matches_execution_bucket():
+    user = _user()
+    d1_item = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno D1",
+        domain="onboarding",
+        severity="high",
+        preferred_shift="morning",
+        reason="Onboarding dia 1",
+        primary_action_label="Conferir treino",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        context_path="/tasks",
+        outcome_state="pending",
+        execution_bucket="onboarding_d1",
+        execution_bucket_label="Dia 1",
+    )
+    d7_item = WorkQueueItemOut(
+        source_type="task",
+        source_id=uuid.uuid4(),
+        subject_name="Aluno D7",
+        domain="onboarding",
+        severity="high",
+        preferred_shift="morning",
+        reason="Onboarding dia 7",
+        primary_action_label="Agendar avaliacao",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        context_path="/tasks",
+        outcome_state="pending",
+        execution_bucket="onboarding_d7_plus",
+        execution_bucket_label="Dia 7+",
+    )
+
+    filtered = _filter_items(
+        [d1_item, d7_item],
+        current_user=user,
+        state="do_now",
+        shift="my_shift",
+        assignee="all",
+        domain="onboarding",
+        bucket="onboarding_d7_plus",
+    )
+
+    assert [item.source_id for item in filtered] == [d7_item.source_id]
 
 
 def test_filter_hides_future_visible_from_in_do_now():

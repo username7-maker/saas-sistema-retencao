@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Email Assistant",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nconst sensitive = ['send_email', 'delete_email', 'forward_email'];\nif (!payload.action) return [{ json: { status: 'error', result: {}, approval_required: false, error: 'action is required' } }];\nif (sensitive.includes(payload.action)) return [{ json: { status: 'pending_approval', result: { draft: { recipient: payload.recipient, subject: payload.subject, body: payload.body } }, approval_required: true } }];\nreturn [{ json: { status: 'success', result: { action: payload.action, query: payload.query ?? null, note: 'Email provider credential placeholder. Configure Gmail/SMTP before production.' }, approval_required: false } }];"
+      },
+      "id": "validate-email-action",
+      "name": "Validate Email Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Email Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

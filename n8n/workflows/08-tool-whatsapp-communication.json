@@ -1,0 +1,63 @@
+{
+  "name": "Cordex WhatsApp AI Agent - Tool WhatsApp Communication Policy",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nif (!payload.action) return [{ json: { status: 'error', result: {}, error: 'action is required' } }];\nif (Array.isArray(payload.recipient)) return [{ json: { status: 'error', result: {}, error: 'bulk messaging is blocked by default' } }];\nif (payload.channel && payload.channel !== 'whatsapp') return [{ json: { status: 'error', result: {}, error: 'only whatsapp is supported in this V1' } }];\nif (payload.action === 'send_message') return [{ json: { status: 'pending_approval', result: { channel: 'whatsapp', recipient: payload.recipient, message: payload.message }, approval_required: true } }];\nreturn [{ json: { status: 'success', result: { action: payload.action, channel: 'whatsapp', message: payload.message ?? '' }, approval_required: false } }];"
+      },
+      "id": "validate-whatsapp-action",
+      "name": "Validate WhatsApp Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate WhatsApp Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

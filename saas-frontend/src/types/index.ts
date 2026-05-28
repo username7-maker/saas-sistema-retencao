@@ -50,6 +50,8 @@ export interface AIAssistantPayload {
   prompt_version?: string | null;
   model?: string | null;
   safety_profile?: string | null;
+  message_source?: string | null;
+  blocked_reasons?: string[];
 }
 
 export type AITriageSourceDomain = "retention" | "onboarding";
@@ -182,10 +184,20 @@ export interface WorkQueueItem {
   domain: "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
   preferred_shift: "overnight" | "morning" | "afternoon" | "evening" | "unassigned" | string | null;
+  preferred_shift_status?: "resolved_from_checkins" | "manual_or_cached" | "tie" | "no_recent_checkins" | string | null;
+  preferred_shift_reason?: string | null;
+  preferred_shift_counts?: Record<string, number>;
   reason: string;
   primary_action_label: string;
   primary_action_type: string;
   suggested_message: string | null;
+  message_source?: string | null;
+  prompt_key?: string | null;
+  prompt_version?: string | null;
+  model?: string | null;
+  safety_profile?: string | null;
+  message_fallback_used?: boolean;
+  message_blocked_reasons?: string[];
   requires_confirmation: boolean;
   state: WorkQueueState;
   due_at: string | null;
@@ -198,6 +210,8 @@ export interface WorkQueueItem {
   retention_stage_priority?: number;
   technical_ladder_step?: string | null;
   technical_ladder_step_label?: string | null;
+  execution_bucket?: string | null;
+  execution_bucket_label?: string | null;
   autopilot_state?: string | null;
   autopilot_badges?: string[];
   execution_channel?: "kommo" | "whatsapp" | "manual" | string | null;
@@ -1652,11 +1666,17 @@ export interface KommoSettings {
   kommo_auto_close_enabled: boolean;
   kommo_fallback_channel: "whatsapp" | "manual" | string;
   domain_routes: KommoDomainRoute[];
+  trainer_routes: KommoTrainerRoute[];
 }
 
 export interface KommoDomainRoute {
   domain: string;
   is_enabled: boolean;
+  route_status?: "ready" | "incomplete" | "missing" | "disabled" | string;
+  missing_fields?: string[];
+  ready_for_messages?: boolean;
+  ready_for_native_pdf?: boolean;
+  ready_for_link_pdf?: boolean;
   pipeline_id: string | null;
   stage_id: string | null;
   salesbot_id: string | null;
@@ -1671,6 +1691,11 @@ export interface KommoDomainRoute {
   source_type_field_id: string | null;
   source_id_field_id: string | null;
   tags: string[];
+}
+
+export interface KommoTrainerRoute extends Omit<KommoDomainRoute, "domain"> {
+  trainer_user_id: string;
+  trainer_name: string | null;
 }
 
 export interface KommoConnectionTestResult {
@@ -1703,6 +1728,7 @@ export interface KommoSettingsUpdateInput {
   kommo_auto_close_enabled?: boolean | null;
   kommo_fallback_channel?: "whatsapp" | "manual" | string | null;
   domain_routes?: KommoDomainRoute[];
+  trainer_routes?: KommoTrainerRoute[];
 }
 
 export interface BodyCompositionEvaluation {

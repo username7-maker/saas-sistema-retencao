@@ -93,7 +93,7 @@ function buildInsight(
     insightParts.push(`NPS atual em ${npsLatest.toFixed(1)} indica tendência de satisfação`);
   }
 
-  return insightParts.join(". ") + ".";
+  return `${insightParts.join(". ")}.`;
 }
 
 export function buildLovableDashboardViewModel(input: {

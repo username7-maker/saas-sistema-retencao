@@ -3,6 +3,7 @@ from __future__ import annotations
 from statistics import mean, median
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
@@ -32,6 +33,7 @@ from app.schemas import (
 )
 from app.services.audit_service import log_audit_event
 from app.services.dashboard_service import get_retention_queue
+from app.services.operational_message_ai_service import generate_operational_message_draft
 from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     RETENTION_STAGE_REACTIVATION,
@@ -140,7 +142,20 @@ def _normalize_channel_from_action(action: str | None) -> str | None:
     return None
 
 
-def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -> dict:
+def _build_retention_snapshot(
+    db_or_item: Session | RetentionQueueItem,
+    item_or_member: RetentionQueueItem | Member | None = None,
+    member: Member | None = None,
+) -> dict:
+    if member is None and item_or_member is not None and hasattr(db_or_item, "member_id"):
+        db: Session | None = None
+        item = db_or_item
+        member = item_or_member
+    else:
+        db = db_or_item
+        item = item_or_member
+    if item is None:
+        raise TypeError("item is required")
     member_id = UUID(item.member_id)
     playbook_step = item.playbook_steps[0] if item.playbook_steps else None
     owner_user_id = member.assigned_user_id if member else None
@@ -156,6 +171,30 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
         why_now_summary = "Aluno em reativacao 30+. Nao usar lembrete simples; oferecer retorno guiado."
     elif retention_stage == RETENTION_STAGE_COLD_BASE:
         why_now_summary = "Aluno em base fria. Priorizar campanha de winback, nao fila diaria."
+    if db is not None:
+        draft = generate_operational_message_draft(
+            db,
+            domain="retention",
+            base_message=suggested_message,
+            member=member,
+            context={
+                "risk_level": item.risk_level.value,
+                "risk_score": item.risk_score,
+                "days_without_checkin": item.days_without_checkin,
+                "retention_stage": retention_stage,
+                "next_action": item.next_action,
+                "recommended_action": recommended_action,
+                "why_now_summary": why_now_summary,
+            },
+        )
+    else:
+        draft = SimpleNamespace(
+            message=suggested_message,
+            message_source="template_safe",
+            metadata={},
+            fallback_used=True,
+            blocked_reasons=[],
+        )
 
     return {
         "source_domain": "retention",
@@ -171,7 +210,7 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
         "recommended_action": recommended_action,
         "recommended_channel": recommended_channel,
         "recommended_owner": _recommended_owner_payload(owner_user_id, owner_role, owner_label),
-        "suggested_message": suggested_message,
+        "suggested_message": draft.message,
         "expected_impact": _retention_expected_impact(item),
         "metadata": {
             "risk_level": item.risk_level.value,
@@ -185,6 +224,13 @@ def _build_retention_snapshot(item: RetentionQueueItem, member: Member | None) -
             "next_action": item.next_action,
             "preferred_shift": getattr(member, "preferred_shift", None) if member else None,
             "subject_phone": getattr(member, "phone", None) if member else None,
+            "message_source": draft.message_source,
+            "prompt_key": draft.metadata.get("prompt_key"),
+            "prompt_version": draft.metadata.get("prompt_version"),
+            "model": draft.metadata.get("model"),
+            "safety_profile": draft.metadata.get("safety_profile"),
+            "fallback_used": draft.fallback_used,
+            "blocked_reasons": draft.blocked_reasons,
         },
     }
 
@@ -211,6 +257,7 @@ def _build_onboarding_snapshot(
     has_assessment: bool,
     total_tasks: int,
     completed_tasks: int,
+    db: Session | None = None,
 ) -> dict:
     days_without_checkin = None
     if member.last_checkin_at is not None:
@@ -261,6 +308,29 @@ def _build_onboarding_snapshot(
         why_now_details.append(f"{days_without_checkin} dias sem check-in.")
 
     owner_label = member.assigned_user.full_name if getattr(member, "assigned_user", None) else None
+    if db is not None:
+        draft = generate_operational_message_draft(
+            db,
+            domain="onboarding",
+            base_message=suggested_message,
+            member=member,
+            context={
+                "score": score,
+                "status": status,
+                "days_since_join": days_since_join,
+                "has_assessment": has_assessment,
+                "recommended_action": recommended_action,
+                "why_now_details": why_now_details,
+            },
+        )
+    else:
+        draft = SimpleNamespace(
+            message=suggested_message,
+            message_source="template_safe",
+            metadata={},
+            fallback_used=True,
+            blocked_reasons=[],
+        )
 
     return {
         "source_domain": "onboarding",
@@ -276,7 +346,7 @@ def _build_onboarding_snapshot(
         "recommended_action": recommended_action,
         "recommended_channel": recommended_channel,
         "recommended_owner": _recommended_owner_payload(member.assigned_user_id, owner_role, owner_label),
-        "suggested_message": suggested_message,
+        "suggested_message": draft.message,
         "expected_impact": "Reduzir risco de dropout nos primeiros 30 dias e acelerar a adaptacao do aluno.",
         "metadata": {
             "onboarding_status": status,
@@ -287,6 +357,13 @@ def _build_onboarding_snapshot(
             "completed_onboarding_tasks": completed_tasks,
             "preferred_shift": getattr(member, "preferred_shift", None),
             "subject_phone": member.phone,
+            "message_source": draft.message_source,
+            "prompt_key": draft.metadata.get("prompt_key"),
+            "prompt_version": draft.metadata.get("prompt_version"),
+            "model": draft.metadata.get("model"),
+            "safety_profile": draft.metadata.get("safety_profile"),
+            "fallback_used": draft.fallback_used,
+            "blocked_reasons": draft.blocked_reasons,
         },
     }
 
@@ -307,7 +384,7 @@ def _build_retention_snapshots(db: Session, gym_id: UUID, *, limit: int) -> list
     queue_items = [item for item in queue.items if item.retention_stage != RETENTION_STAGE_COLD_BASE]
     member_ids = [UUID(item.member_id) for item in queue_items]
     member_map = _load_member_map(db, member_ids)
-    return [_build_retention_snapshot(item, member_map.get(UUID(item.member_id))) for item in queue_items]
+    return [_build_retention_snapshot(db, item, member_map.get(UUID(item.member_id))) for item in queue_items]
 
 
 def _build_onboarding_snapshots(db: Session, gym_id: UUID, *, limit: int) -> list[dict]:
@@ -368,6 +445,7 @@ def _build_onboarding_snapshots(db: Session, gym_id: UUID, *, limit: int) -> lis
         task_stats = task_map.get(member.id, {"total": 0, "completed": 0})
         snapshots.append(
             _build_onboarding_snapshot(
+                db=db,
                 member=member,
                 score=int(member.onboarding_score or 0),
                 status=str(member.onboarding_status or "active"),

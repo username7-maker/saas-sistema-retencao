@@ -34,6 +34,7 @@ describe("roleAccess", () => {
     expect(canRoleAccessPath("salesperson", "/assessments/new/member-1")).toBe(false);
     expect(canRoleAccessPath("trainer", "/members")).toBe(true);
     expect(canRoleAccessPath("trainer", "/assessments/new/member-1")).toBe(true);
+    expect(canRoleAccessPath("trainer", "/notifications")).toBe(true);
   });
 
   it("keeps seed and delete automation controls owner-only", () => {

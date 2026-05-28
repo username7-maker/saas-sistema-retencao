@@ -241,8 +241,13 @@ describe("RetentionDashboardPage", () => {
     expect(await screen.findByText("Playbook sugerido")).toBeInTheDocument();
     expect(screen.getByText("Copiloto de retenção")).toBeInTheDocument();
     expect(screen.getByText("Mensagem de reengajamento")).toBeInTheDocument();
+    expect(screen.getByText("Agir agora")).toBeInTheDocument();
+    expect(screen.getByText("Acoes rapidas adicionais")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "+55 (11) 99999-0001" })).toHaveAttribute("href", "tel:5511999990001");
     expect(screen.getAllByRole("button", { name: "WhatsApp" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Enviar Kommo" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Abrir perfil 360" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Marcar resolvido" })).toBeInTheDocument();
     expect(screen.getByText("Ações rápidas mock")).toBeInTheDocument();
   });
 

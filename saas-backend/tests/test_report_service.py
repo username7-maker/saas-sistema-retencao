@@ -340,17 +340,25 @@ def test_send_monthly_reports_uses_premium_pipeline(monkeypatch):
         ]
     )
 
-    result = report_service.send_monthly_reports(db)
+    result = report_service.send_monthly_reports(db, gym_id="gym-1")
 
     assert result == {"sent": 2, "failed": 0, "blocked": 0, "blocked_reasons": {}, "total_recipients": 2}
+    statement = db.scalars.call_args.args[0]
+    assert "users.gym_id" in str(statement)
 
 
 def test_execute_monthly_reports_dispatch_job_logs_completion_without_commit(monkeypatch):
     audit_calls = []
+    send_calls = []
+
+    def fake_send_monthly_reports(*_args, **kwargs):
+        send_calls.append(kwargs)
+        return {"sent": 2, "failed": 0, "total_recipients": 2}
+
     monkeypatch.setattr(
         report_service,
         "send_monthly_reports",
-        lambda *_args, **_kwargs: {"sent": 2, "failed": 0, "total_recipients": 2},
+        fake_send_monthly_reports,
     )
     monkeypatch.setattr(
         report_service,
@@ -367,4 +375,5 @@ def test_execute_monthly_reports_dispatch_job_logs_completion_without_commit(mon
     )
 
     assert result["sent"] == 2
+    assert send_calls == [{"gym_id": "gym-1"}]
     assert audit_calls[0]["action"] == "monthly_reports_dispatched"

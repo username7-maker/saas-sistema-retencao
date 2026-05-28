@@ -29,7 +29,8 @@ import { kommoMessageService } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
-import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
+import { CommandCard, MetricCard } from "../../components/ui2/command";
+import { EmptyState, FilterBar, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
 import { getHttpErrorDetail, getPermissionAwareMessage } from "../../utils/httpErrors";
 import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
 import { canResolveRetentionAlert } from "../../utils/roleAccess";
@@ -349,8 +350,9 @@ function RetentionQueueDrawer({
       title={item ? `Playbook · ${item.full_name}` : "Playbook"}
     >
       {item ? (
-        <div className="min-w-0 space-y-6 p-4">
-          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+        <div className="flex min-h-full min-w-0 flex-col">
+          <div className="min-w-0 flex-1 space-y-5 p-4 pb-3">
+          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-lovable-ink">{item.full_name}</p>
@@ -403,7 +405,7 @@ function RetentionQueueDrawer({
               </div>
             </div>
             <p className="mt-4 text-sm text-lovable-ink-muted">{item.signals_summary}</p>
-            <div className="mt-4 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
+            <div className="mt-3 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
               <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
                 <span className="font-semibold text-lovable-ink">Último contato:</span> {formatDateTime(item.last_contact_at)}
               </div>
@@ -444,14 +446,14 @@ function RetentionQueueDrawer({
               title="Sinais captados"
               subtitle="Leitura rápida dos gatilhos ativos que colocaram o aluno na fila."
             />
-            <div className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
               {buildSignalRows(item).map((signal) => (
                 <article
                   key={signal.label}
-                  className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3"
+                  className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2.5"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-lovable-ink">{signal.label}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{signal.label}</span>
                     <span
                       className={cn(
                         "text-sm font-semibold",
@@ -465,7 +467,7 @@ function RetentionQueueDrawer({
                       {signal.value}
                     </span>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-lovable-border">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-lovable-border">
                     <div
                       className={cn(
                         "h-full rounded-full transition-all",
@@ -500,13 +502,13 @@ function RetentionQueueDrawer({
               count={item.playbook_steps.length}
             />
             {item.playbook_steps.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
+              <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-3 text-sm text-lovable-ink-muted">
                 Nenhum playbook sugerido para este alerta.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {item.playbook_steps.map((step, index) => (
-                  <article key={`${step.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                  <article key={`${step.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-lovable-ink">{step.title}</p>
@@ -540,10 +542,26 @@ function RetentionQueueDrawer({
 
           <section>
             <SectionHeader
-              title="Ações rápidas"
-              subtitle="Acione o playbook sem sair da fila."
+              title="Acoes rapidas adicionais"
+              subtitle="Atalhos preservados para outras rotinas do aluno."
             />
-            <div className="flex flex-wrap gap-2">
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <QuickActions
+                member={{
+                  id: item.member_id,
+                  full_name: item.full_name,
+                  phone: item.phone,
+                  risk_level: item.risk_level,
+                  risk_score: item.risk_score,
+                }}
+              />
+            </div>
+          </section>
+          </div>
+
+          <div className="sticky bottom-0 z-10 border-t border-lovable-border bg-lovable-surface/95 p-3 shadow-panel backdrop-blur-xl">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Agir agora</p>
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 size="sm"
                 variant="primary"
@@ -576,18 +594,7 @@ function RetentionQueueDrawer({
                 </Button>
               ) : null}
             </div>
-            <div className="mt-4">
-              <QuickActions
-                member={{
-                  id: item.member_id,
-                  full_name: item.full_name,
-                  phone: item.phone,
-                  risk_level: item.risk_level,
-                  risk_score: item.risk_score,
-                }}
-              />
-            </div>
-          </section>
+          </div>
         </div>
       ) : null}
     </Drawer>
@@ -789,11 +796,17 @@ export function RetentionDashboardPage() {
   if (summaryQuery.isError) {
     return (
       <section className="space-y-6">
-        <PageHeader
-          title="Retenção"
-          subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
-          actions={<DashboardActions dashboard="retention" theme="dark" />}
-        />
+        <CommandCard variant="elevated">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
+              <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+                <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Dashboard de Retenção</span>
+              </h2>
+            </div>
+            <DashboardActions dashboard="retention" theme="dark" />
+          </div>
+        </CommandCard>
         <EmptyState
           icon={AlertTriangle}
           title="Não foi possível carregar a visão de retenção"
@@ -806,19 +819,38 @@ export function RetentionDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <PageHeader
-        title="Retenção"
-        subtitle="Fila operacional de alunos com aviso ativo e playbooks sugeridos."
-        actions={<DashboardActions dashboard="retention" theme="dark" />}
-        breadcrumb={[{ label: "Dashboards", href: "/dashboard/executive" }, { label: "Retenção" }]}
-      />
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard de Retenção
+              </span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Fila operacional de alunos com aviso ativo e playbooks sugeridos.</p>
+          </div>
+          <DashboardActions dashboard="retention" theme="dark" />
+        </div>
+      </CommandCard>
 
       {summaryQuery.isLoading ? (
         <SummarySkeleton />
       ) : (
         <div className="space-y-4">
           <AiInsightCard dashboard="retention" />
-          <KPIStrip items={kpis} />
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {kpis.map((kpi, i) => (
+              <MetricCard
+                key={kpi.label}
+                label={kpi.label}
+                value={String(kpi.value)}
+                tone={kpi.tone}
+                currency={kpi.label.includes("MRR")}
+                className={`stagger-${Math.min(i + 1, 4)}`}
+              />
+            ))}
+          </div>
           {retentionDataNotes.length > 0 ? (
             <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/92 px-4 py-4 text-sm text-lovable-ink-muted shadow-panel backdrop-blur-xl">
               <p className="font-medium text-lovable-ink">Leitura do painel</p>
@@ -831,27 +863,22 @@ export function RetentionDashboardPage() {
           ) : null}
           {churnHighlights.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {churnHighlights.map((item) => (
-                <article
+              {churnHighlights.map((item, i) => (
+                <MetricCard
                   key={item.key}
-                  className="rounded-[22px] border border-lovable-border bg-lovable-surface/95 px-4 py-4 shadow-panel backdrop-blur-xl"
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">
-                    {item.label}
-                  </p>
-                  <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-3xl font-bold text-lovable-ink">{item.pct}%</p>
-                    <p className="text-sm font-semibold text-lovable-ink-muted">{item.count} alunos</p>
-                  </div>
-                  <p className="mt-2 text-sm text-lovable-ink-muted">{item.description}</p>
-                </article>
+                  label={item.label}
+                  value={`${item.pct}%`}
+                  subtitle={`${item.count} alunos · ${item.description}`}
+                  tone="danger"
+                  className={`stagger-${Math.min(i + 1, 4)}`}
+                />
               ))}
             </div>
           ) : null}
         </div>
       )}
 
-      <section className="rounded-[24px] border border-lovable-border bg-lovable-surface/95 p-4 shadow-panel backdrop-blur-xl">
+      <CommandCard>
         <SectionHeader
           title="Fila operacional"
           subtitle="Todos os avisos ativos ficam acessíveis por busca e paginação, sem truncamento escondido."
@@ -1128,7 +1155,7 @@ export function RetentionDashboardPage() {
             </div>
           )}
         </div>
-      </section>
+      </CommandCard>
 
       <RetentionQueueDrawer
         item={selectedItem}

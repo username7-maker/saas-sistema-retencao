@@ -9,6 +9,7 @@ KommoSendDomain = Literal[
     "onboarding",
     "assessment",
     "body_composition",
+    "trainer",
     "finance",
     "sales",
     "student_ai",
@@ -47,6 +48,9 @@ class KommoSendMessageResponse(BaseModel):
     file_attach_status: str | None = None
     pdf_delivery_mode: str | None = None
     fallback_available: bool = False
+    route_kind: str | None = None
+    trainer_user_id: UUID | None = None
+    route_fallback_reason: str | None = None
 
 
 class KommoNativeFileUploadTestRequest(BaseModel):

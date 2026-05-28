@@ -1,28 +1,39 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   AlertTriangle,
   ArrowRight,
   BarChart3,
-  Briefcase,
+  CalendarCheck,
+  CheckSquare,
+  DollarSign,
   ShieldAlert,
+  Target,
   TrendingDown,
-  TrendingUp,
   UserPlus,
+  Users,
   Wallet,
+  Zap,
 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { AiInsightCard } from "../../components/common/AiInsightCard";
-import { RoiSummaryCard } from "../../components/dashboard/RoiSummaryCard";
 import { getChartSeriesState } from "../../components/charts/chartState";
-import { EmptyState, KPIStrip, PageHeader, SectionHeader, SkeletonList, StatusBadge } from "../../components/ui";
-import { Button, Skeleton, cn } from "../../components/ui2";
+import {
+  ActionQueue,
+  AIInsightPanel,
+  Button,
+  CommandCard,
+  MetricCard,
+  PremiumEmptyState,
+  PremiumSkeleton,
+  RiskMatrix,
+  SectionHeader,
+  StatusPill,
+  cn,
+} from "../../components/ui2";
 import {
   useChurnDashboard,
-  useBIFoundationDashboard,
   useCommercialDashboard,
   useExecutiveDashboard,
   useOperationalDashboard,
@@ -32,7 +43,7 @@ import {
 import { buildLovableDashboardViewModel } from "./dashboardAdapters";
 
 type ActionSource = "retention" | "commercial" | "operational";
-type ActionPriority = "high" | "medium";
+type ActionPriority = "critical" | "high" | "medium";
 type ChartRange = "all" | "6m" | "3m";
 
 interface ActionRow {
@@ -45,23 +56,6 @@ interface ActionRow {
   lastEventAt: string | null;
   href: string;
 }
-
-const SOURCE_META: Record<ActionSource, { label: string; icon: LucideIcon }> = {
-  retention: { label: "Retencao", icon: ShieldAlert },
-  commercial: { label: "Comercial", icon: Briefcase },
-  operational: { label: "Operacional", icon: Activity },
-};
-
-const SOURCE_BADGE_MAP = {
-  retention: { label: SOURCE_META.retention.label, variant: "danger" as const },
-  commercial: { label: SOURCE_META.commercial.label, variant: "warning" as const },
-  operational: { label: SOURCE_META.operational.label, variant: "success" as const },
-};
-
-const PRIORITY_BADGE_MAP = {
-  high: { label: "Alta", variant: "danger" as const },
-  medium: { label: "Media", variant: "warning" as const },
-};
 
 function currency(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
@@ -85,328 +79,125 @@ function formatDateLabel(value: string): string {
   });
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return "Sem registro";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Sem registro";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function percentOf(count: number, total: number): number {
+  if (total <= 0) return 0;
+  return (count / total) * 100;
 }
 
-function DashboardZone({
-  children,
-  className,
+function DashboardHero({
+  insight,
+  redCount,
+  inactiveCount,
+  mrrAtRisk,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  insight: string;
+  redCount: number;
+  inactiveCount: number;
+  mrrAtRisk: number;
 }) {
   return (
-    <section
-      className={cn(
-        "rounded-[26px] border border-lovable-border bg-lovable-surface/92 p-5 shadow-panel backdrop-blur-xl",
-        className,
-      )}
-    >
-      {children}
-    </section>
-  );
-}
-
-function ZoneHeader({
-  title,
-  subtitle,
-  actions,
-}: {
-  title: string;
-  subtitle?: string;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h2 className="font-heading text-lg font-bold tracking-tight text-lovable-ink">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm text-lovable-ink-muted">{subtitle}</p> : null}
-      </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-    </div>
-  );
-}
-
-function KpiStripSkeleton() {
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
-          <Skeleton className="h-3 w-20 rounded" />
-          <Skeleton className="mt-3 h-8 w-24 rounded" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WeeklySummaryMini() {
-  const weeklySummary = useWeeklySummary();
-
-  if (weeklySummary.isLoading) {
-    return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
-            <Skeleton className="h-3 w-24 rounded" />
-            <Skeleton className="mt-3 h-6 w-20 rounded" />
-            <Skeleton className="mt-2 h-3 w-28 rounded" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (!weeklySummary.data) {
-    return (
-      <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/75 px-4 py-3 text-sm text-lovable-ink-muted">
-        Resumo semanal indisponivel no momento.
-      </div>
-    );
-  }
-
-  const deltaPositive = weeklySummary.data.checkins_delta_pct >= 0;
-  const deltaTone = deltaPositive ? "text-emerald-400" : "text-amber-400";
-  const DeltaIcon = deltaPositive ? TrendingUp : TrendingDown;
-
-  const items = [
-    {
-      label: "Check-ins 7d",
-      value: weeklySummary.data.checkins_this_week.toLocaleString("pt-BR"),
-      helper: `${deltaPositive ? "+" : ""}${weeklySummary.data.checkins_delta_pct.toFixed(1)}% vs semana anterior`,
-      icon: DeltaIcon,
-      tone: deltaTone,
-    },
-    {
-      label: "Novos alunos",
-      value: weeklySummary.data.new_registrations.toLocaleString("pt-BR"),
-      helper: "cadastros nos ultimos 7 dias",
-      icon: UserPlus,
-      tone: "text-cyan-400",
-    },
-    {
-      label: "Novos em risco",
-      value: weeklySummary.data.new_at_risk.toLocaleString("pt-BR"),
-      helper: "entraram em risco esta semana",
-      icon: AlertTriangle,
-      tone: weeklySummary.data.new_at_risk > 5 ? "text-rose-400" : "text-amber-400",
-    },
-    {
-      label: "MRR em risco",
-      value: currency(weeklySummary.data.mrr_at_risk),
-      helper: `de ${weeklySummary.data.total_active} alunos ativos`,
-      icon: Wallet,
-      tone: weeklySummary.data.mrr_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
-    },
-  ];
-
-  return (
-    <div className="space-y-3">
-      <SectionHeader
-        title="Resumo semanal"
-        subtitle="Recorte rapido dos ultimos 7 dias para apoiar a leitura dos KPIs."
-      />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.label} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
-              <div className="flex items-center gap-2">
-                <Icon size={14} className={item.tone} />
-                <p className="text-[11px] uppercase tracking-[0.22em] text-lovable-ink-muted">{item.label}</p>
-              </div>
-              <p className="mt-3 font-display text-xl font-bold tracking-tight text-lovable-ink">{item.value}</p>
-              <p className="mt-1 text-xs text-lovable-ink-muted">{item.helper}</p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function BIFoundationMini() {
-  const biFoundation = useBIFoundationDashboard();
-
-  if (biFoundation.isLoading) {
-    return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }, (_, index) => (
-          <div key={index} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
-            <Skeleton className="h-3 w-24 rounded" />
-            <Skeleton className="mt-3 h-6 w-20 rounded" />
-            <Skeleton className="mt-2 h-3 w-28 rounded" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (!biFoundation.data) {
-    return (
-      <div className="rounded-[22px] border border-dashed border-lovable-border bg-lovable-surface/75 px-4 py-3 text-sm text-lovable-ink-muted">
-        Base de BI indisponivel no momento.
-      </div>
-    );
-  }
-
-  const data = biFoundation.data;
-  const latestCohort = [...data.cohort].reverse().find((point) => point.joined > 0) ?? data.cohort[data.cohort.length - 1];
-  const latestLtv = data.ltv[data.ltv.length - 1];
-  const forecast3m = data.forecast.find((point) => point.horizon_months === 3) ?? data.forecast[0];
-  const impact = data.follow_up_impact;
-  const hasOutcomeBase = impact.acceptance_rate !== null;
-  const flags = data.data_quality_flags;
-  const onboarding = data.onboarding_activation;
-  const staffExecution = data.staff_execution;
-  const aiFirstOps = data.ai_first_ops;
-  const retentionHotStages = data.retention_stage_mix.filter((stage) =>
-    ["recovery", "reactivation", "manager_escalation", "cold_base"].includes(stage.stage),
-  );
-
-  const items = [
-    {
-      label: latestCohort ? `Cohort ${formatDateLabel(latestCohort.month)}` : "Cohort",
-      value: latestCohort ? percent(latestCohort.retained_rate) : "Sem base",
-      helper: latestCohort ? `${latestCohort.active}/${latestCohort.joined} ativos no cohort` : "Aguardando historico de entrada",
-      icon: UserPlus,
-      tone: latestCohort && latestCohort.retained_rate >= 75 ? "text-emerald-400" : "text-amber-400",
-    },
-    {
-      label: "LTV estimado",
-      value: latestLtv && latestLtv.ltv > 0 ? currency(latestLtv.ltv) : "Sem base",
-      helper: latestLtv ? `Ultimo mes: ${formatDateLabel(latestLtv.month)}` : "Depende de receita e churn",
-      icon: Wallet,
-      tone: latestLtv && latestLtv.ltv > 0 ? "text-cyan-300" : "text-lovable-ink-muted",
-    },
-    {
-      label: "Forecast",
-      value: forecast3m ? currency(forecast3m.projected_revenue) : "Sem base",
-      helper: forecast3m ? `${forecast3m.horizon_months} meses com dados atuais` : "Aguardando serie financeira",
-      icon: TrendingUp,
-      tone: forecast3m ? "text-lovable-primary-light" : "text-lovable-ink-muted",
-    },
-    {
-      label: "Receita em risco",
-      value: data.revenue_at_risk > 0 ? currency(data.revenue_at_risk) : "R$ 0",
-      helper: `${data.revenue_at_risk_members} alunos em risco amarelo/vermelho`,
-      icon: ShieldAlert,
-      tone: data.revenue_at_risk > 0 ? "text-rose-400" : "text-emerald-400",
-    },
-    {
-      label: "Impacto follow-up",
-      value: hasOutcomeBase ? percent(impact.acceptance_rate ?? 0) : `${impact.completed_followups_30d}`,
-      helper: hasOutcomeBase
-        ? `${impact.positive_outcomes_30d}/${impact.prepared_actions_30d} outcomes positivos`
-        : "follow-ups concluidos nos ultimos 30d",
-      icon: Activity,
-      tone: hasOutcomeBase ? "text-emerald-400" : "text-amber-300",
-    },
-  ];
-
-  return (
-    <div className="space-y-3">
-      <SectionHeader
-        title="BI foundation"
-        subtitle="Cohort, LTV, forecast e impacto operacional usando a mesma base de gestao."
-      />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.label} className="rounded-[22px] border border-lovable-border bg-lovable-surface/92 px-4 py-3 shadow-panel">
-              <div className="flex items-center gap-2">
-                <Icon size={14} className={item.tone} />
-                <p className="text-[11px] uppercase tracking-[0.22em] text-lovable-ink-muted">{item.label}</p>
-              </div>
-              <p className="mt-3 font-display text-xl font-bold tracking-tight text-lovable-ink">{item.value}</p>
-              <p className="mt-1 text-xs text-lovable-ink-muted">{item.helper}</p>
-            </div>
-          );
-        })}
-      </div>
-      <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/88 p-4 shadow-panel">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
-            Execucao e ativacao
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="font-display text-xl font-bold text-lovable-ink">{onboarding.active_members}</p>
-              <p className="text-xs text-lovable-ink-muted">onboarding ativo</p>
-            </div>
-            <div>
-              <p className="font-display text-xl font-bold text-lovable-ink">{staffExecution.completed_tasks_7d}</p>
-              <p className="text-xs text-lovable-ink-muted">tasks concluidas 7d</p>
-            </div>
-            <div>
-              <p className="font-display text-xl font-bold text-lovable-ink">
-                {aiFirstOps.human_task_avoidance_rate !== null ? percent(aiFirstOps.human_task_avoidance_rate) : "Sem base"}
-              </p>
-              <p className="text-xs text-lovable-ink-muted">resolucao Cordex Autopilot</p>
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-lovable-ink-muted">
-            {staffExecution.overdue_open_tasks > 0
-              ? `${staffExecution.overdue_open_tasks} tasks vencidas exigem revisao da gestao.`
-              : "Sem backlog vencido relevante no corte operacional."}
-          </p>
-        </div>
-        <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/88 p-4 shadow-panel">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
-            Acoes da gestao
-          </p>
-          {data.manager_actions.length > 0 ? (
-            <div className="mt-3 space-y-2">
-              {data.manager_actions.slice(0, 2).map((action) => (
-                <div key={`${action.domain}-${action.title}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
-                  <p className="mt-1 text-xs text-lovable-ink-muted">{action.reason}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-lovable-ink-muted">Sem acao gerencial urgente no momento.</p>
-          )}
-        </div>
-      </div>
-      {retentionHotStages.some((stage) => stage.total > 0) ? (
-        <div className="flex flex-wrap gap-2">
-          {retentionHotStages
-            .filter((stage) => stage.total > 0)
-            .map((stage) => (
-              <span
-                key={stage.stage}
-                className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200"
-              >
-                {stage.label}: {stage.total}
-              </span>
-            ))}
-        </div>
-      ) : null}
-      {flags.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {flags.map((flag) => (
-            <span
-              key={flag}
-              className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200"
-            >
-              {flag.replace(/_/g, " ")}
+    <CommandCard variant="elevated" className="min-h-[210px] overflow-hidden">
+      <div className="relative grid gap-6">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-blue-400">Performance Intelligence</p>
+          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight md:text-6xl">
+            <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+              IA de risco em tempo real
             </span>
-          ))}
+          </h1>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-lovable-ink-muted md:text-base">{insight}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <StatusPill tone={redCount > 0 ? "critical" : "normal"} dot>
+              Prioridade: retenção
+            </StatusPill>
+            <StatusPill tone={inactiveCount > 0 ? "alert" : "normal"}>
+              Foco: alunos inativos
+            </StatusPill>
+            <StatusPill tone={mrrAtRisk > 0 ? "warning" : "sync"}>
+              Oportunidade: {mrrAtRisk > 0 ? currency(mrrAtRisk) : "sem MRR em risco"}
+            </StatusPill>
+          </div>
         </div>
-      ) : null}
-    </div>
+      </div>
+    </CommandCard>
+  );
+}
+
+function IntelligenceMap({
+  activeMembers,
+  checkins7d,
+  churnRate,
+  actionCount,
+  mrr,
+}: {
+  activeMembers: number;
+  checkins7d: number;
+  churnRate: number;
+  actionCount: number;
+  mrr: number;
+}) {
+  const nodes = [
+    { id: "active", title: "Alunos ativos", value: activeMembers.toLocaleString("pt-BR"), icon: Users, tone: "info" as const },
+    { id: "freq", title: "Frequência", value: checkins7d.toLocaleString("pt-BR"), icon: Activity, tone: "success" as const },
+    { id: "risk", title: "Risco de churn", value: percent(churnRate), icon: ShieldAlert, tone: churnRate > 5 ? "danger" as const : "success" as const },
+    { id: "actions", title: "Ações de retenção", value: actionCount.toLocaleString("pt-BR"), icon: Target, tone: actionCount > 0 ? "ai" as const : "neutral" as const },
+    { id: "revenue", title: "Receita MRR", value: currency(mrr), icon: DollarSign, tone: mrr > 0 ? "success" as const : "neutral" as const },
+  ];
+
+  return (
+    <CommandCard>
+      <SectionHeader
+        title="Mapa de Inteligência Operacional"
+        subtitle="Como os principais indicadores se conectam para proteger frequência, retenção e receita."
+        actions={<StatusPill tone="sync">Fluxo de decisão</StatusPill>}
+      />
+      <div className="grid gap-3 xl:grid-cols-[1fr_auto_1fr_auto_1fr] xl:items-center">
+        {nodes.slice(0, 3).map((node, index) => {
+          const Icon = node.icon;
+          return (
+            <div key={node.id} className="contents">
+              <div className="rounded-[22px] border border-lovable-border/70 bg-lovable-surface/62 p-4">
+                <div className="flex items-center gap-3">
+                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", node.tone === "danger" ? "border-lovable-danger/24 bg-lovable-danger/12 text-lovable-danger" : "border-blue-400/18 bg-blue-400/10 text-blue-300")}>
+                    <Icon size={18} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-lovable-ink-muted">{node.title}</p>
+                    <p className="font-display text-xl font-bold text-lovable-ink">{node.value}</p>
+                  </div>
+                </div>
+              </div>
+              {index < 2 ? (
+                <div className="hidden h-px w-16 bg-[linear-gradient(90deg,hsl(var(--lovable-primary)/0.15),hsl(var(--lovable-primary)/0.75))] xl:block" />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {nodes.slice(3).map((node) => {
+          const Icon = node.icon;
+          return (
+            <div key={node.id} className="rounded-[22px] border border-lovable-border/70 bg-lovable-surface/54 p-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(59,130,246,0.22)] bg-[rgba(59,130,246,0.10)] text-blue-300">
+                  <Icon size={18} />
+                </span>
+                <div>
+                  <p className="text-xs text-lovable-ink-muted">{node.title}</p>
+                  <p className="font-display text-xl font-bold text-lovable-ink">{node.value}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-success" /> Influência positiva</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-warning" /> Atenção necessária</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full bg-lovable-danger" /> Alto risco</span>
+      </div>
+    </CommandCard>
   );
 }
 
@@ -419,6 +210,7 @@ export function DashboardLovable() {
   const operational = useOperationalDashboard();
   const retention = useRetentionDashboard();
   const churn = useChurnDashboard();
+  const weeklySummary = useWeeklySummary();
 
   const viewModel = buildLovableDashboardViewModel({
     executive: executive.data,
@@ -434,11 +226,23 @@ export function DashboardLovable() {
         id: `retention-${member.id}`,
         source: "retention" as const,
         name: member.full_name,
-        subtitle: `${member.plan_name} | score ${member.risk_score}`,
+        subtitle: `${member.plan_name} · score ${member.risk_score}`,
         status: "Risco vermelho",
-        priority: "high" as const,
+        priority: "critical" as const,
         lastEventAt: member.last_checkin_at,
         href: "/dashboard/retention",
+      })) ?? [];
+
+    const operationalRows =
+      operational.data?.inactive_7d_items.map((member) => ({
+        id: `operational-${member.id}`,
+        source: "operational" as const,
+        name: member.full_name,
+        subtitle: `${member.plan_name} · ${member.loyalty_months} meses`,
+        status: "Inativo 7+ dias",
+        priority: "high" as const,
+        lastEventAt: member.last_checkin_at,
+        href: "/dashboard/operational",
       })) ?? [];
 
     const commercialRows =
@@ -453,27 +257,14 @@ export function DashboardLovable() {
         href: "/crm",
       })) ?? [];
 
-    const operationalRows =
-      operational.data?.inactive_7d_items.map((member) => ({
-        id: `operational-${member.id}`,
-        source: "operational" as const,
-        name: member.full_name,
-        subtitle: `${member.plan_name} | ${member.loyalty_months} meses`,
-        status: "Inativo 7+ dias",
-        priority: "high" as const,
-        lastEventAt: member.last_checkin_at,
-        href: "/dashboard/operational",
-      })) ?? [];
-
     return [...retentionRows, ...operationalRows, ...commercialRows].sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority === "high" ? -1 : 1;
+      const priorityOrder: Record<ActionPriority, number> = { critical: 0, high: 1, medium: 2 };
+      if (a.priority !== b.priority) return priorityOrder[a.priority] - priorityOrder[b.priority];
       const aTime = a.lastEventAt ? new Date(a.lastEventAt).getTime() : Number.MAX_SAFE_INTEGER;
       const bTime = b.lastEventAt ? new Date(b.lastEventAt).getTime() : Number.MAX_SAFE_INTEGER;
       return aTime - bTime;
     });
   }, [commercial.data?.stale_leads, operational.data?.inactive_7d_items, retention.data?.red.items]);
-
-  const visibleRows = useMemo(() => actionRows.slice(0, 8), [actionRows]);
 
   const chartData = useMemo(() => {
     const points = viewModel.retentionChart;
@@ -486,288 +277,353 @@ export function DashboardLovable() {
     () => getChartSeriesState(chartData, ["churn_rate", "nps_avg"]),
     [chartData],
   );
-  const hasMemberBase = (executive.data?.total_members ?? 0) > 0;
-  const hasFinancialBase = (executive.data?.mrr ?? 0) > 0;
-  const hasChurnBase = chartData.some((point) => point.churn_rate !== null);
 
-  const kpiItems = [
+  const activeMembers = executive.data?.active_members ?? 0;
+  const totalMembers = executive.data?.total_members ?? 0;
+  const churnRate = executive.data?.churn_rate ?? 0;
+  const mrr = executive.data?.mrr ?? 0;
+  const redCount = retention.data?.red.total ?? executive.data?.risk_distribution.red ?? 0;
+  const yellowCount = retention.data?.yellow.total ?? executive.data?.risk_distribution.yellow ?? 0;
+  const inactiveCount = operational.data?.inactive_7d_total ?? 0;
+  const checkins7d = weeklySummary.data?.checkins_this_week ?? operational.data?.realtime_checkins ?? 0;
+  const newAtRisk = weeklySummary.data?.new_at_risk ?? 0;
+  const mrrAtRisk = weeklySummary.data?.mrr_at_risk ?? retention.data?.mrr_at_risk ?? 0;
+  const isDashboardLoading =
+    executive.isLoading || operational.isLoading || retention.isLoading || weeklySummary.isLoading;
+
+  const metricCards = [
     {
-      label: "Total membros",
-      value: executive.data?.total_members?.toLocaleString("pt-BR") ?? "0",
-      tone: "neutral" as const,
+      label: "Total de membros",
+      value: totalMembers.toLocaleString("pt-BR"),
+      subtitle: "Base total da academia",
+      trend: totalMembers > 0 ? "base importada" : "aguardando dados",
+      trendDirection: "flat" as const,
+      icon: Users,
+      tone: "info" as const,
     },
     {
-      label: "Ativos",
-      value: executive.data?.active_members?.toLocaleString("pt-BR") ?? "0",
+      label: "Alunos ativos",
+      value: activeMembers.toLocaleString("pt-BR"),
+      subtitle: "Praticaram ou permanecem ativos",
+      trend: activeMembers > 0 ? `${percentOf(activeMembers, Math.max(totalMembers, 1)).toFixed(1)}% da base` : "sem base ativa",
+      trendDirection: activeMembers > 0 ? "up" as const : "flat" as const,
+      icon: Activity,
       tone: "success" as const,
     },
     {
-      label: "Churn",
-      value: hasChurnBase || hasMemberBase ? percent(executive.data?.churn_rate ?? 0) : "Sem base",
-      tone: hasChurnBase || hasMemberBase ? ((executive.data?.churn_rate ?? 0) > 5 ? "danger" as const : "warning" as const) : "neutral" as const,
+      label: "Churn médio",
+      value: totalMembers > 0 ? percent(churnRate) : "Sem base",
+      subtitle: totalMembers > 0 ? "Indicador consolidado" : "Depende de histórico",
+      trend: churnRate > 5 ? "acima do ideal" : "sob controle",
+      trendDirection: churnRate > 5 ? "down" as const : "up" as const,
+      icon: TrendingDown,
+      tone: churnRate > 5 ? "danger" as const : "success" as const,
     },
     {
-      label: "Receita",
-      value: hasFinancialBase ? currency(executive.data?.mrr ?? 0) : "Sem base",
-      tone: hasFinancialBase ? "success" as const : "neutral" as const,
+      label: "Receita / MRR",
+      value: mrr > 0 ? currency(mrr) : "Sem base",
+      subtitle: "Receita recorrente",
+      trend: mrr > 0 ? "financeiro conectado" : "sem dados financeiros",
+      trendDirection: mrr > 0 ? "up" as const : "flat" as const,
+      icon: DollarSign,
+      tone: mrr > 0 ? "success" as const : "neutral" as const,
+      currency: mrr > 0,
+    },
+    {
+      label: "Check-ins 7D",
+      value: checkins7d.toLocaleString("pt-BR"),
+      subtitle: "Movimento operacional recente",
+      trend:
+        weeklySummary.data?.checkins_delta_pct !== undefined
+          ? `${weeklySummary.data.checkins_delta_pct >= 0 ? "+" : ""}${weeklySummary.data.checkins_delta_pct.toFixed(1)}% vs. semana ant.`
+          : "sem comparação",
+      trendDirection: (weeklySummary.data?.checkins_delta_pct ?? 0) >= 0 ? "up" as const : "down" as const,
+      icon: CalendarCheck,
+      tone: "info" as const,
+    },
+    {
+      label: "Novos alunos",
+      value: (weeklySummary.data?.new_registrations ?? 0).toLocaleString("pt-BR"),
+      subtitle: "Cadastros nos últimos 7 dias",
+      trend: "onboarding monitora ativação",
+      trendDirection: "flat" as const,
+      icon: UserPlus,
+      tone: "ai" as const,
+    },
+    {
+      label: "Novos em risco",
+      value: newAtRisk.toLocaleString("pt-BR"),
+      subtitle: "Precisam de atenção",
+      trend: newAtRisk > 0 ? "agir nas próximas 24h" : "sem alerta novo",
+      trendDirection: newAtRisk > 0 ? "down" as const : "up" as const,
+      icon: AlertTriangle,
+      tone: newAtRisk > 0 ? "warning" as const : "success" as const,
+    },
+    {
+      label: "MRR em risco",
+      value: mrrAtRisk > 0 ? currency(mrrAtRisk) : "R$ 0",
+      subtitle: activeMembers > 0 ? `de ${activeMembers.toLocaleString("pt-BR")} alunos ativos` : "sem base ativa",
+      trend: mrrAtRisk > 0 ? "proteger receita" : "sem risco financeiro",
+      trendDirection: mrrAtRisk > 0 ? "down" as const : "up" as const,
+      icon: Wallet,
+      tone: mrrAtRisk > 0 ? "danger" as const : "success" as const,
+      currency: true,
     },
   ];
 
-  const kpiLoading = executive.isLoading;
-  const chartLoading = churn.isLoading || retention.isLoading;
-  const actionLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
+  const riskSegments = [
+    {
+      id: "red",
+      label: "Risco vermelho",
+      count: redCount,
+      rate: percentOf(redCount, Math.max(activeMembers, totalMembers)),
+      helper: "Contato humano imediato",
+      level: "critical" as const,
+    },
+    {
+      id: "inactive",
+      label: "Há 7+ dias sem treino",
+      count: inactiveCount,
+      rate: percentOf(inactiveCount, Math.max(activeMembers, totalMembers)),
+      helper: "Sinal forte de queda de frequência",
+      level: "high" as const,
+    },
+    {
+      id: "yellow",
+      label: "Risco amarelo",
+      count: yellowCount,
+      rate: percentOf(yellowCount, Math.max(activeMembers, totalMembers)),
+      helper: "Prevenção e acompanhamento",
+      level: "medium" as const,
+    },
+    {
+      id: "active",
+      label: "Base ativa protegida",
+      count: Math.max(activeMembers - redCount - yellowCount, 0),
+      rate: percentOf(Math.max(activeMembers - redCount - yellowCount, 0), Math.max(activeMembers, 1)),
+      helper: "Alunos sem alerta crítico no recorte atual",
+      level: "low" as const,
+    },
+  ];
+
+  const alertNodes = viewModel.alerts.slice(0, 3).map((alert) => (
+    <button
+      key={alert.id}
+      type="button"
+      onClick={() => navigate(alert.href)}
+      className="flex w-full items-start justify-between gap-3 rounded-2xl border border-lovable-border/65 bg-lovable-surface/58 px-3 py-3 text-left transition hover:border-lovable-border-strong/70 hover:bg-lovable-surface-soft/62"
+    >
+      <span>
+        <span className={cn("text-sm font-semibold", alert.tone === "danger" ? "text-rose-200" : alert.tone === "warning" ? "text-amber-200" : "text-lovable-ink")}>
+          {alert.title}
+        </span>
+        <span className="mt-1 block text-xs leading-relaxed text-lovable-ink-muted">{alert.description}</span>
+      </span>
+      <ArrowRight size={14} className="mt-1 shrink-0 text-lovable-ink-muted" />
+    </button>
+  ));
 
   return (
-    <section className="relative overflow-hidden rounded-[34px] border border-lovable-border bg-[linear-gradient(180deg,hsl(var(--lovable-surface)/0.98),hsl(var(--lovable-bg-muted)/0.92))] p-4 text-lovable-ink shadow-panel backdrop-blur-2xl sm:p-6">
-      <div className="pointer-events-none absolute -left-28 top-10 h-80 w-80 rounded-full bg-[hsl(var(--lovable-primary)/0.2)] blur-[140px]" />
-      <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-[hsl(var(--lovable-info)/0.14)] blur-[140px]" />
+    <section className="space-y-5 text-lovable-ink">
+      <div className="grid gap-5 xl:grid-cols-[1fr_390px]">
+        <div className="space-y-5">
+          <DashboardHero
+            insight={viewModel.insight}
+            redCount={redCount}
+            inactiveCount={inactiveCount}
+            mrrAtRisk={mrrAtRisk}
+          />
 
-      <div className="relative space-y-6">
-        <PageHeader
-          title="Dashboard"
-          subtitle="Visao geral operacional e estrategica da academia"
-        />
-
-        <DashboardZone>
-          <div className="space-y-4">
-            {kpiLoading ? <KpiStripSkeleton /> : <KPIStrip items={kpiItems} />}
-            <WeeklySummaryMini />
-            <BIFoundationMini />
-          </div>
-        </DashboardZone>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <DashboardZone>
-            <ZoneHeader
-              title="Churn e NPS"
-              subtitle="Evolucao consolidada do churn e do NPS medio."
-              actions={
-                <div className="flex items-center gap-1">
-                  {[
-                    { value: "all", label: "Tudo" },
-                    { value: "6m", label: "6M" },
-                    { value: "3m", label: "3M" },
-                  ].map((option) => (
-                    <Button
-                      key={option.value}
-                      size="sm"
-                      variant={chartRange === option.value ? "secondary" : "ghost"}
-                      className="rounded-lg"
-                      onClick={() => setChartRange(option.value as ChartRange)}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              }
-            />
-
-            <div className="h-80">
-              {chartLoading ? (
-                <Skeleton className="h-full w-full rounded-[22px]" />
-              ) : chartData.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-[22px] border border-dashed border-lovable-border">
-                  <EmptyState
-                    icon={BarChart3}
-                    title="Sem dados para o periodo"
-                    description="Ajuste o intervalo ou aguarde mais historico para visualizar a evolucao."
-                  />
-                </div>
-              ) : !retentionChartState.hasMeaningfulValues ? (
-                <div className="flex h-full items-center justify-center rounded-[22px] border border-dashed border-lovable-border">
-                  <EmptyState
-                    icon={BarChart3}
-                    title="Sem base historica util para o grafico"
-                    description="O piloto ainda nao acumulou NPS ou churn com variacao suficiente. Assim que houver respostas e cancelamentos registrados, a curva aparece aqui com contexto real."
-                  />
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="npsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.42} />
-                        <stop offset="95%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="churnGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--lovable-info))" stopOpacity={0.28} />
-                        <stop offset="95%" stopColor="hsl(var(--lovable-info))" stopOpacity={0.01} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.55)" />
-                    <XAxis
-                      dataKey="month"
-                      tickFormatter={formatDateLabel}
-                      tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: 12,
-                        border: "1px solid hsl(var(--lovable-border))",
-                        background: "hsl(var(--lovable-surface) / 0.96)",
-                        color: "hsl(var(--lovable-ink))",
-                        boxShadow: "var(--shadow-panel)",
-                      }}
-                      formatter={(value, key) => {
-                        const parsedValue = typeof value === "number" ? value : Number(value);
-                        if (!Number.isFinite(parsedValue)) return ["-", String(key)];
-                        if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
-                        return [parsedValue.toFixed(2), "NPS medio"];
-                      }}
-                      labelFormatter={(label) => formatDateLabel(String(label))}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="nps_avg"
-                      name="NPS medio"
-                      stroke="hsl(var(--lovable-primary))"
-                      fill="url(#npsGradient)"
-                      strokeWidth={2.5}
-                      connectNulls
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="churn_rate"
-                      name="Churn"
-                      stroke="hsl(var(--lovable-info))"
-                      fill="url(#churnGradient)"
-                      strokeWidth={2.1}
-                      connectNulls
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+          {isDashboardLoading ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 8 }, (_, index) => (
+                <PremiumSkeleton key={index} className="h-[150px]" />
+              ))}
             </div>
-            {retentionChartState.hasMeaningfulValues && retentionChartState.isFlat ? (
-              <p className="mt-3 text-xs text-lovable-ink-muted">
-                Serie praticamente estavel no periodo. Use Retencao e NPS para validar se a estabilidade reflete operacao real ou falta de novos eventos.
-              </p>
-            ) : null}
-          </DashboardZone>
-
-          <DashboardZone>
-            <ZoneHeader
-              title="Leitura executiva"
-              subtitle="Resumo curto para orientar a proxima decisao operacional."
-            />
-
-            <div className="space-y-4">
-              {viewModel.alerts[0] ? (
-                <div className="flex items-start gap-2 rounded-[22px] border border-lovable-border bg-lovable-surface/84 px-4 py-3 shadow-panel">
-                  <AlertTriangle
-                    size={16}
-                    className={cn(
-                      "mt-0.5",
-                      viewModel.alerts[0].tone === "danger"
-                        ? "text-rose-400"
-                        : viewModel.alerts[0].tone === "warning"
-                          ? "text-amber-400"
-                          : "text-lovable-ink-muted",
-                    )}
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-lovable-ink">{viewModel.alerts[0].title}</p>
-                    <p className="mt-1 text-sm text-lovable-ink-muted">{viewModel.alerts[0].description}</p>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/90 px-4 py-4 shadow-panel">
-                <p className="text-sm leading-relaxed text-lovable-ink">{viewModel.insight}</p>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => navigate("/dashboard/retention")}>
-                    Ver plano de retencao
-                    <ArrowRight size={14} />
-                  </Button>
-                </div>
-              </div>
-
-              <AiInsightCard dashboard="executive" />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {metricCards.map((card, i) => (
+                <MetricCard key={card.label} {...card} className={`stagger-${Math.min(i + 1, 4)}`} />
+              ))}
             </div>
-          </DashboardZone>
+          )}
+
+          <IntelligenceMap
+            activeMembers={activeMembers}
+            checkins7d={checkins7d}
+            churnRate={churnRate}
+            actionCount={actionRows.length}
+            mrr={mrr}
+          />
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <DashboardZone>
-            <SectionHeader
-              title="Acoes prioritarias"
-              subtitle={
-                actionRows.length > visibleRows.length
-                  ? `Mostrando ${visibleRows.length} de ${actionRows.length} itens priorizados da fila.`
-                  : "Fila operacional consolidada e ordenada por prioridade."
-              }
-              count={visibleRows.length}
-            />
+        <div className="space-y-4">
+          <AIInsightPanel
+            summary={viewModel.insight}
+            updatedAt="Atualizado a partir dos dados atuais do workspace."
+            alerts={alertNodes}
+            items={[
+              redCount > 0 ? `${redCount} aluno(s) em risco vermelho devem entrar primeiro na fila.` : "Sem risco vermelho ativo no recorte atual.",
+              inactiveCount > 0 ? `${inactiveCount} aluno(s) estão há 7+ dias sem treino.` : "Inatividade longa sem alerta relevante.",
+              newAtRisk > 0 ? `${newAtRisk} novo(s) aluno(s) entraram em risco na semana.` : "Sem novos alunos em risco na semana.",
+            ]}
+          />
 
-            {actionLoading ? (
-              <SkeletonList rows={6} cols={4} />
-            ) : visibleRows.length === 0 ? (
-              <EmptyState
-                icon={AlertTriangle}
-                title="Nenhuma acao prioritaria no momento"
-                description="A fila esta sob controle. Volte mais tarde para acompanhar novas oportunidades."
+          <CommandCard>
+            <SectionHeader
+              eyebrow="Próximas 24h"
+              title="Fila de ações sugeridas"
+              actions={<Button size="sm" variant="ghost" onClick={() => navigate("/tasks")}>Ver tasks</Button>}
+            />
+            <ActionQueue
+              items={actionRows.slice(0, 4).map((row) => ({
+                id: row.id,
+                title: row.name,
+                subtitle: row.subtitle,
+                priority: row.priority,
+                owner: row.source === "retention" ? "Recepção" : row.source === "commercial" ? "Comercial" : "Operação",
+                status: row.status,
+                ctaLabel: "Abrir",
+                onClick: () => navigate(row.href),
+              }))}
+              empty={
+                <PremiumEmptyState
+                  icon={CheckSquare}
+                  title="Nenhuma ação urgente"
+                  description="A operação não tem fila crítica no recorte atual."
+                  className="min-h-[140px]"
+                />
+              }
+            />
+          </CommandCard>
+        </div>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_0.92fr]">
+        <CommandCard>
+          <SectionHeader
+            title="Churn e NPS"
+            subtitle="Evolução consolidada com leitura de tendência e lacunas explícitas."
+            actions={
+              <div className="flex items-center gap-1">
+                {[
+                  { value: "all", label: "Tudo" },
+                  { value: "6m", label: "6 meses" },
+                  { value: "3m", label: "3 meses" },
+                ].map((option) => (
+                  <Button
+                    key={option.value}
+                    size="sm"
+                    variant={chartRange === option.value ? "secondary" : "ghost"}
+                    onClick={() => setChartRange(option.value as ChartRange)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            }
+          />
+
+          <div className="h-80">
+            {churn.isLoading || retention.isLoading ? (
+              <PremiumSkeleton className="h-full w-full" />
+            ) : chartData.length === 0 || !retentionChartState.hasMeaningfulValues ? (
+              <PremiumEmptyState
+                icon={BarChart3}
+                title="Sem base histórica suficiente"
+                description="Assim que houver NPS, check-ins e cancelamentos registrados, a curva de tendência aparece aqui."
+                className="h-full"
               />
             ) : (
-              <div className="space-y-2">
-                {visibleRows.map((row) => {
-                  const SourceIcon = SOURCE_META[row.source].icon;
-
-                  return (
-                    <div
-                      key={row.id}
-                      className="flex flex-col gap-3 rounded-[22px] border border-lovable-border bg-lovable-surface/88 px-4 py-3 shadow-panel lg:flex-row lg:items-center lg:justify-between"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-lovable-ink">{row.name}</p>
-                          <StatusBadge status={row.source} map={SOURCE_BADGE_MAP} />
-                          <StatusBadge status={row.priority} map={PRIORITY_BADGE_MAP} />
-                        </div>
-                        <p className="mt-1 text-xs text-lovable-ink-muted">{row.subtitle}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-lovable-ink-muted">
-                          <span className="inline-flex items-center gap-1.5">
-                            <SourceIcon size={12} />
-                            {row.status}
-                          </span>
-                          <span>Ultimo evento: {formatDateTime(row.lastEventAt)}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex shrink-0 items-center">
-                        <Button size="sm" variant="ghost" onClick={() => navigate(row.href)}>
-                          Abrir
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="commandNpsGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.42} />
+                      <stop offset="95%" stopColor="hsl(var(--lovable-primary))" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="commandChurnGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--lovable-danger))" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="hsl(var(--lovable-danger))" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.55)" />
+                  <XAxis
+                    dataKey="month"
+                    tickFormatter={formatDateLabel}
+                    tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(14,16,24,0.97)",
+                      color: "hsl(var(--lovable-ink))",
+                      padding: "10px 14px",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
+                    }}
+                    labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px", marginBottom: "4px" }}
+                    itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
+                    cursor={{ stroke: "rgba(255,255,255,0.10)", strokeDasharray: "3 3" }}
+                    formatter={(value, key) => {
+                      const parsedValue = typeof value === "number" ? value : Number(value);
+                      if (!Number.isFinite(parsedValue)) return ["-", String(key)];
+                      if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
+                      return [parsedValue.toFixed(2), "NPS médio"];
+                    }}
+                    labelFormatter={(label) => formatDateLabel(String(label))}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="nps_avg"
+                    name="NPS médio"
+                    stroke="hsl(var(--lovable-primary))"
+                    fill="url(#commandNpsGradient)"
+                    strokeWidth={2.5}
+                    connectNulls
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="churn_rate"
+                    name="Churn"
+                    stroke="hsl(var(--lovable-danger))"
+                    fill="url(#commandChurnGradient)"
+                    strokeWidth={2.1}
+                    connectNulls
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             )}
-          </DashboardZone>
-
-          <div className="space-y-4">
-            <RoiSummaryCard />
           </div>
-        </div>
+        </CommandCard>
 
-        {!executive.isLoading && !viewModel.hasData ? (
-          <DashboardZone className="bg-lovable-surface/86">
-            <div className="flex flex-col items-start gap-3 py-2">
-              <p className="text-sm text-lovable-ink-muted">
-                Sem dados suficientes para preencher o dashboard. Importe membros e check-ins para ativar o painel.
-              </p>
-              <Button onClick={() => navigate("/imports")}>Importar dados agora</Button>
-            </div>
-          </DashboardZone>
-        ) : null}
+        <CommandCard>
+          <SectionHeader
+            title="Matriz de risco"
+            subtitle="Segmentos prioritários para decisão de retenção."
+            actions={<StatusPill tone="retention">Retenção</StatusPill>}
+          />
+          <RiskMatrix segments={riskSegments} />
+        </CommandCard>
       </div>
+
+      {!executive.isLoading && !viewModel.hasData ? (
+        <CommandCard variant="warning">
+          <PremiumEmptyState
+            icon={Zap}
+            title="Base operacional ainda insuficiente"
+            description="Importe membros, check-ins e eventos financeiros para ativar o Command Center com leitura completa."
+            action={<Button onClick={() => navigate("/imports")}>Importar dados agora</Button>}
+          />
+        </CommandCard>
+      ) : null}
     </section>
   );
 }

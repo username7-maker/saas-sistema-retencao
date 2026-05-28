@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
@@ -23,9 +24,25 @@ from app.database import include_all_tenants
 from app.models import Gym, RoleEnum, User
 from app.schemas import TokenPair, UserLogin, UserRegister
 from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
-from app.utils.email import send_email
+from app.utils.email import EmailSendResult, send_email_result
 
 _PASSWORD_RESET_EXPIRY_HOURS = 1
+_TEMPORARY_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+
+
+@dataclass(frozen=True)
+class PasswordResetRequestOutcome:
+    requested: bool
+    email_result: EmailSendResult | None = None
+
+
+def generate_temporary_password(length: int = 14) -> str:
+    return "".join(secrets.choice(_TEMPORARY_PASSWORD_ALPHABET) for _ in range(length))
+
+
+def generate_bootstrap_password() -> str:
+    """Backend-only credential used before the invited user defines a password."""
+    return secrets.token_urlsafe(32)
 
 
 def _already_exists_exception() -> HTTPException:
@@ -187,13 +204,13 @@ def logout(db: Session, user: User, *, commit: bool = True) -> None:
         db.flush()
 
 
-def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
+def request_password_reset(db: Session, *, email: str, gym_slug: str) -> PasswordResetRequestOutcome:
     """Generate a reset token and send it via email. Always returns successfully
     (even if the user does not exist) to avoid account enumeration."""
     normalized_slug = _normalize_gym_slug(gym_slug)
     gym = db.scalar(select(Gym).where(Gym.slug == normalized_slug, Gym.is_active.is_(True)))
     if not gym:
-        return
+        return PasswordResetRequestOutcome(requested=False)
 
     user = db.scalar(
         _include_all_tenants(
@@ -207,17 +224,12 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
         )
     )
     if not user:
-        return
+        return PasswordResetRequestOutcome(requested=False)
 
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    user.password_reset_token_hash = token_hash
-    user.password_reset_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=_PASSWORD_RESET_EXPIRY_HOURS)
-    db.add(user)
-    db.commit()
-
     reset_link = f"{settings.frontend_url}/reset-password#token={raw_token}"
-    send_email(
+    email_result = send_email_result(
         to_email=email,
         subject=f"Redefinição de Senha — {PRODUCT_NAME}",
         content=(
@@ -227,6 +239,44 @@ def request_password_reset(db: Session, *, email: str, gym_slug: str) -> None:
             "Se você não solicitou a redefinição, ignore este e-mail."
         ),
     )
+    if not email_result.sent:
+        return PasswordResetRequestOutcome(requested=True, email_result=email_result)
+
+    user.password_reset_token_hash = token_hash
+    user.password_reset_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=_PASSWORD_RESET_EXPIRY_HOURS)
+    db.add(user)
+    db.commit()
+    return PasswordResetRequestOutcome(requested=True, email_result=email_result)
+
+
+def send_password_setup_email(db: Session, *, user: User, commit: bool = True) -> EmailSendResult:
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    reset_link = f"{settings.frontend_url}/reset-password#token={raw_token}"
+    email_result = send_email_result(
+        to_email=user.email,
+        subject=f"Crie sua senha - {PRODUCT_NAME}",
+        content=(
+            f"Ola, {user.full_name}!\n\n"
+            f"Seu acesso ao {PRODUCT_NAME} foi criado. Clique no link abaixo para definir sua senha "
+            f"(valido por {_PASSWORD_RESET_EXPIRY_HOURS}h):\n\n"
+            f"{reset_link}\n\n"
+            "Se voce nao esperava este convite, ignore este e-mail."
+        ),
+    )
+    if not email_result.sent:
+        return email_result
+
+    user.password_reset_token_hash = token_hash
+    user.password_reset_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=_PASSWORD_RESET_EXPIRY_HOURS)
+    user.refresh_token_hash = None
+    user.refresh_token_expires_at = None
+    db.add(user)
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return email_result
 
 
 def reset_password(db: Session, *, token: str, new_password: str) -> None:

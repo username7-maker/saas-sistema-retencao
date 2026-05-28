@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import Member, RiskLevel, Task
 from app.models.body_composition import BodyCompositionEvaluation
 from app.schemas.assistant import AIAssistantPayload
+from app.services.operational_message_ai_service import OperationalMessageDraft, generate_operational_message_draft
 
 
 _ONBOARDING_FACTOR_LABELS = {
@@ -52,6 +53,18 @@ def _prompt_contract(metadata: dict | None) -> dict[str, Any]:
         "prompt_version": metadata.get("prompt_version"),
         "model": metadata.get("model"),
         "safety_profile": metadata.get("safety_profile"),
+    }
+
+
+def _message_contract(draft: OperationalMessageDraft) -> dict[str, Any]:
+    provider = "openai" if draft.message_source == "ai_specialist" else "system"
+    mode = "copy_agent" if draft.message_source == "ai_specialist" else draft.message_source
+    return {
+        "suggested_message": draft.message,
+        "message_source": draft.message_source,
+        "blocked_reasons": draft.blocked_reasons,
+        **_assistant_contract(provider=provider, mode=mode, fallback_used=draft.fallback_used),
+        **_prompt_contract(draft.metadata),
     }
 
 
@@ -111,14 +124,25 @@ def build_onboarding_assistant(member: Member, onboarding_result: dict[str, Any]
     ]
     if status == "at_risk":
         evidence.append("Status atual do onboarding: em risco")
+    draft = generate_operational_message_draft(
+        None,
+        domain="onboarding",
+        base_message=suggested_message,
+        member=member,
+        context={
+            "days_since_join": days_since_join,
+            "score": score,
+            "weakest_factor": weakest_label,
+            "next_best_action": next_best_action,
+        },
+    )
 
     return AIAssistantPayload(
         summary=summary,
         why_it_matters=why_it_matters,
         next_best_action=next_best_action,
-        suggested_message=suggested_message,
         evidence=evidence,
-        **_assistant_contract(),
+        **_message_contract(draft),
         confidence_label=confidence_label,
         recommended_channel=recommended_channel,
         cta_target=cta_target,
@@ -154,6 +178,24 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
         risk_level = getattr(member, "risk_level", RiskLevel.YELLOW)
         churn_label = _CHURN_LABELS.get(getattr(member, "churn_type", None), "sinal de evasao ativo")
         recommended_channel = "Ligacao" if risk_level == RiskLevel.RED else "Canal principal"
+        base_message = (
+            task.suggested_message
+            or f"Oi {first_name(member.full_name)}, percebi que sua rotina saiu um pouco do eixo. "
+            "Quero te ajudar a voltar sem pressao e encontrar o melhor ajuste desta semana."
+        )
+        draft = generate_operational_message_draft(
+            db,
+            domain="retention",
+            base_message=base_message,
+            member=member,
+            task=task,
+            context={
+                "days_without_checkin": days_without_checkin or 0,
+                "risk_score": risk_score,
+                "risk_level": getattr(risk_level, "value", risk_level),
+                "churn_type": churn_label,
+            },
+        )
         return AIAssistantPayload(
             summary=(
                 f"{member.full_name} entrou nesta task porque tem risco {risk_level.value} e sinais de {churn_label}."
@@ -163,16 +205,12 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
                 "Uma abordagem humana contextual tende a recuperar melhor do que um contato generico."
             ),
             next_best_action="Abrir o contexto do aluno, revisar sinais e iniciar uma abordagem curta e humana.",
-            suggested_message=(
-                f"Oi {first_name(member.full_name)}, percebi que sua rotina saiu um pouco do eixo. "
-                "Quero te ajudar a voltar sem pressao e encontrar o melhor ajuste desta semana."
-            ),
             evidence=[
                 f"Risk score: {risk_score}",
                 f"Dias sem check-in: {days_without_checkin or 0}",
                 f"Churn type: {churn_label}",
             ],
-            **_assistant_contract(),
+            **_message_contract(draft),
             confidence_label="Alta" if risk_level == RiskLevel.RED else "Moderada",
             recommended_channel=recommended_channel,
             cta_target=f"/assessments/members/{member.id}?tab=contexto",
@@ -181,17 +219,24 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
 
     if task.member is not None:
         member = task.member
+        draft = generate_operational_message_draft(
+            db,
+            domain=str((task.extra_data or {}).get("domain") or source or "task"),
+            base_message=task.suggested_message,
+            member=member,
+            task=task,
+            context={"source": source, "priority": task.priority.value, "status": task.status.value},
+        )
         return AIAssistantPayload(
             summary=f"Tarefa manual ligada a {member.full_name}.",
             why_it_matters="Mesmo tarefas manuais ganham mais contexto quando executadas a partir do perfil do aluno.",
             next_best_action="Abrir o perfil 360, revisar o historico recente e executar a tarefa no contexto certo.",
-            suggested_message=task.suggested_message,
             evidence=[
                 f"Prioridade: {task.priority.value}",
                 f"Status atual: {task.status.value}",
                 f"Origem: {source}",
             ],
-            **_assistant_contract(),
+            **_message_contract(draft),
             confidence_label="Inicial",
             recommended_channel="Contexto do aluno",
             cta_target=f"/assessments/members/{member.id}?tab=acoes",
@@ -199,17 +244,25 @@ def build_task_assistant(db: Session, task: Task) -> AIAssistantPayload:
         )
 
     if task.lead is not None:
+        base_message = task.suggested_message or f"Oi {first_name(task.lead.full_name)}, posso te ajudar a seguir para o proximo passo?"
+        draft = generate_operational_message_draft(
+            db,
+            domain="commercial",
+            base_message=base_message,
+            lead=task.lead,
+            task=task,
+            context={"source": source, "priority": task.priority.value},
+        )
         return AIAssistantPayload(
             summary=f"Tarefa comercial ligada ao lead {task.lead.full_name}.",
             why_it_matters="Para leads, a melhor execucao costuma acontecer no CRM, onde estao historico e proximo estagio.",
             next_best_action="Abrir o lead no CRM e fazer a proxima acao comercial com contexto.",
-            suggested_message=task.suggested_message or f"Oi {first_name(task.lead.full_name)}, posso te ajudar a seguir para o proximo passo?",
             evidence=[
                 f"Origem: {source}",
                 f"Prioridade: {task.priority.value}",
                 f"Prazo: {task.due_date.isoformat() if task.due_date else 'sem prazo'}",
             ],
-            **_assistant_contract(),
+            **_message_contract(draft),
             confidence_label="Inicial",
             recommended_channel="CRM",
             cta_target=f"/crm?leadId={task.lead_id}",
@@ -248,6 +301,25 @@ def build_retention_assistant(item: Any) -> AIAssistantPayload:
     ]
     if getattr(item, "signals_summary", None):
         evidence.append(str(item.signals_summary))
+    base_message = (
+        f"Oi {first_name(getattr(item, 'full_name', ''))}, senti sua ausencia nos ultimos dias. "
+        "Quero entender o que atrapalhou sua rotina e te ajudar a voltar com um plano simples."
+    )
+    draft = generate_operational_message_draft(
+        None,
+        domain="retention",
+        base_message=base_message,
+        context={
+            "subject_name": getattr(item, "full_name", "Aluno"),
+            "churn_type": churn_label,
+            "risk_level": getattr(risk_level, "value", risk_level),
+            "days_without_checkin": days_without_checkin if days_without_checkin is not None else 0,
+            "forecast_60d": forecast_60d if forecast_60d is not None else "sem forecast",
+            "next_action": getattr(item, "next_action", None),
+            "retention_stage": getattr(item, "retention_stage", None),
+        },
+        allow_ai=False,
+    )
 
     return AIAssistantPayload(
         summary=(
@@ -259,12 +331,8 @@ def build_retention_assistant(item: Any) -> AIAssistantPayload:
             f"e forecast de {forecast_60d if forecast_60d is not None else '--'}%, a janela de recuperacao pede acao contextual."
         ),
         next_best_action=getattr(item, "next_action", None) or "Abrir o playbook e executar a primeira abordagem sugerida.",
-        suggested_message=(
-            f"Oi {first_name(getattr(item, 'full_name', ''))}, senti sua ausencia nos ultimos dias. "
-            "Quero entender o que atrapalhou sua rotina e te ajudar a voltar com um plano simples."
-        ),
         evidence=evidence,
-        **_assistant_contract(),
+        **_message_contract(draft),
         confidence_label="Alta" if risk_level == RiskLevel.RED else "Moderada",
         recommended_channel=recommended_channel,
         cta_target=f"/assessments/members/{getattr(item, 'member_id', '')}?tab=contexto",

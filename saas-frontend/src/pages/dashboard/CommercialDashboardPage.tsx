@@ -1,24 +1,40 @@
 import { useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, BarChart3, Briefcase, Target, Trophy, UserRoundCheck } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { getChartSeriesState } from "../../components/charts/chartState";
+import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { QuickLeadActions } from "../../components/common/QuickLeadActions";
-import { StatCard } from "../../components/common/StatCard";
 import { EmptyState } from "../../components/ui";
-import { Badge } from "../../components/ui2";
+import {
+  CommandCard,
+  MetricCard,
+  PremiumEmptyState,
+  PremiumTable,
+  PremiumTableBody,
+  PremiumTableCell,
+  PremiumTableHead,
+  PremiumTableHeader,
+  PremiumTableRow,
+  SectionHeader,
+  StatusPill,
+} from "../../components/ui2";
 import { useCommercialDashboard } from "../../hooks/useDashboard";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
 
 const STAGE_LABELS: Record<string, string> = {
   new: "Novo",
   contacted: "Contactado",
+  contact: "Contato",
+  visit: "Visita",
+  trial: "Aula experimental",
   proposal: "Proposta",
+  proposal_sent: "Proposta enviada",
+  meeting_scheduled: "Reunião",
   won: "Fechado",
   lost: "Perdido",
 };
@@ -26,7 +42,7 @@ const STAGE_LABELS: Record<string, string> = {
 function stageColor(stage: string): string {
   if (stage === "won") return "hsl(var(--lovable-success))";
   if (stage === "lost") return "hsl(var(--lovable-danger))";
-  if (stage === "proposal") return "hsl(var(--lovable-warning))";
+  if (stage === "proposal" || stage === "proposal_sent") return "hsl(var(--lovable-warning))";
   return "hsl(var(--lovable-primary))";
 }
 
@@ -64,8 +80,8 @@ export function CommercialDashboardPage() {
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Nao foi possivel carregar o dashboard comercial"
-        description={getPermissionAwareMessage(query.error, "Tente novamente para recuperar pipeline, conversao e leads parados.")}
+        title="Não foi possível carregar o dashboard comercial"
+        description={getPermissionAwareMessage(query.error, "Tente novamente para recuperar pipeline, conversão e leads parados.")}
         action={{ label: "Tentar novamente", onClick: () => void query.refetch() }}
       />
     );
@@ -73,120 +89,160 @@ export function CommercialDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Comercial</h2>
-          <p className="text-sm text-lovable-ink-muted">Pipeline, conversao por origem e CAC.</p>
+      <CommandCard variant="elevated">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+                Dashboard Comercial
+              </span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline, conversão por origem, follow-up e oportunidades paradas.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <DashboardActions dashboard="commercial" />
+            <Link
+              to="/crm"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-[rgba(59,130,246,0.55)] bg-[rgba(59,130,246,0.18)] px-4 text-xs font-semibold uppercase tracking-wider text-blue-200 transition-colors hover:bg-[rgba(59,130,246,0.28)] hover:text-white"
+            >
+              Abrir CRM Kanban
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <DashboardActions dashboard="commercial" />
-          <Link
-            to="/crm"
-            className="rounded-full bg-lovable-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:opacity-90"
-          >
-            Abrir CRM Kanban
-          </Link>
-        </div>
-      </header>
+      </CommandCard>
 
       <AiInsightCard dashboard="commercial" />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="CAC" value={hasCommercialBase ? `R$ ${query.data.cac.toFixed(2)}` : "Sem base"} tone="warning" />
-        <StatCard label="Leads em proposta" value={String(query.data.pipeline.proposal ?? 0)} tone="neutral" />
-        <StatCard label="Fechados" value={String(query.data.pipeline.won ?? 0)} tone="success" />
+        <MetricCard
+          label="CAC"
+          value={hasCommercialBase ? `R$ ${query.data.cac.toFixed(2)}` : "Sem base"}
+          subtitle="Custo de aquisição estimado"
+          icon={Target}
+          tone={hasCommercialBase ? "warning" : "neutral"}
+          currency={hasCommercialBase}
+          className="stagger-1"
+        />
+        <MetricCard
+          label="Leads em proposta"
+          value={String(query.data.pipeline.proposal ?? query.data.pipeline.proposal_sent ?? 0)}
+          subtitle="Oportunidades em negociação"
+          icon={Briefcase}
+          tone="info"
+          className="stagger-2"
+        />
+        <MetricCard
+          label="Fechados"
+          value={String(query.data.pipeline.won ?? 0)}
+          subtitle="Conversões registradas no funil"
+          icon={Trophy}
+          tone="success"
+          className="stagger-3"
+        />
       </div>
 
-      <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Pipeline por estagio</p>
-        {hasPipeline ? (
-          <ResponsiveContainer width="100%" height="90%">
-            <BarChart data={pipelineData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
-              <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} />
-              <YAxis stroke="hsl(var(--lovable-ink-muted))" />
-              <Tooltip
-                contentStyle={{
-                  background: "hsl(var(--lovable-surface))",
-                  border: "1px solid hsl(var(--lovable-border))",
-                  borderRadius: "0.75rem",
-                }}
-                labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: 12 }}
-                itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
-              />
-              <Bar dataKey="total" radius={[8, 8, 0, 0]}>
-                {pipelineData.map((entry) => (
-                  <Cell key={entry.stage} fill={stageColor(entry.stage)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-lovable-border">
-            <EmptyState
+      <CommandCard>
+        <SectionHeader title="Pipeline por estágio" subtitle="Distribuição visual das oportunidades comerciais." />
+        <div className="h-72">
+          {hasPipeline ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={pipelineData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.55)" />
+                <XAxis dataKey="label" stroke="hsl(var(--lovable-ink-muted))" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis stroke="hsl(var(--lovable-ink-muted))" axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: "rgba(14,16,24,0.97)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "12px",
+                    padding: "10px 14px",
+                    color: "hsl(var(--lovable-ink))",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
+                  }}
+                  labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px" }}
+                  itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
+                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                />
+                <Bar dataKey="total" radius={[10, 10, 0, 0]}>
+                  {pipelineData.map((entry) => (
+                    <Cell key={entry.stage} fill={stageColor(entry.stage)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <PremiumEmptyState
               icon={BarChart3}
-              title="Pipeline ainda sem base util"
-              description="Quando houver leads e mudancas reais de estagio, o grafico comercial passa a mostrar a distribuicao do funil."
+              title="Pipeline ainda sem base útil"
+              description="Quando houver leads e mudanças reais de estágio, o funil aparece aqui."
+              className="h-full"
             />
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </CommandCard>
 
-      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Conversao por origem</h3>
+      <CommandCard>
+        <SectionHeader title="Conversão por origem" subtitle="Quais canais estão gerando alunos reais." />
         {(query.data.conversion_by_source ?? []).length === 0 ? (
-          <div className="rounded-xl border border-dashed border-lovable-border px-4 py-4 text-sm text-lovable-ink-muted">
-            Ainda nao ha volume suficiente por origem para calcular conversao de forma confiavel.
-          </div>
+          <PremiumEmptyState
+            icon={UserRoundCheck}
+            title="Conversão ainda sem volume confiável"
+            description="Registre origem e resultado dos leads para ativar essa leitura."
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wider text-lovable-ink-muted">
-                <tr>
-                  <th className="px-2 py-2">Origem</th>
-                  <th className="px-2 py-2">Total</th>
-                  <th className="px-2 py-2">Fechados</th>
-                  <th className="px-2 py-2">Conversao</th>
-                </tr>
-              </thead>
-              <tbody>
-                {query.data.conversion_by_source.map((row) => (
-                  <tr key={row.source} className="border-t border-lovable-border">
-                    <td className="px-2 py-2 font-medium text-lovable-ink">{row.source}</td>
-                    <td className="px-2 py-2 text-lovable-ink-muted">{row.total}</td>
-                    <td className="px-2 py-2 text-lovable-ink-muted">{row.won}</td>
-                    <td className="px-2 py-2 font-medium text-lovable-ink">{row.conversion_rate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PremiumTable>
+            <PremiumTableHead>
+              <PremiumTableRow>
+                <PremiumTableHeader>Origem</PremiumTableHeader>
+                <PremiumTableHeader>Total</PremiumTableHeader>
+                <PremiumTableHeader>Fechados</PremiumTableHeader>
+                <PremiumTableHeader>Conversão</PremiumTableHeader>
+              </PremiumTableRow>
+            </PremiumTableHead>
+            <PremiumTableBody>
+              {query.data.conversion_by_source.map((row) => (
+                <PremiumTableRow key={row.source}>
+                  <PremiumTableCell className="font-medium text-lovable-ink">{row.source}</PremiumTableCell>
+                  <PremiumTableCell className="text-lovable-ink-muted">{row.total}</PremiumTableCell>
+                  <PremiumTableCell className="text-lovable-ink-muted">{row.won}</PremiumTableCell>
+                  <PremiumTableCell className="font-medium text-lovable-ink">{row.conversion_rate}%</PremiumTableCell>
+                </PremiumTableRow>
+              ))}
+            </PremiumTableBody>
+          </PremiumTable>
         )}
-      </section>
+      </CommandCard>
 
-      <section className="rounded-2xl border border-lovable-warning/30 bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-warning">
-          Leads parados 3+ dias ({query.data.stale_leads_total})
-        </h3>
+      <CommandCard variant={query.data.stale_leads_total > 0 ? "warning" : "default"}>
+        <SectionHeader
+          title="Leads parados 3+ dias"
+          subtitle="Oportunidades que precisam de retomada antes de esfriar."
+          actions={<StatusPill tone={query.data.stale_leads_total > 0 ? "warning" : "neutral"}>{query.data.stale_leads_total}</StatusPill>}
+        />
         {query.data.stale_leads.length === 0 ? (
-          <p className="text-sm text-lovable-ink-muted">Nenhum lead parado no momento.</p>
+          <PremiumEmptyState
+            icon={Briefcase}
+            title="Nenhum lead parado"
+            description="O pipeline comercial está sem bloqueio operacional neste recorte."
+          />
         ) : (
           <ul className="space-y-3">
             {query.data.stale_leads.map((lead) => {
               const dias = daysSince(lead.last_contact_at);
               return (
-                <li key={lead.id} className="rounded-lg border border-lovable-border px-3 py-3 text-sm">
+                <li key={lead.id} className="rounded-[18px] border border-lovable-border/70 bg-lovable-surface/58 px-3 py-3 text-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-lovable-ink">{lead.full_name}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-lovable-ink-muted">
-                        <span>Estagio: {STAGE_LABELS[lead.stage] ?? lead.stage}</span>
+                        <span>Estágio: {STAGE_LABELS[lead.stage] ?? lead.stage}</span>
                         <span>Origem: {lead.source}</span>
-                        {dias !== null && (
-                          <Badge variant={dias > 7 ? "danger" : "warning"}>
+                        {dias !== null ? (
+                          <StatusPill tone={dias > 7 ? "danger" : "warning"}>
                             {dias}d sem contato
-                          </Badge>
-                        )}
+                          </StatusPill>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -198,7 +254,7 @@ export function CommercialDashboardPage() {
             })}
           </ul>
         )}
-      </section>
+      </CommandCard>
     </section>
   );
 }

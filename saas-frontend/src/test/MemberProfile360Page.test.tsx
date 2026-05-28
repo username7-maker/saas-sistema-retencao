@@ -288,6 +288,8 @@ describe("MemberProfile360Page", () => {
       expect.stringContaining("https://wa.me/5511999990001?text="),
     );
     expect(screen.getByText("Aniversario 09 de Setembro - via importacao")).toBeInTheDocument();
+    expect(screen.queryByText("Cordex Coach")).not.toBeInTheDocument();
+    expect(screen.queryByText("Video de movimento")).not.toBeInTheDocument();
   });
 
   it("supports tab navigation through query params and preserves editors", async () => {
