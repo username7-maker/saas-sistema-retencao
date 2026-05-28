@@ -4,7 +4,7 @@ import { ArrowUpRight, Bot, CheckCircle2, ShieldAlert, Sparkles, Video, XCircle 
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
-import { PageHeader, SkeletonList } from "../../components/ui";
+import { SkeletonList } from "../../components/ui";
 import { Badge, Button, Input, Select, cn } from "../../components/ui2";
 import { aiReviewCenterService } from "../../services/aiReviewCenterService";
 import type { AiReviewCenterItem } from "../../types";
@@ -138,23 +138,28 @@ export default function AiReviewCenterPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Revisao Cordex"
-        subtitle="Rascunhos e reviews gerados pelos agentes Cordex para revisao humana antes de qualquer envio."
-      />
+      <div className="relative overflow-hidden rounded-[18px] border border-[rgba(139,92,246,0.26)] bg-[radial-gradient(ellipse_80%_60%_at_85%_10%,rgba(139,92,246,0.10),transparent_65%),linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
+        <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-violet-400">IA · Cordex</p>
+        <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
+          <span className="bg-gradient-to-r from-white via-white to-violet-300 bg-clip-text text-transparent">
+            Revisão Cordex
+          </span>
+        </h2>
+        <p className="mt-1 text-sm text-lovable-ink-muted">Rascunhos e reviews gerados pelos agentes Cordex para revisão humana antes de qualquer envio.</p>
+      </div>
 
       <section className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <MetricCard label="Total" value={reviewQuery.data?.metrics.total ?? 0} />
-        <MetricCard label="Prontos" value={reviewQuery.data?.metrics.ready ?? 0} tone="success" />
-        <MetricCard label="Bloqueados" value={reviewQuery.data?.metrics.blocked ?? 0} tone="danger" />
-        <MetricCard label="Escalados" value={reviewQuery.data?.metrics.escalated ?? 0} tone="warning" />
-        <MetricCard label="Aguardando" value={reviewQuery.data?.metrics.awaiting_outcome ?? 0} tone="info" />
-        <MetricCard label="Revisados" value={reviewQuery.data?.metrics.reviewed ?? 0} tone="info" />
-        <MetricCard label="Editados" value={reviewQuery.data?.metrics.edited ?? 0} tone="warning" />
-        <MetricCard label="Uso" value={Math.round((reviewQuery.data?.metrics.utilization_rate ?? 0) * 100)} suffix="%" tone="success" />
+        <MetricCard label="Total" value={reviewQuery.data?.metrics.total ?? 0} className="stagger-1" />
+        <MetricCard label="Prontos" value={reviewQuery.data?.metrics.ready ?? 0} tone="success" className="stagger-2" />
+        <MetricCard label="Bloqueados" value={reviewQuery.data?.metrics.blocked ?? 0} tone="danger" className="stagger-3" />
+        <MetricCard label="Escalados" value={reviewQuery.data?.metrics.escalated ?? 0} tone="warning" className="stagger-4" />
+        <MetricCard label="Aguardando" value={reviewQuery.data?.metrics.awaiting_outcome ?? 0} tone="info" className="stagger-1" />
+        <MetricCard label="Revisados" value={reviewQuery.data?.metrics.reviewed ?? 0} tone="info" className="stagger-2" />
+        <MetricCard label="Editados" value={reviewQuery.data?.metrics.edited ?? 0} tone="warning" className="stagger-3" />
+        <MetricCard label="Uso" value={Math.round((reviewQuery.data?.metrics.utilization_rate ?? 0) * 100)} suffix="%" tone="success" className="stagger-4" />
       </section>
 
-      <section className="rounded-[28px] border border-lovable-border bg-lovable-surface/82 p-5 shadow-panel">
+      <section className="rounded-[18px] border border-white/[0.07] bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.92))] p-5 shadow-card backdrop-blur-xl">
         <div className="grid gap-3 lg:grid-cols-[220px_220px_1fr]">
           <Select value={source} onChange={(event) => setSource(event.target.value)}>
             {sourceOptions.map((option) => (
@@ -251,16 +256,31 @@ function MetricCard({
   value,
   suffix = "",
   tone = "neutral",
+  className,
 }: {
   label: string;
   value: number;
   suffix?: string;
   tone?: "neutral" | "success" | "danger" | "warning" | "info";
+  className?: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-lovable-border bg-lovable-surface/82 p-4 shadow-panel">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">{label}</p>
-      <p className={cn("mt-3 text-3xl font-black text-lovable-ink", tone === "success" && "text-lovable-success", tone === "danger" && "text-lovable-danger", tone === "warning" && "text-lovable-warning", tone === "info" && "text-blue-400")}>
+    <div className={cn(
+      "relative overflow-hidden rounded-[18px] border border-white/[0.07]",
+      "bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.92))]",
+      "p-4 shadow-card backdrop-blur-xl transition-all duration-200 hover:-translate-y-[1px]",
+      "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-16",
+      "before:bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_60%)]",
+      className,
+    )}>
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-lovable-ink-muted">{label}</p>
+      <p className={cn(
+        "num pi-count-in mt-2 text-3xl font-medium text-[#F4F5F7]",
+        tone === "success" && "text-lovable-success",
+        tone === "danger" && "text-rose-300",
+        tone === "warning" && "text-amber-300",
+        tone === "info" && "text-blue-300",
+      )}>
         {value}{suffix}
       </p>
     </div>
