@@ -98,13 +98,13 @@ function DashboardHero({
   return (
     <CommandCard
       variant="elevated"
-      className="min-h-[210px] overflow-hidden border-lovable-border/70 bg-lovable-surface/94"
+      className="min-h-[210px] overflow-hidden border-[rgba(0,200,255,0.24)] bg-black"
     >
       <div className="relative grid gap-6">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-lovable-ink-muted">Visão executiva</p>
-          <h1 className="mt-4 font-heading text-4xl font-bold tracking-tight text-lovable-ink md:text-5xl">
-            Resumo executivo
+          <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-[var(--pi-cyan)]">Performance Intelligence</p>
+          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight text-lovable-ink md:text-6xl">
+            IA de risco em tempo real
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-lovable-ink-muted md:text-base">{insight}</p>
           <div className="mt-5 flex flex-wrap gap-2">

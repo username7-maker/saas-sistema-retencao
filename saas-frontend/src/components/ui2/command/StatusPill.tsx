@@ -22,30 +22,30 @@ interface StatusPillProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const toneClasses: Record<StatusPillTone, string> = {
-  normal: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
-  alert: "border-amber-400/22 bg-amber-400/10 text-amber-200",
-  critical: "border-rose-400/25 bg-rose-400/12 text-rose-200",
+  normal: "border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] text-[var(--pi-green)]",
+  alert: "border-[rgba(249,115,22,0.3)] bg-[rgba(249,115,22,0.1)] text-[var(--pi-orange)]",
+  critical: "border-[rgba(255,59,48,0.34)] bg-[rgba(255,59,48,0.12)] text-[var(--pi-red)]",
   ai: "border-violet-400/24 bg-violet-400/12 text-violet-200",
-  integration: "border-cyan-400/22 bg-cyan-400/10 text-cyan-200",
+  integration: "border-[rgba(0,200,255,0.28)] bg-[rgba(0,200,255,0.1)] text-[var(--pi-cyan)]",
   sync: "border-blue-400/22 bg-blue-400/10 text-blue-200",
   retention: "border-sky-400/22 bg-sky-400/10 text-sky-200",
-  success: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
-  warning: "border-amber-400/22 bg-amber-400/10 text-amber-200",
-  danger: "border-rose-400/25 bg-rose-400/12 text-rose-200",
+  success: "border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] text-[var(--pi-green)]",
+  warning: "border-[rgba(249,115,22,0.3)] bg-[rgba(249,115,22,0.1)] text-[var(--pi-orange)]",
+  danger: "border-[rgba(255,59,48,0.34)] bg-[rgba(255,59,48,0.12)] text-[var(--pi-red)]",
   neutral: "border-lovable-border bg-lovable-surface-soft/75 text-lovable-ink-muted",
 };
 
 const dotClasses: Record<StatusPillTone, string> = {
-  normal: "bg-emerald-300",
-  alert: "bg-amber-300",
-  critical: "bg-rose-300",
+  normal: "bg-[var(--pi-green)]",
+  alert: "bg-[var(--pi-orange)]",
+  critical: "bg-[var(--pi-red)]",
   ai: "bg-violet-300",
-  integration: "bg-cyan-300",
+  integration: "bg-[var(--pi-cyan)]",
   sync: "bg-blue-300",
   retention: "bg-sky-300",
-  success: "bg-emerald-300",
-  warning: "bg-amber-300",
-  danger: "bg-rose-300",
+  success: "bg-[var(--pi-green)]",
+  warning: "bg-[var(--pi-orange)]",
+  danger: "bg-[var(--pi-red)]",
   neutral: "bg-lovable-ink-muted",
 };
 
@@ -59,7 +59,16 @@ export function StatusPill({ tone = "neutral", dot = false, className, children,
       )}
       {...props}
     >
-      {dot ? <span className={cn("h-1.5 w-1.5 rounded-full", dotClasses[tone])} /> : null}
+      {dot ? (
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            dotClasses[tone],
+            tone === "critical" || tone === "danger" ? "pi-pulse" : "",
+            tone === "normal" || tone === "success" || tone === "integration" ? "pi-pulse-green" : "",
+          )}
+        />
+      ) : null}
       {children}
     </span>
   );

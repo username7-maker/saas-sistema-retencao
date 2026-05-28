@@ -21,6 +21,14 @@
   --lovable-chart-stroke: 201 48% 58%;
   --lovable-brand: #6fa7c7;
   --lovable-muted: #748993;
+  --pi-green: #22c55e;
+  --pi-red: #ff3b30;
+  --pi-cyan: #00c8ff;
+  --pi-orange: #f97316;
+  --pi-glow-green: 0 0 18px rgba(34, 197, 94, 0.45);
+  --pi-glow-red: 0 0 18px rgba(255, 59, 48, 0.5);
+  --pi-glow-cyan: 0 0 18px rgba(0, 200, 255, 0.4);
+  --pi-glow-orange: 0 0 18px rgba(249, 115, 22, 0.42);
   --cordex-carbon: #05090d;
   --cordex-carbon-raised: #0a1118;
   --cordex-orbit: #172632;
@@ -46,42 +54,95 @@
 }
 
 .dark {
-  --lovable-bg: 215 52% 4%;
-  --lovable-bg-muted: 214 48% 6%;
-  --lovable-surface: 214 36% 8%;
-  --lovable-surface-soft: 214 32% 11%;
-  --lovable-border: 206 30% 17%;
-  --lovable-border-strong: 199 76% 42%;
-  --lovable-ink: 209 43% 93%;
-  --lovable-ink-muted: 213 19% 63%;
-  --lovable-primary: 199 89% 61%;
-  --lovable-primary-soft: 199 54% 16%;
-  --lovable-success: 160 84% 39%;
-  --lovable-warning: 38 92% 52%;
-  --lovable-danger: 0 84% 60%;
-  --lovable-info: 217 91% 60%;
+  --lovable-bg: 0 0% 0%;
+  --lovable-bg-muted: 0 0% 4%;
+  --lovable-surface: 0 0% 7%;
+  --lovable-surface-soft: 0 0% 10%;
+  --lovable-border: 0 0% 15%;
+  --lovable-border-strong: 193 100% 50%;
+  --lovable-ink: 0 0% 97%;
+  --lovable-ink-muted: 0 0% 62%;
+  --lovable-primary: 193 100% 50%;
+  --lovable-primary-soft: 193 100% 10%;
+  --lovable-success: 142 71% 45%;
+  --lovable-warning: 24 95% 53%;
+  --lovable-danger: 3 100% 59%;
+  --lovable-info: 193 100% 50%;
   --lovable-ai: 258 90% 66%;
-  --lovable-sidebar: 216 58% 4%;
-  --lovable-topbar: 216 46% 6%;
-  --lovable-elevated: 214 36% 10%;
-  --lovable-chart-grid: 207 24% 20%;
-  --lovable-chart-stroke: 199 89% 62%;
-  --lovable-brand: #38bdf8;
-  --lovable-muted: #8b9bad;
+  --lovable-sidebar: 0 0% 0%;
+  --lovable-topbar: 0 0% 4%;
+  --lovable-elevated: 0 0% 8%;
+  --lovable-chart-grid: 0 0% 18%;
+  --lovable-chart-stroke: 193 100% 50%;
+  --lovable-brand: #22c55e;
+  --lovable-muted: #a1a1aa;
+  --cordex-command-bg: #000000;
+  --cordex-command-surface: rgba(8, 8, 8, 0.92);
+  --cordex-command-surface-strong: rgba(16, 16, 16, 0.96);
+  --cordex-command-border: rgba(255, 255, 255, 0.09);
+  --cordex-command-border-hot: rgba(0, 200, 255, 0.32);
+  --cordex-command-cyan: #00c8ff;
+  --cordex-command-grid: rgba(0, 200, 255, 0.055);
+  --cordex-command-glow: 0 28px 110px -52px rgba(0, 200, 255, 0.72);
   --shadow-lovable:
-    0 30px 120px -52px hsl(216 100% 2% / 0.94),
-    0 14px 44px -28px hsl(199 90% 55% / 0.28);
+    0 30px 120px -52px rgba(0, 0, 0, 0.96),
+    0 14px 44px -28px rgba(0, 200, 255, 0.28);
   --shadow-panel:
-    0 28px 86px -42px hsl(216 100% 2% / 0.96),
-    inset 0 1px 0 hsl(196 100% 92% / 0.06);
+    0 28px 86px -42px rgba(0, 0, 0, 0.98),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+@keyframes pi-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.5);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(255, 59, 48, 0);
+  }
+}
+
+@keyframes pi-pulse-green {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes pi-count-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.pi-pulse {
+  animation: pi-pulse 2s ease-in-out infinite;
+}
+
+.pi-pulse-green {
+  animation: pi-pulse-green 2.5s ease-in-out infinite;
+}
+
+.pi-count-in {
+  animation: pi-count-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 body {
   background:
-    radial-gradient(circle at 18% 0%, hsl(var(--lovable-primary) / 0.16) 0%, transparent 30%),
-    radial-gradient(circle at 86% 12%, hsl(var(--lovable-ai) / 0.12) 0%, transparent 26%),
-    radial-gradient(circle at 48% 112%, hsl(var(--lovable-info) / 0.11) 0%, transparent 34%),
-    linear-gradient(135deg, hsl(215 52% 4%) 0%, hsl(214 48% 5%) 45%, hsl(216 46% 7%) 100%);
+    linear-gradient(180deg, rgba(0, 200, 255, 0.04), transparent 260px),
+    hsl(var(--lovable-bg));
   color: hsl(var(--lovable-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
@@ -110,7 +171,7 @@ body::after {
   height: 620px;
   pointer-events: none;
   background: url("/brand/cordex-orbit-watermark.png") center / contain no-repeat;
-  opacity: 0.45;
+  opacity: 0.16;
   filter: blur(0.2px);
 }
 

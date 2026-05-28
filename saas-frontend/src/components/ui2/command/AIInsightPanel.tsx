@@ -25,7 +25,7 @@ export function AIInsightPanel({
     <CommandCard variant="ai">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-violet-400/24 bg-violet-400/14 text-violet-200">
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-[rgba(0,200,255,0.3)] bg-[rgba(0,200,255,0.12)] text-[var(--pi-cyan)] shadow-[var(--pi-glow-cyan)]">
             <Bot size={17} />
           </div>
           <div>
@@ -33,12 +33,12 @@ export function AIInsightPanel({
             <h3 className="font-heading text-base font-bold text-lovable-ink">{title}</h3>
           </div>
         </div>
-        <StatusPill tone="ai">Ativa</StatusPill>
+        <StatusPill tone="integration" dot>Live</StatusPill>
       </div>
 
-      <div className="rounded-[20px] border border-lovable-border/65 bg-lovable-bg-muted/60 p-4">
+      <div className="rounded-[18px] border border-[rgba(0,200,255,0.18)] bg-[rgba(0,200,255,0.055)] p-4">
         <div className="flex items-start gap-3">
-          <Sparkles size={16} className="mt-0.5 text-violet-200" />
+          <Sparkles size={16} className="mt-0.5 text-[var(--pi-cyan)]" />
           <div className="min-w-0">
             <p className="text-sm leading-relaxed text-lovable-ink">{summary}</p>
             {updatedAt ? <p className="mt-3 text-xs text-lovable-ink-muted">{updatedAt}</p> : null}

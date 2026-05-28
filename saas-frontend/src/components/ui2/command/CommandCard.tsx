@@ -13,17 +13,17 @@ interface CommandCardProps extends HTMLAttributes<HTMLDivElement> {
 
 const variantClasses: Record<CommandCardVariant, string> = {
   default:
-    "border-lovable-border/70 bg-[linear-gradient(145deg,hsl(var(--lovable-surface)/0.94),hsl(var(--lovable-bg-muted)/0.76))]",
+    "border-white/[0.08] bg-[linear-gradient(145deg,rgba(16,16,16,0.96),rgba(3,3,3,0.88))]",
   elevated:
-    "border-[hsl(var(--lovable-primary)/0.24)] bg-[linear-gradient(145deg,hsl(var(--lovable-surface-soft)/0.95),hsl(var(--lovable-surface)/0.82))] shadow-[0_28px_80px_-44px_hsl(var(--lovable-primary)/0.55)]",
+    "border-[rgba(0,200,255,0.26)] bg-[linear-gradient(145deg,rgba(0,200,255,0.09),rgba(8,8,8,0.94)_42%,rgba(0,0,0,0.98))] shadow-[0_28px_80px_-44px_rgba(0,200,255,0.55)]",
   critical:
-    "border-[hsl(var(--lovable-danger)/0.3)] bg-[linear-gradient(145deg,hsl(var(--lovable-danger)/0.14),hsl(var(--lovable-surface)/0.88))]",
+    "border-[rgba(255,59,48,0.32)] bg-[linear-gradient(145deg,rgba(255,59,48,0.13),rgba(8,8,8,0.92))]",
   success:
-    "border-[hsl(var(--lovable-success)/0.28)] bg-[linear-gradient(145deg,hsl(var(--lovable-success)/0.12),hsl(var(--lovable-surface)/0.88))]",
+    "border-[rgba(34,197,94,0.28)] bg-[linear-gradient(145deg,rgba(34,197,94,0.12),rgba(8,8,8,0.92))]",
   warning:
-    "border-[hsl(var(--lovable-warning)/0.32)] bg-[linear-gradient(145deg,hsl(var(--lovable-warning)/0.13),hsl(var(--lovable-surface)/0.88))]",
+    "border-[rgba(249,115,22,0.32)] bg-[linear-gradient(145deg,rgba(249,115,22,0.12),rgba(8,8,8,0.92))]",
   ai:
-    "border-[hsl(var(--lovable-ai)/0.34)] bg-[linear-gradient(145deg,hsl(var(--lovable-ai)/0.18),hsl(var(--lovable-surface)/0.88))]",
+    "border-[rgba(0,200,255,0.34)] bg-[linear-gradient(145deg,rgba(0,200,255,0.13),rgba(8,8,8,0.92))]",
 };
 
 export function CommandCard({
@@ -38,8 +38,8 @@ export function CommandCard({
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-[26px] border p-5 text-lovable-ink shadow-panel backdrop-blur-2xl",
-        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,hsl(var(--lovable-primary)/0.45),transparent)]",
+        "relative overflow-hidden rounded-[18px] border p-5 text-lovable-ink shadow-panel backdrop-blur-2xl",
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(0,200,255,0.55),transparent)]",
         interactive
           ? "transition duration-200 hover:-translate-y-0.5 hover:border-lovable-border-strong/70 hover:shadow-[0_32px_92px_-46px_hsl(var(--lovable-primary)/0.72)]"
           : "",

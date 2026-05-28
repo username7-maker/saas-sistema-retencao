@@ -14,14 +14,20 @@ export default {
           900: "#05080d",
         },
         command: {
-          bg: "#05080d",
-          surface: "#0b1118",
-          raised: "#0f1720",
-          ink: "#e5edf5",
-          muted: "#8b9bad",
-          cyan: "#38bdf8",
+          bg: "#000000",
+          surface: "#080808",
+          raised: "#101010",
+          ink: "#f5f5f5",
+          muted: "#a1a1aa",
+          cyan: "#00c8ff",
           blue: "#3b82f6",
           purple: "#8b5cf6",
+        },
+        pi: {
+          green: "#22c55e",
+          red: "#ff3b30",
+          cyan: "#00c8ff",
+          orange: "#f97316",
         },
         lovable: {
           bg: "hsl(var(--lovable-bg))",
@@ -41,13 +47,17 @@ export default {
         },
       },
       fontFamily: {
-        heading: ["'Space Grotesk'", "sans-serif"],
-        body: ["'Plus Jakarta Sans'", "sans-serif"],
-        display: ["'Space Grotesk'", "sans-serif"],
+        heading: ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
+        body: ["'Barlow'", "'Plus Jakarta Sans'", "sans-serif"],
+        display: ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
       },
       boxShadow: {
         panel: "var(--shadow-panel)",
         lovable: "var(--shadow-lovable)",
+        "glow-green": "0 0 20px rgba(34, 197, 94, 0.45)",
+        "glow-red": "0 0 20px rgba(255, 59, 48, 0.5)",
+        "glow-cyan": "0 0 20px rgba(0, 200, 255, 0.4)",
+        "glow-orange": "0 0 20px rgba(249, 115, 22, 0.42)",
       },
       keyframes: {
         rise: {
@@ -58,10 +68,20 @@ export default {
           "0%, 100%": { opacity: "0.72", transform: "scale(1)" },
           "50%": { opacity: "1", transform: "scale(1.03)" },
         },
+        piPulse: {
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(255, 59, 48, 0.5)" },
+          "50%": { opacity: "0.85", boxShadow: "0 0 0 6px rgba(255, 59, 48, 0)" },
+        },
+        piCountIn: {
+          "0%": { opacity: "0", transform: "translateY(8px) scale(0.95)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
       },
       animation: {
         rise: "rise 0.45s ease-out",
         "pulse-glow": "pulseGlow 3.5s ease-in-out infinite",
+        "pi-pulse": "piPulse 2s ease-in-out infinite",
+        "pi-count-in": "piCountIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both",
       },
     },
   },
