@@ -440,8 +440,8 @@ export function DashboardLovable() {
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {metricCards.map((card) => (
-                <MetricCard key={card.label} {...card} />
+              {metricCards.map((card, i) => (
+                <MetricCard key={card.label} {...card} className={`stagger-${Math.min(i + 1, 4)}`} />
               ))}
             </div>
           )}
