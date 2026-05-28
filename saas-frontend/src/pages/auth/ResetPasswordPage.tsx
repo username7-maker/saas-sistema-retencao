@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound } from "lucide-react";
+import { AlertCircle, CheckCircle2, KeyRound } from "lucide-react";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -7,7 +7,8 @@ import toast from "react-hot-toast";
 import { z } from "zod";
 
 import { Button, Input } from "../../components/ui2";
-import { BRAND_ASSETS, PRODUCT_NAME } from "../../config/brand";
+import { AuthLayout } from "../../components/layout/AuthLayout";
+import { PRODUCT_NAME } from "../../config/brand";
 import { api } from "../../services/api";
 
 const resetSchema = z
@@ -65,64 +66,90 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-lovable-bg px-4 py-10">
-      <div className="relative w-full max-w-md overflow-hidden rounded-[24px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-xl sm:p-8">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-lovable-border/70 bg-lovable-bg-muted">
-            <img src={BRAND_ASSETS.markDark} alt="" className="h-9 w-9 object-contain" />
+    <AuthLayout>
+      <div className="relative overflow-hidden rounded-[24px] border border-white/[0.07] bg-[rgba(14,16,24,0.97)] p-5 shadow-[0_8px_40px_rgba(0,0,0,0.56)] backdrop-blur-xl sm:p-8">
+        {/* Top glass shine */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-16 rounded-t-[24px]"
+          style={{ background: "linear-gradient(180deg,rgba(255,255,255,0.04),transparent 60%)" }}
+        />
+
+        {/* Header */}
+        <div className="relative flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <h2 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink sm:text-3xl">
+              Nova senha
+            </h2>
+            <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(139,92,246,0.28)] bg-[rgba(139,92,246,0.10)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-300">
+              <KeyRound size={11} />
+              {PRODUCT_NAME}
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-heading text-2xl font-bold tracking-tight text-lovable-ink sm:text-3xl">Nova senha</h1>
-              <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--lovable-primary)/0.15)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--lovable-primary))]">
-                <KeyRound size={11} />
-                {PRODUCT_NAME}
-              </span>
-            </div>
-            <p className="mt-2 text-sm text-lovable-ink-muted">
-              O token chega por fragmento seguro na URL e nao fica exposto em logs de navegacao.
-            </p>
-          </div>
+          <p className="text-sm text-lovable-ink-muted">
+            O token chega por fragmento seguro na URL e não fica exposto em logs de navegação.
+          </p>
         </div>
 
-        <form className="mt-8 space-y-5" onSubmit={handleSubmit(onSubmit)}>
+        <form className="relative mt-7 space-y-4" onSubmit={handleSubmit(onSubmit)}>
+          {/* Token field — hidden visually if auto-filled from URL; still part of the form */}
           <div>
-            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
               Token
             </label>
             <Input
               {...register("token")}
               type="text"
-              placeholder="Token de redefinicao"
-              className="h-12 rounded-2xl bg-lovable-bg-muted/75"
+              placeholder="Token de redefinição"
+              className="h-12 rounded-2xl bg-white/[0.04]"
             />
-            {errors.token ? <p className="mt-1 text-xs text-rose-400">{errors.token.message}</p> : null}
+            {errors.token ? (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[hsl(var(--lovable-danger))]">
+                <AlertCircle size={12} className="shrink-0" />
+                {errors.token.message}
+              </p>
+            ) : null}
           </div>
 
           <div>
-            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
               Nova senha
             </label>
             <Input
               {...register("new_password")}
               type="password"
-              placeholder="Minimo de 8 caracteres"
-              className="h-12 rounded-2xl bg-lovable-bg-muted/75"
+              placeholder="Mínimo de 8 caracteres"
+              className="h-12 rounded-2xl bg-white/[0.04]"
             />
-            {errors.new_password ? <p className="mt-1 text-xs text-rose-400">{errors.new_password.message}</p> : null}
+            {errors.new_password ? (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[hsl(var(--lovable-danger))]">
+                <AlertCircle size={12} className="shrink-0" />
+                {errors.new_password.message}
+              </p>
+            ) : null}
           </div>
 
           <div>
-            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.22em] text-lovable-ink-muted">
               Confirmar nova senha
             </label>
             <Input
               {...register("confirm_password")}
               type="password"
               placeholder="Repita a nova senha"
-              className="h-12 rounded-2xl bg-lovable-bg-muted/75"
+              className="h-12 rounded-2xl bg-white/[0.04]"
             />
-            {errors.confirm_password ? <p className="mt-1 text-xs text-rose-400">{errors.confirm_password.message}</p> : null}
+            {errors.confirm_password ? (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[hsl(var(--lovable-danger))]">
+                <AlertCircle size={12} className="shrink-0" />
+                {errors.confirm_password.message}
+              </p>
+            ) : errors.confirm_password === undefined && !errors.new_password && !errors.token ? null : (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-400">
+                <CheckCircle2 size={12} className="shrink-0" />
+                Senhas conferem
+              </p>
+            )}
           </div>
 
           <Button type="submit" disabled={isSubmitting} className="h-12 w-full rounded-2xl">
@@ -130,13 +157,13 @@ export function ResetPasswordPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-lovable-ink-muted">
+        <p className="relative mt-5 text-center text-xs text-lovable-ink-muted">
           Lembrou a senha?{" "}
-          <Link to="/login" className="font-semibold text-[hsl(var(--lovable-primary))]">
+          <Link to="/login" className="font-semibold text-blue-400 transition hover:text-blue-300">
             Voltar para o login
           </Link>
         </p>
       </div>
-    </div>
+    </AuthLayout>
   );
 }
