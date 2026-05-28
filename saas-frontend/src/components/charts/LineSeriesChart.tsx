@@ -32,7 +32,7 @@ export function LineSeriesChart<T extends object>({
   const chartState = getChartSeriesState(data, [yKey]);
 
   return (
-    <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+    <div className="h-72 w-full rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-card">
       {!chartState.hasMeaningfulValues ? (
         <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-lovable-border">
           <EmptyState icon={BarChart3} title={emptyTitle} description={emptyDescription} />
@@ -40,20 +40,22 @@ export function LineSeriesChart<T extends object>({
       ) : (
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-border))" />
-            <XAxis dataKey={xKey} stroke="hsl(var(--lovable-ink-muted))" />
-            <YAxis stroke="hsl(var(--lovable-ink-muted))" />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.6)" />
+            <XAxis dataKey={xKey} tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: "hsl(var(--lovable-ink-muted))", fontSize: 11 }} axisLine={false} tickLine={false} />
             <Tooltip
               contentStyle={{
-                background: "hsl(var(--lovable-surface))",
-                border: "1px solid hsl(var(--lovable-border))",
-                borderRadius: "0.75rem",
+                background: "rgba(14,16,24,0.97)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "12px",
+                padding: "10px 14px",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
               }}
-              labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "12px" }}
-              itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600 }}
-              cursor={{ stroke: "hsl(var(--lovable-border-strong))", strokeDasharray: "3 3" }}
+              labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px", marginBottom: "4px" }}
+              itemStyle={{ color: "hsl(var(--lovable-ink))", fontWeight: 600, fontFamily: "'JetBrains Mono',monospace", fontSize: "13px" }}
+              cursor={{ stroke: "rgba(255,255,255,0.12)", strokeDasharray: "3 3" }}
             />
-            <Line type="monotone" dataKey={yKey} stroke={stroke} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 4 }} />
+            <Line type="monotone" dataKey={yKey} stroke={stroke} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
           </LineChart>
         </ResponsiveContainer>
       )}

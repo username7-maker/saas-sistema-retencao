@@ -143,11 +143,16 @@ export function CommercialDashboardPage() {
                 <YAxis stroke="hsl(var(--lovable-ink-muted))" axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={{
-                    background: "hsl(var(--lovable-surface) / 0.97)",
-                    border: "1px solid hsl(var(--lovable-border))",
-                    borderRadius: "1rem",
+                    background: "rgba(14,16,24,0.97)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "12px",
+                    padding: "10px 14px",
                     color: "hsl(var(--lovable-ink))",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
                   }}
+                  labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px" }}
+                  itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
+                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
                 />
                 <Bar dataKey="total" radius={[10, 10, 0, 0]}>
                   {pipelineData.map((entry) => (

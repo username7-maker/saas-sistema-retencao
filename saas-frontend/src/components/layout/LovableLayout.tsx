@@ -171,13 +171,13 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <nav className="space-y-4 px-3 pb-2">
-      {groups.map((group) => {
+    <nav className="space-y-1 px-3 pb-2">
+      {groups.map((group, groupIndex) => {
         const isOpen = openGroups.includes(group.label);
         const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
 
         return (
-          <div key={group.label} className="space-y-1.5">
+          <div key={group.label} className={cn("space-y-1", groupIndex > 0 && "border-t border-white/[0.04] pt-2")}>
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
@@ -189,7 +189,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             </button>
 
             {isOpen ? (
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
 
@@ -201,19 +201,27 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                       title={item.label}
                       className={({ isActive }) =>
                         cn(
-                          "group flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                          /* border-l always present (3px) so layout never shifts on activation */
+                          "group flex items-center justify-between gap-3 rounded-2xl border border-transparent border-l-[3px] py-2 pl-[calc(0.75rem-3px)] pr-3 text-sm font-medium transition-all duration-200",
                           isActive
-                            ? "border border-[hsl(var(--lovable-primary)/0.34)] bg-[linear-gradient(135deg,hsl(var(--lovable-primary)/0.24),hsl(var(--lovable-info)/0.18))] text-lovable-ink shadow-[0_16px_40px_-24px_hsl(var(--lovable-primary)/0.95)]"
-                            : "border border-transparent text-lovable-ink-muted hover:border-lovable-border/50 hover:bg-lovable-surface-soft/62 hover:text-lovable-ink",
+                            ? "border-l-[hsl(var(--lovable-primary))] bg-[rgba(59,130,246,0.10)] text-lovable-ink"
+                            : "border-l-transparent text-lovable-ink-muted hover:border-lovable-border/40 hover:border-l-transparent hover:bg-lovable-surface-soft/55 hover:text-lovable-ink",
                         )
                       }
                     >
-                      <span className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-lovable-border/60 bg-lovable-surface-soft/72 text-lovable-ink-muted transition group-hover:border-lovable-border-strong/70 group-hover:bg-lovable-surface/80 group-hover:text-lovable-ink">
-                          <Icon size={15} />
+                      {({ isActive }) => (
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className={cn(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition",
+                            isActive
+                              ? "border-[rgba(59,130,246,0.30)] bg-[rgba(59,130,246,0.12)] text-blue-400"
+                              : "border-lovable-border/55 bg-lovable-surface-soft/68 text-lovable-ink-muted group-hover:border-lovable-border-strong/50 group-hover:text-lovable-ink",
+                          )}>
+                            <Icon size={15} />
+                          </span>
+                          <span className="truncate">{item.label}</span>
                         </span>
-                        <span className="truncate">{item.label}</span>
-                      </span>
+                      )}
                     </NavLink>
                   );
                 })}

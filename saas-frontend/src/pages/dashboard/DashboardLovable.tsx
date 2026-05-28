@@ -96,15 +96,14 @@ function DashboardHero({
   mrrAtRisk: number;
 }) {
   return (
-    <CommandCard
-      variant="elevated"
-      className="min-h-[210px] overflow-hidden border-[rgba(0,200,255,0.24)] bg-black"
-    >
+    <CommandCard variant="elevated" className="min-h-[210px] overflow-hidden">
       <div className="relative grid gap-6">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-[var(--pi-cyan)]">Performance Intelligence</p>
-          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight text-lovable-ink md:text-6xl">
-            IA de risco em tempo real
+          <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-blue-400">Performance Intelligence</p>
+          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight md:text-6xl">
+            <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+              IA de risco em tempo real
+            </span>
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-lovable-ink-muted md:text-base">{insight}</p>
           <div className="mt-5 flex flex-wrap gap-2">
@@ -159,7 +158,7 @@ function IntelligenceMap({
             <div key={node.id} className="contents">
               <div className="rounded-[22px] border border-lovable-border/70 bg-lovable-surface/62 p-4">
                 <div className="flex items-center gap-3">
-                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", node.tone === "danger" ? "border-rose-400/24 bg-rose-400/12 text-rose-200" : "border-cyan-400/18 bg-cyan-400/10 text-cyan-200")}>
+                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", node.tone === "danger" ? "border-rose-400/24 bg-rose-400/12 text-rose-200" : "border-blue-400/18 bg-blue-400/10 text-blue-300")}>
                     <Icon size={18} />
                   </span>
                   <div>
@@ -181,7 +180,7 @@ function IntelligenceMap({
           return (
             <div key={node.id} className="rounded-[22px] border border-lovable-border/70 bg-lovable-surface/54 p-4">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[hsl(var(--lovable-primary)/0.22)] bg-[hsl(var(--lovable-primary)/0.12)] text-cyan-200">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(59,130,246,0.22)] bg-[rgba(59,130,246,0.10)] text-blue-300">
                   <Icon size={18} />
                 </span>
                 <div>
@@ -561,12 +560,16 @@ export function DashboardLovable() {
                   />
                   <Tooltip
                     contentStyle={{
-                      borderRadius: 16,
-                      border: "1px solid hsl(var(--lovable-border))",
-                      background: "hsl(var(--lovable-surface) / 0.97)",
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(14,16,24,0.97)",
                       color: "hsl(var(--lovable-ink))",
-                      boxShadow: "var(--shadow-panel)",
+                      padding: "10px 14px",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
                     }}
+                    labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px", marginBottom: "4px" }}
+                    itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
+                    cursor={{ stroke: "rgba(255,255,255,0.10)", strokeDasharray: "3 3" }}
                     formatter={(value, key) => {
                       const parsedValue = typeof value === "number" ? value : Number(value);
                       if (!Number.isFinite(parsedValue)) return ["-", String(key)];
