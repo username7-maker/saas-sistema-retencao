@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { useSearchParams } from "react-router-dom";
 
-import { PageHeader, SkeletonList } from "../../components/ui";
+import { SkeletonList } from "../../components/ui";
 import { Badge, Button, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
 import { useAuth } from "../../hooks/useAuth";
 import { memberService } from "../../services/memberService";
@@ -124,21 +124,20 @@ export function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Tarefas"
-        subtitle="Acompanhamento de acoes e follow-ups pendentes"
-        actions={
-          <Button
-            variant="primary"
-            onClick={() => {
-              setWorkspaceTab("operations");
-              setCreateOpen(true);
-            }}
-          >
+      <div className="relative overflow-hidden rounded-[18px] border border-[rgba(59,130,246,0.26)] bg-[radial-gradient(ellipse_70%_55%_at_85%_10%,rgba(59,130,246,0.08),transparent_65%),linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Gestão</p>
+            <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
+              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Tarefas</span>
+            </h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Acompanhamento de ações e follow-ups pendentes.</p>
+          </div>
+          <Button variant="primary" onClick={() => { setWorkspaceTab("operations"); setCreateOpen(true); }}>
             + Nova Tarefa
           </Button>
-        }
-      />
+        </div>
+      </div>
 
       <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
