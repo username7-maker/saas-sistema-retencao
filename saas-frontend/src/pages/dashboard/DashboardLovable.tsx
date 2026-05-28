@@ -47,10 +47,10 @@ type ActionSource = "retention" | "commercial" | "operational";
 type ActionPriority = "high" | "medium";
 type ChartRange = "all" | "6m" | "3m" | "custom";
 
-const DASH_H2 = "text-[16px] leading-[1.25]";
-const DASH_H3 = "text-[14px] leading-[1.3]";
-const DASH_H4 = "text-[12px] leading-[1.35]";
-const DASH_H5 = "text-[10px] leading-[1.4]";
+const DASH_H2 = "text-[15px] leading-[1.25] font-body";
+const DASH_H3 = "text-[13px] leading-[1.3]  font-body";
+const DASH_H4 = "text-[12px] leading-[1.35] font-body";
+const DASH_H5 = "text-[10px] leading-[1.4]  font-body uppercase tracking-[0.12em]";
 
 interface ActionRow {
   id: string;
@@ -119,27 +119,59 @@ function MetricCard({
   helper,
   icon: Icon,
   badge,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
   helper: string;
   icon: LucideIcon;
   badge: string;
+  tone?: "neutral" | "green" | "red" | "cyan" | "orange";
 }) {
+  const iconColors: Record<string, string> = {
+    neutral: "text-zinc-400",
+    green:   "text-[#22c55e]",
+    red:     "text-[#ff3b30]",
+    cyan:    "text-[#00c8ff]",
+    orange:  "text-[#f97316]",
+  };
+  const badgeColors: Record<string, string> = {
+    neutral: "border-zinc-700/60  bg-zinc-800/60  text-zinc-300",
+    green:   "border-[#22c55e]/40 bg-[#22c55e]/10 text-[#4ade80]",
+    red:     "border-[#ff3b30]/40 bg-[#ff3b30]/10 text-[#ff6b6b]",
+    cyan:    "border-[#00c8ff]/40 bg-[#00c8ff]/10 text-[#67e8f9]",
+    orange:  "border-[#f97316]/40 bg-[#f97316]/10 text-[#fb923c]",
+  };
+  const glowBorders: Record<string, string> = {
+    neutral: "hover:border-zinc-600",
+    green:   "hover:border-[#22c55e]/50 hover:shadow-[0_0_20px_rgba(34,197,94,0.12)]",
+    red:     "hover:border-[#ff3b30]/50 hover:shadow-[0_0_20px_rgba(255,59,48,0.15)]",
+    cyan:    "hover:border-[#00c8ff]/50 hover:shadow-[0_0_20px_rgba(0,200,255,0.12)]",
+    orange:  "hover:border-[#f97316]/50 hover:shadow-[0_0_20px_rgba(249,115,22,0.12)]",
+  };
+
   return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-      <CardHeader>
+    <Card className={cn(
+      "!border-zinc-800 !bg-black/60 !shadow-none transition-all duration-200 cursor-default backdrop-blur-sm",
+      glowBorders[tone],
+    )}>
+      <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <CardDescription className={cn("flex items-center gap-2 uppercase tracking-[0.18em] !text-zinc-400", DASH_H5)}>
-            <Icon size={14} className="text-zinc-500" />
+          <CardDescription className={cn("flex items-center gap-1.5 !text-zinc-500", DASH_H5)}>
+            <Icon size={12} className={iconColors[tone]} />
             {label}
           </CardDescription>
-          <span className={cn("rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-emerald-300", DASH_H5)}>
+          <span className={cn("rounded-full border px-2 py-0.5 font-semibold", badgeColors[tone], DASH_H5)}>
             {badge}
           </span>
         </div>
-        <CardTitle className="text-4xl !text-zinc-100">{value}</CardTitle>
-        <p className={cn("text-zinc-400", DASH_H4)}>{helper}</p>
+        <CardTitle className={cn(
+          "font-heading text-5xl font-bold tracking-tight !text-zinc-50 pi-count-in",
+          tone === "red" && "!text-[#ff6b6b]",
+        )}>
+          {value}
+        </CardTitle>
+        <p className={cn("text-zinc-500", DASH_H4)}>{helper}</p>
       </CardHeader>
     </Card>
   );
@@ -147,11 +179,11 @@ function MetricCard({
 
 function CardSkeleton() {
   return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
-      <CardHeader>
-        <Skeleton className="h-3 w-32 rounded bg-zinc-800" />
-        <Skeleton className="h-10 w-24 rounded bg-zinc-800" />
-        <Skeleton className="h-3 w-40 rounded bg-zinc-800" />
+    <Card className="!border-white/[0.06] !bg-black/60 !shadow-none">
+      <CardHeader className="pb-2">
+        <Skeleton className="h-3 w-32 rounded bg-zinc-900" />
+        <Skeleton className="h-12 w-28 rounded bg-zinc-900" />
+        <Skeleton className="h-3 w-40 rounded bg-zinc-900" />
       </CardHeader>
     </Card>
   );
@@ -171,11 +203,11 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full border px-3 py-1 font-semibold uppercase tracking-wider transition",
+        "cursor-pointer rounded-lg border px-2.5 py-1 font-body font-semibold uppercase tracking-wider transition-all duration-150",
         active
-          ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-200"
-          : "border-zinc-700 bg-zinc-900/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
-        DASH_H4,
+          ? "border-[#22c55e]/50 bg-[#22c55e]/15 text-[#4ade80]"
+          : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-300",
+        DASH_H5,
       )}
     >
       {label}
@@ -241,48 +273,48 @@ function WeeklySummaryCard() {
   ];
 
   return (
-    <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
+    <Card className="!border-white/[0.06] !bg-black/60 !shadow-none backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
-          <CalendarDays size={18} className="text-cyan-300" />
+        <CardTitle className={cn("flex items-center gap-2 !text-zinc-100 font-heading", DASH_H2)}>
+          <CalendarDays size={16} className="text-[#00c8ff]" />
           Resumo Semanal
         </CardTitle>
-        <CardDescription className={cn("!text-zinc-400", DASH_H4)}>
-          Comparativo dos ultimos 7 dias com a semana anterior.
+        <CardDescription className={cn("!text-zinc-500", DASH_H4)}>
+          Comparativo dos últimos 7 dias com a semana anterior.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((item) => {
             const Icon = item.icon;
             return (
               <div
                 key={item.label}
-                className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"
+                className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-3 transition-colors duration-200 hover:border-white/[0.1]"
               >
-                <div className="mb-1 flex items-center gap-2">
-                  <Icon size={14} className={item.tone} />
-                  <span className={cn("uppercase tracking-wider text-zinc-500", DASH_H5)}>{item.label}</span>
+                <div className="mb-2 flex items-center gap-1.5">
+                  <Icon size={12} className={item.tone} />
+                  <span className={cn("text-zinc-500", DASH_H5)}>{item.label}</span>
                 </div>
-                <p className="text-xl font-bold text-zinc-100">{item.value}</p>
-                <p className={cn("text-zinc-500", DASH_H5)}>{item.sub}</p>
+                <p className="font-heading text-2xl font-bold tracking-tight text-zinc-50">{item.value}</p>
+                <p className={cn("mt-0.5 text-zinc-600", DASH_H5)}>{item.sub}</p>
               </div>
             );
           })}
         </div>
         {data.checkins_delta_pct < -10 && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-            <DeltaIcon size={14} className="text-amber-400" />
-            <p className={cn("text-amber-200", DASH_H4)}>
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-[#f97316]/30 bg-[#f97316]/8 px-3 py-2">
+            <DeltaIcon size={13} className="text-[#f97316]" />
+            <p className={cn("text-[#fb923c]", DASH_H4)}>
               Queda significativa nos check-ins. Considere acionar campanha de reengajamento.
             </p>
           </div>
         )}
         {data.new_at_risk > 5 && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2">
-            <AlertTriangle size={14} className="text-rose-400" />
-            <p className={cn("text-rose-200", DASH_H4)}>
-              Aumento de alunos em risco. Priorize ligacoes de retencao esta semana.
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-[#ff3b30]/30 bg-[#ff3b30]/8 px-3 py-2">
+            <AlertTriangle size={13} className="text-[#ff3b30]" />
+            <p className={cn("text-[#ff6b6b]", DASH_H4)}>
+              Aumento de alunos em risco. Priorize ligações de retenção esta semana.
             </p>
           </div>
         )}
@@ -430,9 +462,11 @@ export function DashboardLovable() {
   const actionsLoading = commercial.isLoading || operational.isLoading || retention.isLoading;
 
   return (
-    <section className="relative overflow-hidden rounded-[30px] border border-zinc-800/80 bg-zinc-950 p-4 text-zinc-100 shadow-[0_28px_120px_-40px_rgba(0,0,0,0.95)] sm:p-6">
-      <div className="pointer-events-none absolute -left-28 top-16 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+    <section className="relative overflow-hidden rounded-[24px] border border-white/[0.06] bg-black p-4 text-zinc-100 shadow-[0_32px_140px_-40px_rgba(0,0,0,0.98)] sm:p-6">
+      {/* Ambient glows — Performance Intelligence identity */}
+      <div className="pointer-events-none absolute -left-32 top-10  h-80 w-80 rounded-full bg-[#22c55e]/10 blur-[80px]" />
+      <div className="pointer-events-none absolute right-0  top-0   h-64 w-64 rounded-full bg-[#00c8ff]/08 blur-[60px]" />
+      <div className="pointer-events-none absolute bottom-0 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-[#f97316]/05 blur-[80px]" />
       <div className="relative space-y-6">
         <RoiSummaryCard />
         <WeeklySummaryCard />
@@ -450,51 +484,61 @@ export function DashboardLovable() {
               <MetricCard
                 label="Receita Mensal"
                 value={currency(viewModel.cards.revenue)}
-                helper="Crescimento consolidado dos ultimos ciclos."
+                helper="Crescimento consolidado dos últimos ciclos."
                 icon={Wallet}
                 badge="MRR"
+                tone="green"
               />
               <MetricCard
                 label="Leads no Pipeline"
                 value={compactNumber(viewModel.cards.leads)}
-                helper="Acompanhe oportunidades para conversao."
+                helper="Oportunidades ativas no funil comercial."
                 icon={Users}
                 badge="CRM"
+                tone="cyan"
               />
               <MetricCard
-                label="Check-ins em Tempo Real"
+                label="Check-ins 7 dias"
                 value={compactNumber(viewModel.cards.checkins)}
-                helper="Fluxo operacional em monitoramento continuo."
+                helper="Frequência operacional em tempo real."
                 icon={Zap}
                 badge="Ao vivo"
+                tone="orange"
               />
               <MetricCard
                 label="Risco Alto"
                 value={compactNumber(viewModel.cards.highRiskMembers)}
-                helper="Casos criticos que exigem acao imediata."
+                helper="Casos críticos — ação imediata necessária."
                 icon={AlertTriangle}
-                badge={viewModel.cards.highRiskMembers > 0 ? "Acao" : "OK"}
+                badge={viewModel.cards.highRiskMembers > 0 ? "Urgente" : "OK"}
+                tone={viewModel.cards.highRiskMembers > 0 ? "red" : "green"}
               />
             </>
           )}
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-          <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
+          {/* Alertas Prioritários */}
+          <Card className="!border-white/[0.07] !bg-black/70 !shadow-none backdrop-blur-sm">
             <CardHeader>
-              <CardTitle className={cn("!text-zinc-100", DASH_H2)}>Alertas Prioritarios</CardTitle>
-              <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Acione rapidamente os pontos que mais impactam churn.</CardDescription>
+              <CardTitle className={cn("flex items-center gap-2 !text-zinc-100 font-heading", DASH_H2)}>
+                <span className="inline-block h-2 w-2 rounded-full bg-[#ff3b30] pi-pulse" />
+                Alertas Prioritários
+              </CardTitle>
+              <CardDescription className={cn("!text-zinc-500", DASH_H4)}>
+                Acione rapidamente os pontos que mais impactam churn.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2.5">
               {alertsLoading ? (
                 <>
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
-                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
+                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-900" />
+                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-900" />
+                  <Skeleton className="h-16 w-full rounded-xl bg-zinc-900" />
                 </>
               ) : viewModel.alerts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-700 p-4 text-sm text-zinc-400">
-                  Nenhum alerta critico no momento.
+                <div className="rounded-xl border border-dashed border-zinc-800 p-4 text-sm text-zinc-500">
+                  Nenhum alerta crítico no momento.
                 </div>
               ) : (
                 viewModel.alerts.map((alert) => (
@@ -502,12 +546,19 @@ export function DashboardLovable() {
                     key={alert.id}
                     type="button"
                     onClick={() => navigate(alert.href)}
-                    className="w-full rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 text-left transition hover:border-zinc-600 hover:bg-zinc-900"
+                    className={cn(
+                      "w-full cursor-pointer rounded-xl border p-3 text-left transition-all duration-200",
+                      alert.tone === "danger"
+                        ? "border-[#ff3b30]/25 bg-[#ff3b30]/5 hover:border-[#ff3b30]/50 hover:bg-[#ff3b30]/10"
+                        : alert.tone === "warning"
+                          ? "border-[#f97316]/25 bg-[#f97316]/5 hover:border-[#f97316]/50 hover:bg-[#f97316]/10"
+                          : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900",
+                    )}
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-3">
                       <p className={cn("font-semibold text-zinc-100", DASH_H3)}>{alert.title}</p>
                       <Badge variant={alert.tone === "danger" ? "danger" : alert.tone === "warning" ? "warning" : "neutral"}>
-                        {alert.tone === "danger" ? "alta" : alert.tone === "warning" ? "media" : "info"}
+                        {alert.tone === "danger" ? "alta" : alert.tone === "warning" ? "média" : "info"}
                       </Badge>
                     </div>
                     <p className={cn("text-zinc-400", DASH_H4)}>{alert.description}</p>
@@ -517,27 +568,36 @@ export function DashboardLovable() {
             </CardContent>
           </Card>
 
-          <Card className="!border-zinc-800 !bg-gradient-to-br !from-zinc-900/80 !to-zinc-900/40 !shadow-none">
+          {/* IA — Inteligência da Semana */}
+          <Card className="!border-[#00c8ff]/15 !bg-gradient-to-br !from-[#00c8ff]/5 !via-black/80 !to-black/90 !shadow-none backdrop-blur-sm">
             <CardHeader>
-              <CardTitle className={cn("!text-zinc-100", DASH_H2)}>Insight da Semana</CardTitle>
-              <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Resumo automatico com base no consolidado dos modulos.</CardDescription>
+              <CardTitle className={cn("flex items-center gap-2 !text-zinc-100 font-heading", DASH_H2)}>
+                <span className="inline-block h-2 w-2 rounded-full bg-[#00c8ff] pi-pulse-green" />
+                IA · Insight da Semana
+              </CardTitle>
+              <CardDescription className={cn("!text-zinc-500", DASH_H4)}>
+                Resumo automático com base no consolidado dos módulos.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {insightLoading ? (
                 <>
-                  <Skeleton className="h-4 w-full rounded bg-zinc-800" />
-                  <Skeleton className="h-4 w-5/6 rounded bg-zinc-800" />
-                  <Skeleton className="h-10 w-full rounded-xl bg-zinc-800" />
+                  <Skeleton className="h-4 w-full rounded bg-zinc-900" />
+                  <Skeleton className="h-4 w-5/6 rounded bg-zinc-900" />
+                  <Skeleton className="h-10 w-full rounded-xl bg-zinc-900" />
                 </>
               ) : (
                 <>
-                  <p className={cn("leading-relaxed text-zinc-100", DASH_H3)}>{viewModel.insight}</p>
+                  <p className={cn("leading-relaxed text-zinc-200", DASH_H3)}>{viewModel.insight}</p>
                   <button
                     type="button"
                     onClick={() => navigate("/dashboard/retention")}
-                    className={cn("inline-flex w-full items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800", DASH_H3)}
+                    className={cn(
+                      "inline-flex w-full cursor-pointer items-center justify-between rounded-xl border border-[#00c8ff]/30 bg-[#00c8ff]/8 px-3 py-2 font-semibold text-[#67e8f9] transition-all duration-200 hover:border-[#00c8ff]/60 hover:bg-[#00c8ff]/15",
+                      DASH_H3,
+                    )}
                   >
-                    Ver plano de retencao
+                    Ver plano de retenção
                     <ArrowRight size={15} />
                   </button>
                 </>
@@ -548,20 +608,20 @@ export function DashboardLovable() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.15fr_1.2fr]">
-          <Card className="!border-zinc-800 !bg-zinc-900/65 !shadow-none">
+          <Card className="!border-white/[0.06] !bg-black/60 !shadow-none backdrop-blur-sm">
             <CardHeader className="flex-row items-start justify-between gap-3">
               <div>
-                <CardTitle className={cn("flex items-center gap-2 !text-zinc-100", DASH_H2)}>
-                  <BarChart3 size={18} className="text-emerald-300" />
+                <CardTitle className={cn("flex items-center gap-2 !text-zinc-100 font-heading", DASH_H2)}>
+                  <BarChart3 size={16} className="text-[#22c55e]" />
                   Churn e NPS
                 </CardTitle>
-                <CardDescription className={cn("!text-zinc-400", DASH_H4)}>Comparativo mensal de churn e NPS.</CardDescription>
+                <CardDescription className={cn("!text-zinc-500", DASH_H4)}>Comparativo mensal de churn e NPS.</CardDescription>
               </div>
-              <div className="flex gap-1 rounded-xl border border-zinc-700 bg-zinc-900 p-1">
+              <div className="flex gap-1 rounded-xl border border-white/[0.06] bg-white/[0.03] p-1">
                 <FilterChip active={chartRange === "3m"} label="3m" onClick={() => setChartRange("3m")} />
                 <FilterChip active={chartRange === "6m"} label="6m" onClick={() => setChartRange("6m")} />
                 <FilterChip active={chartRange === "all"} label="Tudo" onClick={() => setChartRange("all")} />
-                <FilterChip active={chartRange === "custom"} label="Personalizado" onClick={() => setChartRange("custom")} />
+                <FilterChip active={chartRange === "custom"} label="Custom" onClick={() => setChartRange("custom")} />
               </div>
             </CardHeader>
             <CardContent className="space-y-3">

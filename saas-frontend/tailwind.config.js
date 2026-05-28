@@ -29,22 +29,43 @@ export default {
         },
       },
       fontFamily: {
-        heading: ["'Space Grotesk'", "sans-serif"],
-        body: ["'Plus Jakarta Sans'", "sans-serif"],
-        display: ["'Space Grotesk'", "sans-serif"],
+        heading:  ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
+        display:  ["'Barlow Condensed'", "'Space Grotesk'", "sans-serif"],
+        body:     ["'Barlow'", "'Plus Jakarta Sans'", "sans-serif"],
+      },
+      colors: {
+        pi: {
+          green:  "#22c55e",
+          red:    "#ff3b30",
+          cyan:   "#00c8ff",
+          orange: "#f97316",
+        },
       },
       boxShadow: {
-        panel: "0 16px 40px -24px rgba(245, 138, 27, 0.28)",
-        lovable: "0 16px 40px -24px rgba(15, 15, 15, 0.45)",
+        panel:       "0 16px 40px -24px rgba(245, 138, 27, 0.28)",
+        lovable:     "0 16px 40px -24px rgba(15, 15, 15, 0.45)",
+        "glow-green": "0 0 20px rgba(34, 197, 94, 0.45)",
+        "glow-red":   "0 0 20px rgba(255, 59, 48, 0.5)",
+        "glow-cyan":  "0 0 20px rgba(0, 200, 255, 0.4)",
       },
       keyframes: {
         rise: {
-          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "0%":   { opacity: "0", transform: "translateY(12px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "pi-pulse": {
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(255,59,48,0.5)" },
+          "50%":      { opacity: "0.85", boxShadow: "0 0 0 6px rgba(255,59,48,0)" },
+        },
+        "pi-count-in": {
+          from: { opacity: "0", transform: "translateY(8px) scale(0.95)" },
+          to:   { opacity: "1", transform: "translateY(0) scale(1)" },
         },
       },
       animation: {
-        rise: "rise 0.45s ease-out",
+        rise:         "rise 0.45s ease-out",
+        "pi-pulse":   "pi-pulse 2s ease-in-out infinite",
+        "pi-count-in":"pi-count-in 0.4s cubic-bezier(0.16,1,0.3,1) both",
       },
     },
   },
