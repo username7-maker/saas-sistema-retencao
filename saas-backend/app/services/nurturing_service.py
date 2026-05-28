@@ -17,6 +17,14 @@ from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.crm_service import append_lead_note
 from app.services.objection_service import generate_objection_response
+from app.services.whatsapp_agent_service import (
+    WhatsAppAgentOutcome,
+    build_whatsapp_agent_payload,
+    call_whatsapp_agent,
+    classify_whatsapp_agent_audience,
+    dispatch_whatsapp_agent_response,
+    whatsapp_agent_enabled,
+)
 from app.services.whatsapp_service import format_phone, get_gym_instance, normalize_phone, phones_match, send_whatsapp_sync
 from app.utils.email import send_email
 
@@ -167,7 +175,8 @@ def handle_incoming_whatsapp_webhook(
     if member is None and resolved_gym_id is not None:
         member = _find_member_by_phone(db, resolved_gym_id, message["phone"])
 
-    if not sequence and not member:
+    agent_enabled = whatsapp_agent_enabled()
+    if not sequence and not member and not agent_enabled:
         return {"processed": False, "detail": "Sem sequencia ativa ou membro correspondente"}
 
     inbound_log = MessageLog(
@@ -221,6 +230,22 @@ def handle_incoming_whatsapp_webhook(
 
     if sequence:
         _invalidate_sales_cache(sequence.lead_id)
+
+    agent_outcome = _handle_whatsapp_ai_agent(
+        db,
+        inbound_log=inbound_log,
+        message=message,
+        instance_name=instance_name,
+        gym_id=resolved_gym_id,
+        member=member,
+        sequence=sequence,
+    )
+    if agent_outcome.processed:
+        db.commit()
+        return {"processed": True, "detail": agent_outcome.detail, "agent": True}
+    if not agent_outcome.fallback_allowed:
+        db.commit()
+        return {"processed": True, "detail": agent_outcome.detail, "agent": True}
 
     if not sequence:
         db.commit()
@@ -339,6 +364,66 @@ def _record_member_inbound_response(
             "instance_name": instance_name or None,
         },
     )
+
+
+def _handle_whatsapp_ai_agent(
+    db: Session,
+    *,
+    inbound_log: MessageLog,
+    message: dict[str, Any],
+    instance_name: str,
+    gym_id: UUID | None,
+    member: Member | None,
+    sequence: NurturingSequence | None,
+):
+    if not whatsapp_agent_enabled():
+        return WhatsAppAgentOutcome(False, True, "WhatsApp agent disabled")
+
+    audience = classify_whatsapp_agent_audience(message["phone"])
+    sender_name = None
+    if member:
+        sender_name = member.full_name
+    elif sequence:
+        sender_name = sequence.prospect_name
+
+    payload = build_whatsapp_agent_payload(
+        event_id=message["provider_message_id"] or str(inbound_log.id),
+        provider_message_id=message["provider_message_id"],
+        gym_id=gym_id,
+        instance=instance_name,
+        sender_phone=message["phone"],
+        sender_name=sender_name,
+        audience=audience,
+        message=message["text"],
+        member_id=member.id if member else None,
+        lead_id=sequence.lead_id if sequence else None,
+        sequence_id=getattr(sequence, "id", None),
+        role="OPERATOR" if audience == "internal" else None,
+    )
+    agent_outcome = call_whatsapp_agent(payload)
+    response_outcome = dispatch_whatsapp_agent_response(
+        db,
+        agent_response=agent_outcome.response,
+        inbound_phone=message["phone"],
+        instance=get_gym_instance(db, gym_id),
+        member_id=member.id if member else None,
+        lead_id=sequence.lead_id if sequence else None,
+    )
+
+    extra_data = dict(inbound_log.extra_data or {})
+    extra_data["whatsapp_agent"] = {
+        "audience": audience,
+        "call_processed": agent_outcome.processed,
+        "call_detail": agent_outcome.detail,
+        "response_processed": response_outcome.processed,
+        "response_detail": response_outcome.detail,
+    }
+    inbound_log.extra_data = extra_data
+    db.add(inbound_log)
+
+    if agent_outcome.processed:
+        return response_outcome
+    return agent_outcome
 
 
 def _extract_instance_name(payload: dict[str, Any]) -> str:

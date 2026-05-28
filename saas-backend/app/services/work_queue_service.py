@@ -41,7 +41,6 @@ from app.services.ai_triage_service import (
     get_ai_triage_recommendation_or_404,
     prepare_ai_triage_recommendation_action,
     serialize_ai_triage_recommendation,
-    sync_ai_triage_recommendations,
     update_ai_triage_recommendation_outcome,
 )
 from app.services.ai_service_agent_service import (
@@ -61,7 +60,12 @@ from app.services.automation_journey_service import handle_task_outcome_for_jour
 from app.services.assessment_analytics_service import get_assessments_queue
 from app.services.assessment_service import update_assessment_queue_resolution
 from app.services.operational_message_ai_service import generate_operational_message_draft
-from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
+from app.services.preferred_shift_service import (
+    PreferredShiftDiagnostic,
+    normalize_preferred_shift,
+    normalize_preferred_shift_scope,
+    preferred_shift_diagnostics_from_checkins,
+)
 from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     is_cold_base_stage,
@@ -76,6 +80,7 @@ ShiftFilter = Literal["my_shift", "all", "overnight", "morning", "afternoon", "e
 AssigneeFilter = Literal["mine", "unassigned", "all"]
 DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessment", "trainer", "commercial", "finance", "manual"]
 SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
+BucketFilter = str
 DAILY_QUEUE_STALE_BACKLOG_AFTER = timedelta(days=14)
 DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS = {"finance", "trainer"}
 
@@ -236,6 +241,71 @@ def _technical_ladder_step_label(step: str | None) -> str | None:
     return None
 
 
+def _parse_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped.startswith("d"):
+            stripped = stripped[1:]
+        try:
+            return int(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _onboarding_bucket_from_day(day: int | None) -> tuple[str, str]:
+    if day is None:
+        return "onboarding_unknown", "Onboarding sem dia"
+    if day <= 0:
+        return "onboarding_d0", "Dia 0"
+    if day == 1:
+        return "onboarding_d1", "Dia 1"
+    if day <= 6:
+        return "onboarding_d2_d6", "Dia 2-6"
+    return "onboarding_d7_plus", "Dia 7+"
+
+
+def _task_onboarding_day(extra: dict) -> int | None:
+    day = _parse_int(extra.get("day_offset"))
+    if day is not None:
+        return day
+    return _parse_int(extra.get("onboarding_stage_key"))
+
+
+def _execution_bucket_for_task(task: Task, *, domain: str, retention_payload: dict, technical_step: str | None) -> tuple[str | None, str | None]:
+    extra = _task_extra(task)
+    if domain == "onboarding":
+        return _onboarding_bucket_from_day(_task_onboarding_day(extra))
+    if domain == "retention":
+        stage = retention_payload.get("retention_stage")
+        label = retention_payload.get("retention_stage_label")
+        if stage and label:
+            return f"retention_{stage}", str(label)
+        return "retention_monitoring", "Monitoramento"
+    if domain == "trainer" and technical_step:
+        label = _technical_ladder_step_label(technical_step)
+        return f"trainer_{technical_step}", label or "Etapa tecnica"
+    if domain == "finance":
+        return "finance_delinquency", "Inadimplencia"
+    if domain == "commercial":
+        return "commercial_lead", "Lead comercial"
+    return None, None
+
+
+def _execution_bucket_for_ai(item) -> tuple[str | None, str | None]:
+    if item.source_domain == "onboarding":
+        return _onboarding_bucket_from_day(_parse_int(item.metadata.get("days_since_join")))
+    if item.source_domain == "retention":
+        stage = item.metadata.get("retention_stage")
+        payload = retention_stage_payload(str(stage) if stage else None)
+        return f"retention_{payload['retention_stage']}", str(payload["retention_stage_label"])
+    return None, None
+
+
 def _task_action_label(task: Task) -> str:
     source = str(_task_extra(task).get("source") or "").lower()
     extra = _task_extra(task)
@@ -308,17 +378,35 @@ def _work_queue_message_fields(
     }
 
 
-def _task_to_item(task: Task) -> WorkQueueItemOut:
+def _task_shift_diagnostics(db: Session, task: Task) -> dict[UUID, PreferredShiftDiagnostic]:
+    if not getattr(task, "member", None):
+        return {}
+    return preferred_shift_diagnostics_from_checkins(db, [task.member])
+
+
+def _task_to_item(
+    task: Task,
+    *,
+    shift_diagnostics: dict[UUID, PreferredShiftDiagnostic] | None = None,
+) -> WorkQueueItemOut:
     member_name = task.member.full_name if task.member else None
     lead_name = task.lead.full_name if task.lead else None
     subject_name = member_name or lead_name or task.title
     subject_phone = (task.member.phone if task.member else None) or (task.lead.phone if task.lead else None)
     reason = task.description or task.title
     preferred_shift = getattr(task.member, "preferred_shift", None) if task.member else None
+    shift_diagnostic = shift_diagnostics.get(task.member_id) if shift_diagnostics and task.member_id else None
     extra = _task_extra(task)
+    domain = _task_domain(task)
     retention_stage = extra.get("retention_stage") or (getattr(task.member, "retention_stage", None) if task.member else None)
-    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if _task_domain(task) == "retention" else {}
+    retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if domain == "retention" else {}
     technical_step = str(extra.get("technical_ladder_step") or "") or None
+    execution_bucket, execution_bucket_label = _execution_bucket_for_task(
+        task,
+        domain=domain,
+        retention_payload=retention_payload,
+        technical_step=technical_step,
+    )
     effective_message = _effective_task_message(task)
     message_fields = _work_queue_message_fields(
         message=effective_message,
@@ -333,9 +421,12 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         member_id=task.member_id,
         lead_id=task.lead_id,
         subject_phone=subject_phone,
-        domain=_task_domain(task),
+        domain=domain,
         severity=_task_severity(task),
         preferred_shift=preferred_shift,
+        preferred_shift_status=shift_diagnostic["status"] if shift_diagnostic else None,
+        preferred_shift_reason=shift_diagnostic["reason"] if shift_diagnostic else None,
+        preferred_shift_counts=shift_diagnostic["counts"] if shift_diagnostic else {},
         reason=reason[:260],
         primary_action_label=_task_action_label(task),
         primary_action_type="open_context" if not effective_message else "prepare_outbound_message",
@@ -352,6 +443,8 @@ def _task_to_item(task: Task) -> WorkQueueItemOut:
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
         technical_ladder_step=technical_step,
         technical_ladder_step_label=_technical_ladder_step_label(technical_step),
+        execution_bucket=execution_bucket,
+        execution_bucket_label=execution_bucket_label,
         autopilot_state=str(extra.get("autopilot_state") or "") or None,
         autopilot_badges=_task_autopilot_badges(task),
         execution_channel=str(extra.get("work_queue_execution_channel") or "") or None,
@@ -562,6 +655,7 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     retention_stage = item.metadata.get("retention_stage")
     retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if item.source_domain == "retention" else {}
     message_fields = _work_queue_message_fields(message=item.suggested_message, metadata=item.metadata)
+    execution_bucket, execution_bucket_label = _execution_bucket_for_ai(item)
     return WorkQueueItemOut(
         source_type="ai_triage",
         source_id=item.id,
@@ -585,6 +679,8 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
         retention_stage=retention_payload.get("retention_stage"),
         retention_stage_label=retention_payload.get("retention_stage_label"),
         retention_stage_priority=int(retention_payload.get("retention_stage_priority") or 0),
+        execution_bucket=execution_bucket,
+        execution_bucket_label=execution_bucket_label,
     )
 
 
@@ -739,6 +835,13 @@ def _matches_assignee(item: WorkQueueItemOut, current_user: User, assignee: Assi
     return item.assigned_to_user_id == current_user.id
 
 
+def _matches_bucket(item: WorkQueueItemOut, bucket: BucketFilter) -> bool:
+    normalized = (bucket or "all").strip()
+    if not normalized or normalized == "all":
+        return True
+    return item.execution_bucket == normalized
+
+
 def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, datetime]:
     severity_weight = {"critical": 500, "urgent": 500, "high": 350, "medium": 180, "low": 80}.get(item.severity, 120)
     state_weight = {"do_now": 200, "awaiting_outcome": 140, "done": -500}.get(item.state, 0)
@@ -782,6 +885,7 @@ def _filter_items(
     shift: ShiftFilter,
     assignee: AssigneeFilter,
     domain: DomainFilter,
+    bucket: BucketFilter = "all",
 ) -> list[WorkQueueItemOut]:
     filtered = []
     now = _now()
@@ -791,6 +895,8 @@ def _filter_items(
         if domain == "operations" and item.domain in {"retention", "trainer"}:
             continue
         if domain not in {"all", "operations"} and item.domain != domain:
+            continue
+        if not _matches_bucket(item, bucket):
             continue
         if state == "do_now":
             if item.domain == "retention" and is_cold_base_stage(item.retention_stage):
@@ -828,13 +934,16 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
         .unique()
         .all()
     )
-    return [_task_to_item(task) for task in tasks if not is_task_operationally_archived(task)]
+    shift_diagnostics = preferred_shift_diagnostics_from_checkins(db, [task.member for task in tasks if task.member is not None])
+    return [_task_to_item(task, shift_diagnostics=shift_diagnostics) for task in tasks if not is_task_operationally_archived(task)]
 
 
 def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         return []
-    sync_ai_triage_recommendations(db, gym_id=current_user.gym_id)
+    # Keep Work Queue list reads cheap and predictable. AI triage refresh can call
+    # OpenAI many times, so it must run through its own endpoint/job, not every
+    # time /tasks renders.
     recommendations = list(
         db.scalars(
             select(AITriageRecommendation)
@@ -920,6 +1029,7 @@ def list_work_queue_items(
     assignee: AssigneeFilter = "all",
     domain: DomainFilter = "all",
     source: SourceFilter = "all",
+    bucket: BucketFilter = "all",
     page: int = 1,
     page_size: int = 25,
 ) -> PaginatedResponse[WorkQueueItemOut]:
@@ -938,7 +1048,7 @@ def list_work_queue_items(
     if source in {"all", "student_personal_ai"}:
         items.extend(_list_student_personal_ai_items(db, current_user))
 
-    filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain)
+    filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain, bucket=bucket)
     total = len(filtered)
     start = (page - 1) * page_size
     return PaginatedResponse(items=filtered[start : start + page_size], total=total, page=page, page_size=page_size)
@@ -956,7 +1066,7 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         if is_task_operationally_archived(task):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
-        return _task_to_item(task)
+        return _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
 
     if source_type == "assessment_queue":
         if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
@@ -1060,7 +1170,7 @@ def regenerate_work_queue_message(
             flush=False,
         )
         db.flush()
-        item = _task_to_item(task)
+        item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
         return WorkQueueActionResultOut(
             item=item,
             detail="Rascunho regenerado. Revise antes de enviar.",
@@ -1226,7 +1336,7 @@ def _execute_task(
         flush=False,
     )
     db.flush()
-    item = _task_to_item(task)
+    item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
     return WorkQueueActionResultOut(
         item=item,
         detail="Task colocada em execucao. Registre o resultado apos o contato.",
@@ -1863,7 +1973,7 @@ def send_and_wait_work_queue_item(
         flush=False,
     )
     db.flush()
-    item = _task_to_item(task)
+    item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
     if action.status == "awaiting_outcome":
         detail = (
             "Handoff criado na Kommo. A task ficou aguardando resposta na Kommo para o Autopilot resolver ou escalar."
@@ -2054,7 +2164,7 @@ def update_work_queue_outcome(
             note=payload.note,
         )
         db.flush()
-        item = _task_to_item(task)
+        item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
         return WorkQueueActionResultOut(
             item=item,
             detail="Resultado registrado na task.",

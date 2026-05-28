@@ -186,7 +186,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
 
 
 def specialist_model() -> str:
-    return settings.openai_specialist_model or settings.openai_model or "gpt-5.4-mini"
+    return settings.openai_specialist_model or settings.openai_model or "gpt-4.1-mini"
 
 
 def get_prompt_definition(prompt_key: str) -> AiPromptDefinition:

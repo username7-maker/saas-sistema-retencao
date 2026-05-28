@@ -1,0 +1,72 @@
+{
+  "name": "Cordex WhatsApp AI Agent - Router",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cordex-whatsapp-agent",
+        "responseMode": "responseNode"
+      },
+      "id": "whatsapp-agent-webhook",
+      "name": "WhatsApp Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst body = input.body ?? input;\nconst required = ['event_id', 'gym_id', 'instance', 'sender_phone', 'audience', 'message'];\nconst missing = required.filter((key) => !body[key]);\nconst base = { event_id: body.event_id ?? null, recipient_phone: body.sender_phone ?? '', metadata: { provider_message_id: body.provider_message_id ?? null, gym_id: body.gym_id ?? null, instance: body.instance ?? null, dedupe_key: body.provider_message_id ?? body.event_id ?? null } };\nif (missing.length) {\n  return [{ json: { ...base, status: 'needs_clarification', action: 'no_reply', message: '', risk: 'low', approval_required: false, metadata: { ...base.metadata, missing } } }];\n}\nconst audience = body.audience === 'internal' ? 'internal' : 'external';\nconst text = String(body.message || '').toLowerCase();\nconst sensitiveExternal = ['cancelar', 'contrato', 'cobranca', 'pagamento', 'senha', 'token', 'excluir', 'apagar', 'juridico', 'dados pessoais', 'producao'];\nconst highRiskInternal = ['apagar', 'excluir', 'desativar', 'ativar workflow', 'producao', 'broadcast', 'disparo em massa', 'enviar para'];\nif (audience === 'internal') {\n  const highRisk = highRiskInternal.some((word) => text.includes(word));\n  if (highRisk) {\n    return [{ json: { ...base, status: 'pending_approval', action: 'no_reply', message: 'Acao interna sensivel preparada e aguardando aprovacao.', risk: 'high', approval_required: true, metadata: { ...base.metadata, audience, route: 'internal_operator_agent', role: body.context?.role ?? 'VIEWER' } } }];\n  }\n  return [{ json: { ...base, status: 'success', action: 'send_reply', message: 'Recebi o comando interno. Vou operar em modo seguro e registrar a execucao.', risk: 'low', approval_required: false, metadata: { ...base.metadata, audience, route: 'internal_operator_agent', role: body.context?.role ?? 'VIEWER' } } }];\n}\nconst sensitive = sensitiveExternal.some((word) => text.includes(word));\nif (sensitive) {\n  return [{ json: { ...base, status: 'success', action: 'handoff', message: 'Recebi sua mensagem e vou acionar a equipe da academia para te responder com seguranca.', risk: 'medium', approval_required: false, metadata: { ...base.metadata, audience, route: 'external_service_agent', handoff_reason: 'sensitive_or_account_request' } } }];\n}\nreturn [{ json: { ...base, status: 'success', action: 'send_reply', message: 'Recebi sua mensagem. Posso te ajudar com informacoes gerais por aqui; para dados da sua conta, a equipe assume.', risk: 'low', approval_required: false, metadata: { ...base.metadata, audience, route: 'external_service_agent', same_recipient_only: true } } }];"
+      },
+      "id": "route-whatsapp-message",
+      "name": "Route WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-backend",
+      "name": "Return Decision to Backend",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [0, 0]
+    }
+  ],
+  "connections": {
+    "WhatsApp Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Route WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Return Decision to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

@@ -39,15 +39,18 @@ class Settings(BaseSettings):
 
     cpf_encryption_key: str = "change-me-with-64-hex"
 
-    sendgrid_api_key: str = ""
-    sendgrid_sender: str = "noreply@aigymos.local"
+    email_provider: str = "resend"
+    email_timeout_seconds: float = 10.0
+    resend_api_key: str = ""
+    resend_sender: str = "Cordex Gym OS <onboarding@resend.dev>"
+    resend_reply_to: str = ""
 
     claude_api_key: str = ""
     claude_model: str = "claude-3-5-haiku-latest"
     claude_max_tokens: int = 250
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
-    openai_specialist_model: str = "gpt-5.4-mini"
+    openai_specialist_model: str = "gpt-4.1-mini"
     openai_vision_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: int = 20
     body_composition_image_ai_enabled: bool = False
@@ -61,6 +64,12 @@ class Settings(BaseSettings):
     whatsapp_allow_global_fallback: bool = False
     whatsapp_rate_limit_per_hour: int = 6
     whatsapp_webhook_token: str = ""
+    n8n_whatsapp_agent_webhook_url: str = ""
+    cordex_agent_service_token: str = ""
+    whatsapp_agent_mode: str = "off"
+    whatsapp_internal_allowed_phones: str = ""
+    whatsapp_external_auto_reply_enabled: bool = True
+    whatsapp_agent_fallback_to_legacy_nurturing: bool = True
     kommo_webhook_token: str = ""
 
     sentry_dsn: str = ""
@@ -166,6 +175,8 @@ class Settings(BaseSettings):
         "public_proposal_email_enabled",
         "monthly_reports_dispatch_enabled",
         "whatsapp_allow_global_fallback",
+        "whatsapp_external_auto_reply_enabled",
+        "whatsapp_agent_fallback_to_legacy_nurturing",
         mode="before",
     )
     @classmethod
@@ -188,6 +199,14 @@ class Settings(BaseSettings):
         normalized = (value or "lax").strip().lower()
         if normalized not in {"lax", "strict", "none"}:
             return "lax"
+        return normalized
+
+    @field_validator("email_provider", mode="before")
+    @classmethod
+    def normalize_email_provider(cls, value: str | None) -> str:
+        normalized = (value or "resend").strip().lower()
+        if normalized not in {"resend"}:
+            return "resend"
         return normalized
 
     @model_validator(mode="after")
@@ -223,12 +242,17 @@ class Settings(BaseSettings):
         if self.public_diagnosis_enabled and not self.public_diag_gym_id.strip():
             raise ValueError("PUBLIC_DIAG_GYM_ID obrigatorio quando diagnostico publico estiver habilitado")
         if self.public_proposal_email_enabled:
-            if not self.sendgrid_api_key.strip():
-                raise ValueError("SENDGRID_API_KEY obrigatoria quando proposal email publico estiver habilitado")
-            if self.sendgrid_sender.endswith(".local"):
-                raise ValueError("SENDGRID_SENDER invalido para producao")
+            if not self.resend_api_key.strip():
+                raise ValueError("RESEND_API_KEY obrigatoria quando proposal email publico estiver habilitado")
+            if self.resend_sender.endswith(".local"):
+                raise ValueError("RESEND_SENDER invalido para producao")
         if bool(self.whatsapp_api_url.strip()) != bool(self.whatsapp_api_token.strip()):
             raise ValueError("WHATSAPP_API_URL e WHATSAPP_API_TOKEN devem ser configurados juntos em producao")
+        if self.whatsapp_agent_mode.strip().lower() == "active":
+            if not self.n8n_whatsapp_agent_webhook_url.strip():
+                raise ValueError("N8N_WHATSAPP_AGENT_WEBHOOK_URL obrigatoria quando WHATSAPP_AGENT_MODE=active")
+            if _unsafe_secret(self.cordex_agent_service_token, {"change-me", "replace-with-secret"}):
+                raise ValueError("CORDEX_AGENT_SERVICE_TOKEN inseguro quando WHATSAPP_AGENT_MODE=active")
         return self
 
     @property
@@ -248,6 +272,10 @@ class Settings(BaseSettings):
         if self.enable_api_docs:
             return True
         return not _is_production(self.environment)
+
+    @property
+    def email_delivery_configured(self) -> bool:
+        return self.email_provider == "resend" and bool(self.resend_api_key.strip())
 
 
 def _unsafe_secret(value: str, blocked_values: set[str]) -> bool:

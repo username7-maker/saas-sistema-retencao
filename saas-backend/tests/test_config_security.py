@@ -15,7 +15,7 @@ def _production_kwargs(**overrides):
         "enable_scheduler_in_api": False,
         "scheduler_critical_lock_fail_open": False,
         "redis_url": "redis://redis:6379/0",
-        "sendgrid_sender": "noreply@aigymos.com",
+        "resend_sender": "Cordex Gym OS <noreply@aigymos.com>",
         "whatsapp_api_url": "",
         "whatsapp_api_token": "",
     }
@@ -73,9 +73,9 @@ def test_production_requires_public_diag_gym_for_public_diagnosis():
         Settings(**_production_kwargs(public_diagnosis_enabled=True, public_diag_gym_id=""))
 
 
-def test_production_requires_sendgrid_when_public_proposal_email_enabled():
+def test_production_requires_resend_when_public_proposal_email_enabled():
     with pytest.raises(ValidationError):
-        Settings(**_production_kwargs(public_proposal_email_enabled=True, sendgrid_api_key=""))
+        Settings(**_production_kwargs(public_proposal_email_enabled=True, resend_api_key=""))
 
 
 def test_production_rejects_partial_whatsapp_config():

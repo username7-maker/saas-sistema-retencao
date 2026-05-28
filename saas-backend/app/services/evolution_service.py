@@ -1,5 +1,6 @@
 """Wrapper para Evolution API - gerencia instancias WhatsApp por gym."""
 import logging
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
@@ -14,6 +15,21 @@ WhatsAppStatus = Literal["disconnected", "connecting", "connected", "error"]
 
 def _instance_name(gym_id: str) -> str:
     return f"gym_{gym_id.replace('-', '')}"
+
+
+def build_instance_name(gym_id: str, *, fresh: bool = False) -> str:
+    """Return the canonical Evolution instance name for a gym.
+
+    When a gym disconnects to switch numbers, some Evolution deployments keep the
+    old authenticated session alive even after logout/delete. A fresh suffix
+    guarantees the next connect flow asks for a new QR instead of reusing that
+    stale authenticated session.
+    """
+    base = _instance_name(gym_id)
+    if not fresh:
+        return base
+    suffix = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{base}_r{suffix}"
 
 
 def _headers() -> dict[str, str]:
@@ -62,8 +78,8 @@ def _instance_exists(instance: str) -> bool:
     return False
 
 
-def ensure_instance(gym_id: str) -> str:
-    instance = _instance_name(gym_id)
+def ensure_instance(gym_id: str, *, instance_name: str | None = None, fresh: bool = False) -> str:
+    instance = instance_name or build_instance_name(gym_id, fresh=fresh)
     if _instance_exists(instance):
         return instance
     try:
@@ -146,14 +162,41 @@ def get_connection_status(instance: str) -> dict:
 
 
 def disconnect_instance(instance: str) -> bool:
+    success = False
     try:
         with httpx.Client(timeout=15.0) as client:
-            client.delete(f"{_base()}/instance/logout/{instance}", headers=_headers())
-            response = client.delete(f"{_base()}/instance/delete/{instance}", headers=_headers())
-            return response.status_code in (200, 204, 404)
+            attempts = [
+                ("DELETE", f"/instance/logout/{instance}"),
+                ("POST", f"/instance/logout/{instance}"),
+                ("GET", f"/instance/logout/{instance}"),
+                ("DELETE", f"/instance/delete/{instance}"),
+                ("DELETE", f"/instance/delete/{instance}?force=true"),
+                ("POST", f"/instance/delete/{instance}"),
+            ]
+            for method, path in attempts:
+                try:
+                    response = client.request(method, f"{_base()}{path}", headers=_headers())
+                    if response.status_code in (200, 201, 202, 204, 404):
+                        success = True
+                    elif response.status_code not in (400, 405):
+                        logger.warning(
+                            "Evolution retornou %s ao resetar instancia %s em %s %s",
+                            response.status_code,
+                            instance,
+                            method,
+                            path,
+                        )
+                except Exception:
+                    logger.warning("Falha ao chamar Evolution para resetar instancia %s em %s %s", instance, method, path)
     except Exception:
         logger.exception("Erro ao desconectar instancia %s", instance)
         return False
+
+    conn = get_connection_status(instance)
+    if conn.get("state") == "open":
+        logger.warning("Instancia %s continua autenticada apos disconnect; proximo connect deve usar instancia nova.", instance)
+        return False
+    return success
 
 
 def configure_webhook(instance: str, webhook_url: str, webhook_headers: dict[str, str] | None = None) -> bool:

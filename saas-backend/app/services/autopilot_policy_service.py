@@ -54,7 +54,7 @@ def build_retention_policy(member: Member) -> AutopilotDecision:
             decision="auto_execute",
             domain="retention",
             policy_key="retention_inactive_d7",
-            action_type="send_whatsapp",
+            action_type="send_primary_channel",
             template_key="retention_d7",
             confidence=0.86,
             reason=f"Aluno ha {days} dias sem check-in, tentativa D7 segura se consentimento estiver OK",
@@ -66,7 +66,7 @@ def build_retention_policy(member: Member) -> AutopilotDecision:
             decision="auto_execute",
             domain="retention",
             policy_key="retention_inactive_d3",
-            action_type="send_whatsapp",
+            action_type="send_primary_channel",
             template_key="retention_d3",
             confidence=0.9,
             reason=f"Aluno ha {days} dias sem check-in, lembrete leve D3",
@@ -93,7 +93,7 @@ def build_finance_policy(*, days_overdue: int, disputed: bool = False) -> Autopi
             decision="auto_execute",
             domain="finance",
             policy_key="finance_payment_overdue_d1",
-            action_type="send_whatsapp",
+            action_type="send_primary_channel",
             template_key="finance_overdue_d1",
             confidence=0.82,
             reason=f"Recebivel vencido ha {days_overdue} dia(s)",
@@ -152,4 +152,3 @@ def render_template(template_key: str, *, first_name: str) -> str:
     }
     template = templates.get(template_key, "{first_name}, podemos te ajudar?")
     return template.format(first_name=first_name.strip() or "tudo bem")
-

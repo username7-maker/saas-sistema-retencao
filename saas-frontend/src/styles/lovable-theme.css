@@ -4,15 +4,16 @@
   --lovable-surface: 42 28% 97%;
   --lovable-surface-soft: 210 20% 94%;
   --lovable-border: 203 18% 80%;
-  --lovable-border-strong: 201 22% 58%;
+  --lovable-border-strong: 199 76% 52%;
   --lovable-ink: 205 27% 10%;
   --lovable-ink-muted: 202 14% 42%;
-  --lovable-primary: 201 44% 61%;
-  --lovable-primary-soft: 201 70% 91%;
-  --lovable-success: 160 68% 39%;
-  --lovable-warning: 38 84% 56%;
-  --lovable-danger: 350 72% 58%;
-  --lovable-info: 201 65% 61%;
+  --lovable-primary: 199 89% 48%;
+  --lovable-primary-soft: 199 82% 91%;
+  --lovable-success: 160 84% 39%;
+  --lovable-warning: 38 92% 52%;
+  --lovable-danger: 0 84% 60%;
+  --lovable-info: 217 91% 60%;
+  --lovable-ai: 258 90% 66%;
   --lovable-sidebar: 207 44% 8%;
   --lovable-topbar: 207 38% 9%;
   --lovable-elevated: 207 34% 12%;
@@ -23,9 +24,19 @@
   --cordex-carbon: #05090d;
   --cordex-carbon-raised: #0a1118;
   --cordex-orbit: #172632;
-  --cordex-nucleus: #6fa7c7;
-  --cordex-nucleus-strong: #86c7ec;
+  --cordex-nucleus: #38bdf8;
+  --cordex-nucleus-strong: #60a5fa;
   --cordex-offwhite: #f4f2ec;
+  --cordex-command-bg: #05080d;
+  --cordex-command-surface: rgba(15, 23, 32, 0.86);
+  --cordex-command-surface-strong: rgba(17, 24, 39, 0.92);
+  --cordex-command-border: rgba(148, 163, 184, 0.14);
+  --cordex-command-border-hot: rgba(56, 189, 248, 0.24);
+  --cordex-command-cyan: #38bdf8;
+  --cordex-command-blue: #3b82f6;
+  --cordex-command-purple: #8b5cf6;
+  --cordex-command-grid: rgba(56, 189, 248, 0.06);
+  --cordex-command-glow: 0 32px 100px -54px rgba(56, 189, 248, 0.75);
   --shadow-lovable:
     0 24px 80px -38px hsl(207 65% 8% / 0.36),
     0 10px 28px -20px hsl(201 58% 44% / 0.18);
@@ -35,41 +46,42 @@
 }
 
 .dark {
-  --lovable-bg: 207 58% 3%;
-  --lovable-bg-muted: 207 45% 5%;
-  --lovable-surface: 207 34% 9%;
-  --lovable-surface-soft: 207 30% 12%;
-  --lovable-border: 202 28% 16%;
-  --lovable-border-strong: 201 31% 31%;
-  --lovable-ink: 195 28% 96%;
-  --lovable-ink-muted: 202 15% 66%;
-  --lovable-primary: 201 49% 62%;
-  --lovable-primary-soft: 201 42% 16%;
-  --lovable-success: 160 70% 42%;
-  --lovable-warning: 38 84% 57%;
-  --lovable-danger: 350 72% 62%;
-  --lovable-info: 201 72% 65%;
-  --lovable-sidebar: 207 58% 4%;
-  --lovable-topbar: 207 46% 6%;
-  --lovable-elevated: 207 36% 10%;
-  --lovable-chart-grid: 202 24% 20%;
-  --lovable-chart-stroke: 201 56% 65%;
-  --lovable-brand: #6fa7c7;
-  --lovable-muted: #91a6b2;
+  --lovable-bg: 215 52% 4%;
+  --lovable-bg-muted: 214 48% 6%;
+  --lovable-surface: 214 36% 8%;
+  --lovable-surface-soft: 214 32% 11%;
+  --lovable-border: 206 30% 17%;
+  --lovable-border-strong: 199 76% 42%;
+  --lovable-ink: 209 43% 93%;
+  --lovable-ink-muted: 213 19% 63%;
+  --lovable-primary: 199 89% 61%;
+  --lovable-primary-soft: 199 54% 16%;
+  --lovable-success: 160 84% 39%;
+  --lovable-warning: 38 92% 52%;
+  --lovable-danger: 0 84% 60%;
+  --lovable-info: 217 91% 60%;
+  --lovable-ai: 258 90% 66%;
+  --lovable-sidebar: 216 58% 4%;
+  --lovable-topbar: 216 46% 6%;
+  --lovable-elevated: 214 36% 10%;
+  --lovable-chart-grid: 207 24% 20%;
+  --lovable-chart-stroke: 199 89% 62%;
+  --lovable-brand: #38bdf8;
+  --lovable-muted: #8b9bad;
   --shadow-lovable:
-    0 30px 120px -52px hsl(207 100% 2% / 0.92),
-    0 14px 38px -24px hsl(201 60% 54% / 0.24);
+    0 30px 120px -52px hsl(216 100% 2% / 0.94),
+    0 14px 44px -28px hsl(199 90% 55% / 0.28);
   --shadow-panel:
-    0 28px 86px -42px hsl(207 100% 2% / 0.95),
-    inset 0 1px 0 hsl(196 100% 92% / 0.05);
+    0 28px 86px -42px hsl(216 100% 2% / 0.96),
+    inset 0 1px 0 hsl(196 100% 92% / 0.06);
 }
 
 body {
   background:
-    radial-gradient(circle at 12% 4%, hsl(var(--lovable-info) / 0.14) 0%, transparent 28%),
-    radial-gradient(circle at 92% 8%, hsl(var(--lovable-primary) / 0.12) 0%, transparent 26%),
-    radial-gradient(circle at 48% 112%, hsl(var(--lovable-primary) / 0.1) 0%, transparent 34%),
-    linear-gradient(135deg, hsl(207 58% 3%) 0%, hsl(207 46% 5%) 46%, hsl(205 42% 7%) 100%);
+    radial-gradient(circle at 18% 0%, hsl(var(--lovable-primary) / 0.16) 0%, transparent 30%),
+    radial-gradient(circle at 86% 12%, hsl(var(--lovable-ai) / 0.12) 0%, transparent 26%),
+    radial-gradient(circle at 48% 112%, hsl(var(--lovable-info) / 0.11) 0%, transparent 34%),
+    linear-gradient(135deg, hsl(215 52% 4%) 0%, hsl(214 48% 5%) 45%, hsl(216 46% 7%) 100%);
   color: hsl(var(--lovable-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
@@ -82,9 +94,9 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background-image:
-    linear-gradient(hsl(var(--lovable-primary) / 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--lovable-primary) / 0.035) 1px, transparent 1px);
-  background-size: 88px 88px;
+    linear-gradient(hsl(var(--lovable-primary) / 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--lovable-primary) / 0.038) 1px, transparent 1px);
+  background-size: 92px 92px;
   mask-image: radial-gradient(circle at 50% 20%, black 0%, transparent 72%);
 }
 

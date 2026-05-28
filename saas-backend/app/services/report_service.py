@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from io import BytesIO
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,11 +32,12 @@ def generate_dashboard_pdf(
     return BytesIO(pdf_bytes), filename
 
 
-def send_monthly_reports(db: Session) -> dict[str, object]:
+def send_monthly_reports(db: Session, *, gym_id: UUID | str) -> dict[str, object]:
     buffer, filename = generate_dashboard_pdf(db, "consolidated", generated_by="Sistema")
     attachment = buffer.getvalue()
     leadership = db.scalars(
         select(User).where(
+            User.gym_id == gym_id,
             User.deleted_at.is_(None),
             User.is_active.is_(True),
             User.role.in_([RoleEnum.OWNER, RoleEnum.MANAGER]),
@@ -78,7 +80,7 @@ def execute_monthly_reports_dispatch_job(
     job_id,
     requested_by_user_id=None,
 ) -> dict[str, object]:
-    result = send_monthly_reports(db)
+    result = send_monthly_reports(db, gym_id=gym_id)
     if result["total_recipients"] > 0 and result["sent"] == 0:
         primary_reason = next(iter(result.get("blocked_reasons", {}) or {}), "monthly_reports_delivery_failed")
         raise CoreAsyncJobNonRetryableError(

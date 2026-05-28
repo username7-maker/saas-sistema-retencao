@@ -1,0 +1,73 @@
+import type { ReactNode } from "react";
+import { Bot, Sparkles } from "lucide-react";
+
+import { CommandCard } from "./CommandCard";
+import { StatusPill } from "./StatusPill";
+
+interface AIInsightPanelProps {
+  title?: string;
+  summary: ReactNode;
+  updatedAt?: string;
+  items?: ReactNode[];
+  alerts?: ReactNode[];
+  footer?: ReactNode;
+}
+
+export function AIInsightPanel({
+  title = "Briefing inteligente",
+  summary,
+  updatedAt,
+  items = [],
+  alerts = [],
+  footer,
+}: AIInsightPanelProps) {
+  return (
+    <CommandCard variant="ai">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-violet-400/24 bg-violet-400/14 text-violet-200">
+            <Bot size={17} />
+          </div>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-lovable-ink-muted">IA</p>
+            <h3 className="font-heading text-base font-bold text-lovable-ink">{title}</h3>
+          </div>
+        </div>
+        <StatusPill tone="ai">Ativa</StatusPill>
+      </div>
+
+      <div className="rounded-[20px] border border-lovable-border/65 bg-lovable-bg-muted/60 p-4">
+        <div className="flex items-start gap-3">
+          <Sparkles size={16} className="mt-0.5 text-violet-200" />
+          <div className="min-w-0">
+            <p className="text-sm leading-relaxed text-lovable-ink">{summary}</p>
+            {updatedAt ? <p className="mt-3 text-xs text-lovable-ink-muted">{updatedAt}</p> : null}
+          </div>
+        </div>
+      </div>
+
+      {alerts.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {alerts.map((alert, index) => (
+            <div key={index} className="rounded-2xl border border-lovable-border/62 bg-lovable-surface/58 px-3 py-2 text-sm text-lovable-ink">
+              {alert}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {items.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {items.map((item, index) => (
+            <div key={index} className="flex items-start gap-2 text-sm text-lovable-ink-muted">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--lovable-primary))]" />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {footer ? <div className="mt-4">{footer}</div> : null}
+    </CommandCard>
+  );
+}

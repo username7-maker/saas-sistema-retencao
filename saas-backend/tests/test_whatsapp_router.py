@@ -6,7 +6,13 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.routers.whatsapp import connect_whatsapp, get_webhook_setup_status, whatsapp_webhook
+from app.routers.whatsapp import (
+    WhatsAppAgentReplyIn,
+    connect_whatsapp,
+    get_webhook_setup_status,
+    whatsapp_agent_reply,
+    whatsapp_webhook,
+)
 
 
 class _RequestStub:
@@ -29,13 +35,18 @@ def test_connect_whatsapp_enqueues_webhook_setup_without_query_secret(monkeypatc
     db = MagicMock()
     current_user = SimpleNamespace(id=uuid4(), gym_id=gym_id)
     queued_jobs: list[dict] = []
+    ensure_calls: list[dict] = []
 
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_api_url", "https://evolution.example.com")
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_api_token", "secret")
     monkeypatch.setattr("app.routers.whatsapp.settings.public_backend_url", "https://api.example.com")
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_webhook_token", "webhook-secret")
     monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: gym)
-    monkeypatch.setattr("app.routers.whatsapp.ensure_instance", lambda *_args, **_kwargs: "gym_instance")
+    def fake_ensure_instance(*_args, **kwargs):
+        ensure_calls.append(kwargs)
+        return "gym_instance"
+
+    monkeypatch.setattr("app.routers.whatsapp.ensure_instance", fake_ensure_instance)
     monkeypatch.setattr("app.routers.whatsapp.get_qr_code", lambda *_args, **_kwargs: {"status": "connecting", "qrcode": "data:image/png;base64,abc"})
     job_id = uuid4()
     monkeypatch.setattr(
@@ -48,6 +59,8 @@ def test_connect_whatsapp_enqueues_webhook_setup_without_query_secret(monkeypatc
     result = connect_whatsapp(db=db, current_user=current_user)
 
     assert result.status == "connecting"
+    assert ensure_calls[0]["fresh"] is True
+    assert ensure_calls[0]["instance_name"] is None
     assert result.job_id == str(job_id)
     assert result.job_status == "pending"
     assert result.webhook_setup_created is True
@@ -107,6 +120,35 @@ def test_get_webhook_setup_status_rejects_missing_or_wrong_type(monkeypatch):
         get_webhook_setup_status(job_id=job_id, db=db, current_user=current_user)
 
     assert exc_info.value.status_code == 404
+
+
+def test_whatsapp_agent_reply_uses_backend_send(monkeypatch):
+    db = MagicMock()
+    gym_id = uuid4()
+    log_id = uuid4()
+
+    monkeypatch.setattr("app.routers.whatsapp.settings.cordex_agent_service_token", "service-token")
+    monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_agent_mode", "active")
+    monkeypatch.setattr("app.routers.whatsapp.get_gym_instance", lambda *_args, **_kwargs: "gym_instance")
+    monkeypatch.setattr(
+        "app.routers.whatsapp.send_agent_reply_from_service_token",
+        lambda *_args, **_kwargs: SimpleNamespace(id=log_id, status="sent"),
+    )
+
+    result = whatsapp_agent_reply(
+        payload=WhatsAppAgentReplyIn(
+            gym_id=gym_id,
+            recipient_phone="5511999999999",
+            message="Resposta do agente",
+        ),
+        authorization="Bearer service-token",
+        x_cordex_agent_token=None,
+        db=db,
+    )
+
+    assert result.status == "sent"
+    assert result.message_log_id == str(log_id)
+    db.commit.assert_called_once()
 
 
 @pytest.mark.anyio

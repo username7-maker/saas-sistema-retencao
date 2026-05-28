@@ -1,0 +1,63 @@
+{
+  "name": "Cordex WhatsApp AI Agent - External Service Agent",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "agent-input",
+      "name": "External WhatsApp Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nconst text = String(payload.message ?? '').toLowerCase();\nconst sensitive = ['cancelar', 'contrato', 'cobranca', 'pagamento', 'senha', 'token', 'excluir', 'apagar', 'juridico'].some((word) => text.includes(word));\nif (sensitive) {\n  return [{ json: { event_id: payload.event_id, status: 'success', action: 'handoff', recipient_phone: payload.sender_phone, message: 'Recebi sua mensagem e vou acionar a equipe da academia para te responder com seguranca.', risk: 'medium', approval_required: false, metadata: { audience: 'external', handoff_required: true } } }];\n}\nreturn [{ json: { event_id: payload.event_id, status: 'success', action: 'send_reply', recipient_phone: payload.sender_phone, message: 'Recebi sua mensagem. Posso te ajudar com informacoes gerais por aqui; para dados da sua conta, a equipe assume.', risk: 'low', approval_required: false, metadata: { audience: 'external', same_recipient_only: true } } }];"
+      },
+      "id": "external-policy-agent",
+      "name": "External Policy Agent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "External WhatsApp Input": {
+      "main": [
+        [
+          {
+            "node": "External Policy Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

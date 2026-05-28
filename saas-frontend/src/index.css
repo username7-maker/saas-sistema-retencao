@@ -23,10 +23,31 @@ body {
   color: hsl(var(--lovable-ink));
 }
 
+@keyframes command-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.command-skeleton {
+  background:
+    linear-gradient(
+      90deg,
+      hsl(var(--lovable-surface-soft) / 0.42) 0%,
+      hsl(var(--lovable-primary) / 0.12) 38%,
+      hsl(var(--lovable-surface-soft) / 0.42) 72%
+    );
+  background-size: 220% 100%;
+  animation: command-shimmer 1.6s ease-in-out infinite;
+}
+
 button,
 a,
 [role="button"] {
-  transition-property: background-color, border-color, color, opacity, transform;
+  transition-property: background-color, border-color, color, opacity, transform, box-shadow, filter;
   transition-duration: 150ms;
   transition-timing-function: ease;
 }

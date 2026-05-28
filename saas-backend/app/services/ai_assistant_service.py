@@ -318,6 +318,7 @@ def build_retention_assistant(item: Any) -> AIAssistantPayload:
             "next_action": getattr(item, "next_action", None),
             "retention_stage": getattr(item, "retention_stage", None),
         },
+        allow_ai=False,
     )
 
     return AIAssistantPayload(

@@ -46,6 +46,7 @@ def list_work_queue_items_endpoint(
     assignee: AssigneeFilter = Query("all"),
     domain: DomainFilter = Query("all"),
     source: SourceFilter = Query("all"),
+    bucket: str = Query("all", max_length=80),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
 ) -> PaginatedResponse[WorkQueueItemOut]:
@@ -57,6 +58,7 @@ def list_work_queue_items_endpoint(
         assignee=assignee,
         domain=domain,
         source=source,
+        bucket=bucket,
         page=page,
         page_size=page_size,
     )

@@ -9,6 +9,7 @@ WorkQueueSourceType = Literal["task", "ai_triage", "assessment_queue", "ai_servi
 WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
 WorkQueueSnoozePreset = Literal["tomorrow", "next_week", "custom"]
 WorkQueueContactChannel = Literal["whatsapp", "kommo", "call", "in_person", "other"]
+PreferredShiftStatus = Literal["resolved_from_checkins", "manual_or_cached", "tie", "no_recent_checkins"]
 WorkQueueOutcome = Literal[
     "responded",
     "no_response",
@@ -44,6 +45,9 @@ class WorkQueueItemOut(BaseModel):
     domain: str
     severity: str
     preferred_shift: str | None = None
+    preferred_shift_status: PreferredShiftStatus | None = None
+    preferred_shift_reason: str | None = None
+    preferred_shift_counts: dict[str, int] = Field(default_factory=dict)
     reason: str
     primary_action_label: str
     primary_action_type: str
@@ -67,6 +71,8 @@ class WorkQueueItemOut(BaseModel):
     retention_stage_priority: int = 0
     technical_ladder_step: str | None = None
     technical_ladder_step_label: str | None = None
+    execution_bucket: str | None = None
+    execution_bucket_label: str | None = None
     autopilot_state: str | None = None
     autopilot_badges: list[str] = Field(default_factory=list)
     execution_channel: str | None = None

@@ -7,8 +7,20 @@ import { EmptyState, SectionHeader, SkeletonList } from "../../components/ui";
 import { AiInsightCard } from "../../components/common/AiInsightCard";
 import { DashboardActions } from "../../components/common/DashboardActions";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
-import { StatCard } from "../../components/common/StatCard";
-import { Badge, Button, Card, CardContent, FormField, Input, Select, Textarea } from "../../components/ui2";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CommandCard,
+  FormField,
+  Input,
+  MetricCard,
+  PremiumEmptyState,
+  Select,
+  Textarea,
+} from "../../components/ui2";
+import { AlertTriangle, Banknote, CircleDollarSign, FileText, TrendingUp } from "lucide-react";
 import { useFinancialDashboard } from "../../hooks/useDashboard";
 import { financeService } from "../../services/financeService";
 import type { FinancialEntryPayload, FinancialEntryStatus, FinancialEntryType } from "../../types";
@@ -20,7 +32,7 @@ const ENTRY_TYPE_LABEL: Record<FinancialEntryType, string> = {
   receivable: "Conta a receber",
   payable: "Conta a pagar",
   cash_in: "Entrada de caixa",
-  cash_out: "Saida de caixa",
+  cash_out: "Saída de caixa",
 };
 
 const STATUS_LABEL: Record<FinancialEntryStatus, string> = {
@@ -62,7 +74,7 @@ export function FinancialDashboardPage() {
   const createEntryMutation = useMutation({
     mutationFn: financeService.createEntry,
     onSuccess: () => {
-      toast.success("Lancamento financeiro registrado.");
+      toast.success("Lançamento financeiro registrado.");
       setForm({
         entry_type: "receivable",
         status: "open",
@@ -75,18 +87,18 @@ export function FinancialDashboardPage() {
       void queryClient.invalidateQueries({ queryKey: ["finance", "entries"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "financial"] });
     },
-    onError: () => toast.error("Nao foi possivel registrar o lancamento financeiro."),
+    onError: () => toast.error("Não foi possível registrar o lançamento financeiro."),
   });
 
   const materializeDelinquencyMutation = useMutation({
     mutationFn: financeService.materializeDelinquencyTasks,
     onSuccess: (result) => {
-      toast.success(`Regua atualizada: ${result.created_count} criada(s), ${result.updated_count} atualizada(s).`);
+      toast.success(`Régua atualizada: ${result.created_count} criada(s), ${result.updated_count} atualizada(s).`);
       void queryClient.invalidateQueries({ queryKey: ["finance", "delinquency"] });
       void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
-    onError: () => toast.error("Nao foi possivel atualizar a regua de inadimplencia."),
+    onError: () => toast.error("Não foi possível atualizar a régua de inadimplência."),
   });
 
   function updateForm<K extends keyof FinancialEntryPayload>(key: K, value: FinancialEntryPayload[K]) {
@@ -119,10 +131,10 @@ export function FinancialDashboardPage() {
       <section className="space-y-6">
         <header>
           <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Financeiro</h2>
-          <p className="text-sm text-lovable-ink-muted">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
+          <p className="text-sm text-lovable-ink-muted">Receita mensal, inadimplência e projeção 3/6/12 meses.</p>
         </header>
         <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface p-8 text-center text-sm text-lovable-ink-muted">
-          Sem dados financeiros disponiveis. Importe historico de receita para ativar este painel.
+          Sem dados financeiros disponíveis. Importe histórico de receita para ativar este painel.
         </div>
       </section>
     );
@@ -140,10 +152,11 @@ export function FinancialDashboardPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <header className="flex flex-col gap-4 rounded-[28px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-surface)/0.96),hsl(var(--lovable-bg-muted)/0.78))] p-5 shadow-panel md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="font-heading text-3xl font-bold text-lovable-ink">Dashboard Financeiro</h2>
-          <p className="text-sm text-lovable-ink-muted">Receita mensal, inadimplencia e projecao 3/6/12 meses.</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-lovable-ink-muted">Financeiro</p>
+          <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink">Dashboard Financeiro</h2>
+          <p className="mt-1 text-sm text-lovable-ink-muted">Receita mensal, inadimplência, caixa e projeção operacional.</p>
         </div>
         <DashboardActions dashboard="financial" />
       </header>
@@ -155,7 +168,7 @@ export function FinancialDashboardPage() {
           <CardContent className="pt-5">
             <SectionHeader
               title="Qualidade da base financeira"
-              subtitle="O painel diferencia dados reais de falta de importacao para evitar decisao com numero falso."
+              subtitle="O painel diferencia dados reais de falta de importação para evitar decisão com número falso."
             />
             <div className="mt-3 flex flex-wrap gap-2">
               {flags.map((flag) => (
@@ -167,24 +180,26 @@ export function FinancialDashboardPage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Inadimplencia" value={`${query.data.delinquency_rate.toFixed(1)}%`} tone="danger" />
-        <StatCard label="Caixa liquido hoje" value={BRL(dailyNetCash)} tone={dailyNetCash >= 0 ? "success" : "danger"} />
-        <StatCard label="Recebiveis abertos" value={BRL(openReceivables)} tone="warning" />
-        <StatCard label="Receita em risco" value={BRL(revenueAtRisk)} tone="danger" />
+        <MetricCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} subtitle="Alunos com cobrança em atraso" icon={AlertTriangle} tone="danger" />
+        <MetricCard label="Caixa líquido hoje" value={BRL(dailyNetCash)} subtitle="Resultado do dia" icon={CircleDollarSign} tone={dailyNetCash >= 0 ? "success" : "danger"} />
+        <MetricCard label="Recebíveis abertos" value={BRL(openReceivables)} subtitle="Entradas ainda pendentes" icon={Banknote} tone="warning" />
+        <MetricCard label="Receita em risco" value={BRL(revenueAtRisk)} subtitle="MRR sob atenção financeira" icon={TrendingUp} tone="danger" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="DRE: Receita do mes" value={BRL(query.data.dre_basic?.revenue ?? 0)} tone="success" />
-        <StatCard label="DRE: Despesas do mes" value={BRL(query.data.dre_basic?.expenses ?? 0)} tone="warning" />
-        <StatCard label="DRE: Resultado" value={BRL(query.data.dre_basic?.net_result ?? 0)} tone={(query.data.dre_basic?.net_result ?? 0) >= 0 ? "success" : "danger"} />
+        <MetricCard label="DRE: Receita do mês" value={BRL(query.data.dre_basic?.revenue ?? 0)} subtitle="Receita reconhecida" icon={CircleDollarSign} tone="success" />
+        <MetricCard label="DRE: Despesas do mês" value={BRL(query.data.dre_basic?.expenses ?? 0)} subtitle="Saídas reconhecidas" icon={FileText} tone="warning" />
+        <MetricCard label="DRE: Resultado" value={BRL(query.data.dre_basic?.net_result ?? 0)} subtitle="Resultado operacional" icon={TrendingUp} tone={(query.data.dre_basic?.net_result ?? 0) >= 0 ? "success" : "danger"} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="A receber atrasado" value={BRL(overdueReceivables)} tone="danger" />
-        <StatCard label="A pagar aberto" value={BRL(openPayables)} tone="warning" />
-        <StatCard
-          label="Projecao 12 meses"
+        <MetricCard label="A receber atrasado" value={BRL(overdueReceivables)} subtitle="Valor vencido" icon={AlertTriangle} tone="danger" />
+        <MetricCard label="A pagar aberto" value={BRL(openPayables)} subtitle="Compromissos pendentes" icon={Banknote} tone="warning" />
+        <MetricCard
+          label="Projeção 12 meses"
           value={proj12 && hasFinancialBase ? BRL(proj12.projected_revenue) : "Sem base"}
+          subtitle="Forecast financeiro"
+          icon={TrendingUp}
           tone="success"
         />
       </div>
@@ -194,7 +209,7 @@ export function FinancialDashboardPage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <SectionHeader
               title="Regua de inadimplencia"
-              subtitle="Rotina operacional para transformar recebiveis vencidos em tasks de cobranca assistida."
+              subtitle="Rotina operacional para transformar recebíveis vencidos em tasks de cobrança assistida."
             />
             <Button
               size="sm"
@@ -202,22 +217,22 @@ export function FinancialDashboardPage() {
               onClick={() => materializeDelinquencyMutation.mutate()}
               disabled={materializeDelinquencyMutation.isPending}
             >
-              {materializeDelinquencyMutation.isPending ? "Atualizando..." : "Atualizar regua"}
+              {materializeDelinquencyMutation.isPending ? "Atualizando..." : "Atualizar régua"}
             </Button>
           </div>
           {delinquencySummaryQuery.isLoading ? (
             <div className="mt-4"><SkeletonList rows={2} cols={4} /></div>
           ) : delinquencySummaryQuery.isError ? (
             <div className="mt-4 rounded-xl border border-lovable-danger/40 bg-lovable-danger/10 p-4 text-sm text-lovable-danger">
-              Erro ao carregar a regua. Isso nao significa ausencia de inadimplencia.
+              Erro ao carregar a régua. Isso não significa ausência de inadimplência.
             </div>
           ) : delinquencySummaryQuery.data ? (
             <div className="mt-4 space-y-4">
               <div className="grid gap-3 md:grid-cols-4">
-                <StatCard label="Valor vencido" value={BRL(delinquencySummaryQuery.data.overdue_amount)} tone="danger" />
-                <StatCard label="Alunos inadimplentes" value={String(delinquencySummaryQuery.data.delinquent_members_count)} tone="warning" />
-                <StatCard label="Tasks abertas" value={String(delinquencySummaryQuery.data.open_task_count)} tone="neutral" />
-                <StatCard label="Recuperado 30 dias" value={BRL(delinquencySummaryQuery.data.recovered_30d)} tone="success" />
+                <MetricCard label="Valor vencido" value={BRL(delinquencySummaryQuery.data.overdue_amount)} icon={AlertTriangle} tone="danger" />
+                <MetricCard label="Alunos inadimplentes" value={String(delinquencySummaryQuery.data.delinquent_members_count)} icon={Banknote} tone="warning" />
+                <MetricCard label="Tasks abertas" value={String(delinquencySummaryQuery.data.open_task_count)} icon={FileText} tone="neutral" />
+                <MetricCard label="Recuperado 30 dias" value={BRL(delinquencySummaryQuery.data.recovered_30d)} icon={TrendingUp} tone="success" />
               </div>
               <div className="grid gap-2 md:grid-cols-5">
                 {delinquencySummaryQuery.data.by_stage.map((stage) => (
@@ -231,8 +246,8 @@ export function FinancialDashboardPage() {
             </div>
           ) : (
             <EmptyState
-              title="Sem dados de inadimplencia"
-              description="Quando houver recebiveis vencidos de alunos ativos, a regua mostrara estagios e tasks abertas."
+              title="Sem dados de inadimplência"
+              description="Quando houver recebíveis vencidos de alunos ativos, a régua mostrará estágios e tasks abertas."
             />
           )}
         </CardContent>
@@ -241,8 +256,8 @@ export function FinancialDashboardPage() {
       <Card>
         <CardContent className="pt-5">
           <SectionHeader
-            title="Registrar lancamento"
-            subtitle="Use para contas a receber, contas a pagar e caixa diario. Nao substitui integracao bancaria."
+            title="Registrar lançamento"
+            subtitle="Use para contas a receber, contas a pagar e caixa diário. Não substitui integração bancária."
           />
           <form onSubmit={handleCreateEntry} className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr]">
             <FormField label="Tipo">
@@ -298,18 +313,18 @@ export function FinancialDashboardPage() {
               </FormField>
             </div>
             <div className="lg:col-span-4">
-              <FormField label="Observacao">
+              <FormField label="Observação">
                 <Textarea
                   value={form.notes ?? ""}
                   onChange={(event) => updateForm("notes", event.target.value)}
                   rows={2}
-                  placeholder="Contexto operacional para a gestao."
+                  placeholder="Contexto operacional para a gestão."
                 />
               </FormField>
             </div>
             <div className="lg:col-span-4 flex justify-end">
               <Button type="submit" variant="primary" disabled={createEntryMutation.isPending}>
-                {createEntryMutation.isPending ? "Salvando..." : "Salvar lancamento"}
+                {createEntryMutation.isPending ? "Salvando..." : "Salvar lançamento"}
               </Button>
             </div>
           </form>
@@ -319,16 +334,16 @@ export function FinancialDashboardPage() {
       {hasFinancialBase ? (
         <LineSeriesChart data={query.data.monthly_revenue} xKey="month" yKey="value" />
       ) : (
-        <section className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface p-8 shadow-panel">
-          <EmptyState
-            title="Receita historica ainda sem base util"
-            description="As mensalidades e recebimentos ainda nao geraram uma serie financeira confiavel. Assim que a base financeira for consolidada, o grafico passa a mostrar a curva mensal."
+        <CommandCard>
+          <PremiumEmptyState
+            title="Receita histórica ainda sem base útil"
+            description="As mensalidades e recebimentos ainda não geraram uma série financeira confiável. Assim que a base financeira for consolidada, o gráfico passa a mostrar a curva mensal."
           />
-        </section>
+        </CommandCard>
       )}
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Projecoes inteligentes</h3>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Projeções inteligentes</h3>
         <div className="grid gap-3 md:grid-cols-3">
           {query.data.projections.map((projection) => (
             <article
@@ -347,7 +362,7 @@ export function FinancialDashboardPage() {
 
       <Card>
         <CardContent className="pt-5">
-          <SectionHeader title="Lancamentos recentes" subtitle="Ultimos registros usados pela foundation financeira." />
+          <SectionHeader title="Lançamentos recentes" subtitle="Últimos registros usados pela foundation financeira." />
           {entriesQuery.isLoading ? (
             <div className="mt-4"><SkeletonList rows={5} cols={4} /></div>
           ) : entriesQuery.data?.items.length ? (
@@ -379,8 +394,8 @@ export function FinancialDashboardPage() {
             </div>
           ) : (
             <EmptyState
-              title="Nenhum lancamento financeiro registrado"
-              description="Registre recebiveis, pagaveis ou caixa para transformar o dashboard financeiro em base real."
+              title="Nenhum lançamento financeiro registrado"
+              description="Registre recebíveis, pagáveis ou caixa para transformar o dashboard financeiro em base real."
             />
           )}
         </CardContent>

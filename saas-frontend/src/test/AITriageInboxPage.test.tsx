@@ -218,6 +218,20 @@ describe("AITriageInboxPage", () => {
     });
   });
 
+  it("shows the preferred-shift diagnostic when the item is sem turno", async () => {
+    mockQueue([
+      makeItem({
+        preferred_shift: null,
+        preferred_shift_status: "no_recent_checkins",
+        preferred_shift_reason: "Sem check-in recente/importado nos ultimos 30 dias.",
+      }),
+    ]);
+
+    renderPage();
+
+    expect(await screen.findAllByText("Sem turno: Sem check-in recente/importado nos ultimos 30 dias.")).toHaveLength(2);
+  });
+
   it("loads canonical member context for the selected inbox item", async () => {
     mockQueue([makeItem()]);
 
@@ -249,6 +263,47 @@ describe("AITriageInboxPage", () => {
     });
   });
 
+  it("blocks outcomes before an AI recommendation is prepared", async () => {
+    const item = makeItem({ primary_action_label: "Criar tarefa" });
+    mockQueue([item]);
+
+    renderPage();
+
+    expect(await screen.findByText("Para registrar resultado, comece a execucao desta recomendacao primeiro.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Concluir" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "WhatsApp enviado" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
+
+    expect(workQueueService.updateOutcome).not.toHaveBeenCalled();
+  });
+
+  it("forwards execution bucket filters for onboarding", async () => {
+    const item = makeItem({
+      domain: "onboarding",
+      execution_bucket: "onboarding_d7_plus",
+      execution_bucket_label: "Dia 7+",
+      primary_action_label: "Agendar avaliacao",
+    });
+    mockQueue([item]);
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Onboarding" }));
+    expect(await screen.findByRole("button", { name: "Dia 7+" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dia 7+" }));
+
+    await waitFor(() => {
+      expect(workQueueService.listItems).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bucket: "onboarding_d7_plus",
+          domain: "onboarding",
+          source: "ai_triage",
+          state: "do_now",
+        }),
+      );
+    });
+  });
+
   it("registers outcome from awaiting result view", async () => {
     const awaiting = makeItem({ state: "awaiting_outcome", primary_action_label: "Registrar resultado" });
     mockQueue([], [awaiting]);
@@ -256,7 +311,7 @@ describe("AITriageInboxPage", () => {
 
     renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: /aguardando resultado \(1\)/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /aguardando resultado/i }));
     expect(await screen.findByText("Acao ja preparada. Registre o resultado assim que houver retorno.")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Observacao opcional para esta acao"), {
       target: { value: "Aluno respondeu." },
@@ -283,7 +338,7 @@ describe("AITriageInboxPage", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("button", { name: "Meu turno" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /meu turno/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Todos os turnos" }));
 
     await waitFor(() => {

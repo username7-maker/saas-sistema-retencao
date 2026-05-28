@@ -5,7 +5,7 @@ Como gestor/professor, quero que os textos de IA sejam gerados por agentes espec
 
 ## Requirements
 - O sistema deve ter registry backend de prompts versionados.
-- `gpt-5.4-mini` deve ser o modelo padrao dos agentes especialistas.
+- `gpt-4.1-mini` e o modelo padrao atual dos agentes especialistas. A decisao anterior por `gpt-5.4-mini` foi substituida na fase 09.5 porque esse identificador nao e valido na API configurada.
 - Outputs devem registrar `prompt_key`, `prompt_version`, `model`, `safety_profile` e `generated_at`.
 - Bioimpedancia deve separar leitura para professor e aluno.
 - Avaliacao deve usar prompt especialista.

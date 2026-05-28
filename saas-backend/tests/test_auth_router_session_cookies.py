@@ -193,6 +193,71 @@ def test_refresh_rejects_disallowed_origin(app, client):
     assert response.headers["Expires"] == "0"
 
 
+def test_forgot_password_reports_global_email_unavailable(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "")
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Servico de e-mail indisponivel. Solicite reset ao administrador."
+        mock_db.commit.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forgot_password_preserves_generic_response_for_unknown_user(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    monkeypatch.setattr(
+        "app.routers.auth.request_password_reset",
+        lambda *_args, **_kwargs: SimpleNamespace(requested=False, email_result=None),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "missing@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"].startswith("Se o e-mail estiver cadastrado")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forgot_password_reports_resend_block_without_persisting_success(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    monkeypatch.setattr(
+        "app.routers.auth.request_password_reset",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            requested=True,
+            email_result=SimpleNamespace(sent=False, blocked=True, reason="resend_permission_denied"),
+        ),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == (
+            "Servico de e-mail sem permissao de envio no Resend. Corrija a chave ou solicite reset ao administrador."
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_logout_rejects_disallowed_origin(app, client):
     app.dependency_overrides[get_current_user] = _current_user
     try:

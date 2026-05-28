@@ -13,7 +13,13 @@ from app.models.automation_rule import AutomationAction, AutomationRule, Automat
 from app.models.enums import LeadStage
 from app.models.lead import Lead
 from app.models.message_log import MessageLog
-from app.services.kommo_service import handoff_member_to_kommo
+from app.services.communication_channel_service import resolve_communication_channel
+from app.services.kommo_service import (
+    KommoSalesbotDispatchError,
+    KommoServiceError,
+    handoff_member_to_kommo,
+    send_member_message_via_kommo_salesbot,
+)
 from app.services.notification_service import create_notification
 from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
 from app.utils.birthday import birthday_label_matches_today
@@ -75,7 +81,7 @@ def execute_rule_for_member(
 ) -> dict:
     now = datetime.now(tz=timezone.utc)
     action_type = rule.action_type
-    action_config = rule.action_config
+    action_config = rule.action_config or {}
     result = {"rule_id": str(rule.id), "member_id": str(member.id), "action": action_type, "status": "skipped"}
 
     template_vars = _build_template_vars(member)
@@ -93,18 +99,43 @@ def execute_rule_for_member(
         if "mensagem" not in extra_vars and action_config.get("message"):
             extra_vars["mensagem"] = str(action_config.get("message"))
         message = render_template(template_name, {**template_vars, **extra_vars})
-        instance = get_gym_instance(db, member.gym_id)
-        log = send_whatsapp_sync(
-            db,
-            phone=member.phone,
-            message=message,
-            instance=instance,
-            member_id=member.id,
-            automation_rule_id=rule.id,
-            template_name=template_name,
+        result.update(
+            _send_member_message_via_primary_channel(
+                db,
+                rule=rule,
+                member=member,
+                message=message,
+                template_name=template_name,
+                domain=_automation_domain(rule, action_config),
+                source_type=str(action_config.get("source") or "automation_rule"),
+                title=f"{rule.name} - {member.full_name}",
+            )
         )
-        result["status"] = log.status
-        result["message_log_id"] = str(log.id)
+
+    elif action_type == AutomationAction.SEND_PRIMARY_CHANNEL:
+        if not member.phone:
+            result["status"] = "skipped"
+            result["reason"] = "no_phone"
+            return result
+        template_name = action_config.get("template") or action_config.get("template_name") or "custom"
+        extra_vars = action_config.get("extra_vars", {})
+        if not isinstance(extra_vars, dict):
+            extra_vars = {}
+        if "mensagem" not in extra_vars and action_config.get("message"):
+            extra_vars["mensagem"] = str(action_config.get("message"))
+        message = render_template(template_name, {**template_vars, **extra_vars})
+        result.update(
+            _send_member_message_via_primary_channel(
+                db,
+                rule=rule,
+                member=member,
+                message=message,
+                template_name=template_name,
+                domain=_automation_domain(rule, action_config),
+                source_type=str(action_config.get("source") or "automation_rule"),
+                title=f"{rule.name} - {member.full_name}",
+            )
+        )
 
     elif action_type == AutomationAction.SEND_EMAIL:
         if not member.email:
@@ -188,22 +219,18 @@ def execute_rule_for_member(
         )
         summary = _render(summary_template, template_vars)
         due_in_hours = _coerce_int(action_config.get("due_in_hours"), default=24, minimum=1)
-        handoff = handoff_member_to_kommo(
-            db,
-            gym_id=member.gym_id,
-            member=member,
-            title=title,
-            summary=summary,
-            source=str(action_config.get("source") or "automation_kommo_handoff"),
-            ai_gym_profile_url=_build_member_profile_url(member.id),
-            due_in_hours=due_in_hours,
+        result.update(
+            _send_member_message_via_kommo_or_handoff(
+                db,
+                rule=rule,
+                member=member,
+                title=title,
+                message=summary,
+                domain=_automation_domain(rule, action_config),
+                source_type=str(action_config.get("source") or "automation_kommo_handoff"),
+                due_in_hours=due_in_hours,
+            )
         )
-        result["status"] = handoff.status
-        result["kommo_contact_id"] = handoff.contact_id
-        result["kommo_lead_id"] = handoff.lead_id
-        result["kommo_task_id"] = handoff.task_id
-        if handoff.detail:
-            result["detail"] = handoff.detail
 
     rule.executions_count = (rule.executions_count or 0) + 1
     rule.last_executed_at = now
@@ -544,6 +571,227 @@ def _build_member_profile_url(member_id: UUID) -> str | None:
     if not frontend_url:
         return None
     return f"{frontend_url}/assessments/members/{member_id}"
+
+
+def _send_member_message_via_primary_channel(
+    db: Session,
+    *,
+    rule: AutomationRule,
+    member: Member,
+    message: str,
+    template_name: str,
+    domain: str,
+    source_type: str,
+    title: str,
+) -> dict:
+    try:
+        resolution = resolve_communication_channel(db, gym_id=member.gym_id, requested_channel="auto")
+    except Exception as exc:
+        logger.warning("Falha ao resolver canal primario da automacao %s; usando WhatsApp. Erro: %s", rule.id, exc)
+        result = _send_member_whatsapp(db, rule=rule, member=member, message=message, template_name=template_name)
+        result.update(
+            {
+                "requested_channel": "auto",
+                "resolved_channel": "whatsapp",
+                "primary_channel": "whatsapp",
+                "fallback_channel": "whatsapp",
+                "used_channel_fallback": True,
+                "channel_resolution_detail": "Falha ao resolver canal; fallback WhatsApp.",
+                "domain": domain,
+            }
+        )
+        return result
+    base_result: dict = {
+        "requested_channel": resolution.requested_channel,
+        "resolved_channel": resolution.channel,
+        "primary_channel": resolution.primary_channel,
+        "fallback_channel": resolution.fallback_channel,
+        "used_channel_fallback": resolution.used_fallback,
+        "channel_resolution_detail": resolution.detail,
+        "domain": domain,
+    }
+
+    if resolution.channel == "kommo":
+        try:
+            outbound = send_member_message_via_kommo_salesbot(
+                db,
+                gym_id=member.gym_id,
+                member=member,
+                domain=domain,
+                message_text=message,
+                source_type=source_type,
+                source_id=rule.id,
+                title=title,
+            )
+            base_result.update(_kommo_outbound_result(outbound))
+            return base_result
+        except KommoSalesbotDispatchError as exc:
+            base_result.update(_kommo_outbound_result(exc.result))
+            base_result["kommo_error"] = str(exc)
+            if resolution.fallback_channel == "whatsapp":
+                base_result.update(_send_member_whatsapp(db, rule=rule, member=member, message=message, template_name=template_name, fallback_from="kommo"))
+                return base_result
+            base_result["status"] = "failed"
+            base_result["reason"] = "kommo_salesbot_failed"
+            return base_result
+        except KommoServiceError as exc:
+            base_result["kommo_error"] = str(exc)
+            if resolution.fallback_channel == "whatsapp":
+                base_result.update(_send_member_whatsapp(db, rule=rule, member=member, message=message, template_name=template_name, fallback_from="kommo"))
+                return base_result
+            base_result["status"] = "failed"
+            base_result["reason"] = "kommo_unavailable"
+            return base_result
+
+    if resolution.channel == "manual":
+        base_result["status"] = "skipped"
+        base_result["reason"] = "manual_channel_resolved"
+        return base_result
+
+    base_result.update(_send_member_whatsapp(db, rule=rule, member=member, message=message, template_name=template_name))
+    return base_result
+
+
+def _send_member_message_via_kommo_or_handoff(
+    db: Session,
+    *,
+    rule: AutomationRule,
+    member: Member,
+    title: str,
+    message: str,
+    domain: str,
+    source_type: str,
+    due_in_hours: int,
+) -> dict:
+    result: dict = {"domain": domain, "delivery_mode": "salesbot_outbound"}
+    try:
+        outbound = send_member_message_via_kommo_salesbot(
+            db,
+            gym_id=member.gym_id,
+            member=member,
+            domain=domain,
+            message_text=message,
+            source_type=source_type,
+            source_id=rule.id,
+            title=title,
+        )
+        result.update(_kommo_outbound_result(outbound))
+        return result
+    except KommoSalesbotDispatchError as exc:
+        result.update(_kommo_outbound_result(exc.result))
+        result["kommo_error"] = str(exc)
+    except KommoServiceError as exc:
+        result["kommo_error"] = str(exc)
+    except Exception as exc:
+        logger.warning("Falha ao acionar Salesbot da automacao %s; usando handoff Kommo. Erro: %s", rule.id, exc)
+        result["kommo_error"] = str(exc)
+
+    handoff = handoff_member_to_kommo(
+        db,
+        gym_id=member.gym_id,
+        member=member,
+        title=title,
+        summary=message,
+        source=source_type,
+        ai_gym_profile_url=_build_member_profile_url(member.id),
+        due_in_hours=due_in_hours,
+    )
+    result["status"] = handoff.status
+    result["delivery_mode"] = "handoff_task_fallback"
+    result["kommo_contact_id"] = handoff.contact_id
+    result["kommo_lead_id"] = handoff.lead_id
+    result["kommo_task_id"] = handoff.task_id
+    if handoff.detail:
+        result["detail"] = handoff.detail
+    return result
+
+
+def _send_member_whatsapp(
+    db: Session,
+    *,
+    rule: AutomationRule,
+    member: Member,
+    message: str,
+    template_name: str,
+    fallback_from: str | None = None,
+) -> dict:
+    instance = get_gym_instance(db, member.gym_id)
+    log = send_whatsapp_sync(
+        db,
+        phone=member.phone,
+        message=message,
+        instance=instance,
+        member_id=member.id,
+        automation_rule_id=rule.id,
+        template_name=template_name,
+    )
+    result = {
+        "status": log.status,
+        "message_log_id": str(log.id),
+        "channel": "whatsapp",
+    }
+    if fallback_from:
+        result["used_channel_fallback"] = True
+        result["fallback_from"] = fallback_from
+    return result
+
+
+def _kommo_outbound_result(outbound) -> dict:
+    return {
+        "status": outbound.status,
+        "channel": "kommo",
+        "delivery_mode": outbound.delivery_mode,
+        "message_log_id": str(outbound.message_log_id) if outbound.message_log_id else None,
+        "kommo_contact_id": outbound.contact_id,
+        "kommo_lead_id": outbound.lead_id,
+        "salesbot_id": outbound.salesbot_id,
+        "kommo_file_uuid": outbound.kommo_file_uuid,
+        "file_upload_status": outbound.file_upload_status,
+        "file_attach_status": outbound.file_attach_status,
+        "pdf_delivery_mode": outbound.pdf_delivery_mode,
+        "kommo_route_kind": getattr(outbound, "route_kind", None),
+        "kommo_trainer_user_id": str(outbound.trainer_user_id) if getattr(outbound, "trainer_user_id", None) else None,
+        "kommo_route_fallback_reason": getattr(outbound, "route_fallback_reason", None),
+        "detail": outbound.detail,
+    }
+
+
+def _automation_domain(rule: AutomationRule, action_config: dict) -> str:
+    configured = action_config.get("domain") or action_config.get("kommo_domain")
+    if isinstance(configured, str) and configured.strip():
+        return _normalize_known_domain(configured)
+
+    text = " ".join(
+        str(value or "")
+        for value in [
+            rule.name,
+            getattr(rule, "description", None),
+            getattr(rule, "trigger_type", None),
+            action_config.get("source"),
+            action_config.get("template"),
+            action_config.get("template_name"),
+            action_config.get("category"),
+        ]
+    ).lower()
+    if any(token in text for token in ["body_composition", "bioimped", "bioped"]):
+        return "body_composition"
+    if any(token in text for token in ["assessment", "avaliacao", "avalia"]):
+        return "assessment"
+    if "onboarding" in text:
+        return "onboarding"
+    if any(token in text for token in ["finance", "payment", "pagamento", "cobranca", "inadimpl"]):
+        return "finance"
+    if any(token in text for token in ["lead", "crm", "sales", "comercial"]):
+        return "sales"
+    if any(token in text for token in ["support", "suporte", "nps"]):
+        return "support"
+    return "retention"
+
+
+def _normalize_known_domain(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_")
+    allowed = {"retention", "onboarding", "assessment", "body_composition", "finance", "sales", "student_ai", "support"}
+    return normalized if normalized in allowed else "retention"
 
 
 def seed_default_rules(db: Session, gym_id: UUID) -> list[AutomationRule]:

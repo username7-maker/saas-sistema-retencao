@@ -11,6 +11,7 @@ from app.models import AutopilotAction, AutopilotEvent, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_policy_service import AutopilotDecision, render_template
 from app.services.autopilot_safety_service import check_autopilot_safety
+from app.services.communication_channel_service import resolve_communication_channel
 from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError, send_member_message_via_kommo_salesbot
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
@@ -81,6 +82,8 @@ def create_autopilot_action(
 
 
 def _channel_for_action_type(action_type: str) -> str:
+    if action_type == "send_primary_channel":
+        return "primary"
     if action_type == "send_whatsapp":
         return "whatsapp"
     if action_type in {"kommo_operator_handoff", "kommo_draft_reply"}:
@@ -194,6 +197,8 @@ def execute_autopilot_action(
 ) -> AutopilotAction:
     if action.status not in {"planned", "scheduled"}:
         return action
+    if action.action_type == "send_primary_channel":
+        return _execute_primary_channel_action(db, action, require_auto_send=require_auto_send, flush=flush)
     if action.action_type == "kommo_operator_handoff":
         return _execute_kommo_operator_handoff(db, action, flush=flush)
     if action.action_type != "send_whatsapp":
@@ -202,6 +207,106 @@ def execute_autopilot_action(
         if flush:
             db.flush()
         return action
+    return _execute_whatsapp_action(db, action, require_auto_send=require_auto_send, flush=flush)
+
+
+def _execute_primary_channel_action(
+    db: Session,
+    action: AutopilotAction,
+    *,
+    require_auto_send: bool,
+    flush: bool = True,
+) -> AutopilotAction:
+    resolution = resolve_communication_channel(db, gym_id=action.gym_id, requested_channel="auto")
+    metadata = dict(action.metadata_json or {})
+    metadata.update(
+        {
+            "requested_channel": resolution.requested_channel,
+            "resolved_channel": resolution.channel,
+            "primary_channel": resolution.primary_channel,
+            "fallback_channel": resolution.fallback_channel,
+            "used_channel_fallback": resolution.used_fallback,
+            "kommo_ready": resolution.kommo_ready,
+            "channel_resolution_detail": resolution.detail,
+        }
+    )
+    action.metadata_json = metadata
+    action.channel = resolution.channel
+    db.add(action)
+
+    if resolution.channel == "kommo":
+        member = db.get(Member, action.member_id) if action.member_id else None
+        lead = db.get(Lead, action.lead_id) if action.lead_id else None
+        safety = check_autopilot_safety(
+            db,
+            gym_id=action.gym_id,
+            domain=action.domain,
+            policy_key=action.policy_key,
+            action_type="kommo_operator_handoff",
+            member=member,
+            lead=lead,
+            message_text=action.message_body,
+            require_auto_send=require_auto_send,
+        )
+        if safety.scheduled_for:
+            action.status = "scheduled"
+            action.scheduled_for = safety.scheduled_for
+            action.failure_reason = ",".join(safety.reasons)
+            db.add(action)
+            if flush:
+                db.flush()
+            return action
+        if not safety.allowed:
+            action.status = "blocked"
+            action.failure_reason = ",".join(safety.reasons)
+            record_event(
+                db,
+                gym_id=action.gym_id,
+                event_type="automation_action_blocked",
+                source="autopilot_safety",
+                member_id=action.member_id,
+                lead_id=action.lead_id,
+                task_id=action.related_task_id,
+                autopilot_action_id=action.id,
+                metadata={"reasons": safety.reasons, "resolved_channel": "kommo"},
+                flush=False,
+            )
+            db.add(action)
+            if flush:
+                db.flush()
+            return action
+        return _execute_kommo_operator_handoff(db, action, flush=flush)
+
+    if resolution.channel == "manual":
+        action.status = "blocked"
+        action.failure_reason = "manual_channel_resolved"
+        record_event(
+            db,
+            gym_id=action.gym_id,
+            event_type="automation_action_blocked",
+            source="communication_channel_router",
+            member_id=action.member_id,
+            lead_id=action.lead_id,
+            task_id=action.related_task_id,
+            autopilot_action_id=action.id,
+            metadata={"reason": "manual_channel_resolved", "resolution": metadata},
+            flush=False,
+        )
+        db.add(action)
+        if flush:
+            db.flush()
+        return action
+
+    return _execute_whatsapp_action(db, action, require_auto_send=require_auto_send, flush=flush)
+
+
+def _execute_whatsapp_action(
+    db: Session,
+    action: AutopilotAction,
+    *,
+    require_auto_send: bool,
+    flush: bool = True,
+) -> AutopilotAction:
     member = db.get(Member, action.member_id) if action.member_id else None
     lead = db.get(Lead, action.lead_id) if action.lead_id else None
     safety = check_autopilot_safety(
@@ -209,7 +314,7 @@ def execute_autopilot_action(
         gym_id=action.gym_id,
         domain=action.domain,
         policy_key=action.policy_key,
-        action_type=action.action_type,
+        action_type="send_whatsapp",
         member=member,
         lead=lead,
         message_text=action.message_body,
@@ -247,6 +352,7 @@ def execute_autopilot_action(
         return mark_autopilot_action_failed(db, action, reason="missing_phone_or_message", flush=flush)
     action.status = "executing"
     action.executed_at = _now()
+    action.channel = "whatsapp"
     db.add(action)
     log = send_whatsapp_sync(
         db,
@@ -322,6 +428,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
                 "kommo_message_log_id": str(result.message_log_id) if result.message_log_id else None,
                 "salesbot_id": result.salesbot_id,
                 "delivery_mode": result.delivery_mode,
+                "kommo_route_kind": result.route_kind,
+                "kommo_trainer_user_id": str(result.trainer_user_id) if result.trainer_user_id else None,
+                "kommo_route_fallback_reason": result.route_fallback_reason,
                 "operator_confirmed_send": False,
                 "salesbot_outbound": True,
             }
@@ -342,6 +451,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
                 "message_log_id": str(result.message_log_id) if result.message_log_id else None,
                 "salesbot_id": result.salesbot_id,
                 "delivery_mode": result.delivery_mode,
+                "kommo_route_kind": result.route_kind,
+                "kommo_trainer_user_id": str(result.trainer_user_id) if result.trainer_user_id else None,
+                "kommo_route_fallback_reason": result.route_fallback_reason,
                 "template_key": action.template_key,
             },
             flush=False,
@@ -355,6 +467,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
                 "message_log_id": str(result.message_log_id) if result.message_log_id else None,
                 "salesbot_id": result.salesbot_id,
                 "delivery_mode": result.delivery_mode,
+                "kommo_route_kind": result.route_kind,
+                "kommo_trainer_user_id": str(result.trainer_user_id) if result.trainer_user_id else None,
+                "kommo_route_fallback_reason": result.route_fallback_reason,
             }
         )
         action.status = "failed"
@@ -374,6 +489,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
                 "kommo_lead_id": result.lead_id,
                 "salesbot_id": result.salesbot_id,
                 "delivery_mode": result.delivery_mode,
+                "kommo_route_kind": result.route_kind,
+                "kommo_trainer_user_id": str(result.trainer_user_id) if result.trainer_user_id else None,
+                "kommo_route_fallback_reason": result.route_fallback_reason,
             },
             flush=False,
         )

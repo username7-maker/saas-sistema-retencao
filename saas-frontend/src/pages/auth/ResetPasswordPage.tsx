@@ -66,21 +66,10 @@ export function ResetPasswordPage() {
 
   return (
     <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-lovable-bg px-4 py-10">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-24 top-0 h-[420px] w-[420px] rounded-full bg-[hsl(var(--lovable-primary)/0.2)] blur-[150px]" />
-        <div className="absolute right-[-120px] top-[12%] h-[340px] w-[340px] rounded-full bg-[hsl(var(--lovable-info)/0.15)] blur-[140px]" />
-      </div>
-
-      <div className="relative w-full max-w-md overflow-hidden rounded-[30px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-2xl sm:p-8">
-        <img
-          src={BRAND_ASSETS.orbitWatermark}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 opacity-[0.08]"
-        />
+      <div className="relative w-full max-w-md overflow-hidden rounded-[24px] border border-lovable-border bg-lovable-surface/96 p-5 shadow-panel backdrop-blur-xl sm:p-8">
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[20px] border border-lovable-border/70 bg-lovable-bg-muted shadow-[0_20px_40px_-22px_hsl(var(--lovable-primary)/0.95)]">
-            <img src={BRAND_ASSETS.markDark} alt="" className="h-11 w-11 object-contain" />
+          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-lovable-border/70 bg-lovable-bg-muted">
+            <img src={BRAND_ASSETS.markDark} alt="" className="h-9 w-9 object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">

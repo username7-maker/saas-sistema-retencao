@@ -39,6 +39,7 @@ def generate_operational_message_draft(
     task: Task | None = None,
     context: dict[str, Any] | None = None,
     max_output_chars: int = 520,
+    allow_ai: bool = True,
 ) -> OperationalMessageDraft:
     """Generate a supervised operational message draft, falling back safely."""
 
@@ -74,6 +75,23 @@ def generate_operational_message_draft(
         metadata = prompt_metadata(prompt_key, model="deterministic_fallback", fallback_used=True)
         metadata.update({"message_source": "template_safe", "blocked_reasons": []})
         return OperationalMessageDraft(message=None, metadata=metadata, message_source="template_safe")
+
+    if not allow_ai:
+        metadata = prompt_metadata(prompt_key, model="deterministic_fast_path", fallback_used=True)
+        metadata.update(
+            {
+                "message_source": "template_safe",
+                "blocked_reasons": [],
+                "ai_skipped_reason": "high_volume_list_endpoint",
+            }
+        )
+        return OperationalMessageDraft(
+            message=fallback_text,
+            metadata=metadata,
+            message_source="template_safe",
+            blocked_reasons=[],
+            fallback_used=True,
+        )
 
     user_prompt = _build_user_prompt(
         domain=normalized_domain,

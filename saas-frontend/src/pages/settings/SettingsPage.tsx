@@ -20,19 +20,19 @@ import { UserAvatar } from "../../components/common/UserAvatar";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
 
 const forgotSchema = z.object({
-  email: z.string().email("E-mail inválido"),
-  gym_slug: z.string().min(3, "Slug inválido"),
+  email: z.string().email("E-mail invalido"),
+  gym_slug: z.string().min(3, "Slug invalido"),
 });
 
-const resetSchema = z
+const passwordSchema = z
   .object({
-    token: z.string().min(10, "Token inválido"),
-    new_password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
-    confirm_password: z.string(),
+    current_password: z.string().min(8, "Informe sua senha atual"),
+    new_password: z.string().min(8, "A nova senha deve ter pelo menos 8 caracteres"),
+    confirm_password: z.string().min(8, "Confirme a nova senha"),
   })
-  .refine((data) => data.new_password === data.confirm_password, {
+  .refine((values) => values.new_password === values.confirm_password, {
     path: ["confirm_password"],
-    message: "As senhas não coincidem",
+    message: "As senhas nao coincidem",
   });
 
 const profileSchema = z.object({
@@ -45,7 +45,7 @@ const profileSchema = z.object({
 });
 
 type ForgotFormValues = z.infer<typeof forgotSchema>;
-type ResetFormValues = z.infer<typeof resetSchema>;
+type PasswordFormValues = z.infer<typeof passwordSchema>;
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 const MAX_AVATAR_UPLOAD_BYTES = 1_500_000;
@@ -60,6 +60,18 @@ function isValidAvatarSource(value: string) {
   } catch {
     return false;
   }
+}
+
+function getErrorDetail(error: unknown, fallback: string) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail === "string"
+  ) {
+    return (error as { response: { data: { detail: string } } }).response.data.detail;
+  }
+  return fallback;
 }
 
 function ForgotPasswordForm() {
@@ -77,80 +89,80 @@ function ForgotPasswordForm() {
   async function onSubmit(values: ForgotFormValues) {
     try {
       await api.post("/api/v1/auth/forgot-password", values);
-      toast.success("Se o e-mail estiver cadastrado, você receberá as instruções em breve.");
-    } catch {
-      toast.error("Não foi possível enviar o e-mail. Tente novamente.");
+      toast.success("Se o e-mail estiver cadastrado, enviaremos as instrucoes.");
+    } catch (error: unknown) {
+      toast.error(getErrorDetail(error, "Nao foi possivel enviar o e-mail. Solicite reset ao administrador."));
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex max-w-md flex-col gap-4">
-      <div>
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">E-mail</label>
+    <form onSubmit={handleSubmit(onSubmit)} className="grid max-w-2xl gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+      <FormField label="E-mail" required error={errors.email?.message}>
         <Input {...register("email")} type="email" placeholder="seu@email.com" />
-        {errors.email ? <p className="mt-1 text-xs text-lovable-danger">{errors.email.message}</p> : null}
-      </div>
+      </FormField>
 
-      <div>
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Slug da academia</label>
+      <FormField label="Slug da academia" required error={errors.gym_slug?.message}>
         <Input {...register("gym_slug")} placeholder="minha-academia" />
-        {errors.gym_slug ? <p className="mt-1 text-xs text-lovable-danger">{errors.gym_slug.message}</p> : null}
-        <p className="mt-1 text-xs text-lovable-ink-muted">O mesmo slug usado no login.</p>
-      </div>
+      </FormField>
 
-      <Button type="submit" variant="primary" disabled={isSubmitting} className="self-start">
-        {isSubmitting ? "Enviando..." : "Enviar link de redefinição"}
+      <Button type="submit" variant="primary" disabled={isSubmitting} className="md:mb-0.5">
+        {isSubmitting ? "Enviando..." : "Enviar link"}
       </Button>
     </form>
   );
 }
 
-function ResetPasswordForm() {
+function ChangePasswordForm() {
+  const { logout } = useAuth();
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<ResetFormValues>({
-    resolver: zodResolver(resetSchema),
+  } = useForm<PasswordFormValues>({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: {
+      current_password: "",
+      new_password: "",
+      confirm_password: "",
+    },
   });
 
-  async function onSubmit(values: ResetFormValues) {
-    try {
-      await api.post("/api/v1/auth/reset-password", {
-        token: values.token,
+  const passwordMutation = useMutation({
+    mutationFn: (values: PasswordFormValues) =>
+      userService.updateMyPassword({
+        current_password: values.current_password,
         new_password: values.new_password,
-      });
-      toast.success("Senha redefinida com sucesso. Faça login com a nova senha.");
+      }),
+    onSuccess: async () => {
       reset();
-    } catch {
-      toast.error("Token inválido ou expirado. Solicite um novo link.");
-    }
-  }
+      toast.success("Senha atualizada. Entre novamente com a nova senha.");
+      await logout();
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorDetail(error, "Nao foi possivel alterar a senha."));
+    },
+  });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex max-w-md flex-col gap-4">
-      <div>
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Token recebido por e-mail</label>
-        <Input {...register("token")} placeholder="Cole o token aqui" />
-        {errors.token ? <p className="mt-1 text-xs text-lovable-danger">{errors.token.message}</p> : null}
-      </div>
+    <form onSubmit={handleSubmit((values) => passwordMutation.mutate(values))} className="grid max-w-3xl gap-4 md:grid-cols-3 md:items-end">
+      <FormField label="Senha atual" required error={errors.current_password?.message}>
+        <Input {...register("current_password")} type="password" placeholder="Senha atual" autoComplete="current-password" />
+      </FormField>
 
-      <div>
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Nova senha</label>
-        <Input {...register("new_password")} type="password" placeholder="Mínimo 8 caracteres" />
-        {errors.new_password ? <p className="mt-1 text-xs text-lovable-danger">{errors.new_password.message}</p> : null}
-      </div>
+      <FormField label="Nova senha" required error={errors.new_password?.message}>
+        <Input {...register("new_password")} type="password" placeholder="Minimo de 8 caracteres" autoComplete="new-password" />
+      </FormField>
 
-      <div>
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Confirmar nova senha</label>
-        <Input {...register("confirm_password")} type="password" placeholder="Repita a nova senha" />
-        {errors.confirm_password ? <p className="mt-1 text-xs text-lovable-danger">{errors.confirm_password.message}</p> : null}
-      </div>
+      <FormField label="Confirmar nova senha" required error={errors.confirm_password?.message}>
+        <Input {...register("confirm_password")} type="password" placeholder="Repita a nova senha" autoComplete="new-password" />
+      </FormField>
 
-      <Button type="submit" variant="primary" disabled={isSubmitting} className="self-start">
-        {isSubmitting ? "Redefinindo..." : "Redefinir senha"}
-      </Button>
+      <div className="md:col-span-3 flex justify-end">
+        <Button type="submit" variant="primary" disabled={isSubmitting || passwordMutation.isPending}>
+          {passwordMutation.isPending ? "Alterando..." : "Alterar senha"}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -192,7 +204,7 @@ function ProfileForm() {
       await refreshUser();
       toast.success("Perfil atualizado com sucesso.");
     },
-    onError: () => toast.error("Não foi possível atualizar o perfil."),
+    onError: () => toast.error("Nao foi possivel atualizar o perfil."),
   });
 
   const avatarUploadMutation = useMutation({
@@ -202,7 +214,7 @@ function ProfileForm() {
       await refreshUser();
       toast.success("Foto do perfil enviada com sucesso.");
     },
-    onError: () => toast.error("Não foi possível enviar a foto do perfil."),
+    onError: () => toast.error("Nao foi possivel enviar a foto do perfil."),
   });
 
   function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -216,7 +228,7 @@ function ProfileForm() {
     }
 
     if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
-      toast.error("A foto precisa ter no máximo 1,5 MB.");
+      toast.error("A foto precisa ter no maximo 1,5 MB.");
       return;
     }
 
@@ -227,10 +239,10 @@ function ProfileForm() {
   const jobTitlePreview = watch("job_title") || user?.job_title || null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[280px,1fr]">
+    <div className="grid gap-5 lg:grid-cols-[240px,1fr]">
       <Card>
         <CardHeader>
-          <CardTitle>Pré-visualização</CardTitle>
+          <CardTitle>Perfil atual</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col items-center gap-3 text-center">
@@ -240,14 +252,13 @@ function ProfileForm() {
               <p className="text-xs uppercase tracking-[0.18em] text-lovable-ink-muted">{jobTitlePreview || user?.role}</p>
             </div>
           </div>
-          <p className="text-xs text-lovable-ink-muted">A foto pode ser enviada como arquivo ou mantida por URL. Use uma imagem quadrada para melhor enquadramento.</p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Perfil</CardTitle>
-          <p className="text-sm text-lovable-ink-muted">Edite nome, cargo exibido e foto usada na navegação e nas telas administrativas.</p>
+          <CardTitle>Editar perfil</CardTitle>
+          <p className="text-sm text-lovable-ink-muted">Nome, cargo exibido e foto usados nas telas administrativas.</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit((values) => profileMutation.mutate(values))} className="grid gap-4 md:grid-cols-2">
@@ -256,7 +267,7 @@ function ProfileForm() {
             </FormField>
 
             <FormField label="Cargo exibido" error={errors.job_title?.message}>
-              <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepção, Comercial" />
+              <Input {...register("job_title")} placeholder="Ex.: Head Coach, Recepcao, Comercial" />
             </FormField>
 
             <div className="md:col-span-2">
@@ -276,16 +287,19 @@ function ProfileForm() {
                   >
                     {avatarUploadMutation.isPending ? "Enviando..." : "Escolher imagem"}
                   </label>
-                  <p className="text-xs text-lovable-ink-muted">JPG, PNG ou WebP até 1,5 MB. O sistema salva no perfil automaticamente.</p>
+                  <p className="text-xs text-lovable-ink-muted">JPG, PNG ou WebP ate 1,5 MB.</p>
                 </div>
               </FormField>
             </div>
 
-            <div className="md:col-span-2">
-              <FormField label="URL da foto (opcional)" error={errors.avatar_url?.message}>
-                <Input {...register("avatar_url")} placeholder="https://... ou deixe preenchido após enviar arquivo" />
-              </FormField>
-            </div>
+            <details className="md:col-span-2 rounded-2xl border border-lovable-border bg-lovable-surface-soft/50 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-lovable-ink">Origem alternativa da foto</summary>
+              <div className="mt-3">
+                <FormField label="URL da foto (fallback)" error={errors.avatar_url?.message}>
+                  <Input {...register("avatar_url")} placeholder="https://... ou deixe preenchido apos upload" />
+                </FormField>
+              </div>
+            </details>
 
             <div className="md:col-span-2 flex justify-end">
               <Button type="submit" variant="primary" disabled={profileMutation.isPending}>
@@ -311,51 +325,61 @@ export function SettingsPage() {
   const canManageStudentPersonalAi = user?.role === "owner" || user?.role === "manager";
 
   return (
-    <section className="space-y-8">
+    <section className="space-y-6">
       <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Configurações</h2>
-        <p className="text-sm text-lovable-ink-muted">Gerencie perfil, segurança e conectores da academia.</p>
+        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Configuracoes</h2>
+        <p className="text-sm text-lovable-ink-muted">Perfil, seguranca e conectores operacionais da academia.</p>
       </header>
 
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs defaultValue="profile" className="space-y-5">
         <TabsList className="max-w-full overflow-x-auto whitespace-nowrap">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
-          <TabsTrigger value="security">Segurança</TabsTrigger>
+          <TabsTrigger value="security">Seguranca</TabsTrigger>
+          {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}
           {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
-          {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
-          {canManageAutopilot ? <TabsTrigger value="autopilot">Cordex Autopilot</TabsTrigger> : null}
-          {canManageAiServiceAgent ? <TabsTrigger value="ai-service-agent">Cordex Agent</TabsTrigger> : null}
-          {canManagePersonalAi ? <TabsTrigger value="personal-ai">Cordex Coach</TabsTrigger> : null}
-          {canManageMovementVideo ? <TabsTrigger value="movement-video-ai">Cordex Motion</TabsTrigger> : null}
-          {canManageStudentPersonalAi ? <TabsTrigger value="student-personal-ai">Aluno Cordex</TabsTrigger> : null}
+          {canManageAutopilot ? <TabsTrigger value="autopilot">Autopilot</TabsTrigger> : null}
+          {canManageAiServiceAgent ? <TabsTrigger value="ai-service-agent">Agent</TabsTrigger> : null}
+          {canManagePersonalAi ? <TabsTrigger value="personal-ai">Coach</TabsTrigger> : null}
+          {canManageMovementVideo ? <TabsTrigger value="movement-video-ai">Motion</TabsTrigger> : null}
+          {canManageStudentPersonalAi ? <TabsTrigger value="student-personal-ai">Aluno</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile">
           <ProfileForm />
         </TabsContent>
 
-        <TabsContent value="security" className="space-y-6">
+        <TabsContent value="security">
           <Card>
             <CardHeader>
-              <CardTitle>Solicitar redefinição de senha</CardTitle>
-              <p className="text-sm text-lovable-ink-muted">Enviaremos um link de redefinição para o seu e-mail. O link expira em 1 hora.</p>
+              <CardTitle>Alterar minha senha</CardTitle>
+              <p className="text-sm text-lovable-ink-muted">
+                Use quando voce esta logado. A sessao sera encerrada para entrar novamente com a nova senha.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ChangePasswordForm />
+            </CardContent>
+          </Card>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>Recuperacao por e-mail</CardTitle>
+              <p className="text-sm text-lovable-ink-muted">
+                Envia um link de redefinicao para quem nao consegue entrar. Se o provedor de e-mail bloquear o envio, use a troca acima ou gere senha provisoria em Usuarios.
+              </p>
             </CardHeader>
             <CardContent>
               <ForgotPasswordForm />
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Redefinir senha com token</CardTitle>
-              <p className="text-sm text-lovable-ink-muted">Se você já recebeu o token por e-mail, cole-o abaixo e defina sua nova senha.</p>
-            </CardHeader>
-            <CardContent>
-              <ResetPasswordForm />
-            </CardContent>
-          </Card>
         </TabsContent>
+
+        {canManageWhatsapp ? (
+          <TabsContent value="whatsapp">
+            <WhatsAppConnectionTab />
+          </TabsContent>
+        ) : null}
 
         {canManageActuar ? (
           <TabsContent value="actuar">
@@ -366,12 +390,6 @@ export function SettingsPage() {
         {canManageKommo ? (
           <TabsContent value="kommo">
             <KommoConnectionTab />
-          </TabsContent>
-        ) : null}
-
-        {canManageWhatsapp ? (
-          <TabsContent value="whatsapp">
-            <WhatsAppConnectionTab />
           </TabsContent>
         ) : null}
 

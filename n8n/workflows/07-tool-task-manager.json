@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Task Manager",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nconst action = payload.action ?? 'create_task';\nconst allowed = ['create_task', 'update_task', 'list_tasks', 'complete_task'];\nif (!allowed.includes(action)) return [{ json: { status: 'error', task: {}, error: 'unsupported task action' } }];\nif (action === 'create_task' && !payload.title) return [{ json: { status: 'error', task: {}, error: 'title is required' } }];\nconst task = { id: payload.id ?? `task_${Date.now()}`, title: payload.title ?? null, description: payload.description ?? null, assignee: payload.assignee ?? null, due_date: payload.due_date ?? null, priority: payload.priority ?? 'medium', status: action === 'complete_task' ? 'completed' : 'open' };\nreturn [{ json: { status: 'success', task, sandbox: true, note: 'In production, connect this workflow to agent_tasks Postgres writes.' } }];"
+      },
+      "id": "validate-task-action",
+      "name": "Validate Task Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Task Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

@@ -1,0 +1,63 @@
+{
+  "name": "Cordex WhatsApp AI Agent - Send Reply via Backend",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "send-input",
+      "name": "Send Reply Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nif (!payload.recipient_phone || !payload.message) {\n  return [{ json: { status: 'error', result: {}, error: 'recipient_phone and message are required' } }];\n}\nreturn [{ json: { status: 'success', result: { backend_endpoint: '/api/v1/whatsapp/agent/reply', recipient_phone: payload.recipient_phone, message: payload.message, gym_id: payload.gym_id ?? null }, note: 'Configure HTTP Request with CORDEX_AGENT_SERVICE_TOKEN to send through backend.' } }];"
+      },
+      "id": "prepare-backend-send",
+      "name": "Prepare Backend Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Send Reply Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Backend Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

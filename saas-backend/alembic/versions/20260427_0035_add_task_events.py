@@ -1,7 +1,7 @@
 """add task events
 
 Revision ID: 20260427_0035
-Revises: 20260424_0020, 20260426_0034
+Revises: 20260426_0034
 Create Date: 2026-04-27 00:00:00.000000
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20260427_0035"
-down_revision: str | tuple[str, str] | None = ("20260424_0020", "20260426_0034")
+down_revision: str | tuple[str, str] | None = "20260426_0034"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

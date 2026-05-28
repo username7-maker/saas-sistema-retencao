@@ -13,3 +13,4 @@ export * from "./Table";
 export * from "./Tabs";
 export * from "./Textarea";
 export * from "./cn";
+export * from "./command";

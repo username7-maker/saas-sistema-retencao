@@ -16,7 +16,7 @@ export const ROUTE_ACCESS = {
   assessments: ["owner", "manager", "receptionist", "trainer"],
   assessmentContext: ["owner", "manager", "receptionist", "salesperson", "trainer"],
   assessmentRegistration: ["owner", "manager", "trainer"],
-  notifications: ["owner", "manager", "receptionist", "salesperson"],
+  notifications: ["owner", "manager", "receptionist", "salesperson", "trainer"],
   automations: ["owner", "manager"],
   imports: ["owner", "manager"],
   userAdmin: ["owner", "manager"],

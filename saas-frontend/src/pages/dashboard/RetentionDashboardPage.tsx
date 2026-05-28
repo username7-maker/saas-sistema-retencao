@@ -349,8 +349,9 @@ function RetentionQueueDrawer({
       title={item ? `Playbook · ${item.full_name}` : "Playbook"}
     >
       {item ? (
-        <div className="min-w-0 space-y-6 p-4">
-          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+        <div className="flex min-h-full min-w-0 flex-col">
+          <div className="min-w-0 flex-1 space-y-5 p-4 pb-3">
+          <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-lovable-ink">{item.full_name}</p>
@@ -403,7 +404,7 @@ function RetentionQueueDrawer({
               </div>
             </div>
             <p className="mt-4 text-sm text-lovable-ink-muted">{item.signals_summary}</p>
-            <div className="mt-4 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
+            <div className="mt-3 grid gap-2 text-xs text-lovable-ink-muted sm:grid-cols-2">
               <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
                 <span className="font-semibold text-lovable-ink">Último contato:</span> {formatDateTime(item.last_contact_at)}
               </div>
@@ -444,14 +445,14 @@ function RetentionQueueDrawer({
               title="Sinais captados"
               subtitle="Leitura rápida dos gatilhos ativos que colocaram o aluno na fila."
             />
-            <div className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
               {buildSignalRows(item).map((signal) => (
                 <article
                   key={signal.label}
-                  className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-3"
+                  className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2.5"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-lovable-ink">{signal.label}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{signal.label}</span>
                     <span
                       className={cn(
                         "text-sm font-semibold",
@@ -465,7 +466,7 @@ function RetentionQueueDrawer({
                       {signal.value}
                     </span>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-lovable-border">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-lovable-border">
                     <div
                       className={cn(
                         "h-full rounded-full transition-all",
@@ -500,13 +501,13 @@ function RetentionQueueDrawer({
               count={item.playbook_steps.length}
             />
             {item.playbook_steps.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
+              <div className="rounded-2xl border border-dashed border-lovable-border bg-lovable-surface-soft p-3 text-sm text-lovable-ink-muted">
                 Nenhum playbook sugerido para este alerta.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {item.playbook_steps.map((step, index) => (
-                  <article key={`${step.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                  <article key={`${step.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-lovable-ink">{step.title}</p>
@@ -540,10 +541,26 @@ function RetentionQueueDrawer({
 
           <section>
             <SectionHeader
-              title="Ações rápidas"
-              subtitle="Acione o playbook sem sair da fila."
+              title="Acoes rapidas adicionais"
+              subtitle="Atalhos preservados para outras rotinas do aluno."
             />
-            <div className="flex flex-wrap gap-2">
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+              <QuickActions
+                member={{
+                  id: item.member_id,
+                  full_name: item.full_name,
+                  phone: item.phone,
+                  risk_level: item.risk_level,
+                  risk_score: item.risk_score,
+                }}
+              />
+            </div>
+          </section>
+          </div>
+
+          <div className="sticky bottom-0 z-10 border-t border-lovable-border bg-lovable-surface/95 p-3 shadow-panel backdrop-blur-xl">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Agir agora</p>
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 size="sm"
                 variant="primary"
@@ -576,18 +593,7 @@ function RetentionQueueDrawer({
                 </Button>
               ) : null}
             </div>
-            <div className="mt-4">
-              <QuickActions
-                member={{
-                  id: item.member_id,
-                  full_name: item.full_name,
-                  phone: item.phone,
-                  risk_level: item.risk_level,
-                  risk_score: item.risk_score,
-                }}
-              />
-            </div>
-          </section>
+          </div>
         </div>
       ) : null}
     </Drawer>

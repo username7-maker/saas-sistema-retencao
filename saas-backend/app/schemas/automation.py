@@ -16,6 +16,7 @@ VALID_TRIGGERS = {
 }
 VALID_ACTIONS = {
     AutomationAction.CREATE_TASK,
+    AutomationAction.SEND_PRIMARY_CHANNEL,
     AutomationAction.SEND_WHATSAPP,
     AutomationAction.SEND_EMAIL,
     AutomationAction.NOTIFY,
