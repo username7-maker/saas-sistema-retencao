@@ -26,7 +26,8 @@ const toneClasses: Record<StatusPillTone, string> = {
   alert: "border-[rgba(249,115,22,0.3)] bg-[rgba(249,115,22,0.1)] text-[var(--pi-orange)]",
   critical: "border-[rgba(255,59,48,0.34)] bg-[rgba(255,59,48,0.12)] text-[var(--pi-red)]",
   ai: "border-violet-400/24 bg-violet-400/12 text-violet-200",
-  integration: "border-[rgba(0,200,255,0.28)] bg-[rgba(0,200,255,0.1)] text-[var(--pi-cyan)]",
+  /* Integration tone moved to violet (IA identity) — cyan removed from system */
+  integration: "border-violet-400/24 bg-violet-400/12 text-violet-200",
   sync: "border-blue-400/22 bg-blue-400/10 text-blue-200",
   retention: "border-sky-400/22 bg-sky-400/10 text-sky-200",
   success: "border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] text-[var(--pi-green)]",
@@ -40,7 +41,7 @@ const dotClasses: Record<StatusPillTone, string> = {
   alert: "bg-[var(--pi-orange)]",
   critical: "bg-[var(--pi-red)]",
   ai: "bg-violet-300",
-  integration: "bg-[var(--pi-cyan)]",
+  integration: "bg-violet-300",
   sync: "bg-blue-300",
   retention: "bg-sky-300",
   success: "bg-[var(--pi-green)]",

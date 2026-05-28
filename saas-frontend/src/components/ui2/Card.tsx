@@ -4,9 +4,12 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "rounded-[24px] border border-lovable-border shadow-card backdrop-blur-xl",
+        "relative overflow-hidden rounded-[24px] border border-lovable-border shadow-card backdrop-blur-xl",
         "bg-[linear-gradient(145deg,hsl(var(--lovable-surface)/0.96),hsl(var(--lovable-surface-soft)/0.78))]",
         "dark:bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.93))]",
+        /* Top-edge glass shine — only renders meaningfully in dark mode */
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-16",
+        "before:bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_60%)]",
         className,
       )}
       {...props}

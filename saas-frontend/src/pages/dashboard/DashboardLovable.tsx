@@ -149,7 +149,7 @@ function IntelligenceMap({
       <SectionHeader
         title="Mapa de Inteligência Operacional"
         subtitle="Como os principais indicadores se conectam para proteger frequência, retenção e receita."
-        actions={<StatusPill tone="integration">Fluxo de decisão</StatusPill>}
+        actions={<StatusPill tone="sync">Fluxo de decisão</StatusPill>}
       />
       <div className="grid gap-3 xl:grid-cols-[1fr_auto_1fr_auto_1fr] xl:items-center">
         {nodes.slice(0, 3).map((node, index) => {
@@ -327,6 +327,7 @@ export function DashboardLovable() {
       trendDirection: mrr > 0 ? "up" as const : "flat" as const,
       icon: DollarSign,
       tone: mrr > 0 ? "success" as const : "neutral" as const,
+      currency: mrr > 0,
     },
     {
       label: "Check-ins 7D",
@@ -366,6 +367,7 @@ export function DashboardLovable() {
       trendDirection: mrrAtRisk > 0 ? "down" as const : "up" as const,
       icon: Wallet,
       tone: mrrAtRisk > 0 ? "danger" as const : "success" as const,
+      currency: true,
     },
   ];
 

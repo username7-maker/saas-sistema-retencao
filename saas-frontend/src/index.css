@@ -25,6 +25,13 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* Currency prefix — symbol stays in proportional font to avoid mono-font wide gap */
+.currency-prefix {
+  font-family: "Inter", "Barlow", sans-serif;
+  font-weight: 500;
+  opacity: 0.78;
+}
+
 ::selection {
   background: hsl(var(--lovable-primary) / 0.28);
   color: hsl(var(--lovable-ink));
