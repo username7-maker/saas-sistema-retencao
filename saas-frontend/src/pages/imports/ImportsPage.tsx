@@ -59,26 +59,26 @@ function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMember
   if (missingMembers.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+    <div className="mt-3 rounded-lg border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-lovable-ink">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-semibold">Nomes presentes na catraca, mas ausentes na base de alunos</p>
-          <p className="text-xs text-amber-900/80">
+          <p className="text-xs text-lovable-ink-muted">
             Esses nomes nao foram encontrados no cadastro atual. Voce pode exportar a lista ou reimportar usando cadastro provisiorio.
           </p>
         </div>
       </div>
       <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
         {missingMembers.slice(0, 16).map((item) => (
-          <li key={item.name} className="rounded-md bg-white/70 px-2 py-1">
+          <li key={item.name} className="rounded-md bg-lovable-surface-soft px-2 py-1">
             <span className="font-medium">{item.name}</span>
-            <span className="ml-2 text-xs text-amber-900/80">{item.occurrences} registros</span>
-            {item.sample_plan ? <span className="ml-2 text-xs text-amber-900/80">Plano: {item.sample_plan}</span> : null}
+            <span className="ml-2 text-xs text-lovable-ink-muted">{item.occurrences} registros</span>
+            {item.sample_plan ? <span className="ml-2 text-xs text-lovable-ink-muted">Plano: {item.sample_plan}</span> : null}
           </li>
         ))}
       </ul>
       {missingMembers.length > 16 ? (
-        <p className="mt-2 text-xs text-amber-900/80">Mostrando 16 de {missingMembers.length} nomes pendentes.</p>
+        <p className="mt-2 text-xs text-lovable-ink-muted">Mostrando 16 de {missingMembers.length} nomes pendentes.</p>
       ) : null}
     </div>
   );
@@ -88,17 +88,17 @@ function CreatedMembersPanel({ names }: { names: string[] }) {
   if (names.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950">
+    <div className="mt-3 rounded-lg border border-lovable-success/30 bg-lovable-success/10 p-3 text-lovable-ink">
       <p className="font-semibold">Cadastros provisórios criados nesta importação</p>
       <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
         {names.slice(0, 16).map((name) => (
-          <li key={name} className="rounded-md bg-white/70 px-2 py-1">
+          <li key={name} className="rounded-md bg-lovable-surface-soft px-2 py-1">
             {name}
           </li>
         ))}
       </ul>
       {names.length > 16 ? (
-        <p className="mt-2 text-xs text-emerald-900/80">Mostrando 16 de {names.length} nomes criados.</p>
+        <p className="mt-2 text-xs text-lovable-ink-muted">Mostrando 16 de {names.length} nomes criados.</p>
       ) : null}
     </div>
   );

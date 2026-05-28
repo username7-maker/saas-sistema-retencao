@@ -211,7 +211,7 @@ function AssessmentAgendaPanel({
                       type="button"
                       disabled={updatingAppointmentId === item.id}
                       onClick={() => onUpdateAppointment(item.id, { status: "attended" })}
-                      className="rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 disabled:opacity-60"
+                      className="rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold text-lovable-success disabled:opacity-60"
                     >
                       Compareceu
                     </button>
@@ -219,7 +219,7 @@ function AssessmentAgendaPanel({
                       type="button"
                       disabled={updatingAppointmentId === item.id}
                       onClick={() => onUpdateAppointment(item.id, { status: "no_show" })}
-                      className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 disabled:opacity-60"
+                      className="rounded-lg border border-lovable-warning/40 bg-lovable-warning/10 px-3 py-2 text-xs font-semibold text-lovable-warning disabled:opacity-60"
                     >
                       Faltou
                     </button>
@@ -484,7 +484,7 @@ export function AssessmentsPage() {
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.training_ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.training_ready ? "bg-lovable-success/15 text-lovable-success" : "bg-lovable-warning/15 text-lovable-warning"}`}>
                         {item.training_ready ? "Pronta" : "Nao pronta"}
                       </span>
                       <Link

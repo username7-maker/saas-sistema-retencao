@@ -5,6 +5,18 @@ import clsx from "clsx";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { EmptyState } from "../../components/ui";
+import {
+  CommandCard,
+  Input,
+  Select,
+  Table,
+  TableInner,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "../../components/ui2";
 import { auditService } from "../../services/auditService";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
 
@@ -100,61 +112,67 @@ export function AuditPage() {
 
   return (
     <section className="space-y-6">
-      <header>
-        <h2 className="font-heading text-3xl font-bold text-lovable-ink">Auditoria</h2>
-        <p className="text-sm text-lovable-ink-muted">Registro completo de ações realizadas no sistema.</p>
-      </header>
+      <CommandCard variant="elevated">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Sistema</p>
+          <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
+            <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
+              Auditoria
+            </span>
+          </h2>
+          <p className="mt-1 text-sm text-lovable-ink-muted">Registro completo de ações realizadas no sistema.</p>
+        </div>
+      </CommandCard>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted" />
-          <input
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lovable-ink-muted" />
+          <Input
             type="text"
             placeholder="Filtrar por ação…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-lovable-border bg-lovable-surface py-2 pl-8 pr-3 text-sm text-lovable-ink placeholder:text-lovable-ink-muted focus:border-lovable-primary focus:outline-none focus:ring-1 focus:ring-lovable-primary"
+            className="pl-8"
           />
         </div>
-        <select
+        <Select
           value={entityFilter}
           onChange={(e) => setEntityFilter(e.target.value)}
-          className="rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-sm text-lovable-ink focus:border-lovable-primary focus:outline-none"
         >
           <option value="">Todas as entidades</option>
           {ENTITY_OPTIONS.filter(Boolean).map((e) => (
             <option key={e} value={e}>{e}</option>
           ))}
-        </select>
+        </Select>
         <span className="self-center text-xs text-lovable-ink-muted">
           {logs.length} de {allLogs.length} eventos
         </span>
       </div>
 
-      <div className="rounded-2xl border border-lovable-border bg-lovable-surface shadow-panel">
+      <Table>
         {logs.length === 0 ? (
           <p className="px-4 py-6 text-sm text-lovable-ink-muted">
             {allLogs.length === 0 ? "Nenhum evento registrado." : "Nenhum evento corresponde aos filtros."}
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="border-b border-lovable-border bg-lovable-surface-soft">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Data</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Ação</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Entidade</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Detalhes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-lovable-border">
+            <TableInner>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Data</TableHeaderCell>
+                  <TableHeaderCell>Ação</TableHeaderCell>
+                  <TableHeaderCell>Entidade</TableHeaderCell>
+                  <TableHeaderCell>Detalhes</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-lovable-surface-soft">
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-lovable-ink-muted">
+                  <TableRow key={log.id}>
+                    <TableCell className="whitespace-nowrap text-xs text-lovable-ink-muted">
                       {new Date(log.created_at).toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <span
                         className={clsx(
                           "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
@@ -163,18 +181,18 @@ export function AuditPage() {
                       >
                         {log.action}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-lovable-ink-muted">{log.entity}</td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="text-xs text-lovable-ink-muted">{log.entity}</TableCell>
+                    <TableCell>
                       <DetailsCell details={log.details} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </TableInner>
           </div>
         )}
-      </div>
+      </Table>
     </section>
   );
 }
