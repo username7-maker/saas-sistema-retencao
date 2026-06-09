@@ -21,7 +21,10 @@ from app.schemas.body_composition import (
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
 )
-from app.services.body_composition_report_service import build_body_composition_quality_flags
+from app.services.body_composition_report_service import (
+    build_body_composition_quality_flags,
+    calculate_body_water_percent,
+)
 from app.utils.claude import _parse_claude_json
 
 
@@ -76,7 +79,7 @@ FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
     ("protein_kg", "Protein (kg)"),
     ("body_water_kg", "Body water (kg)"),
     ("lean_mass_kg", "Lean mass (kg), quando existir nessa versao do recibo"),
-    ("body_water_percent", "Body water ratio (%)"),
+    ("body_water_percent", "campo derivado pelo sistema; deve permanecer null na extracao"),
     ("visceral_fat_level", "Visceral fat"),
     ("bmi", "BMI"),
     ("basal_metabolic_rate_kcal", "BMR ou basal metabolic rate (kcal)"),
@@ -156,7 +159,9 @@ def _build_vision_prompt(
         "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
         "- body_fat_kg corresponde a 'Body fat (kg)'\n"
         "- body_fat_percent corresponde a 'Body fat ratio (%)'\n"
-        "- body_water_kg e body_water_percent sao campos diferentes e podem coexistir\n"
+        "- body_water_kg corresponde a 'Body moisture'/'Body water' em kg\n"
+        "- body_water_percent NAO deve ser inferido, calculado ou copiado pela IA; retorne sempre null\n"
+        "- o sistema calcula body_water_percent deterministicamente usando body_water_kg / weight_kg * 100\n"
         "- skeletal_muscle_kg e muscle_mass_kg sao campos diferentes e podem coexistir\n"
         "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
         "- physical_age e health_score devem ser inteiros quando visiveis\n"
@@ -351,9 +356,16 @@ def _normalize_ai_payload(
     ranges_source = payload.get("ranges")
     warnings_source = payload.get("warnings")
 
-    values = BodyCompositionOcrValues.model_validate(_normalize_values(values_source))
+    normalized_values = _normalize_values(values_source)
+    normalized_values["body_water_percent"] = None
+    values = BodyCompositionOcrValues.model_validate(normalized_values)
     ranges = _normalize_ranges(ranges_source)
-    warnings = _normalize_warnings(warnings_source)
+    ranges.pop("body_water_percent", None)
+    warnings = [
+        warning
+        for warning in _normalize_warnings(warnings_source)
+        if warning.field != "body_water_percent"
+    ]
 
     return BodyCompositionImageParseResultRead(
         device_profile=device_profile,
@@ -475,7 +487,19 @@ def _build_local_only_result(
 
 
 def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyCompositionImageParseResultRead:
-    deduped_warnings = _dedupe_warnings(result.warnings)
+    values = result.values.model_copy(
+        update={
+            "body_water_percent": calculate_body_water_percent(
+                weight_kg=result.values.weight_kg,
+                body_water_kg=result.values.body_water_kg,
+            )
+        }
+    )
+    ranges = dict(result.ranges)
+    ranges.pop("body_water_percent", None)
+    deduped_warnings = _dedupe_warnings(
+        [warning for warning in result.warnings if warning.field != "body_water_percent"]
+    )
     needs_review = any(item.severity == "critical" for item in deduped_warnings) or result.needs_review or result.confidence < 0.85
     confidence = _compute_confidence(
         engine=result.engine,
@@ -488,11 +512,11 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
     return BodyCompositionImageParseResultRead(
         device_profile=result.device_profile,
         device_model=result.device_model,
-        values=result.values,
-        ranges=result.ranges,
+        values=values,
+        ranges=ranges,
         warnings=deduped_warnings,
         flags=build_body_composition_quality_flags(
-            result.values,
+            values,
             parsing_confidence=confidence,
             needs_review=needs_review,
         ),

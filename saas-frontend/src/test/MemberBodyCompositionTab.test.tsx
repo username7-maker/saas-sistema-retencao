@@ -186,6 +186,10 @@ describe("MemberBodyCompositionTab", () => {
     renderTab();
 
     expect(await screen.findByText("Relatorio premium pronto")).toBeInTheDocument();
+    expect(screen.getByText("Agua corporal calculada (%)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Calculada por agua corporal (kg) / peso (kg) x 100. Este percentual nao vem impresso na folha."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Abrir relatorio" })).toHaveAttribute(
       "href",
       "/assessments/members/member-1/body-composition/eval-1/report",

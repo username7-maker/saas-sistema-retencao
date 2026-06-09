@@ -111,6 +111,31 @@ class TestImageParseService:
         assert result.values.weight_kg == 84.5
         mock_parse.assert_called_once()
 
+    def test_discards_ai_water_percent_and_calculates_it_from_printed_kg_values(self):
+        ai_result = _ai_parse_result_with_extra_values()
+        ai_result.values.body_water_percent = 99.0
+
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            return_value=ai_result,
+        ), patch(
+            "app.services.body_composition_image_parse_service._image_ai_available",
+            return_value=True,
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=None,
+            )
+
+        assert result.values.body_water_kg == 43.3
+        assert result.values.weight_kg == 84.5
+        assert result.values.body_water_percent == 51.2
+        assert "body_water_percent" not in result.ranges
+
     @patch("app.services.body_composition_image_parse_service._parse_with_claude_vision")
     @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
     def test_prefers_ai_value_over_bad_local_conflict(self, _mock_available, mock_parse):
@@ -349,6 +374,8 @@ class TestImageParseRoute:
         prompt = captured_kwargs["messages"][1]["content"][0]["text"]
         assert "Template obrigatorio de values" in prompt
         assert "body_water_percent" in prompt
+        assert "retorne sempre null" in prompt
+        assert "body_water_kg / weight_kg * 100" in prompt
         assert "target_weight_kg" in prompt
         assert "total_energy_kcal" in prompt
         assert "muscle_control_kg" in prompt

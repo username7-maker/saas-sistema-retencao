@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calculateBodyWaterPercent,
   extractBodyCompositionFromText,
   getBodyCompositionAiFallbackReasons,
   mergeBodyCompositionOcrResults,
   type BodyCompositionOcrResult,
 } from "../services/bodyCompositionOcr";
+
+describe("calculateBodyWaterPercent", () => {
+  it("calculates the percentage from printed body water and weight values", () => {
+    expect(calculateBodyWaterPercent(84.5, 43.3)).toBe(51.2);
+  });
+
+  it("does not calculate without both valid measurements", () => {
+    expect(calculateBodyWaterPercent(null, 43.3)).toBeNull();
+    expect(calculateBodyWaterPercent(84.5, null)).toBeNull();
+    expect(calculateBodyWaterPercent(0, 43.3)).toBeNull();
+  });
+});
 
 const CLEAN_RECEIPT = `
 Tezewa

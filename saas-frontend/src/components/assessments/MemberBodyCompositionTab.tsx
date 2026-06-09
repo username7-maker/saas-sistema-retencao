@@ -17,7 +17,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -26,7 +26,11 @@ import { z } from "zod";
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
-import type { BodyCompositionOcrEngine, BodyCompositionOcrResult } from "../../services/bodyCompositionOcr";
+import {
+  calculateBodyWaterPercent,
+  type BodyCompositionOcrEngine,
+  type BodyCompositionOcrResult,
+} from "../../services/bodyCompositionOcr";
 import type {
   BodyCompositionEvaluation,
   BodyCompositionEvaluationCreate,
@@ -156,6 +160,8 @@ interface FieldDef {
   label: string;
   placeholder: string;
   step: string;
+  calculated?: boolean;
+  description?: string;
 }
 
 interface OcrMetadataState {
@@ -224,7 +230,14 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
       { key: "muscle_mass_kg", label: "Massa muscular (kg)", placeholder: "37.2", step: "0.1" },
       { key: "skeletal_muscle_kg", label: "Musculo esqueletico (kg)", placeholder: "35.6", step: "0.1" },
       { key: "body_water_kg", label: "Agua corporal (kg)", placeholder: "43.3", step: "0.1" },
-      { key: "body_water_percent", label: "Agua corporal (%)", placeholder: "51.2", step: "0.1" },
+      {
+        key: "body_water_percent",
+        label: "Agua corporal calculada (%)",
+        placeholder: "Calculada automaticamente",
+        step: "0.1",
+        calculated: true,
+        description: "Calculada por agua corporal (kg) / peso (kg) x 100. Este percentual nao vem impresso na folha.",
+      },
       { key: "protein_kg", label: "Proteina (kg)", placeholder: "17.7", step: "0.1" },
       { key: "inorganic_salt_kg", label: "Sal inorganico (kg)", placeholder: "3.2", step: "0.1" },
     ],
@@ -302,6 +315,10 @@ function isSupportedOcrImageFile(file: File): boolean {
 }
 
 function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): FormData {
+  const calculatedBodyWaterPercent = calculateBodyWaterPercent(
+    evaluation?.weight_kg,
+    evaluation?.body_water_kg,
+  );
   return {
     evaluation_date: evaluation?.evaluation_date ?? new Date().toISOString().split("T")[0],
     age_years: evaluation?.age_years ?? null,
@@ -318,7 +335,7 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     lean_mass_kg: evaluation?.lean_mass_kg ?? null,
     muscle_mass_kg: evaluation?.muscle_mass_kg ?? null,
     skeletal_muscle_kg: evaluation?.skeletal_muscle_kg ?? null,
-    body_water_percent: evaluation?.body_water_percent ?? null,
+    body_water_percent: calculatedBodyWaterPercent ?? evaluation?.body_water_percent ?? null,
     visceral_fat_level: evaluation?.visceral_fat_level ?? null,
     bmi: evaluation?.bmi ?? null,
     basal_metabolic_rate_kcal: evaluation?.basal_metabolic_rate_kcal ?? null,
@@ -473,6 +490,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     resolver: zodResolver(schema),
     defaultValues: buildDefaultValues(null),
   });
+  const watchedWeightKg = watch("weight_kg");
+  const watchedBodyWaterKg = watch("body_water_kg");
+
+  useEffect(() => {
+    setValue(
+      "body_water_percent",
+      calculateBodyWaterPercent(watchedWeightKg, watchedBodyWaterKg),
+      { shouldValidate: true },
+    );
+  }, [setValue, watchedBodyWaterKg, watchedWeightKg]);
 
   function resetEditor(evaluation?: BodyCompositionEvaluation | null) {
     reset(buildDefaultValues(evaluation));
@@ -749,6 +776,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     const needsReview = currentSource === "ocr_receipt" ? (reviewedManually ? false : ocrMetadata.needs_review) : false;
     return {
       ...data,
+      body_water_percent: calculateBodyWaterPercent(data.weight_kg, data.body_water_kg),
       source: currentSource,
       reviewed_manually: currentSource === "manual" ? true : reviewedManually,
       raw_ocr_text: ocrMetadata.raw_ocr_text,
@@ -1140,20 +1168,23 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <div className="grid gap-3 md:grid-cols-2">
                     {section.fields.map((field) => {
                       const warning = highlightedWarnings.get(field.key);
-                      const fieldSignal = resolveBodyCompositionFieldSignal({
-                        fieldKey: field.key,
-                        currentSource,
-                        currentValue: watch(field.key),
-                        ocrResult,
-                        localResult: ocrReadSession.localResult,
-                        storedWarnings: ocrMetadata.ocr_warnings_json,
-                      });
+                      const fieldSignal = field.calculated
+                        ? null
+                        : resolveBodyCompositionFieldSignal({
+                            fieldKey: field.key,
+                            currentSource,
+                            currentValue: watch(field.key),
+                            ocrResult,
+                            localResult: ocrReadSession.localResult,
+                            storedWarnings: ocrMetadata.ocr_warnings_json,
+                          });
                       return (
                         <FormField
                           key={field.key}
                           label={
                             <span className="flex flex-wrap items-center gap-2">
                               <span>{field.label}</span>
+                              {field.calculated ? <StatusPill tone="neutral">Calculado</StatusPill> : null}
                               {fieldSignal ? <StatusPill tone={fieldSignal.tone}>{fieldSignal.label}</StatusPill> : null}
                             </span>
                           }
@@ -1166,8 +1197,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                               placeholder={field.placeholder}
                               className={warningTone(warning)}
                               autoComplete="off"
+                              readOnly={field.calculated}
                               {...register(field.key)}
                             />
+                            {field.description ? (
+                              <p className="text-xs text-lovable-ink-muted">{field.description}</p>
+                            ) : null}
                             {fieldSignal ? (
                               <p className={`text-xs ${fieldSignalTextClass(fieldSignal.tone)}`}>{fieldSignal.description}</p>
                             ) : null}

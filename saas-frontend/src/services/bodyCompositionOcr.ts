@@ -136,6 +136,25 @@ const NUMERIC_BOUNDS: Partial<Record<keyof BodyCompositionOcrValues, { min: numb
 
 export const BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE: BodyCompositionDeviceProfile = "tezewa_receipt_v1";
 
+export function calculateBodyWaterPercent(
+  weightKg: number | string | null | undefined,
+  bodyWaterKg: number | string | null | undefined,
+): number | null {
+  const weight = typeof weightKg === "string" ? Number(weightKg.replace(",", ".")) : weightKg;
+  const bodyWater = typeof bodyWaterKg === "string" ? Number(bodyWaterKg.replace(",", ".")) : bodyWaterKg;
+  if (
+    weight == null
+    || bodyWater == null
+    || !Number.isFinite(weight)
+    || !Number.isFinite(bodyWater)
+    || weight <= 0
+    || bodyWater < 0
+  ) {
+    return null;
+  }
+  return Math.round(((bodyWater / weight) * 100) * 10) / 10;
+}
+
 export function extractBodyCompositionFromText(
   rawText: string,
   deviceProfile: BodyCompositionDeviceProfile = BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE,

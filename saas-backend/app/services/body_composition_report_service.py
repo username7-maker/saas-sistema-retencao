@@ -137,6 +137,15 @@ def resolve_body_composition_persistence_fields(
     reviewer_user_id: Any = None,
 ) -> dict[str, Any]:
     data = dict(values)
+    calculated_body_water_percent = calculate_body_water_percent(
+        weight_kg=data.get("weight_kg"),
+        body_water_kg=data.get("body_water_kg"),
+    )
+    if calculated_body_water_percent is not None:
+        data["body_water_percent"] = calculated_body_water_percent
+    elif data.get("source") == "ocr_receipt" and data.get("device_profile") == "tezewa_receipt_v1":
+        data["body_water_percent"] = None
+
     fat_free_mass = _maybe_float(data.get("fat_free_mass_kg"))
     lean_mass = _maybe_float(data.get("lean_mass_kg"))
     if fat_free_mass is None and lean_mass is not None:
@@ -172,6 +181,14 @@ def resolve_body_composition_persistence_fields(
         needs_review=needs_review or not reviewed_manually,
     )
     return data
+
+
+def calculate_body_water_percent(*, weight_kg: Any, body_water_kg: Any) -> float | None:
+    weight = _maybe_float(weight_kg)
+    body_water = _maybe_float(body_water_kg)
+    if weight is None or body_water is None or weight <= 0 or body_water < 0:
+        return None
+    return round((body_water / weight) * 100, 1)
 
 
 def build_body_composition_report_read(

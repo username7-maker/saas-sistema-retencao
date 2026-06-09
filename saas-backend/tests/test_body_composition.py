@@ -414,6 +414,24 @@ class TestBodyCompositionPremiumReportDomain:
         assert payload["fat_free_mass_kg"] == 65.1
         assert payload["lean_mass_kg"] == 65.1
 
+    def test_resolve_persistence_fields_calculates_body_water_percent_deterministically(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "ocr_receipt",
+                "device_profile": "tezewa_receipt_v1",
+                "reviewed_manually": True,
+                "weight_kg": 84.5,
+                "body_water_kg": 43.3,
+                "body_water_percent": 99.0,
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["body_water_percent"] == 51.2
+
     def test_generate_body_composition_insights_detects_fat_loss_with_muscle_stability(self):
         from app.services.body_composition_report_service import generate_body_composition_insights
 
