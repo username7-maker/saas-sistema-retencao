@@ -267,6 +267,26 @@ describe("bodyCompositionOcr", () => {
     expect(result.warnings.some((warning) => warning.field === "body_fat_kg")).toBe(true);
   });
 
+  it("rejects impossible values and requires assisted reading for a non-Tezewa layout", () => {
+    const result = extractBodyCompositionFromText(`
+      InBody
+      Body Composition Analysis
+      Weight 274335
+      Body Fat Mass 17.9
+      Muscle-Fat Analysis
+    `);
+
+    expect(result.device_model).toBe("InBody");
+    expect(result.values.weight_kg).toBeUndefined();
+    expect(result.needs_review).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "weight_kg", severity: "critical" }),
+        expect.objectContaining({ field: null, message: expect.stringContaining("Layout diferente do recibo Tezewa") }),
+      ]),
+    );
+  });
+
   it("merges OCR variants by field and prefers plausible explicit values over truncated high-confidence results", () => {
     const truncatedBottom: BodyCompositionOcrResult = {
       device_profile: "tezewa_receipt_v1",

@@ -360,13 +360,17 @@ export const bodyCompositionService = {
 
     try {
       const assistedResult = await bodyCompositionService.parseImage(memberId, file, localResult, deviceProfile);
+      const assistedUsed = assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used);
+      const assistedWarning = assistedResult.warnings.find(
+        (warning) => warning.field == null && warning.message.toLowerCase().includes("leitura assistida"),
+      );
       return {
         localResult,
         result: assistedResult,
         fallbackReasons,
         assistedAttempted: true,
-        assistedUsed: assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used),
-        assistedError: null,
+        assistedUsed,
+        assistedError: assistedUsed ? null : assistedWarning?.message ?? null,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Leitura assistida indisponivel no momento.";

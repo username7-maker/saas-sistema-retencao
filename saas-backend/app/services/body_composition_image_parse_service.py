@@ -214,17 +214,19 @@ def parse_body_composition_image(
             )
         if provider == "claude":
             claude_circuit_breaker.record_success()
-    except Exception:
+    except Exception as exc:
         if provider == "claude":
             claude_circuit_breaker.record_failure()
+        failure_message, failure_severity = _classify_assisted_read_failure(exc)
         logger.exception(
             "Falha na leitura assistida de bioimpedancia com provedor %s. Mantendo OCR local quando possivel.",
             provider or "indisponivel",
         )
         return _build_local_only_result(
             local_payload,
-            "Leitura assistida por IA falhou no momento; mantivemos o OCR local para revisao manual.",
+            failure_message,
             normalized_device_profile,
+            severity=failure_severity,
         )
 
     return _merge_parse_results(local_payload, ai_payload)
@@ -461,6 +463,8 @@ def _build_local_only_result(
     local_result: BodyCompositionImageOcrPayload | None,
     message: str,
     device_profile: BodyCompositionDeviceProfile,
+    *,
+    severity: str = "warning",
 ) -> BodyCompositionImageParseResultRead:
     if local_result is None:
         raise HTTPException(
@@ -469,7 +473,7 @@ def _build_local_only_result(
         )
 
     warnings = list(local_result.warnings)
-    warnings.append(BodyCompositionOcrWarning(field=None, message=message, severity="warning"))
+    warnings.append(BodyCompositionOcrWarning(field=None, message=message, severity=severity))
     return _finalize_parse_result(
         BodyCompositionImageParseResultRead(
             device_profile=device_profile,
@@ -495,6 +499,8 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
             )
         }
     )
+
+
     ranges = dict(result.ranges)
     ranges.pop("body_water_percent", None)
     deduped_warnings = _dedupe_warnings(
@@ -525,6 +531,33 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
         needs_review=needs_review,
         engine=result.engine,
         fallback_used=result.fallback_used,
+    )
+
+
+def _classify_assisted_read_failure(exc: Exception) -> tuple[str, str]:
+    error_text = str(exc).lower()
+    error_code = str(getattr(exc, "code", "") or "").lower()
+    status_code = getattr(exc, "status_code", None)
+
+    if error_code == "insufficient_quota" or "insufficient_quota" in error_text or "current quota" in error_text:
+        return (
+            "Leitura assistida indisponivel: a cota do provedor de IA foi esgotada. "
+            "Regularize os creditos da integracao ou tente novamente depois.",
+            "critical",
+        )
+    if status_code == 429 or "rate limit" in error_text or "too many requests" in error_text:
+        return (
+            "Leitura assistida temporariamente limitada pelo provedor de IA. Tente novamente em alguns minutos.",
+            "warning",
+        )
+    if "timeout" in error_text or "timed out" in error_text:
+        return (
+            "Leitura assistida excedeu o tempo limite. Tente novamente com uma imagem menor e mais nitida.",
+            "warning",
+        )
+    return (
+        "Leitura assistida por IA falhou no momento; mantivemos o OCR local para revisao manual.",
+        "warning",
     )
 
 

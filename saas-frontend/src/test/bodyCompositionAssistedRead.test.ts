@@ -175,6 +175,27 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(result.result.engine).toBe("local");
   });
 
+  it("propagates an assisted provider warning returned with a local fallback", async () => {
+    const quotaMessage = "Leitura assistida indisponivel: a cota do provedor de IA foi esgotada.";
+    vi.mocked(readBodyCompositionFromImage).mockResolvedValue(
+      localResult({ confidence: 0.42, needs_review: true }),
+    );
+    vi.mocked(api.post).mockResolvedValue({
+      data: localResult({
+        confidence: 0.2,
+        needs_review: true,
+        engine: "local",
+        warnings: [{ field: null, message: quotaMessage, severity: "critical" }],
+      }),
+    });
+
+    const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile());
+
+    expect(result.assistedAttempted).toBe(true);
+    expect(result.assistedUsed).toBe(false);
+    expect(result.assistedError).toBe(quotaMessage);
+  });
+
   it("calls parse-image directly when forced assisted read is requested and local OCR fails first", async () => {
     vi.mocked(readBodyCompositionFromImage).mockRejectedValue(new Error("Falha ao carregar imagem para OCR"));
     vi.mocked(api.post).mockResolvedValue({

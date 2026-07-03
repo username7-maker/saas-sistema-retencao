@@ -873,7 +873,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       setOcrResult(readOutcome.result);
       fillFromOcr(readOutcome.result, ocrFile);
 
-      if (readOutcome.assistedUsed) {
+      if (readOutcome.assistedError) {
+        toast.error(`${readOutcome.assistedError} Revise os campos reconhecidos antes de salvar.`, { duration: 8000 });
+      } else if (readOutcome.assistedUsed) {
         toast.success("Leitura assistida revisou os campos extraidos. Revise os destaques antes de salvar.");
       } else if (readOutcome.assistedAttempted) {
         toast.success("Mantivemos o OCR local nesta execucao. Revise os campos destacados antes de salvar.");

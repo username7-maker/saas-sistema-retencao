@@ -237,6 +237,30 @@ class TestImageParseService:
         assert result.needs_review is True
         assert any("Leitura assistida por IA indisponivel" in warning.message for warning in result.warnings)
 
+    @patch("app.services.body_composition_image_parse_service._image_ai_available", return_value=True)
+    def test_classifies_exhausted_provider_quota_in_local_fallback(self, _mock_available):
+        class QuotaError(RuntimeError):
+            code = "insufficient_quota"
+            status_code = 429
+
+        with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            side_effect=QuotaError("You exceeded your current quota"),
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=_local_ocr_payload(),
+            )
+
+        quota_warning = next(item for item in result.warnings if "cota do provedor" in item.message)
+        assert result.engine == "local"
+        assert result.needs_review is True
+        assert quota_warning.severity == "critical"
+
 
 class TestImageParseRoute:
     def test_requires_authentication(self, client):

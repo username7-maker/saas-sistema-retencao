@@ -149,6 +149,15 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
       continue;
     }
 
+    if (plausibilityScore(spec.key, parsed.value) === 0) {
+      warnings.push({
+        field: String(spec.key),
+        message: `${spec.aliases[0]} gerou valor fora dos limites plausiveis e foi descartado.`,
+        severity: "critical",
+      });
+      continue;
+    }
+
     (values as Record<string, number | string | undefined>)[String(spec.key)] = parsed.value;
     if (parsed.range.min !== null || parsed.range.max !== null) {
       ranges[spec.key] = parsed.range;
@@ -179,7 +188,15 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
     }
   }
 
-  applyPositionalFallback(sectionLines, values, ranges, warnings, usedLineIndexes);
+  if (hasExpectedTezewaStructure(normalizedText)) {
+    applyPositionalFallback(sectionLines, values, ranges, warnings, usedLineIndexes);
+  } else {
+    warnings.push({
+      field: null,
+      message: "Layout diferente do recibo Tezewa detectado. A leitura assistida por IA e obrigatoria para esta imagem.",
+      severity: "critical",
+    });
+  }
 
   const fatKgLine = usedLineIndexes.get("body_fat_kg");
   const fatPercentLine = usedLineIndexes.get("body_fat_percent");
@@ -450,6 +467,16 @@ function applyPositionalFallback(
         continue;
       }
 
+      if (plausibilityScore(key, parsed.value) === 0) {
+        warnings.push({
+          field: String(key),
+          message: `${humanizeFieldName(key)} gerou valor fora dos limites plausiveis e foi descartado.`,
+          severity: "critical",
+        });
+        cursor += 1;
+        continue;
+      }
+
       (values as Record<string, number | string | undefined>)[String(key)] = parsed.value;
       if (parsed.range.min !== null || parsed.range.max !== null) {
         ranges[String(key)] = parsed.range;
@@ -479,10 +506,20 @@ function extractEvaluationDate(text: string): string | undefined {
 }
 
 function detectDeviceModel(text: string): string | undefined {
-  if (normalizeLabel(text).includes("tezewa")) {
+  const normalized = normalizeLabel(text);
+  if (normalized.includes("tezewa")) {
     return "Tezewa";
   }
+  if (normalized.includes("inbody")) {
+    return "InBody";
+  }
   return undefined;
+}
+
+function hasExpectedTezewaStructure(text: string): boolean {
+  const normalized = normalizeLabel(text);
+  const expectedSections = ["body composition", "body parameters", "comprehensive evaluation"];
+  return expectedSections.filter((section) => normalized.includes(section)).length >= 2;
 }
 
 function sliceAfterAlias(text: string, alias: string): string {
