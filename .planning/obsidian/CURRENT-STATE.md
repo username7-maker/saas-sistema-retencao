@@ -5,6 +5,8 @@ Fase 09.21 aberta para expandir o calculo automatico de protocolos antropometric
 
 Atualizacao: implementacao local concluida e validada. Backend/frontend calculam Macardle/YMCA adulto, Guedes adulto, Petroski feminino, Weltman feminino, Slaughter simples e Faulkner; Weltman masculino e variantes dependentes de raca/maturacao seguem manual-only. Relatorio usa assets frontais masculino/feminino e baloes de medidas. Validacao local: Spec Kit OK, backend focado 9 passed, frontend focado 9 passed, lint/build OK e `git diff --check` OK.
 
+Atualizacao de publicacao: fase publicada no piloto. Vercel `dpl_Dp1Z7ZimmGV6qyAxTvsqWn8AoiH7` no alias `https://saas-frontend-pearl.vercel.app`; Railway API `69c29770-b858-4ef8-ab3c-1233adf7a415`. Smoke pos-deploy confirmou frontend 200, assets `/body-maps/body-map-front-male.png` e `/body-maps/body-map-front-female.png` 200, backend `/health` e `/health/ready` OK.
+
 ## 2026-07-07 - Actuar Petroski Body Map Parity 09.20
 Fase 09.20 aberta para corrigir paridade operacional do protocolo Petroski masculino observado no Actuar e trocar o mapa corporal simplificado do relatorio por assets anatomicos genericos masculino/feminino. Escopo limitado a calculo Petroski masculino 4 dobras, preview, relatorio web e testes; sem schema novo e sem copiar layout/logica proprietaria do Actuar.
 
