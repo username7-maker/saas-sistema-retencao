@@ -267,25 +267,27 @@ function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow
   const rowMap = new Map(rows.map((row) => [row.key, row]));
   const mapAsset = sex === "female" ? "/body-maps/body-map-front-female.png" : "/body-maps/body-map-front-male.png";
   const mapAlt = sex === "female" ? "Mapa corporal frontal feminino de medidas" : "Mapa corporal frontal masculino de medidas";
-  const points: Array<{ key: string; side: "left" | "right"; top: string; tone: string }> = [
-    { key: "neck_cm", side: "right", top: "8%", tone: "#6fa7c7" },
-    { key: "shoulders_cm", side: "left", top: "18%", tone: "#5ca6b3" },
-    { key: "chest_cm", side: "right", top: "24%", tone: "#6d7fab" },
-    { key: "right_arm_relaxed_cm", side: "left", top: "32%", tone: "#86aa62" },
-    { key: "left_arm_relaxed_cm", side: "right", top: "32%", tone: "#86aa62" },
-    { key: "right_arm_flexed_cm", side: "left", top: "40%", tone: "#6f9d52" },
-    { key: "left_arm_flexed_cm", side: "right", top: "40%", tone: "#6f9d52" },
-    { key: "waist_cm", side: "left", top: "48%", tone: "#7fb8bc" },
-    { key: "abdomen_cm", side: "right", top: "51%", tone: "#8c8a84" },
-    { key: "hip_cm", side: "left", top: "59%", tone: "#8d69a6" },
-    { key: "right_thigh_cm", side: "left", top: "69%", tone: "#d99b42" },
-    { key: "left_thigh_cm", side: "right", top: "69%", tone: "#d99b42" },
-    { key: "right_calf_cm", side: "left", top: "84%", tone: "#c86b61" },
-    { key: "left_calf_cm", side: "right", top: "84%", tone: "#c86b61" },
+  const points: Array<{ key: string; side: "left" | "right"; tone: string }> = [
+    { key: "shoulders_cm", side: "left", tone: "#5ca6b3" },
+    { key: "neck_cm", side: "right", tone: "#6fa7c7" },
+    { key: "right_arm_relaxed_cm", side: "left", tone: "#86aa62" },
+    { key: "chest_cm", side: "right", tone: "#6d7fab" },
+    { key: "right_arm_flexed_cm", side: "left", tone: "#6f9d52" },
+    { key: "left_arm_relaxed_cm", side: "right", tone: "#86aa62" },
+    { key: "waist_cm", side: "left", tone: "#7fb8bc" },
+    { key: "left_arm_flexed_cm", side: "right", tone: "#6f9d52" },
+    { key: "hip_cm", side: "left", tone: "#8d69a6" },
+    { key: "abdomen_cm", side: "right", tone: "#8c8a84" },
+    { key: "right_thigh_cm", side: "left", tone: "#d99b42" },
+    { key: "left_thigh_cm", side: "right", tone: "#d99b42" },
+    { key: "right_calf_cm", side: "left", tone: "#c86b61" },
+    { key: "left_calf_cm", side: "right", tone: "#c86b61" },
   ];
   const visiblePoints = points
     .map((point) => ({ ...point, row: rowMap.get(point.key) }))
     .filter((point): point is typeof point & { row: BodyCompositionMeasurementRow } => Boolean(point.row && (point.row.current_value != null || point.row.previous_value != null)));
+  const leftPoints = visiblePoints.filter((point) => point.side === "left");
+  const rightPoints = visiblePoints.filter((point) => point.side === "right");
   const hasVisibleRows = visiblePoints.length > 0;
 
   return (
@@ -294,24 +296,37 @@ function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow
         <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Mapa corporal de medidas</p>
         <p className="mt-1 text-xs text-[#665f57]">Boneco anatomico generico para localizar perimetria. Nao usa foto do aluno.</p>
       </div>
-      <div className="relative mt-4 min-h-[640px] overflow-hidden border border-[#e0d9cf] bg-white px-3 py-5">
-        <img src={mapAsset} alt={mapAlt} className="mx-auto h-[600px] max-w-[46%] object-contain" loading="lazy" />
-        {visiblePoints.map((point) => (
-          <MeasurementBubble
-            key={point.key}
-            row={point.row}
-            side={point.side}
-            top={point.top}
-            tone={point.tone}
-          />
-        ))}
-        <div className="absolute bottom-4 left-1/2 w-[72%] -translate-x-1/2 border border-[#e3ddd4] bg-[#fcfbf7]/95 px-3 py-2 text-xs text-[#665f57]">
+      <div className="mt-4 overflow-hidden border border-[#e0d9cf] bg-white px-4 py-5">
+        <div className="grid min-h-[660px] grid-cols-[minmax(132px,1fr)_minmax(230px,300px)_minmax(132px,1fr)] items-center gap-4">
+          <MeasurementBubbleColumn points={leftPoints} side="left" />
+          <div className="relative flex min-h-[610px] items-center justify-center">
+            <img src={mapAsset} alt={mapAlt} className="h-[610px] w-full object-contain" loading="lazy" />
+          </div>
+          <MeasurementBubbleColumn points={rightPoints} side="right" />
+        </div>
+        <div className="mx-auto mt-4 max-w-[86%] border border-[#e3ddd4] bg-[#fcfbf7]/95 px-3 py-2 text-xs text-[#665f57]">
           <span className="font-semibold text-[#332d28]">Leitura:</span> baloes mostram a medida atual quando existe; se a avaliacao atual nao tem perimetria, mostram a ultima medida anterior.
         </div>
         {!hasVisibleRows ? (
-          <p className="absolute left-6 top-24 max-w-[160px] border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-xs text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
+          <p className="mx-auto mt-3 max-w-[220px] border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-xs text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function MeasurementBubbleColumn({
+  points,
+  side,
+}: {
+  points: Array<{ key: string; side: "left" | "right"; tone: string; row: BodyCompositionMeasurementRow }>;
+  side: "left" | "right";
+}) {
+  return (
+    <div className="flex h-full flex-col justify-center gap-2.5">
+      {points.map((point) => (
+        <MeasurementBubble key={point.key} row={point.row} side={side} tone={point.tone} />
+      ))}
     </div>
   );
 }
@@ -319,27 +334,25 @@ function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow
 function MeasurementBubble({
   row,
   side,
-  top,
   tone,
 }: {
   row: BodyCompositionMeasurementRow;
   side: "left" | "right";
-  top: string;
   tone: string;
 }) {
   const hasCurrent = row.current_value != null;
   const value = hasCurrent ? row.formatted_current : row.formatted_previous;
   const caption = hasCurrent ? "Atual" : "Anterior";
-  const sideClass = side === "left" ? "left-4 text-left" : "right-4 text-right";
-  const lineClass = side === "left" ? "left-full" : "right-full";
+  const sideClass = side === "left" ? "text-left" : "text-right";
+  const accentSideClass = side === "left" ? "left-0" : "right-0";
 
   return (
-    <div className={`absolute z-10 w-[170px] ${sideClass}`} style={{ top }}>
-      <div className="relative border border-[#d8d2ca] bg-[#fcfbf7]/95 px-3 py-2 shadow-[0_8px_18px_rgba(21,17,15,0.08)]">
-        <span className={`absolute top-1/2 h-px w-12 -translate-y-1/2 ${lineClass}`} style={{ backgroundColor: tone }} />
-        <span className={`absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${lineClass}`} style={{ backgroundColor: tone }} />
+    <div className={`relative min-h-[66px] border border-[#d8d2ca] bg-[#fcfbf7]/95 px-3 py-2 shadow-[0_8px_18px_rgba(21,17,15,0.06)] ${sideClass}`}>
+      <span className={`absolute top-0 h-full w-1 ${accentSideClass}`} style={{ backgroundColor: tone }} />
+      <span className={`absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full ${accentSideClass}`} style={{ backgroundColor: tone }} />
+      <div className={side === "left" ? "pl-2" : "pr-2"}>
         <p className="text-[0.62rem] uppercase tracking-[0.16em] text-[#786f66]">{caption}</p>
-        <p className="mt-0.5 text-xs font-semibold text-[#332d28]">{row.label}</p>
+        <p className="mt-0.5 text-[11px] font-semibold leading-tight text-[#332d28]">{row.label}</p>
         <p className="text-sm font-bold text-[#15110f]">{value}</p>
       </div>
     </div>
