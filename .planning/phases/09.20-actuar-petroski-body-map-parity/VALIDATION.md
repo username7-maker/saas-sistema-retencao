@@ -9,6 +9,8 @@
 - `git diff --check` - passed with CRLF warnings only.
 
 ## Deployment Gates
-- Vercel production deploy para `saas-frontend-pearl.vercel.app`.
-- Railway deploy do backend `ai-gym-os-api`.
-- Smoke HTTP do frontend e `/health` + `/health/ready` no backend.
+- Vercel production deploy para `saas-frontend-pearl.vercel.app` - `dpl_4q7WRf8rP6hqTM9iDRxGf2oZJ4Ws`.
+- Railway deploy do backend `ai-gym-os-api` - `0e8448ed-3e42-447f-aaaa-d1d05673b8fe`.
+- Smoke HTTP do frontend - `200 OK`.
+- Smoke assets `/body-maps/body-map-male.png` e `/body-maps/body-map-female.png` - `200 OK`.
+- Smoke backend `/health` e `/health/ready` - `{"status":"ok"}`.
