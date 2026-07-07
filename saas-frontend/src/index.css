@@ -104,3 +104,203 @@ body::-webkit-scrollbar-thumb:hover,
 * {
   box-sizing: border-box;
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 7mm;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: auto;
+    background: #ffffff !important;
+  }
+
+  body.body-composition-report-print {
+    background: #ffffff !important;
+    color: #15110f !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.body-composition-report-print .app-sidebar,
+  body.body-composition-report-print .app-topbar,
+  body.body-composition-report-print [role="dialog"] {
+    display: none !important;
+  }
+
+  body.body-composition-report-print .app-shell,
+  body.body-composition-report-print .app-content {
+    min-height: auto !important;
+    margin-left: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  body.body-composition-report-print .app-main {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  body.body-composition-report-print .app-main > div {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .body-composition-report-page {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .body-composition-report-document {
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .body-composition-report-content {
+    padding: 0 !important;
+  }
+
+  .report-header-card {
+    padding-bottom: 8px !important;
+    margin-bottom: 10px !important;
+    break-inside: avoid;
+  }
+
+  .report-header-grid {
+    grid-template-columns: 135px minmax(120px, 1fr) 185px !important;
+    gap: 10px !important;
+    align-items: start !important;
+  }
+
+  .report-brand-logo {
+    width: 118px !important;
+  }
+
+  .report-gym-logo {
+    width: 105px !important;
+  }
+
+  .report-member-name {
+    font-size: 24px !important;
+    line-height: 1.05 !important;
+  }
+
+  .report-header-card p {
+    font-size: 10px !important;
+  }
+
+  .report-header-data-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .report-header-data-grid > div {
+    padding: 8px 10px !important;
+    border-bottom: 0 !important;
+  }
+
+  .metric-highlights-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+    break-inside: avoid;
+  }
+
+  .metric-highlight-card {
+    padding: 8px 10px !important;
+  }
+
+  .metric-highlight-value {
+    margin-top: 4px !important;
+    font-size: 23px !important;
+    line-height: 1.05 !important;
+  }
+
+  .report-document-section {
+    padding-top: 11px !important;
+    margin-top: 11px !important;
+    break-inside: avoid;
+  }
+
+  .report-document-title {
+    font-size: 25px !important;
+    line-height: 1.05 !important;
+  }
+
+  .body-composition-report-document table {
+    font-size: 11px !important;
+  }
+
+  .body-composition-report-document th,
+  .body-composition-report-document td {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  .body-composition-report-document .xl\:grid-cols-\[1\.9fr_0\.95fr\] {
+    grid-template-columns: minmax(0, 1.55fr) 250px !important;
+    gap: 14px !important;
+  }
+
+  .body-measurement-card {
+    padding: 8px !important;
+    break-inside: avoid;
+  }
+
+  .body-measurement-map-frame {
+    margin-top: 8px !important;
+    padding: 8px !important;
+  }
+
+  .body-measurement-map-grid {
+    min-height: 470px !important;
+    grid-template-columns: 148px minmax(155px, 210px) 148px !important;
+    gap: 7px !important;
+  }
+
+  .body-measurement-map-figure {
+    min-height: 440px !important;
+  }
+
+  .body-measurement-map-image {
+    height: 440px !important;
+  }
+
+  .measurement-bubble-column {
+    gap: 4px !important;
+  }
+
+  .measurement-bubble {
+    min-height: 0 !important;
+    padding: 5px 7px !important;
+    box-shadow: none !important;
+  }
+
+  .measurement-bubble-caption {
+    font-size: 7px !important;
+    letter-spacing: 0.11em !important;
+  }
+
+  .measurement-bubble-label {
+    font-size: 8.5px !important;
+    line-height: 1.1 !important;
+  }
+
+  .measurement-bubble-value {
+    font-size: 10.5px !important;
+    line-height: 1.15 !important;
+  }
+
+  .body-measurement-map-note {
+    display: none !important;
+  }
+}

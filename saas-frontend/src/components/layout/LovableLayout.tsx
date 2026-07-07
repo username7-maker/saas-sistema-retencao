@@ -306,8 +306,8 @@ export function LovableLayout() {
   }, [headerSearch, location.search, navigate, pathname, searchConfig]);
 
   return (
-    <div className="relative min-h-dvh overflow-x-clip bg-lovable-bg font-body text-lovable-ink">
-      <aside aria-label="Main navigation" className="fixed inset-y-0 left-0 z-30 hidden w-72 p-3 lg:block">
+    <div className="app-shell relative min-h-dvh overflow-x-clip bg-lovable-bg font-body text-lovable-ink">
+      <aside aria-label="Main navigation" className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-72 p-3 lg:block">
         <div className="flex h-full flex-col rounded-[30px] border border-lovable-border/70 bg-[linear-gradient(180deg,hsl(var(--lovable-sidebar)/0.98),hsl(var(--lovable-bg-muted)/0.93))] shadow-panel backdrop-blur-2xl">
           <div className="px-4 pt-4">
             <div className="relative">
@@ -394,8 +394,8 @@ export function LovableLayout() {
         <SidebarNav onNavigate={() => setMobileOpen(false)} />
       </Drawer>
 
-      <div className="min-h-dvh lg:ml-72">
-        <header role="banner" className="sticky top-0 z-20 px-3 pt-3 sm:px-4 md:px-6 lg:px-7">
+      <div className="app-content min-h-dvh lg:ml-72">
+        <header role="banner" className="app-topbar sticky top-0 z-20 px-3 pt-3 sm:px-4 md:px-6 lg:px-7">
           <div className="rounded-[24px] border border-lovable-border/70 bg-[linear-gradient(135deg,hsl(var(--lovable-topbar)/0.96),hsl(var(--lovable-surface)/0.88))] px-3 py-3 shadow-panel backdrop-blur-2xl sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -517,7 +517,7 @@ export function LovableLayout() {
           </div>
         </header>
 
-        <main id="main-content" role="main" className="px-3 py-4 sm:px-4 md:px-6 lg:px-7">
+        <main id="main-content" role="main" className="app-main px-3 py-4 sm:px-4 md:px-6 lg:px-7">
           <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>

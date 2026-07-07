@@ -166,6 +166,7 @@ describe("BodyCompositionReportPage", () => {
     renderPage();
 
     expect(await screen.findByText("Erick Bedin")).toBeInTheDocument();
+    expect(document.body).toHaveClass("body-composition-report-print");
     expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
     expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
     expect(screen.queryByText("Relatorio premium pronto")).not.toBeInTheDocument();

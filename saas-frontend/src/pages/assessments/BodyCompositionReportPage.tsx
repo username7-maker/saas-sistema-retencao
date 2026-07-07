@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
@@ -64,6 +64,11 @@ function BodyCompositionReportPage() {
   const { memberId, evaluationId } = useParams<{ memberId: string; evaluationId: string }>();
   const [periodKey, setPeriodKey] = useState<(typeof PERIOD_OPTIONS)[number]["key"]>("all");
   const [historyNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    document.body.classList.add("body-composition-report-print");
+    return () => document.body.classList.remove("body-composition-report-print");
+  }, []);
 
   const reportQuery = useQuery({
     queryKey: ["body-composition-report", memberId, evaluationId],
@@ -132,7 +137,7 @@ function BodyCompositionReportPage() {
   }
 
   return (
-    <section className="space-y-6 print:space-y-4">
+    <section className="body-composition-report-page space-y-6 print:space-y-0">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
         <Link to={`/assessments/members/${memberId}?tab=bioimpedancia`} className="inline-flex items-center gap-2 text-sm font-medium text-lovable-ink-muted transition hover:text-lovable-ink">
           <ArrowLeft size={14} />
@@ -154,8 +159,8 @@ function BodyCompositionReportPage() {
         </div>
       </div>
 
-      <article className="overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:rounded-none print:border-none print:bg-white print:shadow-none">
-        <div className="p-6 md:p-8 print:p-0">
+      <article className="body-composition-report-document overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
+        <div className="body-composition-report-content p-6 md:p-8 print:p-0">
           <ReportHeaderCard
             header={report.header}
             dataQualityFlags={report.data_quality_flags}
@@ -252,7 +257,11 @@ function BodyCompositionReportPage() {
                 teacherNotes={report.teacher_notes}
                 methodologicalNote={report.methodological_note}
               />
-              {!report.segmental_analysis_available ? <EmptyStateSegmentalAnalysis /> : null}
+                {!report.segmental_analysis_available ? (
+                  <div className="print:hidden">
+                    <EmptyStateSegmentalAnalysis />
+                  </div>
+                ) : null}
             </section>
           </div>
         </div>
@@ -291,20 +300,20 @@ function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow
   const hasVisibleRows = visiblePoints.length > 0;
 
   return (
-    <div className="border border-[#e8e3dc] bg-[#f7f4ef] p-4">
+    <div className="body-measurement-card border border-[#e8e3dc] bg-[#f7f4ef] p-4">
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Mapa corporal de medidas</p>
         <p className="mt-1 text-xs text-[#665f57]">Boneco anatomico generico para localizar perimetria. Nao usa foto do aluno.</p>
       </div>
-      <div className="mt-4 overflow-hidden border border-[#e0d9cf] bg-white px-4 py-5">
-        <div className="grid min-h-[660px] grid-cols-[minmax(132px,1fr)_minmax(230px,300px)_minmax(132px,1fr)] items-center gap-4">
+      <div className="body-measurement-map-frame mt-4 overflow-hidden border border-[#e0d9cf] bg-white px-4 py-5">
+        <div className="body-measurement-map-grid grid min-h-[660px] grid-cols-[minmax(132px,1fr)_minmax(230px,300px)_minmax(132px,1fr)] items-center gap-4">
           <MeasurementBubbleColumn points={leftPoints} side="left" />
-          <div className="relative flex min-h-[610px] items-center justify-center">
-            <img src={mapAsset} alt={mapAlt} className="h-[610px] w-full object-contain" loading="lazy" />
+          <div className="body-measurement-map-figure relative flex min-h-[610px] items-center justify-center">
+            <img src={mapAsset} alt={mapAlt} className="body-measurement-map-image h-[610px] w-full object-contain" loading="lazy" />
           </div>
           <MeasurementBubbleColumn points={rightPoints} side="right" />
         </div>
-        <div className="mx-auto mt-4 max-w-[86%] border border-[#e3ddd4] bg-[#fcfbf7]/95 px-3 py-2 text-xs text-[#665f57]">
+        <div className="body-measurement-map-note mx-auto mt-4 max-w-[86%] border border-[#e3ddd4] bg-[#fcfbf7]/95 px-3 py-2 text-xs text-[#665f57]">
           <span className="font-semibold text-[#332d28]">Leitura:</span> baloes mostram a medida atual quando existe; se a avaliacao atual nao tem perimetria, mostram a ultima medida anterior.
         </div>
         {!hasVisibleRows ? (
@@ -323,7 +332,7 @@ function MeasurementBubbleColumn({
   side: "left" | "right";
 }) {
   return (
-    <div className="flex h-full flex-col justify-center gap-2.5">
+    <div className="measurement-bubble-column flex h-full flex-col justify-center gap-2.5">
       {points.map((point) => (
         <MeasurementBubble key={point.key} row={point.row} side={side} tone={point.tone} />
       ))}
@@ -347,13 +356,13 @@ function MeasurementBubble({
   const accentSideClass = side === "left" ? "left-0" : "right-0";
 
   return (
-    <div className={`relative min-h-[66px] border border-[#d8d2ca] bg-[#fcfbf7]/95 px-3 py-2 shadow-[0_8px_18px_rgba(21,17,15,0.06)] ${sideClass}`}>
+    <div className={`measurement-bubble relative min-h-[66px] border border-[#d8d2ca] bg-[#fcfbf7]/95 px-3 py-2 shadow-[0_8px_18px_rgba(21,17,15,0.06)] ${sideClass}`}>
       <span className={`absolute top-0 h-full w-1 ${accentSideClass}`} style={{ backgroundColor: tone }} />
       <span className={`absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full ${accentSideClass}`} style={{ backgroundColor: tone }} />
       <div className={side === "left" ? "pl-2" : "pr-2"}>
-        <p className="text-[0.62rem] uppercase tracking-[0.16em] text-[#786f66]">{caption}</p>
-        <p className="mt-0.5 text-[11px] font-semibold leading-tight text-[#332d28]">{row.label}</p>
-        <p className="text-sm font-bold text-[#15110f]">{value}</p>
+        <p className="measurement-bubble-caption text-[0.62rem] uppercase tracking-[0.16em] text-[#786f66]">{caption}</p>
+        <p className="measurement-bubble-label mt-0.5 text-[11px] font-semibold leading-tight text-[#332d28]">{row.label}</p>
+        <p className="measurement-bubble-value text-sm font-bold text-[#15110f]">{value}</p>
       </div>
     </div>
   );
