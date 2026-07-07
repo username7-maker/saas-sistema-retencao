@@ -280,6 +280,9 @@ class TestBodyCompositionDelivery:
             ai_training_focus_json={"primary_goal": "reducao_de_gordura"},
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -329,6 +332,9 @@ class TestBodyCompositionDelivery:
             },
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -357,6 +363,9 @@ class TestBodyCompositionDelivery:
             ai_training_focus_json={"primary_goal": "reducao_de_gordura", "secondary_goal": "preservacao_de_massa_magra"},
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -440,6 +449,7 @@ class TestBodyCompositionPremiumReportDomain:
             evaluation_date=date(2026, 3, 10),
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             body_fat_percent=25.0,
+            body_fat_used_percent=25.0,
             muscle_mass_kg=35.2,
             weight_kg=85.4,
             visceral_fat_level=10.0,
@@ -451,6 +461,7 @@ class TestBodyCompositionPremiumReportDomain:
             evaluation_date=date(2026, 4, 14),
             measured_at=datetime(2026, 4, 14, 12, 0, tzinfo=UTC),
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
             muscle_mass_kg=35.6,
             weight_kg=84.5,
             visceral_fat_level=9.0,
@@ -461,7 +472,7 @@ class TestBodyCompositionPremiumReportDomain:
         insights = generate_body_composition_insights(current, [previous, current])
 
         assert any(insight.key == "fat_down_muscle_stable" for insight in insights)
-        assert any(any("% gordura variou" in reason for reason in insight.reasons) for insight in insights)
+        assert any(any("gordura estimada variou" in reason for reason in insight.reasons) for insight in insights)
 
     def test_build_report_payload_exposes_history_and_comparison(self):
         member = SimpleNamespace(
@@ -477,6 +488,9 @@ class TestBodyCompositionPremiumReportDomain:
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             weight_kg=85.7,
             body_fat_percent=24.8,
+            body_fat_used_percent=24.8,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             body_fat_kg=20.2,
             muscle_mass_kg=35.1,
             skeletal_muscle_kg=34.7,
@@ -497,6 +511,9 @@ class TestBodyCompositionPremiumReportDomain:
             height_cm=178.0,
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             body_fat_kg=19.4,
             body_water_kg=43.3,
             protein_kg=17.7,
@@ -528,9 +545,15 @@ class TestBodyCompositionPremiumReportDomain:
         assert payload.header.member_name == "Erick Bedin"
         assert payload.previous_evaluation_id == previous.id
         assert len(payload.primary_cards) == 6
+        composition_keys = {metric.key for metric in payload.composition_metrics}
+        assert "body_water_percent" in composition_keys
+        assert "skeletal_muscle_kg" in composition_keys
+        body_water_percent = next(metric for metric in payload.composition_metrics if metric.key == "body_water_percent")
+        assert body_water_percent.formatted_value == "51.2%"
         assert len(payload.history_series) == 4
         assert any(row.key == "weight_kg" for row in payload.comparison_rows)
         assert payload.methodological_note
+        assert "bioimpedancia" in payload.methodological_note.lower()
 
 
 class TestSyncLookup:
@@ -613,6 +636,7 @@ class TestBodyCompositionReportRoute:
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             weight_kg=85.7,
             body_fat_percent=24.8,
+            body_fat_used_percent=24.8,
             muscle_mass_kg=35.1,
             visceral_fat_level=10.0,
             bmi=27.1,
@@ -627,6 +651,7 @@ class TestBodyCompositionReportRoute:
             height_cm=178.0,
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
             body_fat_kg=19.4,
             muscle_mass_kg=35.6,
             skeletal_muscle_kg=35.0,

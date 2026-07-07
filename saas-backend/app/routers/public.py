@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+import secrets
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
@@ -141,7 +142,8 @@ def _require_public_shared_token(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Endpoint publico '{endpoint_name}' exige token compartilhado configurado.",
         )
-    if not provided_token or provided_token.strip() != expected:
+    received = (provided_token or "").strip()
+    if not received or not secrets.compare_digest(received, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token publico invalido")
 
 
@@ -298,7 +300,13 @@ def public_whatsapp_webhook(
     authorization: str | None = Header(default=None),
 ) -> PublicWhatsappWebhookResponse:
     provided_token = x_webhook_token or _extract_bearer_token(authorization)
-    if not settings.whatsapp_webhook_token or provided_token != settings.whatsapp_webhook_token:
+    configured_token = (settings.whatsapp_webhook_token or "").strip()
+    received_token = (provided_token or "").strip()
+    if (
+        not configured_token
+        or not received_token
+        or not secrets.compare_digest(received_token, configured_token)
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Webhook token invalido")
 
     result = handle_incoming_whatsapp_webhook(db, payload)

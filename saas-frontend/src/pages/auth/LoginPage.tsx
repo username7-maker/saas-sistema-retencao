@@ -45,15 +45,23 @@ function AuthField({
   );
 }
 
+function normalizeTextInput(value: unknown) {
+  return String(value ?? "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim();
+}
+
+const normalizedTextField = z.preprocess(normalizeTextInput, z.string());
+
 const loginSchema = z.object({
-  gym_slug: z.string().min(3, "Informe o slug da academia"),
-  email: z.string().email("Informe um e-mail valido"),
+  gym_slug: normalizedTextField.pipe(z.string().min(3, "Informe o slug da academia")),
+  email: normalizedTextField.pipe(z.string().email("Informe um e-mail valido")),
   password: z.string().min(8, "Minimo de 8 caracteres"),
 });
 
 const forgotSchema = z.object({
-  gym_slug: z.string().min(3, "Informe o slug da academia"),
-  email: z.string().email("Informe um e-mail valido"),
+  gym_slug: normalizedTextField.pipe(z.string().min(3, "Informe o slug da academia")),
+  email: normalizedTextField.pipe(z.string().email("Informe um e-mail valido")),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -83,6 +91,7 @@ export function LoginPage() {
   });
 
   const onSubmit = async (values: LoginFormValues) => {
+    loginForm.clearErrors("root");
     try {
       const currentUser = await login(values);
       const from = (location.state as { from?: string } | null)?.from;
@@ -142,7 +151,7 @@ export function LoginPage() {
           <form className="mt-7 space-y-4" onSubmit={loginForm.handleSubmit(onSubmit)}>
             <AuthField label="Academia (slug)" error={loginForm.formState.errors.gym_slug?.message}>
               <Input
-                {...loginForm.register("gym_slug")}
+                {...loginForm.register("gym_slug", { onChange: () => loginForm.clearErrors("root") })}
                 type="text"
                 placeholder="academia-centro"
                 className="h-12 rounded-2xl bg-white/[0.04]"
@@ -151,7 +160,7 @@ export function LoginPage() {
 
             <AuthField label="E-mail" error={loginForm.formState.errors.email?.message}>
               <Input
-                {...loginForm.register("email")}
+                {...loginForm.register("email", { onChange: () => loginForm.clearErrors("root") })}
                 type="email"
                 placeholder="gestor@academia.com"
                 className="h-12 rounded-2xl bg-white/[0.04]"
@@ -172,7 +181,7 @@ export function LoginPage() {
               }
             >
               <Input
-                {...loginForm.register("password")}
+                {...loginForm.register("password", { onChange: () => loginForm.clearErrors("root") })}
                 type="password"
                 placeholder="••••••••"
                 className="h-12 rounded-2xl bg-white/[0.04]"

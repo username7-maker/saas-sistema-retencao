@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -6,8 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import RoleEnum
-from app.routers.users import create_user_endpoint
-from app.schemas import UserRegister
+from app.routers.users import AdminUserCreate, create_user_endpoint
 
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -24,10 +24,11 @@ def _current_user(role: RoleEnum):
 
 
 def _payload(role: RoleEnum):
-    return UserRegister(
+    return AdminUserCreate(
         full_name="Novo Usuario",
         email="novo@example.com",
         password="Secret123!",
+        password_setup="manual",
         role=role,
     )
 
@@ -55,7 +56,11 @@ def test_manager_can_create_trainer(mock_create_user, mock_log_audit) -> None:
         email="trainer@example.com",
         role=RoleEnum.TRAINER,
         is_active=True,
-        created_at=None,
+        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        job_title=None,
+        work_shift=None,
+        work_shift_scope=None,
+        avatar_url=None,
     )
     mock_create_user.return_value = created
 
@@ -66,6 +71,7 @@ def test_manager_can_create_trainer(mock_create_user, mock_log_audit) -> None:
         _current_user(RoleEnum.MANAGER),
     )
 
-    assert result is created
+    assert result.id == NEW_USER_ID
+    assert result.role == RoleEnum.TRAINER
     db.commit.assert_called_once()
     mock_log_audit.assert_called_once()

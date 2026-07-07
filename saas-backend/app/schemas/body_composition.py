@@ -28,12 +28,23 @@ OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 BodyCompositionSex = Literal["male", "female"]
+BodyFatMeasurementSource = Literal["bioimpedance", "manual_anthropometry", "composite_geneos", "manual_override"]
+PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]
+BodyFatUsedSource = Literal["bioimpedance", "anthropometry", "manual_override"]
+BodyFatMethod = Literal["legacy_bioimpedance", "navy_circumference", "rfm", "geneos_composite", "manual_override"]
+BodyFatConfidence = Literal["high", "medium_high", "medium", "low", "inconsistent"]
 BodyCompositionDataQualityFlag = Literal[
     "missing_body_fat_percent",
     "missing_muscle_mass",
     "suspect_bmi",
     "ocr_low_confidence",
     "manually_review_required",
+    "anthropometry_incomplete",
+    "body_fat_source_divergence",
+    "anthropometry_needs_review",
+    "anthropometry_inconsistent",
+    "impossible_measurement_value",
+    "abnormal_measurement_variation",
 ]
 BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
 BodyCompositionRangeStatus = Literal["low", "adequate", "high", "unknown"]
@@ -106,7 +117,21 @@ class BodyCompositionEvaluationBase(BaseModel):
     height_cm: float | None = Field(default=None, ge=100, le=250)
     weight_kg: float | None = Field(default=None, gt=0)
     body_fat_kg: float | None = Field(default=None)
+    # Raw/legacy bioimpedance value. Product surfaces must use body_fat_used_percent.
     body_fat_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_bioimpedance_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_anthropometric_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_manual_override_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_used_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_used_source: BodyFatUsedSource | None = None
+    body_fat_method: BodyFatMethod | None = None
+    body_fat_confidence: BodyFatConfidence | None = None
+    body_fat_range_min: float | None = Field(default=None, ge=0, le=75)
+    body_fat_range_max: float | None = Field(default=None, ge=0, le=75)
+    preferred_body_fat_source: PreferredBodyFatSource | None = None
+    measurement_source: BodyFatMeasurementSource | None = None
+    fat_mass_estimated_kg: float | None = Field(default=None)
+    lean_mass_estimated_kg: float | None = Field(default=None)
     waist_hip_ratio: float | None = Field(default=None, ge=0)
     fat_free_mass_kg: float | None = Field(default=None)
     inorganic_salt_kg: float | None = Field(default=None)
@@ -120,6 +145,26 @@ class BodyCompositionEvaluationBase(BaseModel):
     visceral_fat_level: float | None = Field(default=None, ge=0, le=30)
     bmi: float | None = Field(default=None, ge=5, le=80)
     basal_metabolic_rate_kcal: float | None = Field(default=None)
+    neck_cm: float | None = Field(default=None, gt=0)
+    shoulders_cm: float | None = Field(default=None, gt=0)
+    chest_cm: float | None = Field(default=None, gt=0)
+    waist_cm: float | None = Field(default=None, gt=0)
+    abdomen_cm: float | None = Field(default=None, gt=0)
+    hip_cm: float | None = Field(default=None, gt=0)
+    right_arm_relaxed_cm: float | None = Field(default=None, gt=0)
+    left_arm_relaxed_cm: float | None = Field(default=None, gt=0)
+    right_arm_flexed_cm: float | None = Field(default=None, gt=0)
+    left_arm_flexed_cm: float | None = Field(default=None, gt=0)
+    right_thigh_cm: float | None = Field(default=None, gt=0)
+    left_thigh_cm: float | None = Field(default=None, gt=0)
+    right_calf_cm: float | None = Field(default=None, gt=0)
+    left_calf_cm: float | None = Field(default=None, gt=0)
+    anthropometry_notes: str | None = None
+    body_fat_manual_review_required: bool = False
+    body_fat_manual_review_completed: bool = False
+    anthropometry_review_completed: bool = False
+    measurement_protocol: str | None = None
+    evaluated_by_user_id: UUID | None = None
     target_weight_kg: float | None = Field(default=None)
     weight_control_kg: float | None = Field(default=None)
     muscle_control_kg: float | None = Field(default=None)
@@ -255,6 +300,35 @@ class BodyCompositionReferenceMetricRead(BaseModel):
     hint: str | None = None
 
 
+class BodyCompositionBodyFatContextRead(BaseModel):
+    bioimpedance_raw_percent: float | None = None
+    anthropometric_percent: float | None = None
+    used_percent: float | None = None
+    used_source: BodyFatUsedSource | None = None
+    preferred_source: PreferredBodyFatSource | None = None
+    method: BodyFatMethod | None = None
+    confidence: BodyFatConfidence | None = None
+    range_min: float | None = None
+    range_max: float | None = None
+    difference_between_sources: float | None = None
+    manual_review_required: bool = False
+    manual_review_completed: bool = False
+    quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
+
+
+class BodyCompositionMeasurementRowRead(BaseModel):
+    key: str
+    label: str
+    current_value: float | None = None
+    previous_value: float | None = None
+    delta: float | None = None
+    unit: str = "cm"
+    used_for_body_fat_calculation: bool = False
+    formatted_current: str
+    formatted_previous: str
+    formatted_delta: str
+
+
 class BodyCompositionComparisonRowRead(BaseModel):
     key: str
     label: str
@@ -297,6 +371,8 @@ class BodyCompositionReportRead(BaseModel):
     reviewed_manually: bool
     parsing_confidence: float | None = None
     data_quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
+    body_fat_context: BodyCompositionBodyFatContextRead | None = None
+    measurement_rows: list[BodyCompositionMeasurementRowRead] = Field(default_factory=list)
     primary_cards: list[BodyCompositionMetricCardRead] = Field(default_factory=list)
     composition_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
     muscle_fat_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)

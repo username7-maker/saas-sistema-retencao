@@ -59,6 +59,7 @@ from app.routers import (
     kommo,
     lgpd,
     members,
+    method_os,
     movement_video,
     notifications,
     nps,
@@ -215,6 +216,7 @@ async def correlation_id_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
+app.include_router(method_os.router, prefix=settings.api_prefix)
 app.include_router(assessment_appointments.router, prefix=settings.api_prefix)
 app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)

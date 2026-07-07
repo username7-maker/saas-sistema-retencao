@@ -161,6 +161,7 @@ def dispatch_whatsapp_agent_response(
 def send_agent_reply_from_service_token(
     db: Session,
     *,
+    gym_id: UUID,
     recipient_phone: str,
     message: str,
     instance: str | None = None,
@@ -169,6 +170,7 @@ def send_agent_reply_from_service_token(
 ) -> MessageLog:
     return send_whatsapp_sync(
         db,
+        gym_id=gym_id,
         phone=recipient_phone,
         message=message,
         instance=instance,

@@ -191,9 +191,11 @@ def _build_message_log(
     direction: str | None,
     event_type: str | None,
     provider_message_id: str | None,
+    gym_id: UUID | None = None,
 ) -> tuple[str, MessageLog]:
     formatted_phone = _format_phone(phone)
     log_entry = MessageLog(
+        gym_id=gym_id,
         member_id=member_id,
         lead_id=lead_id,
         automation_rule_id=automation_rule_id,
@@ -436,6 +438,7 @@ def send_whatsapp_sync(
     *,
     phone: str,
     message: str,
+    gym_id: UUID | None = None,
     instance: str | None = None,
     member_id: UUID | None = None,
     lead_id: UUID | None = None,
@@ -456,6 +459,7 @@ def send_whatsapp_sync(
         direction=direction,
         event_type=event_type,
         provider_message_id=provider_message_id,
+        gym_id=gym_id,
     )
     resolved = resolve_instance(instance)
 

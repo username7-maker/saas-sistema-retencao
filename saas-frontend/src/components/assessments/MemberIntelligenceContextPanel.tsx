@@ -173,7 +173,7 @@ export function MemberIntelligenceContextPanel({
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <InfoTile label="Avaliacoes" value={`${context.assessment.assessments_total}`} />
               <InfoTile label="Bioimpedancias" value={`${context.assessment.body_composition_total}`} />
-              <InfoTile label="% gordura" value={safeValue(context.assessment.latest_body_fat_percent)} />
+              <InfoTile label="Gordura estimada" value={safeValue(context.assessment.latest_body_fat_percent)} />
             </div>
             <p className="mt-3 text-xs text-lovable-ink-muted">
               Massa muscular: {safeValue(context.assessment.latest_muscle_mass_kg)} kg - Peso: {safeValue(context.assessment.latest_weight_kg)} kg.

@@ -43,6 +43,18 @@ from app.models.member_consent_record import MemberConsentRecord
 from app.models.member_note import MemberNote
 from app.models.member_risk_history import MemberRiskHistory
 from app.models.message_log import MessageLog
+from app.models.method_os import (
+    ClientMethodConfig,
+    HumanAction,
+    ImportBatch,
+    MethodReport,
+    OperationalEvent,
+    OperationalTask,
+    Outcome,
+    Person,
+    Segment,
+    SegmentPlaybook,
+)
 from app.models.movement_video import MovementVideoReview
 from app.models.nps_response import NPSResponse
 from app.models.nurturing_sequence import NurturingSequence
@@ -77,12 +89,15 @@ __all__ = [
     "Checkin",
     "CheckinSource",
     "ChurnType",
+    "ClientMethodConfig",
     "DiagnosisError",
     "FinancialEntry",
     "Goal",
     "Gym",
     "GymAutopilotSettings",
     "InAppNotification",
+    "HumanAction",
+    "ImportBatch",
     "KommoDomainRoute",
     "KommoFileAttachment",
     "KommoMemberDomainLink",
@@ -99,6 +114,7 @@ __all__ = [
     "MemberRiskHistory",
     "MemberStatus",
     "MessageLog",
+    "MethodReport",
     "MovementVideoReview",
     "NPSResponse",
     "NurturingSequence",
@@ -106,10 +122,16 @@ __all__ = [
     "NPSTrigger",
     "ObjectionResponse",
     "OnboardingStatus",
+    "OperationalEvent",
+    "OperationalTask",
+    "Outcome",
+    "Person",
     "RiskAlert",
     "RiskRecalculationRequest",
     "RiskLevel",
     "RoleEnum",
+    "Segment",
+    "SegmentPlaybook",
     "Task",
     "TaskEvent",
     "TaskPriority",

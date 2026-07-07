@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-07-07 - Composicao Corporal por Medidas 09.18
+Fase 09.18 aberta para transformar `body_fat_used_percent` na fonte oficial de gordura corporal nos cards, relatorio web, PDF, IA, WhatsApp e Kommo. `body_fat_percent` permanece legado/bruto para OCR, compatibilidade e Actuar. A V1 adiciona antropometria dentro da Bioimpedancia v2 existente, sem criar modulo paralelo e sem enviar novos campos de perimetria para Actuar.
+
+Atualizacao pos-auditoria: paridade funcional V1 com o processo de perimetria foi registrada em `.planning/phases/09.18-body-composition-anthropometry-v1/ACTUAR-PARITY-AUDIT.md`. `manual_override` agora tem fonte rastreavel propria, snapshots de IA pessoal nao expõem `body_fat_percent` como campo oficial ambiguo, e a superficie de Bioimpedancia v2 teve alertas/pills alinhados ao dark mode. O formulario tambem ganhou checklist de protocolo por sexo e comparativo bilateral de perimetria antes de salvar.
+
+## 2026-06-22 - Correcao de escopo do relatorio de bioimpedancia
+Escopo ajustado apos revisao do usuario: nao criar modulo separado de leitura estrategica sem foto. A necessidade imediata e enriquecer o relatorio existente de bioimpedancia com campos que aparecem no comprovante/video, preservando o fluxo atual de avaliacao.
+
 ## 2026-05-28 - User Avatar And Team Identity Upload 04.35
 Fase 04.35 reaberta e publicada no piloto apos a 09.15/4.34. O foco foi identidade de equipe: upload real de avatar como caminho principal, cargo/foto como informacao de exibicao e `role` como permissao. Decisao V1: manter persistencia no campo `users.avatar_url` em data URL enquanto o piloto nao possui object storage/volume persistente dedicado para uploads da API; URL manual virou fallback, nao caminho principal. Validacao: Spec Kit OK, backend 18 passed, frontend focado 10 passed, lint/build OK. Publicado com Vercel `dpl_6qt2W98qVm4ZLWvABMSme1ofM3WH`, Railway API `f050c8a7-9ccf-4bb5-82fe-f4e271e42eb9` e worker `c240b7bf-4c10-48ba-9bc2-b70aa144282d`; smoke `/settings`, API health e logs pos-deploy OK.
 

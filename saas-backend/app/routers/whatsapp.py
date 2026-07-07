@@ -2,6 +2,7 @@
 Endpoints de gerenciamento da conexao WhatsApp por academia.
 """
 import logging
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -12,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import require_roles
-from app.database import get_db
-from app.models import RoleEnum, User
+from app.database import get_db, set_current_gym_id
+from app.models import Lead, Member, RoleEnum, User
 from app.schemas.core_async_job import CoreAsyncJobStatusRead
 from app.models.gym import Gym
 from app.services.core_async_job_service import (
@@ -53,7 +54,7 @@ class QRCodeOut(BaseModel):
 
 
 class WhatsAppAgentReplyIn(BaseModel):
-    gym_id: UUID | None = None
+    gym_id: UUID
     recipient_phone: str
     message: str
     instance: str | None = None
@@ -120,8 +121,48 @@ def _verify_agent_service_token(
 ) -> None:
     configured_token = (settings.cordex_agent_service_token or "").strip()
     provided_token = x_cordex_agent_token or _extract_bearer_token(authorization)
-    if not configured_token or provided_token != configured_token:
+    if (
+        not configured_token
+        or not provided_token
+        or not secrets.compare_digest(provided_token, configured_token)
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid agent service token")
+
+
+def _validate_agent_reply_scope(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID | None,
+    lead_id: UUID | None,
+) -> None:
+    if member_id is not None:
+        member = db.scalar(
+            select(Member).where(
+                Member.id == member_id,
+                Member.gym_id == gym_id,
+                Member.deleted_at.is_(None),
+            )
+        )
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Member not found for the informed gym",
+            )
+
+    if lead_id is not None:
+        lead = db.scalar(
+            select(Lead).where(
+                Lead.id == lead_id,
+                Lead.gym_id == gym_id,
+                Lead.deleted_at.is_(None),
+            )
+        )
+        if lead is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lead not found for the informed gym",
+            )
 
 
 @router.post("/connect", response_model=QRCodeOut)
@@ -276,9 +317,18 @@ def whatsapp_agent_reply(
     if (settings.whatsapp_agent_mode or "").strip().lower() != "active":
         return WhatsAppAgentReplyOut(status="skipped", detail="WhatsApp agent is not active")
 
+    set_current_gym_id(payload.gym_id)
+    _get_gym(db, payload.gym_id)
+    _validate_agent_reply_scope(
+        db,
+        gym_id=payload.gym_id,
+        member_id=payload.member_id,
+        lead_id=payload.lead_id,
+    )
     instance = payload.instance or get_gym_instance(db, payload.gym_id)
     log_entry = send_agent_reply_from_service_token(
         db,
+        gym_id=payload.gym_id,
         recipient_phone=payload.recipient_phone,
         message=payload.message,
         instance=instance,
@@ -298,7 +348,11 @@ async def whatsapp_webhook(
 ) -> dict:
     configured_token = (settings.whatsapp_webhook_token or "").strip()
     provided_token = x_webhook_token or _extract_bearer_token(authorization)
-    if not configured_token or provided_token != configured_token:
+    if (
+        not configured_token
+        or not provided_token
+        or not secrets.compare_digest(provided_token, configured_token)
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook token")
 
     body = await request.json()
@@ -313,6 +367,8 @@ async def whatsapp_webhook(
     if not gym:
         logger.warning("Webhook para instancia desconhecida: %s", instance_name)
         return {"ok": True}
+
+    set_current_gym_id(gym.id)
 
     if event in ("CONNECTION_UPDATE", "STATUS_INSTANCE"):
         state = data.get("state") or data.get("status", "")

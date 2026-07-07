@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-07-07 - Percentual Oficial por Medidas
+Para Bioimpedancia v2, `body_fat_percent` deixa de ser fonte oficial e fica como campo bruto/legado de bioimpedancia, OCR, compatibilidade e Actuar. O produto deve usar `body_fat_used_percent` em cards principais, relatorio web, PDF, IA, WhatsApp e Kommo. Antropometria entra no fluxo existente, sem copiar Actuar, sem modulo paralelo, sem diagnostico clinico e sem usar bracos, coxas, panturrilhas, torax ou ombros como entrada direta do calculo de gordura.
+
+Complemento: `manual_override` e uma fonte explicita e rastreavel, nao uma variacao silenciosa de antropometria. Snapshots de IA devem expor `body_fat_used_percent` e `body_fat_bioimpedance_raw_percent`, mas nao devem apresentar `body_fat_percent` como campo generico.
+
+## 2026-06-22 - Bioimpedancia: relatorio primeiro, sem novo modulo
+A referencia do video/comprovante deve alimentar o relatorio de bioimpedancia existente com campos reais do exame. Nao criar uma nova superficie de leitura estrategica para esta correcao; qualquer evolucao de IA para avaliacao fisica precisa de escopo proprio e revisao antes de entrar na UI.
+
 ## 2026-05-28 - Avatar Upload V1 Usa Persistencia Em Banco
 Para a Phase 4.35, o caminho principal de avatar passa a ser upload de arquivo multipart. Na V1, o arquivo continua persistido como data URL em `users.avatar_url`, porque o piloto nao tem object storage nem volume persistente dedicado para uploads da API. URL manual permanece apenas como compatibilidade/fallback, nao como experiencia principal.
 

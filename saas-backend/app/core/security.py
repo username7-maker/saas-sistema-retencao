@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -23,11 +25,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def hash_refresh_token(refresh_token: str) -> str:
-    return hash_password(refresh_token)
+    digest = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+    return f"sha256${digest}"
 
 
 def verify_refresh_token(refresh_token: str, hashed_token: str) -> bool:
-    return verify_password(refresh_token, hashed_token)
+    expected_hash = hash_refresh_token(refresh_token)
+    return secrets.compare_digest(expected_hash, hashed_token)
 
 
 def _encode_token(payload: dict[str, Any], expires_delta: timedelta) -> str:
@@ -56,7 +60,12 @@ def create_access_token(
 
 
 def create_refresh_token(user_id: UUID, gym_id: UUID) -> str:
-    payload = {"sub": str(user_id), "gym_id": str(gym_id), "type": "refresh"}
+    payload = {
+        "sub": str(user_id),
+        "gym_id": str(gym_id),
+        "type": "refresh",
+        "jti": secrets.token_hex(16),
+    }
     return _encode_token(payload, timedelta(days=settings.refresh_token_expire_days))
 
 

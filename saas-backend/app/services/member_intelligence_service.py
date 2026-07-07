@@ -325,7 +325,9 @@ def build_lead_to_member_intelligence_context(
             latest_assessment_at=_as_aware_datetime(getattr(latest_assessment, "assessment_date", None)),
             body_composition_total=body_composition_total,
             latest_body_composition_at=latest_body_at,
-            latest_body_fat_percent=_to_float(getattr(latest_body_composition, "body_fat_percent", None)),
+            latest_body_fat_percent=_to_float(
+                getattr(latest_body_composition, "body_fat_used_percent", None)
+            ),
             latest_muscle_mass_kg=_to_float(
                 getattr(latest_body_composition, "skeletal_muscle_kg", None)
                 or getattr(latest_body_composition, "muscle_mass_kg", None)

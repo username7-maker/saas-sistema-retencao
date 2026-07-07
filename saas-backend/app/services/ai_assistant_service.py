@@ -440,7 +440,12 @@ def _body_change_summary(
 
     deltas: list[str] = []
     weight_delta = _delta_text(evaluation.weight_kg, previous_evaluation.weight_kg, "peso", "kg")
-    fat_delta = _delta_text(evaluation.body_fat_percent, previous_evaluation.body_fat_percent, "gordura", "pp")
+    fat_delta = _delta_text(
+        getattr(evaluation, "body_fat_used_percent", None),
+        getattr(previous_evaluation, "body_fat_used_percent", None),
+        "gordura estimada",
+        "pp",
+    )
     muscle_delta = _delta_text(
         evaluation.skeletal_muscle_kg or evaluation.muscle_mass_kg,
         previous_evaluation.skeletal_muscle_kg or previous_evaluation.muscle_mass_kg,

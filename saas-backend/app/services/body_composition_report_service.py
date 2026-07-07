@@ -6,16 +6,23 @@ from typing import Any, Sequence
 from app.models import Member
 from app.models.body_composition import BodyCompositionEvaluation
 from app.schemas.body_composition import (
+    BodyCompositionBodyFatContextRead,
     BodyCompositionComparisonRowRead,
     BodyCompositionDataQualityFlag,
     BodyCompositionHistoryPointRead,
     BodyCompositionHistorySeriesRead,
     BodyCompositionInsightRead,
+    BodyCompositionMeasurementRowRead,
     BodyCompositionMetricCardRead,
     BodyCompositionRangeStatus,
     BodyCompositionReferenceMetricRead,
     BodyCompositionReportHeaderRead,
     BodyCompositionReportRead,
+)
+from app.services.body_composition_anthropometry_service import (
+    ANTHROPOMETRY_CALCULATION_FIELDS,
+    ANTHROPOMETRY_EVOLUTION_FIELDS,
+    resolve_body_fat_fields,
 )
 from app.services.premium_report_service import (
     PremiumReportAction,
@@ -32,7 +39,9 @@ from app.services.premium_report_service import (
 
 METHODOLOGICAL_NOTE = (
     "Comparacoes historicas sao mais confiaveis quando as medicoes sao feitas em condicoes "
-    "semelhantes de hidratacao, alimentacao, exercicio e horario."
+    "semelhantes de hidratacao, alimentacao, exercicio e horario. O percentual de gordura oficial "
+    "pode ser uma estimativa por medidas manuais quando configurado pelo profissional. Ele nao "
+    "substitui avaliacao clinica; a bioimpedancia bruta permanece registrada como dado do exame."
 )
 
 _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
@@ -45,6 +54,11 @@ _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "weight_kg": (20.0, 220.0),
     "skeletal_muscle_kg": (15.0, 45.0),
     "body_fat_percent": (10.0, 25.0),
+    "body_fat_bioimpedance_percent": (10.0, 25.0),
+    "body_fat_anthropometric_percent": (10.0, 25.0),
+    "body_fat_used_percent": (10.0, 25.0),
+    "fat_mass_estimated_kg": (5.0, 30.0),
+    "lean_mass_estimated_kg": (35.0, 90.0),
     "visceral_fat_level": (1.0, 12.0),
     "waist_hip_ratio": (0.7, 0.95),
     "health_score": (70.0, 100.0),
@@ -52,7 +66,7 @@ _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
 
 _CARD_DEFS = (
     ("weight_kg", "Peso", "kg"),
-    ("body_fat_percent", "% gordura corporal", "%"),
+    ("body_fat_used_percent", "Gordura corporal estimada", "%"),
     ("visceral_fat_level", "Gordura visceral", None),
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("bmi", "IMC", None),
@@ -60,23 +74,31 @@ _CARD_DEFS = (
 )
 
 _COMPOSITION_DEFS = (
+    ("body_fat_used_percent", "Gordura corporal estimada", "%"),
+    ("body_fat_bioimpedance_percent", "Gordura corporal bruta da bioimpedancia", "%"),
+    ("body_fat_anthropometric_percent", "Gordura estimada por medidas", "%"),
+    ("fat_mass_estimated_kg", "Massa de gordura estimada", "kg"),
+    ("lean_mass_estimated_kg", "Massa livre de gordura estimada", "kg"),
     ("body_water_kg", "Agua corporal", "kg"),
+    ("body_water_percent", "Agua corporal (%)", "%"),
     ("protein_kg", "Proteina", "kg"),
     ("inorganic_salt_kg", "Minerais", "kg"),
     ("body_fat_kg", "Massa de gordura", "kg"),
     ("fat_free_mass_kg", "Massa livre de gordura", "kg"),
     ("muscle_mass_kg", "Massa muscular", "kg"),
+    ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
 )
 
 _MUSCLE_FAT_DEFS = (
     ("weight_kg", "Peso total", "kg"),
     ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
-    ("body_fat_kg", "Gordura corporal", "kg"),
+    ("fat_mass_estimated_kg", "Massa de gordura estimada", "kg"),
+    ("body_fat_kg", "Massa de gordura bruta da bioimpedancia", "kg"),
 )
 
 _RISK_DEFS = (
     ("bmi", "IMC", None),
-    ("body_fat_percent", "% gordura", "%"),
+    ("body_fat_used_percent", "Gordura corporal estimada", "%"),
     ("visceral_fat_level", "Gordura visceral", None),
     ("waist_hip_ratio", "Relacao cintura-quadril", None),
     ("health_score", "Health score", None),
@@ -92,7 +114,7 @@ _GOAL_DEFS = (
 
 _COMPARISON_DEFS = (
     ("weight_kg", "Peso", "kg"),
-    ("body_fat_percent", "% gordura", "%"),
+    ("body_fat_used_percent", "Gordura estimada", "%"),
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("visceral_fat_level", "Gordura visceral", None),
     ("bmi", "IMC", None),
@@ -101,7 +123,7 @@ _COMPARISON_DEFS = (
 
 _HISTORY_DEFS = (
     ("weight_kg", "Peso", "kg"),
-    ("body_fat_percent", "% gordura", "%"),
+    ("body_fat_used_percent", "Gordura estimada", "%"),
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("visceral_fat_level", "Gordura visceral", None),
 )
@@ -114,7 +136,7 @@ def build_body_composition_quality_flags(
     needs_review: bool = False,
 ) -> list[BodyCompositionDataQualityFlag]:
     flags: list[BodyCompositionDataQualityFlag] = []
-    body_fat_percent = _read_float(values, "body_fat_percent")
+    body_fat_percent = _read_metric_float(values, "body_fat_used_percent")
     muscle_mass = _read_float(values, "muscle_mass_kg")
     bmi = _read_float(values, "bmi")
 
@@ -135,6 +157,7 @@ def resolve_body_composition_persistence_fields(
     values: dict[str, Any],
     *,
     reviewer_user_id: Any = None,
+    previous_evaluation: Any | None = None,
 ) -> dict[str, Any]:
     data = dict(values)
     calculated_body_water_percent = calculate_body_water_percent(
@@ -154,6 +177,8 @@ def resolve_body_composition_persistence_fields(
     if lean_mass is None and fat_free_mass is not None:
         data["lean_mass_kg"] = fat_free_mass
 
+    data = resolve_body_fat_fields(data, previous_values=previous_evaluation)
+
     measured_at = data.get("measured_at")
     evaluation_date = data.get("evaluation_date")
     if measured_at is None and evaluation_date is not None:
@@ -172,14 +197,16 @@ def resolve_body_composition_persistence_fields(
     reviewed_manually = bool(data.get("reviewed_manually", False))
     if reviewed_manually and reviewer_user_id:
         data["reviewer_user_id"] = reviewer_user_id
+        data.setdefault("evaluated_by_user_id", reviewer_user_id)
     elif not reviewed_manually:
         data["reviewer_user_id"] = None
 
-    data["data_quality_flags_json"] = build_body_composition_quality_flags(
+    anthropometry_flags = list(data.get("data_quality_flags_json") or [])
+    data["data_quality_flags_json"] = list(dict.fromkeys(anthropometry_flags + build_body_composition_quality_flags(
         data,
         parsing_confidence=parsing_confidence,
         needs_review=needs_review or not reviewed_manually,
-    )
+    )))
     return data
 
 
@@ -223,6 +250,8 @@ def build_body_composition_report_read(
         reviewed_manually=bool(getattr(evaluation, "reviewed_manually", False)),
         parsing_confidence=_read_float(evaluation, "parsing_confidence") or _read_float(evaluation, "ocr_confidence"),
         data_quality_flags=list(getattr(evaluation, "data_quality_flags_json", None) or []),
+        body_fat_context=_build_body_fat_context(evaluation),
+        measurement_rows=_build_measurement_rows(evaluation, previous),
         primary_cards=[_build_metric_card(evaluation, previous, key, label, unit) for key, label, unit in _CARD_DEFS],
         composition_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _COMPOSITION_DEFS],
         muscle_fat_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _MUSCLE_FAT_DEFS],
@@ -266,6 +295,11 @@ def build_body_composition_premium_pdf_payload(
         for series in report.history_series
         if any(point.value is not None for point in series.points)
     ]
+    measurement_rows = [
+        [row.label, row.formatted_current, row.formatted_previous, row.formatted_delta]
+        for row in report.measurement_rows
+        if row.current_value is not None or row.previous_value is not None
+    ]
     return PremiumReportPayload(
         report_kind="body_composition",
         report_scope="technical" if technical else "member_summary",
@@ -295,7 +329,7 @@ def build_body_composition_premium_pdf_payload(
             ),
             PremiumReportSection(
                 title="Composicao corporal",
-                subtitle="Leitura estruturada dos compartimentos corporais e indicadores de risco.",
+                subtitle="Leitura estruturada dos compartimentos corporais, fonte oficial da gordura e indicadores de risco.",
                 tables=[
                     PremiumReportTable(
                         title="Composicao corporal",
@@ -316,6 +350,11 @@ def build_body_composition_premium_pdf_payload(
                         title="Objetivo e controle corporal",
                         columns=["Metrica", "Valor", "Faixa", "Status"],
                         rows=[_reference_metric_row(metric) for metric in report.goal_metrics],
+                    ),
+                    PremiumReportTable(
+                        title="Medidas corporais",
+                        columns=["Medida", "Atual", "Anterior", "Variacao"],
+                        rows=measurement_rows or [["Sem medidas manuais", "-", "-", "-"]],
                     ),
                 ],
                 narratives=insight_rows[2:4] if technical else [],
@@ -364,7 +403,7 @@ def generate_body_composition_insights(
             )
         ]
 
-    body_fat_delta = _delta(_read_float(current, "body_fat_percent"), _read_float(previous, "body_fat_percent"))
+    body_fat_delta = _delta(_read_metric_float(current, "body_fat_used_percent"), _read_metric_float(previous, "body_fat_used_percent"))
     muscle_delta = _delta(_read_float(current, "muscle_mass_kg"), _read_float(previous, "muscle_mass_kg"))
     weight_delta = _delta(_read_float(current, "weight_kg"), _read_float(previous, "weight_kg"))
     visceral_current = _read_float(current, "visceral_fat_level")
@@ -378,7 +417,7 @@ def generate_body_composition_insights(
                 message="Houve reducao de gordura corporal sem perda relevante de massa muscular.",
                 tone="positive",
                 reasons=[
-                    f"% gordura variou {body_fat_delta:+.2f} p.p.",
+                    f"gordura estimada variou {body_fat_delta:+.2f} p.p.",
                     f"massa muscular variou {muscle_delta:+.2f} kg." if muscle_delta is not None else "massa muscular sem leitura comparavel.",
                 ],
             )
@@ -409,9 +448,9 @@ def generate_body_composition_insights(
             )
         )
 
-    last_three = [item for item in ordered if _read_float(item, "body_fat_percent") is not None][-3:]
+    last_three = [item for item in ordered if _read_metric_float(item, "body_fat_used_percent") is not None][-3:]
     if len(last_three) >= 3:
-        values = [_read_float(item, "body_fat_percent") for item in last_three]
+        values = [_read_metric_float(item, "body_fat_used_percent") for item in last_three]
         if values[0] is not None and values[1] is not None and values[2] is not None and values[0] >= values[1] >= values[2]:
             insights.append(
                 BodyCompositionInsightRead(
@@ -419,7 +458,7 @@ def generate_body_composition_insights(
                     title="Tendencia positiva nas ultimas avaliacoes",
                     message="As ultimas tres avaliacoes sugerem direcao positiva na reducao de gordura corporal.",
                     tone="positive",
-                    reasons=[f"serie de % gordura: {values[0]:.1f} → {values[1]:.1f} → {values[2]:.1f}."],
+                    reasons=[f"serie de gordura estimada: {values[0]:.1f} -> {values[1]:.1f} -> {values[2]:.1f}."],
                 )
             )
 
@@ -455,6 +494,73 @@ def _resolve_previous_evaluation(
     return previous_items[-1] if previous_items else None
 
 
+def _build_body_fat_context(evaluation: BodyCompositionEvaluation) -> BodyCompositionBodyFatContextRead:
+    raw = _read_metric_float(evaluation, "body_fat_bioimpedance_percent")
+    anthropometric = _read_float(evaluation, "body_fat_anthropometric_percent")
+    used = _read_metric_float(evaluation, "body_fat_used_percent")
+    difference = None
+    if raw is not None and anthropometric is not None:
+        difference = round(anthropometric - raw, 2)
+    return BodyCompositionBodyFatContextRead(
+        bioimpedance_raw_percent=raw,
+        anthropometric_percent=anthropometric,
+        used_percent=used,
+        used_source=getattr(evaluation, "body_fat_used_source", None),
+        preferred_source=getattr(evaluation, "preferred_body_fat_source", None),
+        method=getattr(evaluation, "body_fat_method", None),
+        confidence=getattr(evaluation, "body_fat_confidence", None),
+        range_min=_read_float(evaluation, "body_fat_range_min"),
+        range_max=_read_float(evaluation, "body_fat_range_max"),
+        difference_between_sources=difference,
+        manual_review_required=bool(getattr(evaluation, "body_fat_manual_review_required", False)),
+        manual_review_completed=bool(getattr(evaluation, "body_fat_manual_review_completed", False)),
+        quality_flags=list(getattr(evaluation, "data_quality_flags_json", None) or []),
+    )
+
+
+_MEASUREMENT_LABELS = {
+    "neck_cm": "Pescoco",
+    "waist_cm": "Cintura",
+    "abdomen_cm": "Abdomen",
+    "hip_cm": "Quadril",
+    "shoulders_cm": "Ombros",
+    "chest_cm": "Torax",
+    "right_arm_relaxed_cm": "Braco direito relaxado",
+    "left_arm_relaxed_cm": "Braco esquerdo relaxado",
+    "right_arm_flexed_cm": "Braco direito contraido",
+    "left_arm_flexed_cm": "Braco esquerdo contraido",
+    "right_thigh_cm": "Coxa direita",
+    "left_thigh_cm": "Coxa esquerda",
+    "right_calf_cm": "Panturrilha direita",
+    "left_calf_cm": "Panturrilha esquerda",
+}
+
+
+def _build_measurement_rows(
+    current: BodyCompositionEvaluation,
+    previous: BodyCompositionEvaluation | None,
+) -> list[BodyCompositionMeasurementRowRead]:
+    rows: list[BodyCompositionMeasurementRowRead] = []
+    for key in ANTHROPOMETRY_CALCULATION_FIELDS + ANTHROPOMETRY_EVOLUTION_FIELDS:
+        current_value = _read_float(current, key)
+        previous_value = _read_float(previous, key) if previous else None
+        delta = _delta(current_value, previous_value)
+        rows.append(
+            BodyCompositionMeasurementRowRead(
+                key=key,
+                label=_MEASUREMENT_LABELS.get(key, key),
+                current_value=current_value,
+                previous_value=previous_value,
+                delta=delta,
+                used_for_body_fat_calculation=key in ANTHROPOMETRY_CALCULATION_FIELDS,
+                formatted_current=_format_value(current_value, "cm"),
+                formatted_previous=_format_value(previous_value, "cm"),
+                formatted_delta=_format_delta(delta, None, "cm") if delta is not None else "-",
+            )
+        )
+    return rows
+
+
 def _build_metric_card(
     current: BodyCompositionEvaluation,
     previous: BodyCompositionEvaluation | None,
@@ -462,8 +568,8 @@ def _build_metric_card(
     label: str,
     unit: str | None,
 ) -> BodyCompositionMetricCardRead:
-    current_value = _read_float(current, key)
-    previous_value = _read_float(previous, key) if previous else None
+    current_value = _read_metric_float(current, key)
+    previous_value = _read_metric_float(previous, key) if previous else None
     absolute = _delta(current_value, previous_value)
     percent = _delta_percent(current_value, previous_value)
     return BodyCompositionMetricCardRead(
@@ -484,7 +590,7 @@ def _build_reference_metric(
     label: str,
     unit: str | None,
 ) -> BodyCompositionReferenceMetricRead:
-    value = _read_float(evaluation, key)
+    value = _read_metric_float(evaluation, key)
     reference_min, reference_max = _resolve_reference_range(evaluation, key)
     status = _resolve_range_status(value, reference_min, reference_max)
     return BodyCompositionReferenceMetricRead(
@@ -507,8 +613,8 @@ def _build_comparison_row(
     label: str,
     unit: str | None,
 ) -> BodyCompositionComparisonRowRead:
-    current_value = _read_float(current, key)
-    previous_value = _read_float(previous, key) if previous else None
+    current_value = _read_metric_float(current, key)
+    previous_value = _read_metric_float(previous, key) if previous else None
     absolute = _delta(current_value, previous_value)
     percent = _delta_percent(current_value, previous_value)
     return BodyCompositionComparisonRowRead(
@@ -540,7 +646,7 @@ def _build_history_series(
                 evaluation_id=item.id,
                 measured_at=_measured_at(item),
                 evaluation_date=item.evaluation_date,
-                value=_read_float(item, key),
+                value=_read_metric_float(item, key),
             )
             for item in history
         ],
@@ -554,9 +660,9 @@ def _metric_card_to_premium(card: BodyCompositionMetricCardRead) -> PremiumRepor
     tone = "neutral"
     if card.label in {"Massa muscular", "Metabolismo basal"} and card.trend == "up":
         tone = "positive"
-    if card.label in {"% gordura corporal", "Gordura visceral", "IMC"} and card.trend == "down":
+    if card.label in {"Gordura corporal estimada", "Gordura visceral", "IMC"} and card.trend == "down":
         tone = "positive"
-    elif card.label in {"% gordura corporal", "Gordura visceral", "IMC"} and card.trend == "up":
+    elif card.label in {"Gordura corporal estimada", "Gordura visceral", "IMC"} and card.trend == "up":
         tone = "warning"
     return PremiumReportMetric(card.label, card.formatted_value, hint=delta_hint, tone=tone)
 
@@ -585,11 +691,11 @@ def _build_recommended_actions(report: BodyCompositionReportRead) -> list[Premiu
 
 def _build_cover_summary(report: BodyCompositionReportRead, *, technical: bool) -> str:
     weight = _format_value(report.header.weight_kg, "kg")
-    body_fat = next((card.formatted_value for card in report.primary_cards if card.key == "body_fat_percent"), "-")
+    body_fat = next((card.formatted_value for card in report.primary_cards if card.key == "body_fat_used_percent"), "-")
     muscle = next((card.formatted_value for card in report.primary_cards if card.key == "muscle_mass_kg"), "-")
     if technical:
         return (
-            f"Avaliacao de {report.header.member_name} com peso {weight}, gordura corporal {body_fat} "
+            f"Avaliacao de {report.header.member_name} com peso {weight}, gordura corporal estimada {body_fat} "
             f"e massa muscular {muscle}, organizada para acompanhamento tecnico."
         )
     return (
@@ -615,6 +721,21 @@ def _read_float(item: Any, key: str) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _read_metric_float(item: Any, key: str) -> float | None:
+    if key == "body_fat_used_percent":
+        return _read_float(item, "body_fat_used_percent")
+    if key == "body_fat_bioimpedance_percent":
+        value = _read_float(item, "body_fat_bioimpedance_percent")
+        return value if value is not None else _read_float(item, "body_fat_percent")
+    value = _read_float(item, key)
+    if value is not None or key != "body_water_percent":
+        return value
+    return calculate_body_water_percent(
+        weight_kg=_read_float(item, "weight_kg"),
+        body_water_kg=_read_float(item, "body_water_kg"),
+    )
 
 
 def _measured_at(evaluation: BodyCompositionEvaluation) -> datetime:
@@ -671,6 +792,11 @@ def _resolve_reference_range(
     key: str,
 ) -> tuple[float | None, float | None]:
     stored_ranges = getattr(evaluation, "measured_ranges_json", None) or {}
+    if key == "body_fat_used_percent":
+        body_fat_min = _read_float(evaluation, "body_fat_range_min")
+        body_fat_max = _read_float(evaluation, "body_fat_range_max")
+        if body_fat_min is not None or body_fat_max is not None:
+            return body_fat_min, body_fat_max
     if isinstance(stored_ranges, dict) and isinstance(stored_ranges.get(key), dict):
         raw = stored_ranges[key]
         return _maybe_float(raw.get("min")), _maybe_float(raw.get("max"))

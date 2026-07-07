@@ -25,6 +25,7 @@ import {
   UserSquare2,
   Users,
   Wallet,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -73,6 +74,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/members", label: "Membros", icon: UserSquare2, route: "members" },
       { to: "/assessments", label: "Avaliações", icon: ClipboardList, route: "assessments" },
+      { to: "/method-os", label: "Method OS", icon: Workflow, route: "methodOs" },
       { to: "/crm", label: "CRM", icon: Users, route: "crm" },
       { to: "/ai/triage", label: "Central Cordex", icon: Sparkles, route: "aiTriage" },
       { to: "/ai/review-center", label: "Revisão Cordex", icon: Bot, route: "aiReviewCenter" },

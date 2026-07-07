@@ -301,7 +301,7 @@ def run_automation_rules(db: Session, *, commit: bool = True) -> list[dict]:
                     db.add(log_entry)
                     db.flush()
                 except Exception:
-                    pass
+                    logger.warning("Falha ao persistir log de erro da automacao", exc_info=True)
                 all_results.append(err_result)
 
     if commit:

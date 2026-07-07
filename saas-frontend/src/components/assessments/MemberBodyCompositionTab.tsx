@@ -17,7 +17,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -64,6 +64,7 @@ import {
   resolveCoachSummary,
   resolveMemberSummary,
 } from "./bodyCompositionInterpretation";
+import { calculateAnthropometryPreview } from "./bodyCompositionAnthropometryPreview";
 import { invalidateAssessmentQueries } from "./queryUtils";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
@@ -94,6 +95,10 @@ const nullableSexField = z.preprocess(
   (value) => (value == null || value === "" ? null : value),
   z.enum(["male", "female"]).nullable().optional(),
 );
+const preferredBodyFatSourceField = z.preprocess(
+  (value) => (value == null || value === "" ? null : value),
+  z.enum(["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]).nullable().optional(),
+);
 
 const schema = z.object({
   evaluation_date: z.string().min(1, "Data obrigatoria"),
@@ -103,6 +108,8 @@ const schema = z.object({
   weight_kg: nullableNumberField,
   body_fat_kg: nullableNumberField,
   body_fat_percent: nullableNumberField,
+  body_fat_manual_override_percent: nullableNumberField,
+  preferred_body_fat_source: preferredBodyFatSourceField,
   waist_hip_ratio: nullableNumberField,
   fat_free_mass_kg: nullableNumberField,
   inorganic_salt_kg: nullableNumberField,
@@ -115,6 +122,23 @@ const schema = z.object({
   visceral_fat_level: nullableNumberField,
   bmi: nullableNumberField,
   basal_metabolic_rate_kcal: nullableNumberField,
+  neck_cm: nullableNumberField,
+  shoulders_cm: nullableNumberField,
+  chest_cm: nullableNumberField,
+  waist_cm: nullableNumberField,
+  abdomen_cm: nullableNumberField,
+  hip_cm: nullableNumberField,
+  right_arm_relaxed_cm: nullableNumberField,
+  left_arm_relaxed_cm: nullableNumberField,
+  right_arm_flexed_cm: nullableNumberField,
+  left_arm_flexed_cm: nullableNumberField,
+  right_thigh_cm: nullableNumberField,
+  left_thigh_cm: nullableNumberField,
+  right_calf_cm: nullableNumberField,
+  left_calf_cm: nullableNumberField,
+  anthropometry_notes: z.string().optional().nullable(),
+  body_fat_manual_review_completed: z.boolean().optional(),
+  anthropometry_review_completed: z.boolean().optional(),
   target_weight_kg: nullableNumberField,
   weight_control_kg: nullableNumberField,
   muscle_control_kg: nullableNumberField,
@@ -135,6 +159,7 @@ type NumericFieldKey =
   | "weight_kg"
   | "body_fat_kg"
   | "body_fat_percent"
+  | "body_fat_manual_override_percent"
   | "waist_hip_ratio"
   | "fat_free_mass_kg"
   | "inorganic_salt_kg"
@@ -147,6 +172,20 @@ type NumericFieldKey =
   | "visceral_fat_level"
   | "bmi"
   | "basal_metabolic_rate_kcal"
+  | "neck_cm"
+  | "shoulders_cm"
+  | "chest_cm"
+  | "waist_cm"
+  | "abdomen_cm"
+  | "hip_cm"
+  | "right_arm_relaxed_cm"
+  | "left_arm_relaxed_cm"
+  | "right_arm_flexed_cm"
+  | "left_arm_flexed_cm"
+  | "right_thigh_cm"
+  | "left_thigh_cm"
+  | "right_calf_cm"
+  | "left_calf_cm"
   | "target_weight_kg"
   | "weight_control_kg"
   | "muscle_control_kg"
@@ -162,6 +201,19 @@ interface FieldDef {
   step: string;
   calculated?: boolean;
   description?: string;
+}
+
+interface ProtocolItem {
+  label: string;
+  ready: boolean;
+  description: string;
+}
+
+interface BalanceItem {
+  label: string;
+  right: number;
+  left: number;
+  delta: number;
 }
 
 interface OcrMetadataState {
@@ -223,7 +275,7 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     fields: [
       { key: "weight_kg", label: "Peso (kg)", placeholder: "84.5", step: "0.1" },
       { key: "body_fat_kg", label: "Gordura corporal (kg)", placeholder: "19.46", step: "0.01" },
-      { key: "body_fat_percent", label: "Gordura corporal (%)", placeholder: "23.0", step: "0.1" },
+      { key: "body_fat_percent", label: "Gordura corporal bruta da bioimpedancia (%)", placeholder: "23.0", step: "0.1" },
       { key: "waist_hip_ratio", label: "Relacao cintura-quadril", placeholder: "0.88", step: "0.01" },
       { key: "fat_free_mass_kg", label: "Massa livre de gordura (kg)", placeholder: "65.0", step: "0.1" },
       { key: "lean_mass_kg", label: "Massa magra (legado)", placeholder: "63.0", step: "0.1" },
@@ -240,6 +292,39 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
       },
       { key: "protein_kg", label: "Proteina (kg)", placeholder: "17.7", step: "0.1" },
       { key: "inorganic_salt_kg", label: "Sal inorganico (kg)", placeholder: "3.2", step: "0.1" },
+    ],
+  },
+  {
+    title: "Medidas manuais / Antropometria",
+    description: "Medidas usadas para estimar gordura corporal. Abdomen deve ser medido preferencialmente na linha do umbigo.",
+    fields: [
+      { key: "neck_cm", label: "Pescoco (cm)", placeholder: "38.0", step: "0.1" },
+      { key: "waist_cm", label: "Cintura (cm)", placeholder: "82.0", step: "0.1" },
+      {
+        key: "abdomen_cm",
+        label: "Abdomen (cm)",
+        placeholder: "86.0",
+        step: "0.1",
+        description: "Preferencialmente medido na linha do umbigo. Em homens, e a fonte primaria do calculo Navy.",
+      },
+      { key: "hip_cm", label: "Quadril (cm)", placeholder: "96.0", step: "0.1" },
+      { key: "body_fat_manual_override_percent", label: "Override manual de gordura (%)", placeholder: "23.8", step: "0.1" },
+    ],
+  },
+  {
+    title: "Perimetria para evolucao",
+    description: "Medidas usadas para acompanhar evolucao. Elas nao entram diretamente no calculo de gordura corporal.",
+    fields: [
+      { key: "shoulders_cm", label: "Ombros (cm)", placeholder: "112.0", step: "0.1" },
+      { key: "chest_cm", label: "Torax (cm)", placeholder: "98.0", step: "0.1" },
+      { key: "right_arm_relaxed_cm", label: "Braco direito relaxado (cm)", placeholder: "32.0", step: "0.1" },
+      { key: "left_arm_relaxed_cm", label: "Braco esquerdo relaxado (cm)", placeholder: "31.8", step: "0.1" },
+      { key: "right_arm_flexed_cm", label: "Braco direito contraido (cm)", placeholder: "35.0", step: "0.1" },
+      { key: "left_arm_flexed_cm", label: "Braco esquerdo contraido (cm)", placeholder: "34.8", step: "0.1" },
+      { key: "right_thigh_cm", label: "Coxa direita (cm)", placeholder: "58.0", step: "0.1" },
+      { key: "left_thigh_cm", label: "Coxa esquerda (cm)", placeholder: "57.5", step: "0.1" },
+      { key: "right_calf_cm", label: "Panturrilha direita (cm)", placeholder: "38.0", step: "0.1" },
+      { key: "left_calf_cm", label: "Panturrilha esquerda (cm)", placeholder: "37.8", step: "0.1" },
     ],
   },
   {
@@ -270,6 +355,21 @@ const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "weight_kg",
   "body_fat_kg",
   "body_fat_percent",
+  "body_fat_manual_override_percent",
+  "neck_cm",
+  "waist_cm",
+  "abdomen_cm",
+  "hip_cm",
+  "shoulders_cm",
+  "chest_cm",
+  "right_arm_relaxed_cm",
+  "left_arm_relaxed_cm",
+  "right_arm_flexed_cm",
+  "left_arm_flexed_cm",
+  "right_thigh_cm",
+  "left_thigh_cm",
+  "right_calf_cm",
+  "left_calf_cm",
   "waist_hip_ratio",
   "fat_free_mass_kg",
   "inorganic_salt_kg",
@@ -292,7 +392,7 @@ const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
 const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvaluation; unit?: string }> = [
   { label: "Peso", field: "weight_kg", unit: " kg" },
   { label: "Gordura kg", field: "body_fat_kg", unit: " kg" },
-  { label: "Gordura %", field: "body_fat_percent", unit: "%" },
+  { label: "Gordura estimada %", field: "body_fat_used_percent", unit: "%" },
   { label: "Musc. esqueletico", field: "skeletal_muscle_kg", unit: " kg" },
   { label: "IMC", field: "bmi" },
   { label: "Health score", field: "health_score" },
@@ -327,6 +427,8 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     weight_kg: evaluation?.weight_kg ?? null,
     body_fat_kg: evaluation?.body_fat_kg ?? null,
     body_fat_percent: evaluation?.body_fat_percent ?? null,
+    body_fat_manual_override_percent: evaluation?.body_fat_manual_override_percent ?? null,
+    preferred_body_fat_source: evaluation?.preferred_body_fat_source ?? "geneos_composite",
     waist_hip_ratio: evaluation?.waist_hip_ratio ?? null,
     fat_free_mass_kg: evaluation?.fat_free_mass_kg ?? null,
     inorganic_salt_kg: evaluation?.inorganic_salt_kg ?? null,
@@ -339,6 +441,23 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     visceral_fat_level: evaluation?.visceral_fat_level ?? null,
     bmi: evaluation?.bmi ?? null,
     basal_metabolic_rate_kcal: evaluation?.basal_metabolic_rate_kcal ?? null,
+    neck_cm: evaluation?.neck_cm ?? null,
+    shoulders_cm: evaluation?.shoulders_cm ?? null,
+    chest_cm: evaluation?.chest_cm ?? null,
+    waist_cm: evaluation?.waist_cm ?? null,
+    abdomen_cm: evaluation?.abdomen_cm ?? null,
+    hip_cm: evaluation?.hip_cm ?? null,
+    right_arm_relaxed_cm: evaluation?.right_arm_relaxed_cm ?? null,
+    left_arm_relaxed_cm: evaluation?.left_arm_relaxed_cm ?? null,
+    right_arm_flexed_cm: evaluation?.right_arm_flexed_cm ?? null,
+    left_arm_flexed_cm: evaluation?.left_arm_flexed_cm ?? null,
+    right_thigh_cm: evaluation?.right_thigh_cm ?? null,
+    left_thigh_cm: evaluation?.left_thigh_cm ?? null,
+    right_calf_cm: evaluation?.right_calf_cm ?? null,
+    left_calf_cm: evaluation?.left_calf_cm ?? null,
+    anthropometry_notes: evaluation?.anthropometry_notes ?? "",
+    body_fat_manual_review_completed: evaluation?.body_fat_manual_review_completed ?? false,
+    anthropometry_review_completed: evaluation?.anthropometry_review_completed ?? false,
     target_weight_kg: evaluation?.target_weight_kg ?? null,
     weight_control_kg: evaluation?.weight_control_kg ?? null,
     muscle_control_kg: evaluation?.muscle_control_kg ?? null,
@@ -388,6 +507,138 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
   return "Tezewa (legado)";
 }
 
+function bodyFatSourceLabel(source: string | null | undefined): string {
+  if (source === "anthropometry") return "Medidas manuais";
+  if (source === "manual_override") return "Override manual";
+  if (source === "bioimpedance") return "Bioimpedancia bruta";
+  return "Fonte pendente";
+}
+
+function preferredBodyFatSourceLabel(source: string | null | undefined): string {
+  if (source === "geneos_composite") return "Metodo composto GeneOS";
+  if (source === "anthropometry") return "Medidas manuais";
+  if (source === "manual_override") return "Informar manualmente";
+  return "Bioimpedancia";
+}
+
+function bodyFatConfidenceLabel(confidence: string | null | undefined): string {
+  if (confidence === "high") return "alta";
+  if (confidence === "medium_high") return "media-alta";
+  if (confidence === "medium") return "media";
+  if (confidence === "low") return "baixa";
+  if (confidence === "inconsistent") return "inconsistente";
+  return "nao calculada";
+}
+
+function bodyFatMethodLabel(method: string | null | undefined): string {
+  if (method === "geneos_composite") return "Navy + RFM";
+  if (method === "navy_circumference") return "Navy por circunferencias";
+  if (method === "rfm") return "RFM";
+  if (method === "manual_override") return "Override manual";
+  if (method === "legacy_bioimpedance") return "Bioimpedancia bruta";
+  return "Metodo pendente";
+}
+
+function anthropometryStatusLabel(status: string): string {
+  if (status === "ready") return "pronto para relatorio";
+  if (status === "needs_review") return "precisa revisao";
+  if (status === "manual_override") return "override manual";
+  if (status === "using_bioimpedance") return "usando bioimpedancia";
+  return "medidas incompletas";
+}
+
+function qualityFlagLabel(flag: string): string {
+  if (flag === "anthropometry_incomplete") return "medidas incompletas";
+  if (flag === "body_fat_source_divergence") return "divergencia entre fontes";
+  if (flag === "anthropometry_needs_review") return "revisao obrigatoria";
+  if (flag === "anthropometry_inconsistent") return "Navy/RFM inconsistentes";
+  if (flag === "impossible_measurement_value") return "medida fora do intervalo esperado";
+  if (flag === "abnormal_measurement_variation") return "variacao incomum contra avaliacao anterior";
+  return flag;
+}
+
+function hasNumericValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function buildAnthropometryProtocolItems(input: {
+  sex: FormData["sex"];
+  heightCm: unknown;
+  weightKg: unknown;
+  neckCm: unknown;
+  waistCm: unknown;
+  abdomenCm: unknown;
+  hipCm: unknown;
+}): ProtocolItem[] {
+  const items: ProtocolItem[] = [
+    {
+      label: "Sexo e altura",
+      ready: Boolean(input.sex) && hasNumericValue(input.heightCm),
+      description: "Define a formula correta e converte circunferencias com seguranca.",
+    },
+    {
+      label: "Peso",
+      ready: hasNumericValue(input.weightKg),
+      description: "Necessario para calcular massa gorda e massa livre estimadas.",
+    },
+    {
+      label: "Pescoco",
+      ready: hasNumericValue(input.neckCm),
+      description: "Medida obrigatoria do calculo por circunferencias.",
+    },
+  ];
+
+  if (input.sex === "female") {
+    items.push(
+      {
+        label: "Cintura",
+        ready: hasNumericValue(input.waistCm),
+        description: "Obrigatoria para mulheres; abdomen nao substitui automaticamente.",
+      },
+      {
+        label: "Quadril",
+        ready: hasNumericValue(input.hipCm),
+        description: "Obrigatorio no protocolo feminino Navy.",
+      },
+    );
+    return items;
+  }
+
+  items.push({
+    label: "Abdomen ou cintura",
+    ready: hasNumericValue(input.abdomenCm) || hasNumericValue(input.waistCm),
+    description: "Para homens, abdomen na linha do umbigo e preferencial; cintura e fallback.",
+  });
+  return items;
+}
+
+function buildPerimetryBalanceItems(input: {
+  rightArmFlexed: unknown;
+  leftArmFlexed: unknown;
+  rightThigh: unknown;
+  leftThigh: unknown;
+  rightCalf: unknown;
+  leftCalf: unknown;
+}): BalanceItem[] {
+  const pairs = [
+    ["Braco contraido", input.rightArmFlexed, input.leftArmFlexed],
+    ["Coxa", input.rightThigh, input.leftThigh],
+    ["Panturrilha", input.rightCalf, input.leftCalf],
+  ] as const;
+
+  return pairs.flatMap(([label, rightRaw, leftRaw]) => {
+    const right = normalizePreviewNumber(rightRaw);
+    const left = normalizePreviewNumber(leftRaw);
+    if (right == null || left == null) return [];
+    return [{ label, right, left, delta: Math.round(Math.abs(right - left) * 10) / 10 }];
+  });
+}
+
+function normalizePreviewNumber(value: unknown): number | null {
+  const normalized = normalizeNullableNumberInput(value);
+  return typeof normalized === "number" && Number.isFinite(normalized) ? normalized : null;
+}
+
 function syncLabel(status: string | null | undefined): string {
   if (status === "synced_to_actuar" || status === "succeeded") return "Sincronizado no Actuar";
   if (status === "saved") return "Salvo localmente";
@@ -405,12 +656,14 @@ function hasAnyBodyCompositionMetric(data: FormData): boolean {
 
 function warningTone(warning?: BodyCompositionOcrWarning): string {
   if (!warning) return "";
-  return warning.severity === "critical" ? "border-lovable-danger focus:ring-lovable-danger/20" : "border-amber-400 focus:ring-amber-300/20";
+  return warning.severity === "critical"
+    ? "border-lovable-danger focus:ring-lovable-danger/20"
+    : "border-lovable-warning focus:ring-lovable-warning/20";
 }
 
 function fieldSignalTextClass(tone: "success" | "warning" | "neutral"): string {
-  if (tone === "success") return "text-emerald-700";
-  if (tone === "warning") return "text-amber-800";
+  if (tone === "success") return "text-lovable-success";
+  if (tone === "warning") return "text-lovable-warning";
   return "text-lovable-ink-muted";
 }
 
@@ -718,6 +971,90 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         ? "Salvar alteracoes"
         : "Salvar bioimpedancia";
   const selectedSex = watch("sex");
+  const watchedHeightCm = watch("height_cm");
+  const watchedWeightForAnthropometry = watch("weight_kg");
+  const watchedBioimpedancePercent = watch("body_fat_percent");
+  const watchedManualOverridePercent = watch("body_fat_manual_override_percent");
+  const watchedPreferredBodyFatSource = watch("preferred_body_fat_source");
+  const watchedNeckCm = watch("neck_cm");
+  const watchedWaistCm = watch("waist_cm");
+  const watchedAbdomenCm = watch("abdomen_cm");
+  const watchedHipCm = watch("hip_cm");
+  const watchedRightArmFlexedCm = watch("right_arm_flexed_cm");
+  const watchedLeftArmFlexedCm = watch("left_arm_flexed_cm");
+  const watchedRightThighCm = watch("right_thigh_cm");
+  const watchedLeftThighCm = watch("left_thigh_cm");
+  const watchedRightCalfCm = watch("right_calf_cm");
+  const watchedLeftCalfCm = watch("left_calf_cm");
+  const watchedBodyFatReviewCompleted = watch("body_fat_manual_review_completed");
+  const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
+  const anthropometryProtocolItems = useMemo(
+    () => buildAnthropometryProtocolItems({
+      sex: selectedSex,
+      heightCm: watchedHeightCm,
+      weightKg: watchedWeightForAnthropometry,
+      neckCm: watchedNeckCm,
+      waistCm: watchedWaistCm,
+      abdomenCm: watchedAbdomenCm,
+      hipCm: watchedHipCm,
+    }),
+    [
+      selectedSex,
+      watchedAbdomenCm,
+      watchedHeightCm,
+      watchedHipCm,
+      watchedNeckCm,
+      watchedWaistCm,
+      watchedWeightForAnthropometry,
+    ],
+  );
+  const perimetryBalanceItems = useMemo(
+    () => buildPerimetryBalanceItems({
+      rightArmFlexed: watchedRightArmFlexedCm,
+      leftArmFlexed: watchedLeftArmFlexedCm,
+      rightThigh: watchedRightThighCm,
+      leftThigh: watchedLeftThighCm,
+      rightCalf: watchedRightCalfCm,
+      leftCalf: watchedLeftCalfCm,
+    }),
+    [
+      watchedLeftArmFlexedCm,
+      watchedLeftCalfCm,
+      watchedLeftThighCm,
+      watchedRightArmFlexedCm,
+      watchedRightCalfCm,
+      watchedRightThighCm,
+    ],
+  );
+  const anthropometryPreview = useMemo(
+    () => calculateAnthropometryPreview({
+      sex: selectedSex,
+      heightCm: watchedHeightCm,
+      weightKg: watchedWeightForAnthropometry,
+      bioimpedancePercent: watchedBioimpedancePercent,
+      manualOverridePercent: watchedManualOverridePercent,
+      preferredSource: watchedPreferredBodyFatSource,
+      neckCm: watchedNeckCm,
+      waistCm: watchedWaistCm,
+      abdomenCm: watchedAbdomenCm,
+      hipCm: watchedHipCm,
+      reviewCompleted: Boolean(watchedBodyFatReviewCompleted || watchedAnthropometryReviewCompleted),
+    }),
+    [
+      selectedSex,
+      watchedAbdomenCm,
+      watchedAnthropometryReviewCompleted,
+      watchedBioimpedancePercent,
+      watchedBodyFatReviewCompleted,
+      watchedHeightCm,
+      watchedHipCm,
+      watchedManualOverridePercent,
+      watchedNeckCm,
+      watchedPreferredBodyFatSource,
+      watchedWaistCm,
+      watchedWeightForAnthropometry,
+    ],
+  );
   const reportEvaluationId = reportReadyEvaluationId ?? focusEvaluation?.id ?? null;
   const reportHref = reportEvaluationId ? `/assessments/members/${memberId}/body-composition/${reportEvaluationId}/report` : null;
   const canSendReportWhatsApp = Boolean(reportEvaluationId && memberPhone?.trim());
@@ -801,11 +1138,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       }
     }
     const values = result.values;
+    const rawValues = values as Record<string, unknown>;
     const numericKeys = Object.keys(values).filter(
       (key) => key !== "evaluation_date" && key !== "measured_at" && key !== "sex",
     ) as NumericFieldKey[];
     for (const key of numericKeys) {
-      const value = values[key];
+      const value = rawValues[key];
       if (typeof value === "number") {
         setValue(key, value);
       }
@@ -932,7 +1270,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
           ) : (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Peso" value={fmt(focusEvaluation.weight_kg, " kg")} />
-              <MetricCard label="Gordura corporal" value={`${fmt(focusEvaluation.body_fat_kg, " kg")} / ${fmt(focusEvaluation.body_fat_percent, "%")}`} />
+              <MetricCard
+                label="Gordura corporal estimada"
+                value={fmt(focusEvaluation.body_fat_used_percent, "%")}
+                helper={`Fonte: ${bodyFatSourceLabel(focusEvaluation.body_fat_used_source)}`}
+              />
               <MetricCard label="Musculo esqueletico" value={fmt(focusEvaluation.skeletal_muscle_kg, " kg")} />
               <MetricCard label="Health score" value={fmt(focusEvaluation.health_score)} />
             </div>
@@ -948,6 +1290,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <StatusPill tone={statusPillToneForSync(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status ?? null)}>
               Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}
             </StatusPill>
+            {focusEvaluation?.body_fat_percent != null ? (
+              <StatusPill tone="neutral">Bioimpedancia bruta: {fmt(focusEvaluation.body_fat_percent, "%")}</StatusPill>
+            ) : null}
+            {focusEvaluation?.body_fat_confidence ? (
+              <StatusPill tone={focusEvaluation.body_fat_confidence === "inconsistent" ? "warning" : "success"}>
+                Confianca gordura: {bodyFatConfidenceLabel(focusEvaluation.body_fat_confidence)}
+              </StatusPill>
+            ) : null}
             {(focusEvaluation?.age_years ?? watch("age_years")) != null ? (
               <StatusPill tone="neutral">Idade: {focusEvaluation?.age_years ?? watch("age_years")} anos</StatusPill>
             ) : null}
@@ -959,7 +1309,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             ) : null}
           </div>
           {automaticActuarSaveReady ? (
-            <p className="mt-3 text-xs font-medium text-emerald-700">
+            <p className="mt-3 text-xs font-medium text-lovable-success">
               Estacao Actuar online. Ao salvar, esta avaliacao entra automaticamente no fluxo externo.
             </p>
           ) : null}
@@ -1087,9 +1437,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 <div
                   className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
                     readCapability.tone === "success"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
                       : readCapability.tone === "warning"
-                        ? "border-amber-200 bg-amber-50 text-amber-900"
+                        ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
                         : "border-lovable-border bg-lovable-surface text-lovable-ink"
                   }`}
                 >
@@ -1097,7 +1447,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <p className="mt-1 text-xs">{readCapability.description}</p>
                 </div>
                 {ocrMetadata.ocr_warnings_json.length > 0 ? (
-                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                  <div className="mt-3 rounded-xl border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-xs text-lovable-warning">
                     {ocrMetadata.ocr_warnings_json.map((warning, index) => (
                       <p key={`${warning.field}-${index}`}>- {warning.message}</p>
                     ))}
@@ -1161,6 +1511,162 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 </FormField>
               </div>
 
+              <section className="space-y-3 rounded-2xl border border-lovable-primary/20 bg-lovable-primary/5 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Composicao corporal por medidas</p>
+                  <p className="text-xs text-lovable-ink-muted">
+                    O percentual usado no relatorio e resolvido pelo backend. A bioimpedancia bruta fica preservada como dado do exame.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
+                  <FormField label="Fonte do percentual de gordura usado no relatorio" error={errors.preferred_body_fat_source?.message}>
+                    <Select defaultValue="geneos_composite" {...register("preferred_body_fat_source")}>
+                      <option value="geneos_composite">Usar metodo composto GeneOS</option>
+                      <option value="anthropometry">Usar medidas manuais</option>
+                      <option value="bioimpedance">Usar bioimpedancia bruta</option>
+                      <option value="manual_override">Informar manualmente</option>
+                    </Select>
+                  </FormField>
+                  <div className="rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
+                    <p className="font-semibold text-lovable-ink">Resultado salvo</p>
+                    <p className="mt-1">
+                      Gordura oficial: {fmt(focusEvaluation?.body_fat_used_percent, "%")}
+                      {" · "}
+                      Fonte: {bodyFatSourceLabel(focusEvaluation?.body_fat_used_source)}
+                      {" · "}
+                      Metodo: {focusEvaluation?.body_fat_method ? bodyFatMethodLabel(focusEvaluation.body_fat_method) : preferredBodyFatSourceLabel(focusEvaluation?.preferred_body_fat_source)}
+                    </p>
+                    {focusEvaluation?.body_fat_range_min != null || focusEvaluation?.body_fat_range_max != null ? (
+                      <p className="mt-1">
+                        Faixa estimada: {fmt(focusEvaluation?.body_fat_range_min, "%")} a {fmt(focusEvaluation?.body_fat_range_max, "%")}
+                      </p>
+                    ) : null}
+                    {focusEvaluation?.fat_mass_estimated_kg != null || focusEvaluation?.lean_mass_estimated_kg != null ? (
+                      <p className="mt-1">
+                        Massa gorda estimada: {fmt(focusEvaluation?.fat_mass_estimated_kg, " kg")} · Massa livre estimada:{" "}
+                        {fmt(focusEvaluation?.lean_mass_estimated_kg, " kg")}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Checklist do protocolo</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      Confere os campos que entram no calculo. Braco, coxa, panturrilha, torax e ombro ficam so para evolucao.
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {anthropometryProtocolItems.map((item) => (
+                        <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-lovable-ink">{item.label}</p>
+                            <StatusPill tone={item.ready ? "success" : "warning"}>{item.ready ? "ok" : "pendente"}</StatusPill>
+                          </div>
+                          <p className="mt-1 text-xs text-lovable-ink-muted">{item.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Comparativo bilateral</p>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      Acompanha assimetria de medidas de evolucao. Estes valores nao entram no calculo da gordura.
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {perimetryBalanceItems.length === 0 ? (
+                        <p className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
+                          Preencha pares direito/esquerdo para comparar.
+                        </p>
+                      ) : (
+                        perimetryBalanceItems.map((item) => (
+                          <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-semibold text-lovable-ink">{item.label}</p>
+                              <StatusPill tone={item.delta > 2 ? "warning" : "success"}>{item.delta.toFixed(1)} cm</StatusPill>
+                            </div>
+                            <p className="mt-1 text-lovable-ink-muted">
+                              Direita {item.right.toFixed(1)} cm - Esquerda {item.left.toFixed(1)} cm
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Previa antes de salvar</p>
+                      <p className="mt-1 text-xl font-semibold text-lovable-ink">{fmt(anthropometryPreview.usedPercent, "%")}</p>
+                      <p className="mt-1 text-xs text-lovable-ink-muted">
+                        O backend recalcula e valida ao salvar. Esta previa permite revisar fonte, metodo e divergencias antes de gerar relatorio.
+                      </p>
+                    </div>
+                    <StatusPill
+                      tone={
+                        anthropometryPreview.status === "ready" || anthropometryPreview.status === "manual_override"
+                          ? "success"
+                          : anthropometryPreview.status === "needs_review"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {anthropometryStatusLabel(anthropometryPreview.status)}
+                    </StatusPill>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <Metric label="Fonte" value={bodyFatSourceLabel(anthropometryPreview.usedSource)} />
+                    <Metric label="Metodo" value={bodyFatMethodLabel(anthropometryPreview.method)} />
+                    <Metric label="Confianca" value={bodyFatConfidenceLabel(anthropometryPreview.confidence)} />
+                    <Metric
+                      label="Faixa provavel"
+                      value={
+                        anthropometryPreview.rangeMin != null || anthropometryPreview.rangeMax != null
+                          ? `${fmt(anthropometryPreview.rangeMin, "%")} - ${fmt(anthropometryPreview.rangeMax, "%")}`
+                          : "-"
+                      }
+                    />
+                    <Metric label="Navy" value={fmt(anthropometryPreview.navyPercent, "%")} />
+                    <Metric label="RFM" value={fmt(anthropometryPreview.rfmPercent, "%")} />
+                    <Metric label="Massa gorda estimada" value={fmt(anthropometryPreview.fatMassKg, " kg")} />
+                    <Metric label="Massa livre estimada" value={fmt(anthropometryPreview.leanMassKg, " kg")} />
+                  </div>
+                  {anthropometryPreview.differenceBetweenSources != null ? (
+                    <p className="mt-3 text-xs text-lovable-ink-muted">
+                      Divergencia contra a bioimpedancia bruta: {fmt(anthropometryPreview.differenceBetweenSources, " p.p.")}.
+                    </p>
+                  ) : null}
+                  {anthropometryPreview.missingFields.length > 0 ? (
+                    <p className="mt-3 text-xs text-lovable-warning">
+                      Para calcular por medidas, complete: {anthropometryPreview.missingFields.join(", ")}.
+                    </p>
+                  ) : null}
+                  {anthropometryPreview.flags.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {anthropometryPreview.flags.map((flag) => (
+                        <StatusPill key={flag} tone="warning">{qualityFlagLabel(flag)}</StatusPill>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="flex items-start gap-2 rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border border-lovable-border" {...register("body_fat_manual_review_completed")} />
+                      <span>
+                        <strong className="block text-lovable-ink">Revisao manual do percentual concluida</strong>
+                        Use quando houver divergencia relevante, inconsistencia Navy/RFM ou override manual.
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border border-lovable-border" {...register("anthropometry_review_completed")} />
+                      <span>
+                        <strong className="block text-lovable-ink">Revisao antropometrica concluida</strong>
+                        Confirma que pontos de medida e protocolo foram revisados pelo professor.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
               {FORM_SECTIONS.map((section) => (
                 <section key={section.title} className="space-y-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                   <div>
@@ -1216,12 +1722,15 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 </section>
               ))}
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <FormField label="URL do laudo/arquivo" error={errors.report_file_url?.message}>
                   <Input placeholder="https://..." {...register("report_file_url")} />
                 </FormField>
                 <FormField label="Observacoes" error={errors.notes?.message}>
                   <Textarea rows={4} placeholder="Notas operacionais para o professor..." {...register("notes")} />
+                </FormField>
+                <FormField label="Observacoes da antropometria" error={errors.anthropometry_notes?.message}>
+                  <Textarea rows={4} placeholder="Observacoes sobre protocolo, pontos de medida ou revisao manual..." {...register("anthropometry_notes")} />
                 </FormField>
               </div>
 
@@ -1413,7 +1922,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
               ) : syncLoading ? (
                 <Skeleton className="h-24 w-full rounded-2xl" />
               ) : !syncStatus ? (
-                <div className="rounded-2xl border border-lovable-danger/20 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <div className="rounded-2xl border border-lovable-danger/25 bg-lovable-danger/10 px-4 py-3 text-sm text-lovable-danger">
                   {getPermissionAwareMessage(null, "Nao foi possivel carregar o status de sync do Actuar.")}
                 </div>
               ) : (
@@ -1421,9 +1930,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
                       actuarCapability.tone === "success"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
                         : actuarCapability.tone === "warning"
-                          ? "border-amber-200 bg-amber-50 text-amber-900"
+                          ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
                           : "border-lovable-border bg-lovable-surface text-lovable-ink"
                     }`}
                   >
@@ -1432,7 +1941,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   </div>
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
-                      syncStatus?.training_ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"
+                      syncStatus?.training_ready
+                        ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
+                        : "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
                     }`}
                   >
                     <p className="font-semibold">
@@ -1455,7 +1966,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <Metric label="Erro codigo" value={syncStatus?.last_error_code ?? focusEvaluation.sync_last_error_code ?? "-"} />
                   </div>
                   {(syncStatus?.last_error ?? focusEvaluation.actuar_last_error) ? (
-                    <div className="rounded-xl border border-lovable-danger/20 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    <div className="rounded-xl border border-lovable-danger/25 bg-lovable-danger/10 px-3 py-2 text-sm text-lovable-danger">
                       {(syncStatus?.last_error ?? focusEvaluation.actuar_last_error) as string}
                     </div>
                   ) : null}
@@ -1629,11 +2140,12 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
     <article className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
       <p className="text-xs uppercase tracking-wider text-lovable-ink-muted">{label}</p>
       <p className="mt-1 text-lg font-semibold text-lovable-ink">{value}</p>
+      {helper ? <p className="mt-1 text-xs text-lovable-ink-muted">{helper}</p> : null}
     </article>
   );
 }
@@ -1641,9 +2153,9 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function StatusPill({ children, tone }: { children: ReactNode; tone: "success" | "warning" | "neutral" }) {
   const className =
     tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
+        ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
         : "border-lovable-border bg-lovable-surface text-lovable-ink";
 
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>;

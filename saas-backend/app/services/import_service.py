@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import re
 import unicodedata
 import zipfile
@@ -35,6 +36,8 @@ from app.services.preferred_shift_service import normalize_preferred_shift, sync
 from app.services.risk import refresh_member_risk_snapshot
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
+
+logger = logging.getLogger(__name__)
 
 NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name", "cliente")
 FIRST_NAME_KEYS = ("first_name", "primeiro_nome", "nome_1", "nome1")
@@ -2461,7 +2464,7 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
                 if cpf_digits and cpf_digits not in by_cpf:
                     by_cpf[cpf_digits] = member
             except Exception:
-                pass
+                logger.debug("CPF decrypt falhou no lookup de membro; ignorando", exc_info=True)
 
         name_key = _normalize_text(member.full_name)
         by_name.setdefault(name_key, []).append(member)
@@ -2499,7 +2502,7 @@ def _add_member_to_lookups(member: Member, lookup: dict[str, dict]) -> None:
             if cpf_digits and cpf_digits not in lookup["by_cpf"]:
                 lookup["by_cpf"][cpf_digits] = member
         except Exception:
-            pass
+            logger.debug("CPF decrypt falhou no lookup de membro; ignorando", exc_info=True)
 
     name_key = _normalize_text(member.full_name)
     _append_lookup_member(lookup["by_name"], name_key, member)

@@ -17,7 +17,9 @@ def build_body_composition_canonical_payload(member: Member, evaluation: BodyCom
         "height_cm": _derive_height_cm(weight_kg, bmi),
         "target_weight_kg": _to_float(getattr(evaluation, "target_weight_kg", None)),
         "body_fat_kg": _to_float(getattr(evaluation, "body_fat_kg", None)),
-        "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None)),
+        # Actuar V1 keeps the legacy/raw bioimpedance contract. New perimetry fields are internal to GeneOS.
+        "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None))
+        or _to_float(getattr(evaluation, "body_fat_bioimpedance_percent", None)),
         "waist_hip_ratio": _to_float(getattr(evaluation, "waist_hip_ratio", None)),
         "muscle_mass_kg": _to_float(getattr(evaluation, "skeletal_muscle_kg", None)) or _to_float(getattr(evaluation, "muscle_mass_kg", None)),
         "lean_mass_kg": _to_float(getattr(evaluation, "fat_free_mass_kg", None)) or _to_float(getattr(evaluation, "lean_mass_kg", None)),

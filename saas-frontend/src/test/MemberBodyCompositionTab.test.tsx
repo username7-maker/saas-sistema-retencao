@@ -51,6 +51,18 @@ function makeEvaluation(): BodyCompositionEvaluation {
     weight_kg: 64.2,
     body_fat_kg: 17.1,
     body_fat_percent: 26.6,
+    body_fat_bioimpedance_percent: 26.6,
+    body_fat_anthropometric_percent: 24.2,
+    body_fat_used_percent: 24.2,
+    body_fat_used_source: "anthropometry",
+    body_fat_method: "geneos_composite",
+    body_fat_confidence: "medium_high",
+    body_fat_range_min: 22.2,
+    body_fat_range_max: 26.2,
+    body_fat_manual_override_percent: null,
+    preferred_body_fat_source: "geneos_composite",
+    fat_mass_estimated_kg: 15.54,
+    lean_mass_estimated_kg: 48.66,
     waist_hip_ratio: 0.82,
     fat_free_mass_kg: 47.1,
     inorganic_salt_kg: 2.9,
@@ -63,6 +75,26 @@ function makeEvaluation(): BodyCompositionEvaluation {
     visceral_fat_level: 7.2,
     bmi: 22.8,
     basal_metabolic_rate_kcal: 1420,
+    measurement_source: "composite_geneos",
+    measurement_protocol: "geneos_composite",
+    neck_cm: 33,
+    shoulders_cm: 102,
+    chest_cm: 90,
+    waist_cm: 74,
+    abdomen_cm: 78,
+    hip_cm: 94,
+    right_arm_relaxed_cm: 28,
+    left_arm_relaxed_cm: 27.8,
+    right_arm_flexed_cm: 31,
+    left_arm_flexed_cm: 30.5,
+    right_thigh_cm: 54,
+    left_thigh_cm: 53.5,
+    right_calf_cm: 35,
+    left_calf_cm: 34.7,
+    anthropometry_notes: "Medidas revisadas.",
+    body_fat_manual_review_required: false,
+    body_fat_manual_review_completed: true,
+    anthropometry_review_completed: true,
     target_weight_kg: 61.5,
     weight_control_kg: -2.7,
     muscle_control_kg: 0.4,
@@ -180,6 +212,10 @@ describe("MemberBodyCompositionTab", () => {
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
   });
 
   it("shows the premium report CTA in the member workspace for an existing evaluation", async () => {
@@ -196,6 +232,26 @@ describe("MemberBodyCompositionTab", () => {
     );
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Sexo: Feminino")).toBeInTheDocument();
+    expect(screen.getByText("Composicao corporal por medidas")).toBeInTheDocument();
+    expect(screen.getByText("Checklist do protocolo")).toBeInTheDocument();
+    expect(screen.getByText("Comparativo bilateral")).toBeInTheDocument();
+    expect(screen.getByText("Preencha pares direito/esquerdo para comparar.")).toBeInTheDocument();
+    expect(screen.getByText("Previa antes de salvar")).toBeInTheDocument();
+    expect(screen.getByText("Revisao manual do percentual concluida")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar atual" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Braco contraido")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render the removed no-photo strategy surface", async () => {
+    renderTab();
+
+    await screen.findByText("Interpretacao de apoio");
+    expect(screen.queryByText("Leitura estrategica sem foto")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
   });
 
   it("opens the summary pdf through the authenticated service instead of navigating to /api directly", async () => {

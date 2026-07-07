@@ -834,16 +834,16 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     methodological_note = report.get("methodological_note") or payload.footer_note or ""
     data_quality_flags = report.get("data_quality_flags", []) or []
     technical_scope = payload.report_scope == "technical"
-    comparison_priority = {"weight_kg", "body_fat_percent", "muscle_mass_kg", "visceral_fat_level", "bmi"}
+    comparison_priority = {"weight_kg", "body_fat_used_percent", "muscle_mass_kg", "visceral_fat_level", "bmi"}
     compact_comparison_rows = [row for row in comparison_rows if str(row.get("key")) in comparison_priority]
     compact_comparison_rows = compact_comparison_rows[: (4 if technical_scope else 3)]
 
     score_metric = _body_metric_by_key(risk_metrics, "health_score") or _body_metric_by_key(primary_cards, "health_score")
-    obesity_metrics = [metric for metric in risk_metrics if metric.get("key") in {"bmi", "body_fat_percent"}]
+    obesity_metrics = [metric for metric in risk_metrics if metric.get("key") in {"bmi", "body_fat_used_percent"}]
     obesity_band_metrics = [
         metric
         for metric in risk_metrics
-        if metric.get("key") in {"bmi", "body_fat_percent", "visceral_fat_level", "waist_hip_ratio"}
+        if metric.get("key") in {"bmi", "body_fat_used_percent", "visceral_fat_level", "waist_hip_ratio"}
     ]
     waist_hip_metric = _body_metric_by_key(risk_metrics, "waist_hip_ratio")
     visceral_metric = _body_metric_by_key(risk_metrics, "visceral_fat_level")
@@ -863,7 +863,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         metric
         for metric in (
             _body_metric_by_key(primary_cards, "weight_kg"),
-            _body_metric_by_key(primary_cards, "body_fat_percent"),
+            _body_metric_by_key(primary_cards, "body_fat_used_percent"),
             _body_metric_by_key(primary_cards, "visceral_fat_level"),
             _body_metric_by_key(primary_cards, "muscle_mass_kg"),
             _body_metric_by_key(primary_cards, "bmi"),
@@ -1550,6 +1550,12 @@ def _body_flag_label(flag: str) -> str:
         "suspect_bmi": "IMC suspeito",
         "ocr_low_confidence": "OCR com baixa confianca",
         "manually_review_required": "revisao manual",
+        "anthropometry_incomplete": "medidas incompletas",
+        "body_fat_source_divergence": "divergencia entre fontes",
+        "anthropometry_needs_review": "antropometria pede revisao",
+        "anthropometry_inconsistent": "antropometria inconsistente",
+        "impossible_measurement_value": "medida fora da faixa",
+        "abnormal_measurement_variation": "variacao incomum de medidas",
     }
     return labels.get(flag, flag.replace("_", " "))
 

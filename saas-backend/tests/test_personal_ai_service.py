@@ -96,3 +96,29 @@ def test_serialize_personal_ai_draft_reads_context_snapshot():
     assert output.context_snapshot is not None
     assert output.context_snapshot.member_name == "Ana Silva"
     assert output.draft_reply.startswith("Oi, Ana")
+
+
+def test_body_composition_snapshot_labels_raw_and_official_body_fat():
+    evaluation = SimpleNamespace(
+        id=uuid.uuid4(),
+        evaluation_date=datetime.now(tz=timezone.utc).date(),
+        weight_kg=84.5,
+        body_fat_percent=31.2,
+        body_fat_bioimpedance_percent=31.2,
+        body_fat_used_percent=23.8,
+        body_fat_used_source="anthropometry",
+        body_fat_method="geneos_composite",
+        skeletal_muscle_kg=35.6,
+        muscle_mass_kg=37.2,
+        health_score=65,
+        training_ready=True,
+        ai_coach_summary=None,
+        ai_training_focus_json=None,
+    )
+
+    snapshot = service._body_composition_snapshot(evaluation)
+
+    assert snapshot["body_fat_used_percent"] == 23.8
+    assert snapshot["body_fat_used_source"] == "anthropometry"
+    assert snapshot["body_fat_bioimpedance_raw_percent"] == 31.2
+    assert "body_fat_percent" not in snapshot

@@ -63,6 +63,12 @@ function flagLabel(flag: BodyCompositionDataQualityFlag) {
   if (flag === "missing_muscle_mass") return "massa muscular ausente";
   if (flag === "suspect_bmi") return "IMC suspeito";
   if (flag === "ocr_low_confidence") return "OCR com baixa confianca";
+  if (flag === "anthropometry_incomplete") return "medidas incompletas";
+  if (flag === "body_fat_source_divergence") return "divergencia entre fontes";
+  if (flag === "anthropometry_needs_review") return "antropometria pede revisao";
+  if (flag === "anthropometry_inconsistent") return "antropometria inconsistente";
+  if (flag === "impossible_measurement_value") return "medida fora da faixa";
+  if (flag === "abnormal_measurement_variation") return "variacao incomum de medidas";
   return "revisao manual";
 }
 
@@ -249,11 +255,13 @@ export function CompositionAnalysisTable({ metrics }: { metrics: BodyComposition
 
 function compositionExplanation(key: string) {
   if (key === "body_water_kg") return "Quantidade total de agua no corpo";
+  if (key === "body_water_percent") return "Percentual calculado a partir da agua corporal e peso";
   if (key === "protein_kg") return "Para a construcao e preservacao muscular";
   if (key === "inorganic_salt_kg") return "Para fortalecimento estrutural";
   if (key === "body_fat_kg") return "Reserva energetica atual";
   if (key === "fat_free_mass_kg") return "Componentes livres de gordura";
   if (key === "muscle_mass_kg") return "Base muscular do organismo";
+  if (key === "skeletal_muscle_kg") return "Indicador de musculo esqueletico capturado no exame";
   return "Leitura corporal";
 }
 

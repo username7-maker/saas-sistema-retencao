@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -236,7 +237,7 @@ async def kommo_webhook_endpoint(
     received = (x_kommo_webhook_token or token or "").strip()
     if not expected:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kommo webhook token nao configurado.")
-    if received != expected:
+    if not received or not secrets.compare_digest(received, expected):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token Kommo invalido.")
 
     payload = await _read_payload(request)

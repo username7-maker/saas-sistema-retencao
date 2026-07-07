@@ -18,6 +18,7 @@ import {
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
+import type { BodyCompositionBodyFatContext } from "../../types";
 
 const PERIOD_OPTIONS = [
   { key: "30", label: "30 dias", days: 30 },
@@ -26,9 +27,43 @@ const PERIOD_OPTIONS = [
   { key: "all", label: "Todo historico", days: null },
 ] as const;
 
+function formatPercent(value: number | null | undefined): string {
+  return value == null ? "-" : `${value}%`;
+}
+
+function formatPp(value: number | null | undefined): string {
+  return value == null ? "-" : `${value} p.p.`;
+}
+
+function sourceLabel(source: string | null | undefined): string {
+  if (source === "anthropometry") return "Medidas manuais";
+  if (source === "manual_override") return "Override manual";
+  if (source === "bioimpedance") return "Bioimpedancia bruta";
+  return "Fonte pendente";
+}
+
+function methodLabel(method: string | null | undefined): string {
+  if (method === "geneos_composite") return "Navy + RFM";
+  if (method === "navy_circumference") return "Navy por circunferencias";
+  if (method === "rfm") return "RFM";
+  if (method === "manual_override") return "Override manual";
+  if (method === "legacy_bioimpedance") return "Bioimpedancia bruta";
+  return "Metodo pendente";
+}
+
+function confidenceLabel(confidence: string | null | undefined): string {
+  if (confidence === "high") return "Alta";
+  if (confidence === "medium_high") return "Media-alta";
+  if (confidence === "medium") return "Media";
+  if (confidence === "low") return "Baixa";
+  if (confidence === "inconsistent") return "Inconsistente";
+  return "Nao calculada";
+}
+
 function BodyCompositionReportPage() {
   const { memberId, evaluationId } = useParams<{ memberId: string; evaluationId: string }>();
   const [periodKey, setPeriodKey] = useState<(typeof PERIOD_OPTIONS)[number]["key"]>("all");
+  const [historyNow] = useState(() => Date.now());
 
   const reportQuery = useQuery({
     queryKey: ["body-composition-report", memberId, evaluationId],
@@ -42,12 +77,12 @@ function BodyCompositionReportPage() {
     const report = reportQuery.data;
     if (!report) return [];
     if (selectedPeriod.days == null) return report.history_series;
-    const threshold = Date.now() - selectedPeriod.days * 24 * 60 * 60 * 1000;
+    const threshold = historyNow - selectedPeriod.days * 24 * 60 * 60 * 1000;
     return report.history_series.map((series) => ({
       ...series,
       points: series.points.filter((point) => new Date(point.measured_at).getTime() >= threshold),
     }));
-  }, [reportQuery.data, selectedPeriod.days]);
+  }, [historyNow, reportQuery.data, selectedPeriod.days]);
 
   if (reportQuery.isLoading) {
     return <LoadingPanel text="Carregando relatorio premium..." />;
@@ -73,10 +108,12 @@ function BodyCompositionReportPage() {
   const metricIndex = new Map(
     [...report.composition_metrics, ...report.risk_metrics, ...report.goal_metrics, ...report.muscle_fat_metrics].map((metric) => [metric.key, metric]),
   );
-  const obesityMetrics = report.risk_metrics.filter((metric) => ["bmi", "body_fat_percent", "visceral_fat_level"].includes(metric.key));
+  const obesityMetrics = report.risk_metrics.filter((metric) => ["bmi", "body_fat_used_percent", "visceral_fat_level"].includes(metric.key));
   const additionalMetrics = [
     metricIndex.get("fat_free_mass_kg"),
     metricIndex.get("body_water_kg"),
+    metricIndex.get("body_water_percent"),
+    metricIndex.get("skeletal_muscle_kg"),
     metricIndex.get("protein_kg"),
     metricIndex.get("inorganic_salt_kg"),
     metricIndex.get("physical_age"),
@@ -127,10 +164,43 @@ function BodyCompositionReportPage() {
 
           <div className="mt-4 space-y-6">
             <MetricHighlights metrics={report.primary_cards} />
+            <BodyFatContextPanel context={report.body_fat_context ?? null} />
 
             <div className="grid gap-8 xl:grid-cols-[1.9fr_0.95fr]">
               <div className="space-y-8">
                 <CompositionAnalysisTable metrics={report.composition_metrics} />
+                {(report.measurement_rows ?? []).some((row) => row.current_value != null || row.previous_value != null) ? (
+                  <section className="rounded-none border border-[#d8d2ca] bg-[#fbfaf7]">
+                    <div className="border-b border-[#d8d2ca] px-4 py-3">
+                      <h2 className="text-lg font-semibold text-[#15110f]">Medidas corporais</h2>
+                      <p className="text-xs text-[#665f57]">Perimetria usada para acompanhar evolucao. Apenas pescoco, cintura/abdomen e quadril entram no calculo quando aplicavel.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[#f0eee9] text-xs uppercase tracking-[0.18em] text-[#6d6258]">
+                          <tr>
+                            <th className="px-4 py-3 text-left">Medida</th>
+                            <th className="px-4 py-3 text-right">Atual</th>
+                            <th className="px-4 py-3 text-right">Anterior</th>
+                            <th className="px-4 py-3 text-right">Variacao</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(report.measurement_rows ?? [])
+                            .filter((row) => row.current_value != null || row.previous_value != null)
+                            .map((row) => (
+                              <tr key={row.key} className="border-t border-[#e8e3dc]">
+                                <td className="px-4 py-3 font-medium text-[#15110f]">{row.label}</td>
+                                <td className="px-4 py-3 text-right">{row.formatted_current}</td>
+                                <td className="px-4 py-3 text-right">{row.formatted_previous}</td>
+                                <td className="px-4 py-3 text-right">{row.formatted_delta}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                ) : null}
                 <BandAnalysisPanel
                   title="Analise Musculo-Gordura"
                   subtitle="Leitura visual do quanto o peso total esta associado a massa muscular e gordura corporal."
@@ -139,7 +209,7 @@ function BodyCompositionReportPage() {
                 <BandAnalysisPanel
                   title="Analise de Obesidade"
                   subtitle="Indicadores de acompanhamento, sem interpretacao diagnostica."
-                  metrics={report.risk_metrics.filter((metric) => ["bmi", "body_fat_percent", "visceral_fat_level", "waist_hip_ratio"].includes(metric.key))}
+                  metrics={report.risk_metrics.filter((metric) => ["bmi", "body_fat_used_percent", "visceral_fat_level", "waist_hip_ratio"].includes(metric.key))}
                 />
               </div>
 
@@ -189,3 +259,49 @@ function BodyCompositionReportPage() {
 }
 
 export default BodyCompositionReportPage;
+
+function BodyFatContextPanel({ context }: { context: BodyCompositionBodyFatContext | null }) {
+  if (!context) return null;
+  return (
+    <section className="rounded-none border border-[#d8d2ca] bg-[#fbfaf7]">
+      <div className="border-b border-[#d8d2ca] px-4 py-3">
+        <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Fonte oficial da gordura corporal</p>
+        <h2 className="mt-1 text-xl font-semibold text-[#15110f]">{formatPercent(context.used_percent)}</h2>
+        <p className="mt-1 text-xs text-[#665f57]">
+          Percentual tratado como estimativa operacional, sem valor diagnostico clinico.
+        </p>
+      </div>
+      <div className="grid gap-px bg-[#e8e3dc] md:grid-cols-4">
+        <ContextMetric label="Fonte usada no relatorio" value={sourceLabel(context.used_source)} />
+        <ContextMetric label="Metodo" value={methodLabel(context.method)} />
+        <ContextMetric label="Confianca" value={confidenceLabel(context.confidence)} />
+        <ContextMetric
+          label="Faixa estimada"
+          value={context.range_min != null || context.range_max != null ? `${formatPercent(context.range_min)} - ${formatPercent(context.range_max)}` : "-"}
+        />
+        <ContextMetric label="Bioimpedancia bruta" value={formatPercent(context.bioimpedance_raw_percent)} />
+        <ContextMetric label="Antropometria" value={formatPercent(context.anthropometric_percent)} />
+        <ContextMetric label="Diferenca entre fontes" value={formatPp(context.difference_between_sources)} />
+        <ContextMetric label="Revisao manual" value={context.manual_review_required ? (context.manual_review_completed ? "Concluida" : "Obrigatoria") : "Nao exigida"} />
+      </div>
+      {context.quality_flags.length > 0 ? (
+        <div className="flex flex-wrap gap-2 border-t border-[#d8d2ca] px-4 py-3 text-xs text-[#665f57]">
+          {context.quality_flags.map((flag) => (
+            <span key={flag} className="rounded-full border border-[#d8d2ca] bg-[#f0eee9] px-2.5 py-1">
+              {flag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ContextMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[#fcfbf7] px-4 py-3">
+      <p className="text-[0.65rem] uppercase tracking-[0.16em] text-[#786f66]">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-[#15110f]">{value}</p>
+    </div>
+  );
+}
