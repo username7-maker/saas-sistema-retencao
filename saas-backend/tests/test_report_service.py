@@ -218,6 +218,10 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     assert "Historico da Composicao Corporal" in technical_html
     assert "Anterior x Atual" in technical_html
+    assert "Gordura corporal bruta da bioimpedancia" in technical_html
+    assert "Proteina" in technical_html
+    assert "Dados adicionais" in technical_html
+    assert "Nota tecnica" in technical_html
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

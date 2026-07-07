@@ -178,14 +178,14 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");
     expect(screen.getByText("Leitura:")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Relatorio tecnico" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
     expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
   });
 
-  it("opens the student pdf through the authenticated service", async () => {
+  it("opens the complete technical pdf through the authenticated service", async () => {
     vi.mocked(bodyCompositionService.openPdf).mockResolvedValue(undefined);
     const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);
 
@@ -194,7 +194,7 @@ describe("BodyCompositionReportPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
 
     await waitFor(() => {
-      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "summary", expect.anything());
+      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "technical", expect.anything());
     });
 
     windowOpenSpy.mockRestore();
