@@ -18,7 +18,7 @@ import {
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
-import type { BodyCompositionBodyFatContext, BodyCompositionMeasurementRow } from "../../types";
+import type { BodyCompositionBodyFatContext, BodyCompositionMeasurementRow, BodyCompositionSex } from "../../types";
 
 const PERIOD_OPTIONS = [
   { key: "30", label: "30 dias", days: 30 },
@@ -176,7 +176,7 @@ function BodyCompositionReportPage() {
                       <p className="text-xs text-[#665f57]">Perimetria usada para acompanhar evolucao. Apenas pescoco, cintura/abdomen e quadril entram no calculo quando aplicavel.</p>
                     </div>
                     <div className="grid gap-4 p-4 xl:grid-cols-[0.72fr_1fr]">
-                      <BodyMeasurementMap rows={report.measurement_rows ?? []} />
+                      <BodyMeasurementMap rows={report.measurement_rows ?? []} sex={report.header.sex} />
                       <div className="overflow-x-auto border border-[#e8e3dc]">
                         <table className="w-full text-sm">
                           <thead className="bg-[#f0eee9] text-xs uppercase tracking-[0.18em] text-[#6d6258]">
@@ -263,82 +263,49 @@ function BodyCompositionReportPage() {
 
 export default BodyCompositionReportPage;
 
-function BodyMeasurementMap({ rows }: { rows: BodyCompositionMeasurementRow[] }) {
+function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null }) {
   const rowMap = new Map(rows.map((row) => [row.key, row]));
-  const points = [
-    { key: "neck_cm", label: "Pescoco", x: 52, y: 23, align: "right" },
-    { key: "shoulders_cm", label: "Ombros", x: 25, y: 31, align: "left" },
-    { key: "chest_cm", label: "Torax", x: 75, y: 38, align: "right" },
-    { key: "waist_cm", label: "Cintura", x: 26, y: 52, align: "left" },
-    { key: "abdomen_cm", label: "Abdomen", x: 75, y: 57, align: "right" },
-    { key: "hip_cm", label: "Quadril", x: 28, y: 68, align: "left" },
-    { key: "right_arm_flexed_cm", label: "Braco D", x: 14, y: 45, align: "left" },
-    { key: "left_arm_flexed_cm", label: "Braco E", x: 86, y: 45, align: "right" },
-    { key: "right_thigh_cm", label: "Coxa D", x: 38, y: 85, align: "left" },
-    { key: "left_thigh_cm", label: "Coxa E", x: 63, y: 85, align: "right" },
-    { key: "right_calf_cm", label: "Pant. D", x: 39, y: 110, align: "left" },
-    { key: "left_calf_cm", label: "Pant. E", x: 62, y: 110, align: "right" },
+  const mapAsset = sex === "female" ? "/body-maps/body-map-female.png" : "/body-maps/body-map-male.png";
+  const mapAlt = sex === "female" ? "Mapa corporal feminino de medidas" : "Mapa corporal masculino de medidas";
+  const groups = [
+    { label: "Calculo", keys: ["neck_cm", "waist_cm", "abdomen_cm", "hip_cm"] },
+    { label: "Evolucao", keys: ["shoulders_cm", "chest_cm", "right_arm_relaxed_cm", "left_arm_relaxed_cm", "right_arm_flexed_cm", "left_arm_flexed_cm", "right_thigh_cm", "left_thigh_cm", "right_calf_cm", "left_calf_cm"] },
   ];
-  const visiblePoints = points
-    .map((point) => ({ ...point, row: rowMap.get(point.key) }))
-    .filter((point) => point.row?.current_value != null);
+  const visibleGroups = groups.map((group) => ({
+    ...group,
+    rows: group.keys
+      .map((key) => rowMap.get(key))
+      .filter((row): row is BodyCompositionMeasurementRow => Boolean(row?.current_value != null)),
+  }));
+  const hasVisibleRows = visibleGroups.some((group) => group.rows.length > 0);
 
   return (
     <div className="border border-[#e8e3dc] bg-[#f7f4ef] p-4">
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Mapa corporal de medidas</p>
-        <p className="mt-1 text-xs text-[#665f57]">Visual proprio para localizar perimetria. Nao usa foto do aluno.</p>
+        <p className="mt-1 text-xs text-[#665f57]">Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.</p>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
-        <div className="relative mx-auto w-[220px]">
-          <svg viewBox="0 0 120 140" role="img" aria-label="Mapa corporal neutro de medidas" className="h-[260px] w-full">
-            <defs>
-              <linearGradient id="bodyMapFill" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stopColor="#fdfbf6" />
-                <stop offset="100%" stopColor="#ebe4d8" />
-              </linearGradient>
-            </defs>
-            <circle cx="60" cy="15" r="9" fill="url(#bodyMapFill)" stroke="#7d7467" strokeWidth="1.4" />
-            <path d="M47 28 Q60 22 73 28 L79 65 Q75 78 66 83 L69 126 Q66 133 61 126 L58 88 L55 126 Q50 133 47 126 L50 83 Q41 78 37 65 Z" fill="url(#bodyMapFill)" stroke="#7d7467" strokeWidth="1.4" />
-            <path d="M39 33 Q26 42 18 69" fill="none" stroke="#7d7467" strokeWidth="4" strokeLinecap="round" />
-            <path d="M81 33 Q94 42 102 69" fill="none" stroke="#7d7467" strokeWidth="4" strokeLinecap="round" />
-            <path d="M49 32 H71" stroke="#8a4b24" strokeWidth="1.5" />
-            <path d="M43 50 H77" stroke="#8a4b24" strokeWidth="1.5" />
-            <path d="M42 58 H78" stroke="#8a4b24" strokeWidth="1.5" />
-            <path d="M43 68 H77" stroke="#8a4b24" strokeWidth="1.5" />
-            <path d="M33 43 H20" stroke="#8a4b24" strokeWidth="1.4" />
-            <path d="M87 43 H100" stroke="#8a4b24" strokeWidth="1.4" />
-            <path d="M49 93 H36" stroke="#8a4b24" strokeWidth="1.4" />
-            <path d="M71 93 H84" stroke="#8a4b24" strokeWidth="1.4" />
-            <path d="M51 114 H39" stroke="#8a4b24" strokeWidth="1.4" />
-            <path d="M69 114 H81" stroke="#8a4b24" strokeWidth="1.4" />
-            {visiblePoints.map((point) => (
-              <circle key={point.key} cx={point.x} cy={point.y} r="2.2" fill="#c26d2e" stroke="#fffaf2" strokeWidth="1" />
-            ))}
-          </svg>
-          {visiblePoints.map((point) => (
-            <div
-              key={point.key}
-              className="absolute min-w-[74px] border border-[#d9cfc1] bg-[#fffaf2]/95 px-2 py-1 text-[0.62rem] leading-tight shadow-sm"
-              style={{
-                left: `${(point.x / 120) * 100}%`,
-                top: `${(point.y / 140) * 100}%`,
-                transform: point.align === "left" ? "translate(-108%, -50%)" : "translate(8%, -50%)",
-              }}
-            >
-              <span className="block font-semibold uppercase tracking-[0.08em] text-[#6d6258]">{point.label}</span>
-              <span className="block font-bold text-[#15110f]">{point.row?.formatted_current}</span>
-            </div>
-          ))}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="overflow-hidden border border-[#e0d9cf] bg-white">
+          <img src={mapAsset} alt={mapAlt} className="h-auto w-full object-contain" loading="lazy" />
         </div>
-        <div className="grid content-start gap-2 text-xs">
-          {visiblePoints.map((point) => (
-            <div key={point.key} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-[#e3ddd4] py-2">
-              <span className="font-semibold text-[#332d28]">{point.label}</span>
-              <span className="text-[#15110f]">{point.row?.formatted_current}</span>
+        <div className="space-y-4 text-xs">
+          {visibleGroups.map((group) => (
+            <div key={group.label} className="border border-[#e3ddd4] bg-[#fcfbf7]">
+              <p className="border-b border-[#e3ddd4] px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#786f66]">{group.label}</p>
+              {group.rows.length > 0 ? (
+                group.rows.map((row) => (
+                  <div key={row.key} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-[#eee8df] px-3 py-2 last:border-b-0">
+                    <span className="font-semibold text-[#332d28]">{row.label}</span>
+                    <span className="text-[#15110f]">{row.formatted_current}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="px-3 py-3 text-[#665f57]">Sem medidas atuais.</p>
+              )}
             </div>
           ))}
-          {visiblePoints.length === 0 ? (
+          {!hasVisibleRows ? (
             <p className="border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
           ) : null}
         </div>

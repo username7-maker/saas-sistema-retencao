@@ -1,5 +1,8 @@
 # Current State
 
+## 2026-07-07 - Actuar Petroski Body Map Parity 09.20
+Fase 09.20 aberta para corrigir paridade operacional do protocolo Petroski masculino observado no Actuar e trocar o mapa corporal simplificado do relatorio por assets anatomicos genericos masculino/feminino. Escopo limitado a calculo Petroski masculino 4 dobras, preview, relatorio web e testes; sem schema novo e sem copiar layout/logica proprietaria do Actuar.
+
 ## 2026-07-07 - Anthropometry Protocols + Body Map 09.19
 Fase 09.19 aberta para complementar a Bioimpedancia v2 com mapa corporal de medidas no relatorio e catalogo de protocolos antropometricos/dobras cutaneas no formulario. A decisao de seguranca e separar perimetria visual/evolutiva dos protocolos de composicao: apenas protocolos com formula publica implementada calculam automaticamente; protocolos sem formula validada ficam selecionaveis para registro/manual review, sem inventar percentual.
 

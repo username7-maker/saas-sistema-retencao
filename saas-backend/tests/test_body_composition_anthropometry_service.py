@@ -119,6 +119,30 @@ def test_supported_skinfold_protocol_becomes_official_anthropometry() -> None:
     assert resolved["fat_mass_estimated_kg"] is not None
 
 
+def test_petroski_male_protocol_matches_actuar_reference_case() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 22,
+            "height_cm": 177,
+            "weight_kg": 73.6,
+            "body_fat_percent": 31.2,
+            "preferred_body_fat_source": "geneos_composite",
+            "measurement_protocol": "petroski_1995_male_18_66",
+            "skinfold_triceps_mm": 9,
+            "skinfold_subscapular_mm": 12,
+            "skinfold_suprailiac_mm": 7,
+            "skinfold_calf_mm": 10,
+        }
+    )
+
+    assert resolved["body_fat_used_source"] == "anthropometry"
+    assert resolved["body_fat_method"] == "skinfold_protocol"
+    assert resolved["body_fat_used_percent"] == 12.49
+    assert resolved["fat_mass_estimated_kg"] == 9.19
+    assert resolved["lean_mass_estimated_kg"] == 64.41
+
+
 def test_catalog_only_protocol_does_not_invent_body_fat() -> None:
     resolved = resolve_body_fat_fields(
         {

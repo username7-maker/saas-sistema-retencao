@@ -196,10 +196,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="male",
         age_min=18,
         age_max=66,
-        required_fields=("skinfold_chest_mm", "skinfold_abdominal_mm", "skinfold_thigh_mm", "skinfold_calf_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        required_fields=("skinfold_subscapular_mm", "skinfold_triceps_mm", "skinfold_suprailiac_mm", "skinfold_calf_mm"),
+        calculation="petroski_1995_male_4",
+        supported=True,
+        notes="Densidade corporal Petroski masculino 4 dobras; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="durnin_womersley_1974_female_18_68",
@@ -595,10 +595,29 @@ def _durnin_womersley_4(values: Any, sex: str | None, age_years: int | None) -> 
     return _siri(density)
 
 
+def _petroski_1995_male_4(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    if sex != "male" or age_years is None:
+        return None
+    total = _sum_fields(
+        values,
+        (
+            "skinfold_subscapular_mm",
+            "skinfold_triceps_mm",
+            "skinfold_suprailiac_mm",
+            "skinfold_calf_mm",
+        ),
+    )
+    if total is None:
+        return None
+    density = 1.10726863 - 0.00081201 * total + 0.00000212 * total**2 - 0.00041761 * age_years
+    return _siri(density)
+
+
 _CALCULATORS: dict[str, Callable[[Any, str | None, int | None], float | None]] = {
     "jackson_pollock_3": _jackson_pollock_3,
     "jackson_pollock_7": _jackson_pollock_7,
     "durnin_womersley_4": _durnin_womersley_4,
+    "petroski_1995_male_4": _petroski_1995_male_4,
 }
 
 

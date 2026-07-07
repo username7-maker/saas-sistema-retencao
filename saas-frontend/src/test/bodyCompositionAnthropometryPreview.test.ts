@@ -81,6 +81,29 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.usedPercent).toBeGreaterThan(0);
   });
 
+  it("matches the Actuar Petroski male reference case", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 22,
+      heightCm: 177,
+      weightKg: 73.6,
+      bioimpedancePercent: 31.2,
+      preferredSource: "geneos_composite",
+      measurementProtocol: "petroski_1995_male_18_66",
+      skinfoldTricepsMm: 9,
+      skinfoldSubscapularMm: 12,
+      skinfoldSuprailiacMm: 7,
+      skinfoldCalfMm: 10,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.usedSource).toBe("anthropometry");
+    expect(result.method).toBe("skinfold_protocol");
+    expect(result.usedPercent).toBe(12.49);
+    expect(result.fatMassKg).toBe(9.19);
+    expect(result.leanMassKg).toBe(64.41);
+  });
+
   it("does not calculate catalog-only protocols", () => {
     const result = calculateAnthropometryPreview({
       sex: "male",

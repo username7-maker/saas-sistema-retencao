@@ -1,5 +1,8 @@
 # Decisions
 
+## 2026-07-07 - Petroski Masculino Com Paridade Actuar
+O protocolo `Petroski (1995), Homens, 18-66 anos` passa a ser calculado automaticamente quando houver idade e as dobras tricipital, subescapular, suprailiaca e panturrilha. O calculo usa densidade corporal Petroski masculino 4 dobras e conversao por Siri para alinhar o caso de referencia do Actuar, mantendo `body_fat_used_percent` como fonte oficial e sem alterar sync/schema.
+
 ## 2026-07-07 - Protocolos Antropometricos Como Catalogo Seguro
 O Cordex pode listar os protocolos operacionais usados pela academia, mas so calcula automaticamente protocolos de dobras cutaneas com formula publica implementada e campos obrigatorios presentes. Protocolos sem formula validada em V1 permanecem como catalogo/manual review e nao podem alterar `body_fat_used_percent` sem override/revisao explicita. O relatorio ganha um mapa corporal proprio e neutro para perimetria, sem copiar layout do Actuar.
 

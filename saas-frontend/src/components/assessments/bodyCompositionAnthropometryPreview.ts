@@ -301,6 +301,7 @@ function calculateSupportedProtocolPercent(
   if (key.includes("jackson_pollock_3")) return calculateJacksonPollock3(input, sex, ageYears);
   if (key.includes("jackson_pollock_7") || key.includes("pollock_1980_7")) return calculateJacksonPollock7(input, sex, ageYears);
   if (key.includes("durnin_womersley")) return calculateDurninWomersley(input, sex, ageYears);
+  if (key === "petroski_1995_male_18_66") return calculatePetroski1995Male4(input, sex, ageYears);
   return null;
 }
 
@@ -339,6 +340,18 @@ function calculateDurninWomersley(input: AnthropometryPreviewInput, sex: Sex, ag
   if (total == null || total <= 0 || ageYears == null || !sex) return null;
   const [constant, multiplier] = durninCoefficients(sex, ageYears);
   return siri(constant - multiplier * Math.log10(total));
+}
+
+function calculatePetroski1995Male4(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  if (sex !== "male" || ageYears == null) return null;
+  const total = sumProtocolFields(input, [
+    "skinfold_subscapular_mm",
+    "skinfold_triceps_mm",
+    "skinfold_suprailiac_mm",
+    "skinfold_calf_mm",
+  ]);
+  if (total == null) return null;
+  return siri(1.10726863 - 0.00081201 * total + 0.00000212 * total ** 2 - 0.00041761 * ageYears);
 }
 
 function durninCoefficients(sex: Exclude<Sex, null | undefined>, ageYears: number): [number, number] {
