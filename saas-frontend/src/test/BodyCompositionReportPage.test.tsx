@@ -177,7 +177,7 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");
     expect(screen.getByText("Leitura:")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Relatorio tecnico" })).toBeInTheDocument();
     expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
@@ -193,7 +193,7 @@ describe("BodyCompositionReportPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
 
     await waitFor(() => {
-      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "technical", expect.anything());
+      expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "summary", expect.anything());
     });
 
     windowOpenSpy.mockRestore();

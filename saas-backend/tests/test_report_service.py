@@ -111,10 +111,19 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                 },
                 "primary_cards": [
                     {"key": "weight_kg", "label": "Peso", "formatted_value": "84,5 kg", "delta_absolute": -1.2, "unit": "kg"},
-                    {"key": "body_fat_percent", "label": "% gordura corporal", "formatted_value": "23,0%", "delta_absolute": -1.8, "unit": "%"},
+                    {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "delta_absolute": -1.8, "unit": "%"},
                 ],
+                "body_fat_context": {
+                    "used_source": "anthropometry",
+                    "method": "skinfold_protocol",
+                    "manual_review_required": False,
+                    "quality_flags": [],
+                },
                 "composition_metrics": [
+                    {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "reference_min": 10, "reference_max": 25, "unit": "%"},
+                    {"key": "body_fat_bioimpedance_percent", "label": "Gordura corporal bruta da bioimpedancia", "formatted_value": "31,2%", "reference_min": 10, "reference_max": 25, "unit": "%"},
                     {"key": "body_water_kg", "label": "Agua corporal", "formatted_value": "43,3 kg", "reference_min": 39, "reference_max": 48, "unit": "kg"},
+                    {"key": "protein_kg", "label": "Proteina", "formatted_value": "17,7 kg", "reference_min": 5, "reference_max": 25, "unit": "kg"},
                 ],
                 "muscle_fat_metrics": [
                     {"key": "weight_kg", "label": "Peso", "formatted_value": "84,5 kg", "value": 84.5, "reference_min": 65, "reference_max": 80, "status": "high"},
@@ -138,6 +147,17 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                         "difference_absolute": -1.2,
                         "unit": "kg",
                         "trend": "down",
+                    }
+                ],
+                "measurement_rows": [
+                    {
+                        "key": "neck_cm",
+                        "label": "Pescoco",
+                        "current_value": 38,
+                        "previous_value": 37,
+                        "formatted_current": "38 cm",
+                        "formatted_previous": "37 cm",
+                        "formatted_delta": "+1 cm",
                     }
                 ],
                 "history_series": [
@@ -172,7 +192,10 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     html = render_premium_report_html(payload)
 
-    assert "Analise da Composicao Corporal" in html
+    assert "Resumo da composicao corporal" in html
+    assert "A gordura corporal foi estimada por medidas feitas pelo professor." in html
+    assert "Medidas corporais" in html
+    assert "body-map-front-male.png" in html
     assert "Pontuacao corporal" in html
     assert "Historico da Composicao Corporal" not in html
     assert "Comparativo rapido" in html
@@ -180,6 +203,10 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Gordura visceral" in html
     assert "Relacao cintura-quadril" in html
     assert "Erick Bedin" in html
+    assert "Gordura corporal bruta da bioimpedancia" not in html
+    assert "Proteina" not in html
+    assert "Dados adicionais" not in html
+    assert "Nota tecnica" not in html
     assert "OCR 82%" not in html
     assert "OCR com baixa confianca" not in html
     assert ">ID<" not in html

@@ -139,13 +139,13 @@ function BodyCompositionReportPage() {
           Voltar para bioimpedancia
         </Link>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="primary" onClick={() => void handleOpenPdf("technical")}>
+          <Button size="sm" variant="primary" onClick={() => void handleOpenPdf("summary")}>
             <Download size={14} />
             Abrir PDF
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("summary")}>
+          <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("technical")}>
             <Download size={14} />
-            Resumo do aluno
+            Relatorio tecnico
           </Button>
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer size={14} />
