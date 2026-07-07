@@ -1370,7 +1370,7 @@ export type BodyCompositionSex = "male" | "female";
 export type BodyFatMeasurementSource = "bioimpedance" | "manual_anthropometry" | "composite_geneos" | "manual_override";
 export type PreferredBodyFatSource = "bioimpedance" | "anthropometry" | "geneos_composite" | "manual_override";
 export type BodyFatUsedSource = "bioimpedance" | "anthropometry" | "manual_override";
-export type BodyFatMethod = "legacy_bioimpedance" | "navy_circumference" | "rfm" | "geneos_composite" | "manual_override";
+export type BodyFatMethod = "legacy_bioimpedance" | "navy_circumference" | "rfm" | "geneos_composite" | "skinfold_protocol" | "manual_override";
 export type BodyFatConfidence = "high" | "medium_high" | "medium" | "low" | "inconsistent";
 export type BodyCompositionDataQualityFlag =
   | "missing_body_fat_percent"
@@ -1383,7 +1383,10 @@ export type BodyCompositionDataQualityFlag =
   | "anthropometry_needs_review"
   | "anthropometry_inconsistent"
   | "impossible_measurement_value"
-  | "abnormal_measurement_variation";
+  | "abnormal_measurement_variation"
+  | "anthropometry_protocol_manual_only"
+  | "anthropometry_protocol_mismatch"
+  | "anthropometry_protocol_age_outside_range";
 export type BodyCompositionTrend = "up" | "down" | "stable" | "insufficient";
 export type BodyCompositionRangeStatus = "low" | "adequate" | "high" | "unknown";
 export type BodyCompositionInsightTone = "positive" | "warning" | "neutral";
@@ -1824,6 +1827,15 @@ export interface BodyCompositionEvaluation {
   left_thigh_cm?: number | null;
   right_calf_cm?: number | null;
   left_calf_cm?: number | null;
+  skinfold_chest_mm?: number | null;
+  skinfold_midaxillary_mm?: number | null;
+  skinfold_subscapular_mm?: number | null;
+  skinfold_triceps_mm?: number | null;
+  skinfold_biceps_mm?: number | null;
+  skinfold_abdominal_mm?: number | null;
+  skinfold_suprailiac_mm?: number | null;
+  skinfold_thigh_mm?: number | null;
+  skinfold_calf_mm?: number | null;
   anthropometry_notes?: string | null;
   body_fat_manual_review_required?: boolean;
   body_fat_manual_review_completed?: boolean;
@@ -1953,6 +1965,15 @@ export interface BodyCompositionEvaluationCreate {
   left_thigh_cm?: number | null;
   right_calf_cm?: number | null;
   left_calf_cm?: number | null;
+  skinfold_chest_mm?: number | null;
+  skinfold_midaxillary_mm?: number | null;
+  skinfold_subscapular_mm?: number | null;
+  skinfold_triceps_mm?: number | null;
+  skinfold_biceps_mm?: number | null;
+  skinfold_abdominal_mm?: number | null;
+  skinfold_suprailiac_mm?: number | null;
+  skinfold_thigh_mm?: number | null;
+  skinfold_calf_mm?: number | null;
   anthropometry_notes?: string | null;
   body_fat_manual_review_required?: boolean;
   body_fat_manual_review_completed?: boolean;

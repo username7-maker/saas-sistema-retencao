@@ -1,4 +1,5 @@
 import type { BodyFatConfidence, BodyFatMethod, BodyFatUsedSource, PreferredBodyFatSource } from "../../types";
+import { getBodyCompositionProtocol } from "./bodyCompositionProtocols";
 
 type Sex = "male" | "female" | null | undefined;
 
@@ -9,10 +10,21 @@ export interface AnthropometryPreviewInput {
   bioimpedancePercent?: unknown;
   manualOverridePercent?: unknown;
   preferredSource?: PreferredBodyFatSource | null;
+  ageYears?: unknown;
+  measurementProtocol?: string | null;
   neckCm?: unknown;
   waistCm?: unknown;
   abdomenCm?: unknown;
   hipCm?: unknown;
+  skinfoldChestMm?: unknown;
+  skinfoldMidaxillaryMm?: unknown;
+  skinfoldSubscapularMm?: unknown;
+  skinfoldTricepsMm?: unknown;
+  skinfoldBicepsMm?: unknown;
+  skinfoldAbdominalMm?: unknown;
+  skinfoldSuprailiacMm?: unknown;
+  skinfoldThighMm?: unknown;
+  skinfoldCalfMm?: unknown;
   reviewCompleted?: boolean;
 }
 
@@ -39,6 +51,7 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const sex = input.sex === "male" || input.sex === "female" ? input.sex : null;
   const heightCm = parseNumber(input.heightCm);
   const weightKg = parseNumber(input.weightKg);
+  const ageYears = parseNumber(input.ageYears);
   const bioimpedancePercent = parseNumber(input.bioimpedancePercent);
   const manualOverridePercent = parseNumber(input.manualOverridePercent);
   const neckCm = parseNumber(input.neckCm);
@@ -47,11 +60,19 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const hipCm = parseNumber(input.hipCm);
   const preferredSource = input.preferredSource || "geneos_composite";
   const flags: string[] = [];
-  const missingFields = resolveMissingFields({ sex, heightCm, neckCm, waistCm, abdomenCm, hipCm, preferredSource });
+  const protocolPreview = calculateProtocolPreview(input, { sex, ageYears });
+  const missingFields = protocolPreview.protocolSelected
+    ? protocolPreview.missingFields
+    : resolveMissingFields({ sex, heightCm, neckCm, waistCm, abdomenCm, hipCm, preferredSource });
 
-  const navyPercent = calculateNavy({ sex, heightCm, neckCm, waistCm, abdomenCm, hipCm });
-  const rfmPercent = calculateRfm({ sex, heightCm, waistCm, abdomenCm });
-  const composite = resolveComposite({ navyPercent, rfmPercent });
+  const useProtocolOnly = protocolPreview.protocolSelected;
+  const navyPercent = useProtocolOnly ? null : calculateNavy({ sex, heightCm, neckCm, waistCm, abdomenCm, hipCm });
+  const rfmPercent = useProtocolOnly ? null : calculateRfm({ sex, heightCm, waistCm, abdomenCm });
+  const composite = protocolPreview.percent != null
+    ? { percent: protocolPreview.percent, method: "skinfold_protocol" as BodyFatMethod, confidence: protocolPreview.confidence }
+    : resolveComposite({ navyPercent, rfmPercent });
+
+  flags.push(...protocolPreview.flags);
 
   if (hasImpossibleMeasurement({ heightCm, weightKg, neckCm, waistCm, abdomenCm, hipCm })) {
     flags.push("impossible_measurement_value");
@@ -209,6 +230,156 @@ function resolveComposite(input: {
   if (input.navyPercent != null) return { percent: input.navyPercent, method: "navy_circumference", confidence: "medium" };
   if (input.rfmPercent != null) return { percent: input.rfmPercent, method: "rfm", confidence: "low" };
   return { percent: null, method: null, confidence: null };
+}
+
+function calculateProtocolPreview(
+  input: AnthropometryPreviewInput,
+  context: { sex: Sex; ageYears: number | null },
+): {
+  protocolSelected: boolean;
+  percent: number | null;
+  confidence: BodyFatConfidence | null;
+  flags: string[];
+  missingFields: string[];
+} {
+  const protocol = getBodyCompositionProtocol(input.measurementProtocol);
+  if (!protocol || protocol.key === "manual_bioimpedance") {
+    return { protocolSelected: false, percent: null, confidence: null, flags: [], missingFields: [] };
+  }
+
+  const flags: string[] = [];
+  const missingFields: string[] = [];
+  if (!protocol.supported) {
+    flags.push("anthropometry_protocol_manual_only");
+    return { protocolSelected: true, percent: null, confidence: null, flags, missingFields };
+  }
+  if (protocol.sex && context.sex && protocol.sex !== context.sex) {
+    flags.push("anthropometry_protocol_mismatch");
+  } else if (protocol.sex && !context.sex) {
+    missingFields.push("sexo");
+  }
+  if (context.ageYears == null) {
+    missingFields.push("idade");
+  } else if (protocol.ageMin != null && protocol.ageMax != null && (context.ageYears < protocol.ageMin || context.ageYears > protocol.ageMax)) {
+    flags.push("anthropometry_protocol_age_outside_range");
+  }
+
+  for (const field of protocol.requiredFields) {
+    const value = readProtocolValue(input, field);
+    if (value == null) {
+      missingFields.push(field);
+    } else if (field.startsWith("skinfold_") && (value < 2 || value > 120)) {
+      flags.push("impossible_measurement_value");
+    }
+  }
+
+  if (flags.includes("anthropometry_protocol_mismatch") || flags.includes("impossible_measurement_value") || missingFields.length > 0) {
+    if (missingFields.length > 0) flags.push("anthropometry_incomplete");
+    return { protocolSelected: true, percent: null, confidence: null, flags: Array.from(new Set(flags)), missingFields };
+  }
+
+  const percent = calculateSupportedProtocolPercent(protocol.key, input, context.sex, context.ageYears);
+  if (percent == null || percent < 2 || percent > 75) {
+    flags.push("impossible_measurement_value");
+    return { protocolSelected: true, percent: null, confidence: null, flags: Array.from(new Set(flags)), missingFields };
+  }
+  return {
+    protocolSelected: true,
+    percent: roundPercent(percent),
+    confidence: flags.includes("anthropometry_protocol_age_outside_range") ? "low" : "medium",
+    flags: Array.from(new Set(flags)),
+    missingFields,
+  };
+}
+
+function calculateSupportedProtocolPercent(
+  key: string,
+  input: AnthropometryPreviewInput,
+  sex: Sex,
+  ageYears: number | null,
+): number | null {
+  if (key.includes("jackson_pollock_3")) return calculateJacksonPollock3(input, sex, ageYears);
+  if (key.includes("jackson_pollock_7") || key.includes("pollock_1980_7")) return calculateJacksonPollock7(input, sex, ageYears);
+  if (key.includes("durnin_womersley")) return calculateDurninWomersley(input, sex, ageYears);
+  return null;
+}
+
+function calculateJacksonPollock3(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  if (sex === "male") {
+    const total = sumProtocolFields(input, ["skinfold_chest_mm", "skinfold_abdominal_mm", "skinfold_thigh_mm"]);
+    if (total == null || ageYears == null) return null;
+    return siri(1.10938 - 0.0008267 * total + 0.0000016 * total ** 2 - 0.0002574 * ageYears);
+  }
+  if (sex === "female") {
+    const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm"]);
+    if (total == null || ageYears == null) return null;
+    return siri(1.0994921 - 0.0009929 * total + 0.0000023 * total ** 2 - 0.0001392 * ageYears);
+  }
+  return null;
+}
+
+function calculateJacksonPollock7(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  const total = sumProtocolFields(input, [
+    "skinfold_chest_mm",
+    "skinfold_midaxillary_mm",
+    "skinfold_subscapular_mm",
+    "skinfold_triceps_mm",
+    "skinfold_abdominal_mm",
+    "skinfold_suprailiac_mm",
+    "skinfold_thigh_mm",
+  ]);
+  if (total == null || ageYears == null) return null;
+  if (sex === "male") return siri(1.112 - 0.00043499 * total + 0.00000055 * total ** 2 - 0.00028826 * ageYears);
+  if (sex === "female") return siri(1.097 - 0.00046971 * total + 0.00000056 * total ** 2 - 0.00012828 * ageYears);
+  return null;
+}
+
+function calculateDurninWomersley(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_biceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm"]);
+  if (total == null || total <= 0 || ageYears == null || !sex) return null;
+  const [constant, multiplier] = durninCoefficients(sex, ageYears);
+  return siri(constant - multiplier * Math.log10(total));
+}
+
+function durninCoefficients(sex: Exclude<Sex, null | undefined>, ageYears: number): [number, number] {
+  if (ageYears < 17) return sex === "male" ? [1.1533, 0.0643] : [1.1369, 0.0598];
+  if (ageYears <= 19) return sex === "male" ? [1.162, 0.063] : [1.1549, 0.0678];
+  if (ageYears <= 29) return sex === "male" ? [1.1631, 0.0632] : [1.1599, 0.0717];
+  if (ageYears <= 39) return sex === "male" ? [1.1422, 0.0544] : [1.1423, 0.0632];
+  if (ageYears <= 49) return sex === "male" ? [1.162, 0.07] : [1.1333, 0.0612];
+  return sex === "male" ? [1.1715, 0.0779] : [1.1339, 0.0645];
+}
+
+function sumProtocolFields(input: AnthropometryPreviewInput, fields: string[]): number | null {
+  let total = 0;
+  for (const field of fields) {
+    const value = readProtocolValue(input, field);
+    if (value == null) return null;
+    total += value;
+  }
+  return total;
+}
+
+function readProtocolValue(input: AnthropometryPreviewInput, field: string): number | null {
+  const map: Record<string, unknown> = {
+    skinfold_chest_mm: input.skinfoldChestMm,
+    skinfold_midaxillary_mm: input.skinfoldMidaxillaryMm,
+    skinfold_subscapular_mm: input.skinfoldSubscapularMm,
+    skinfold_triceps_mm: input.skinfoldTricepsMm,
+    skinfold_biceps_mm: input.skinfoldBicepsMm,
+    skinfold_abdominal_mm: input.skinfoldAbdominalMm,
+    skinfold_suprailiac_mm: input.skinfoldSuprailiacMm,
+    skinfold_thigh_mm: input.skinfoldThighMm,
+    skinfold_calf_mm: input.skinfoldCalfMm,
+    waist_cm: input.waistCm,
+    weight_kg: input.weightKg,
+  };
+  return parseNumber(map[field]);
+}
+
+function siri(density: number | null): number | null {
+  if (density == null || density <= 0) return null;
+  return 495 / density - 450;
 }
 
 function estimatedRange(value: number | null, confidence: BodyFatConfidence | null): [number | null, number | null] {

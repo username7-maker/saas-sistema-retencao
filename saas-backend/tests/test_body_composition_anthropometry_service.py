@@ -95,3 +95,48 @@ def test_manual_override_is_explicit_measurement_source() -> None:
     assert resolved["body_fat_method"] == "manual_override"
     assert resolved["measurement_source"] == "manual_override"
     assert resolved["measurement_protocol"] == "manual_override"
+
+
+def test_supported_skinfold_protocol_becomes_official_anthropometry() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 31,
+            "height_cm": 180,
+            "weight_kg": 82,
+            "body_fat_percent": 28,
+            "preferred_body_fat_source": "geneos_composite",
+            "measurement_protocol": "jackson_pollock_3_male_18_61",
+            "skinfold_chest_mm": 12,
+            "skinfold_abdominal_mm": 22,
+            "skinfold_thigh_mm": 18,
+        }
+    )
+
+    assert resolved["body_fat_used_source"] == "anthropometry"
+    assert resolved["body_fat_method"] == "skinfold_protocol"
+    assert resolved["body_fat_used_percent"] == resolved["body_fat_anthropometric_percent"]
+    assert resolved["fat_mass_estimated_kg"] is not None
+
+
+def test_catalog_only_protocol_does_not_invent_body_fat() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 25,
+            "height_cm": 180,
+            "weight_kg": 82,
+            "body_fat_percent": 24,
+            "preferred_body_fat_source": "geneos_composite",
+            "measurement_protocol": "mcardle_1992_4_male_18_34",
+            "skinfold_chest_mm": 12,
+            "skinfold_abdominal_mm": 22,
+            "skinfold_thigh_mm": 18,
+            "skinfold_suprailiac_mm": 14,
+        }
+    )
+
+    assert resolved["body_fat_used_source"] == "bioimpedance"
+    assert resolved["body_fat_used_percent"] == 24
+    assert resolved["body_fat_method"] == "legacy_bioimpedance"
+    assert "anthropometry_protocol_manual_only" in resolved["data_quality_flags_json"]

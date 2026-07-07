@@ -18,7 +18,7 @@ import {
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
-import type { BodyCompositionBodyFatContext } from "../../types";
+import type { BodyCompositionBodyFatContext, BodyCompositionMeasurementRow } from "../../types";
 
 const PERIOD_OPTIONS = [
   { key: "30", label: "30 dias", days: 30 },
@@ -175,29 +175,32 @@ function BodyCompositionReportPage() {
                       <h2 className="text-lg font-semibold text-[#15110f]">Medidas corporais</h2>
                       <p className="text-xs text-[#665f57]">Perimetria usada para acompanhar evolucao. Apenas pescoco, cintura/abdomen e quadril entram no calculo quando aplicavel.</p>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-[#f0eee9] text-xs uppercase tracking-[0.18em] text-[#6d6258]">
-                          <tr>
-                            <th className="px-4 py-3 text-left">Medida</th>
-                            <th className="px-4 py-3 text-right">Atual</th>
-                            <th className="px-4 py-3 text-right">Anterior</th>
-                            <th className="px-4 py-3 text-right">Variacao</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(report.measurement_rows ?? [])
-                            .filter((row) => row.current_value != null || row.previous_value != null)
-                            .map((row) => (
-                              <tr key={row.key} className="border-t border-[#e8e3dc]">
-                                <td className="px-4 py-3 font-medium text-[#15110f]">{row.label}</td>
-                                <td className="px-4 py-3 text-right">{row.formatted_current}</td>
-                                <td className="px-4 py-3 text-right">{row.formatted_previous}</td>
-                                <td className="px-4 py-3 text-right">{row.formatted_delta}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
+                    <div className="grid gap-4 p-4 xl:grid-cols-[0.72fr_1fr]">
+                      <BodyMeasurementMap rows={report.measurement_rows ?? []} />
+                      <div className="overflow-x-auto border border-[#e8e3dc]">
+                        <table className="w-full text-sm">
+                          <thead className="bg-[#f0eee9] text-xs uppercase tracking-[0.18em] text-[#6d6258]">
+                            <tr>
+                              <th className="px-4 py-3 text-left">Medida</th>
+                              <th className="px-4 py-3 text-right">Atual</th>
+                              <th className="px-4 py-3 text-right">Anterior</th>
+                              <th className="px-4 py-3 text-right">Variacao</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(report.measurement_rows ?? [])
+                              .filter((row) => row.current_value != null || row.previous_value != null)
+                              .map((row) => (
+                                <tr key={row.key} className="border-t border-[#e8e3dc]">
+                                  <td className="px-4 py-3 font-medium text-[#15110f]">{row.label}</td>
+                                  <td className="px-4 py-3 text-right">{row.formatted_current}</td>
+                                  <td className="px-4 py-3 text-right">{row.formatted_previous}</td>
+                                  <td className="px-4 py-3 text-right">{row.formatted_delta}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </section>
                 ) : null}
@@ -259,6 +262,90 @@ function BodyCompositionReportPage() {
 }
 
 export default BodyCompositionReportPage;
+
+function BodyMeasurementMap({ rows }: { rows: BodyCompositionMeasurementRow[] }) {
+  const rowMap = new Map(rows.map((row) => [row.key, row]));
+  const points = [
+    { key: "neck_cm", label: "Pescoco", x: 52, y: 23, align: "right" },
+    { key: "shoulders_cm", label: "Ombros", x: 25, y: 31, align: "left" },
+    { key: "chest_cm", label: "Torax", x: 75, y: 38, align: "right" },
+    { key: "waist_cm", label: "Cintura", x: 26, y: 52, align: "left" },
+    { key: "abdomen_cm", label: "Abdomen", x: 75, y: 57, align: "right" },
+    { key: "hip_cm", label: "Quadril", x: 28, y: 68, align: "left" },
+    { key: "right_arm_flexed_cm", label: "Braco D", x: 14, y: 45, align: "left" },
+    { key: "left_arm_flexed_cm", label: "Braco E", x: 86, y: 45, align: "right" },
+    { key: "right_thigh_cm", label: "Coxa D", x: 38, y: 85, align: "left" },
+    { key: "left_thigh_cm", label: "Coxa E", x: 63, y: 85, align: "right" },
+    { key: "right_calf_cm", label: "Pant. D", x: 39, y: 110, align: "left" },
+    { key: "left_calf_cm", label: "Pant. E", x: 62, y: 110, align: "right" },
+  ];
+  const visiblePoints = points
+    .map((point) => ({ ...point, row: rowMap.get(point.key) }))
+    .filter((point) => point.row?.current_value != null);
+
+  return (
+    <div className="border border-[#e8e3dc] bg-[#f7f4ef] p-4">
+      <div>
+        <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Mapa corporal de medidas</p>
+        <p className="mt-1 text-xs text-[#665f57]">Visual proprio para localizar perimetria. Nao usa foto do aluno.</p>
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
+        <div className="relative mx-auto w-[220px]">
+          <svg viewBox="0 0 120 140" role="img" aria-label="Mapa corporal neutro de medidas" className="h-[260px] w-full">
+            <defs>
+              <linearGradient id="bodyMapFill" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="#fdfbf6" />
+                <stop offset="100%" stopColor="#ebe4d8" />
+              </linearGradient>
+            </defs>
+            <circle cx="60" cy="15" r="9" fill="url(#bodyMapFill)" stroke="#7d7467" strokeWidth="1.4" />
+            <path d="M47 28 Q60 22 73 28 L79 65 Q75 78 66 83 L69 126 Q66 133 61 126 L58 88 L55 126 Q50 133 47 126 L50 83 Q41 78 37 65 Z" fill="url(#bodyMapFill)" stroke="#7d7467" strokeWidth="1.4" />
+            <path d="M39 33 Q26 42 18 69" fill="none" stroke="#7d7467" strokeWidth="4" strokeLinecap="round" />
+            <path d="M81 33 Q94 42 102 69" fill="none" stroke="#7d7467" strokeWidth="4" strokeLinecap="round" />
+            <path d="M49 32 H71" stroke="#8a4b24" strokeWidth="1.5" />
+            <path d="M43 50 H77" stroke="#8a4b24" strokeWidth="1.5" />
+            <path d="M42 58 H78" stroke="#8a4b24" strokeWidth="1.5" />
+            <path d="M43 68 H77" stroke="#8a4b24" strokeWidth="1.5" />
+            <path d="M33 43 H20" stroke="#8a4b24" strokeWidth="1.4" />
+            <path d="M87 43 H100" stroke="#8a4b24" strokeWidth="1.4" />
+            <path d="M49 93 H36" stroke="#8a4b24" strokeWidth="1.4" />
+            <path d="M71 93 H84" stroke="#8a4b24" strokeWidth="1.4" />
+            <path d="M51 114 H39" stroke="#8a4b24" strokeWidth="1.4" />
+            <path d="M69 114 H81" stroke="#8a4b24" strokeWidth="1.4" />
+            {visiblePoints.map((point) => (
+              <circle key={point.key} cx={point.x} cy={point.y} r="2.2" fill="#c26d2e" stroke="#fffaf2" strokeWidth="1" />
+            ))}
+          </svg>
+          {visiblePoints.map((point) => (
+            <div
+              key={point.key}
+              className="absolute min-w-[74px] border border-[#d9cfc1] bg-[#fffaf2]/95 px-2 py-1 text-[0.62rem] leading-tight shadow-sm"
+              style={{
+                left: `${(point.x / 120) * 100}%`,
+                top: `${(point.y / 140) * 100}%`,
+                transform: point.align === "left" ? "translate(-108%, -50%)" : "translate(8%, -50%)",
+              }}
+            >
+              <span className="block font-semibold uppercase tracking-[0.08em] text-[#6d6258]">{point.label}</span>
+              <span className="block font-bold text-[#15110f]">{point.row?.formatted_current}</span>
+            </div>
+          ))}
+        </div>
+        <div className="grid content-start gap-2 text-xs">
+          {visiblePoints.map((point) => (
+            <div key={point.key} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-[#e3ddd4] py-2">
+              <span className="font-semibold text-[#332d28]">{point.label}</span>
+              <span className="text-[#15110f]">{point.row?.formatted_current}</span>
+            </div>
+          ))}
+          {visiblePoints.length === 0 ? (
+            <p className="border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BodyFatContextPanel({ context }: { context: BodyCompositionBodyFatContext | null }) {
   if (!context) return null;

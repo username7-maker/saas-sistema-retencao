@@ -233,8 +233,11 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Sexo: Feminino")).toBeInTheDocument();
     expect(screen.getByText("Composicao corporal por medidas")).toBeInTheDocument();
+    expect(screen.getByText("Protocolo antropometrico")).toBeInTheDocument();
     expect(screen.getByText("Checklist do protocolo")).toBeInTheDocument();
     expect(screen.getByText("Comparativo bilateral")).toBeInTheDocument();
+    expect(screen.getByText("Dobras cutaneas")).toBeInTheDocument();
+    expect(screen.getByText("Jackson e Pollock (1978), 3 dobras - Homens brancos, 18-61 anos")).toBeInTheDocument();
     expect(screen.getByText("Preencha pares direito/esquerdo para comparar.")).toBeInTheDocument();
     expect(screen.getByText("Previa antes de salvar")).toBeInTheDocument();
     expect(screen.getByText("Revisao manual do percentual concluida")).toBeInTheDocument();

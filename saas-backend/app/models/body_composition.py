@@ -136,7 +136,16 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     body_fat_manual_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     body_fat_manual_review_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     anthropometry_review_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    measurement_protocol: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    skinfold_chest_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_midaxillary_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_subscapular_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_triceps_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_biceps_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_abdominal_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_suprailiac_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_thigh_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_calf_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    measurement_protocol: Mapped[str | None] = mapped_column(String(80), nullable=True)
     evaluated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

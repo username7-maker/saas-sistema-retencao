@@ -1,5 +1,8 @@
 # Decisions
 
+## 2026-07-07 - Protocolos Antropometricos Como Catalogo Seguro
+O Cordex pode listar os protocolos operacionais usados pela academia, mas so calcula automaticamente protocolos de dobras cutaneas com formula publica implementada e campos obrigatorios presentes. Protocolos sem formula validada em V1 permanecem como catalogo/manual review e nao podem alterar `body_fat_used_percent` sem override/revisao explicita. O relatorio ganha um mapa corporal proprio e neutro para perimetria, sem copiar layout do Actuar.
+
 ## 2026-07-07 - Percentual Oficial por Medidas
 Para Bioimpedancia v2, `body_fat_percent` deixa de ser fonte oficial e fica como campo bruto/legado de bioimpedancia, OCR, compatibilidade e Actuar. O produto deve usar `body_fat_used_percent` em cards principais, relatorio web, PDF, IA, WhatsApp e Kommo. Antropometria entra no fluxo existente, sem copiar Actuar, sem modulo paralelo, sem diagnostico clinico e sem usar bracos, coxas, panturrilhas, torax ou ombros como entrada direta do calculo de gordura.
 

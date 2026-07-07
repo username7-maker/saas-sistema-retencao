@@ -1,5 +1,8 @@
 # Current State
 
+## 2026-07-07 - Anthropometry Protocols + Body Map 09.19
+Fase 09.19 aberta para complementar a Bioimpedancia v2 com mapa corporal de medidas no relatorio e catalogo de protocolos antropometricos/dobras cutaneas no formulario. A decisao de seguranca e separar perimetria visual/evolutiva dos protocolos de composicao: apenas protocolos com formula publica implementada calculam automaticamente; protocolos sem formula validada ficam selecionaveis para registro/manual review, sem inventar percentual.
+
 ## 2026-07-07 - Composicao Corporal por Medidas 09.18
 Fase 09.18 aberta para transformar `body_fat_used_percent` na fonte oficial de gordura corporal nos cards, relatorio web, PDF, IA, WhatsApp e Kommo. `body_fat_percent` permanece legado/bruto para OCR, compatibilidade e Actuar. A V1 adiciona antropometria dentro da Bioimpedancia v2 existente, sem criar modulo paralelo e sem enviar novos campos de perimetria para Actuar.
 

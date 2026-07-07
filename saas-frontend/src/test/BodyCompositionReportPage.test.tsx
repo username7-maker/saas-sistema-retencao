@@ -173,6 +173,8 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByText("Fonte oficial da gordura corporal")).toBeInTheDocument();
     expect(screen.getByText("Bioimpedancia bruta")).toBeInTheDocument();
     expect(screen.getByText("Medidas corporais")).toBeInTheDocument();
+    expect(screen.getByText("Mapa corporal de medidas")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Mapa corporal neutro de medidas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();

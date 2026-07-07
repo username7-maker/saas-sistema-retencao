@@ -60,4 +60,44 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.usedSource).toBe("bioimpedance");
     expect(result.flags).toContain("anthropometry_inconsistent");
   });
+
+  it("uses supported skinfold protocol as anthropometry preview", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 31,
+      heightCm: 180,
+      weightKg: 82,
+      bioimpedancePercent: 28,
+      preferredSource: "geneos_composite",
+      measurementProtocol: "jackson_pollock_3_male_18_61",
+      skinfoldChestMm: 12,
+      skinfoldAbdominalMm: 22,
+      skinfoldThighMm: 18,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.usedSource).toBe("anthropometry");
+    expect(result.method).toBe("skinfold_protocol");
+    expect(result.usedPercent).toBeGreaterThan(0);
+  });
+
+  it("does not calculate catalog-only protocols", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 25,
+      heightCm: 180,
+      weightKg: 82,
+      bioimpedancePercent: 24,
+      preferredSource: "geneos_composite",
+      measurementProtocol: "mcardle_1992_4_male_18_34",
+      skinfoldChestMm: 12,
+      skinfoldAbdominalMm: 22,
+      skinfoldThighMm: 18,
+      skinfoldSuprailiacMm: 14,
+    });
+
+    expect(result.usedSource).toBe("bioimpedance");
+    expect(result.method).toBe("legacy_bioimpedance");
+    expect(result.flags).toContain("anthropometry_protocol_manual_only");
+  });
 });

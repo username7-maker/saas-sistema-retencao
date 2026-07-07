@@ -31,7 +31,7 @@ BodyCompositionSex = Literal["male", "female"]
 BodyFatMeasurementSource = Literal["bioimpedance", "manual_anthropometry", "composite_geneos", "manual_override"]
 PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]
 BodyFatUsedSource = Literal["bioimpedance", "anthropometry", "manual_override"]
-BodyFatMethod = Literal["legacy_bioimpedance", "navy_circumference", "rfm", "geneos_composite", "manual_override"]
+BodyFatMethod = Literal["legacy_bioimpedance", "navy_circumference", "rfm", "geneos_composite", "skinfold_protocol", "manual_override"]
 BodyFatConfidence = Literal["high", "medium_high", "medium", "low", "inconsistent"]
 BodyCompositionDataQualityFlag = Literal[
     "missing_body_fat_percent",
@@ -45,6 +45,9 @@ BodyCompositionDataQualityFlag = Literal[
     "anthropometry_inconsistent",
     "impossible_measurement_value",
     "abnormal_measurement_variation",
+    "anthropometry_protocol_manual_only",
+    "anthropometry_protocol_mismatch",
+    "anthropometry_protocol_age_outside_range",
 ]
 BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
 BodyCompositionRangeStatus = Literal["low", "adequate", "high", "unknown"]
@@ -159,6 +162,15 @@ class BodyCompositionEvaluationBase(BaseModel):
     left_thigh_cm: float | None = Field(default=None, gt=0)
     right_calf_cm: float | None = Field(default=None, gt=0)
     left_calf_cm: float | None = Field(default=None, gt=0)
+    skinfold_chest_mm: float | None = Field(default=None, gt=0)
+    skinfold_midaxillary_mm: float | None = Field(default=None, gt=0)
+    skinfold_subscapular_mm: float | None = Field(default=None, gt=0)
+    skinfold_triceps_mm: float | None = Field(default=None, gt=0)
+    skinfold_biceps_mm: float | None = Field(default=None, gt=0)
+    skinfold_abdominal_mm: float | None = Field(default=None, gt=0)
+    skinfold_suprailiac_mm: float | None = Field(default=None, gt=0)
+    skinfold_thigh_mm: float | None = Field(default=None, gt=0)
+    skinfold_calf_mm: float | None = Field(default=None, gt=0)
     anthropometry_notes: str | None = None
     body_fat_manual_review_required: bool = False
     body_fat_manual_review_completed: bool = False

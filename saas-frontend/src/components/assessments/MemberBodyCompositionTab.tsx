@@ -24,6 +24,11 @@ import { Link } from "react-router-dom";
 import { z } from "zod";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
+import {
+  BODY_COMPOSITION_PROTOCOLS,
+  SKINFOLD_FIELD_LABELS,
+  getBodyCompositionProtocol,
+} from "./bodyCompositionProtocols";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import {
@@ -136,9 +141,19 @@ const schema = z.object({
   left_thigh_cm: nullableNumberField,
   right_calf_cm: nullableNumberField,
   left_calf_cm: nullableNumberField,
+  skinfold_chest_mm: nullableNumberField,
+  skinfold_midaxillary_mm: nullableNumberField,
+  skinfold_subscapular_mm: nullableNumberField,
+  skinfold_triceps_mm: nullableNumberField,
+  skinfold_biceps_mm: nullableNumberField,
+  skinfold_abdominal_mm: nullableNumberField,
+  skinfold_suprailiac_mm: nullableNumberField,
+  skinfold_thigh_mm: nullableNumberField,
+  skinfold_calf_mm: nullableNumberField,
   anthropometry_notes: z.string().optional().nullable(),
   body_fat_manual_review_completed: z.boolean().optional(),
   anthropometry_review_completed: z.boolean().optional(),
+  measurement_protocol: z.string().optional().nullable(),
   target_weight_kg: nullableNumberField,
   weight_control_kg: nullableNumberField,
   muscle_control_kg: nullableNumberField,
@@ -186,6 +201,15 @@ type NumericFieldKey =
   | "left_thigh_cm"
   | "right_calf_cm"
   | "left_calf_cm"
+  | "skinfold_chest_mm"
+  | "skinfold_midaxillary_mm"
+  | "skinfold_subscapular_mm"
+  | "skinfold_triceps_mm"
+  | "skinfold_biceps_mm"
+  | "skinfold_abdominal_mm"
+  | "skinfold_suprailiac_mm"
+  | "skinfold_thigh_mm"
+  | "skinfold_calf_mm"
   | "target_weight_kg"
   | "weight_control_kg"
   | "muscle_control_kg"
@@ -328,6 +352,21 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     ],
   },
   {
+    title: "Dobras cutaneas",
+    description: "Campos usados apenas por protocolos de dobras. Se o protocolo selecionado nao for calculavel, ficam como registro para revisao.",
+    fields: [
+      { key: "skinfold_chest_mm", label: "Peitoral (mm)", placeholder: "12", step: "0.1" },
+      { key: "skinfold_midaxillary_mm", label: "Axilar media (mm)", placeholder: "10", step: "0.1" },
+      { key: "skinfold_subscapular_mm", label: "Subescapular (mm)", placeholder: "14", step: "0.1" },
+      { key: "skinfold_triceps_mm", label: "Tricipital (mm)", placeholder: "16", step: "0.1" },
+      { key: "skinfold_biceps_mm", label: "Bicipital (mm)", placeholder: "8", step: "0.1" },
+      { key: "skinfold_abdominal_mm", label: "Abdominal (mm)", placeholder: "22", step: "0.1" },
+      { key: "skinfold_suprailiac_mm", label: "Suprailiaca (mm)", placeholder: "18", step: "0.1" },
+      { key: "skinfold_thigh_mm", label: "Coxa (mm)", placeholder: "20", step: "0.1" },
+      { key: "skinfold_calf_mm", label: "Panturrilha (mm)", placeholder: "12", step: "0.1" },
+    ],
+  },
+  {
     title: "Parametros e metabolismo",
     description: "Indicadores metabolicos e de composicao complementar.",
     fields: [
@@ -370,6 +409,15 @@ const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "left_thigh_cm",
   "right_calf_cm",
   "left_calf_cm",
+  "skinfold_chest_mm",
+  "skinfold_midaxillary_mm",
+  "skinfold_subscapular_mm",
+  "skinfold_triceps_mm",
+  "skinfold_biceps_mm",
+  "skinfold_abdominal_mm",
+  "skinfold_suprailiac_mm",
+  "skinfold_thigh_mm",
+  "skinfold_calf_mm",
   "waist_hip_ratio",
   "fat_free_mass_kg",
   "inorganic_salt_kg",
@@ -455,9 +503,19 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     left_thigh_cm: evaluation?.left_thigh_cm ?? null,
     right_calf_cm: evaluation?.right_calf_cm ?? null,
     left_calf_cm: evaluation?.left_calf_cm ?? null,
+    skinfold_chest_mm: evaluation?.skinfold_chest_mm ?? null,
+    skinfold_midaxillary_mm: evaluation?.skinfold_midaxillary_mm ?? null,
+    skinfold_subscapular_mm: evaluation?.skinfold_subscapular_mm ?? null,
+    skinfold_triceps_mm: evaluation?.skinfold_triceps_mm ?? null,
+    skinfold_biceps_mm: evaluation?.skinfold_biceps_mm ?? null,
+    skinfold_abdominal_mm: evaluation?.skinfold_abdominal_mm ?? null,
+    skinfold_suprailiac_mm: evaluation?.skinfold_suprailiac_mm ?? null,
+    skinfold_thigh_mm: evaluation?.skinfold_thigh_mm ?? null,
+    skinfold_calf_mm: evaluation?.skinfold_calf_mm ?? null,
     anthropometry_notes: evaluation?.anthropometry_notes ?? "",
     body_fat_manual_review_completed: evaluation?.body_fat_manual_review_completed ?? false,
     anthropometry_review_completed: evaluation?.anthropometry_review_completed ?? false,
+    measurement_protocol: evaluation?.measurement_protocol ?? "manual_bioimpedance",
     target_weight_kg: evaluation?.target_weight_kg ?? null,
     weight_control_kg: evaluation?.weight_control_kg ?? null,
     muscle_control_kg: evaluation?.muscle_control_kg ?? null,
@@ -534,6 +592,7 @@ function bodyFatMethodLabel(method: string | null | undefined): string {
   if (method === "geneos_composite") return "Navy + RFM";
   if (method === "navy_circumference") return "Navy por circunferencias";
   if (method === "rfm") return "RFM";
+  if (method === "skinfold_protocol") return "Protocolo de dobras";
   if (method === "manual_override") return "Override manual";
   if (method === "legacy_bioimpedance") return "Bioimpedancia bruta";
   return "Metodo pendente";
@@ -554,6 +613,9 @@ function qualityFlagLabel(flag: string): string {
   if (flag === "anthropometry_inconsistent") return "Navy/RFM inconsistentes";
   if (flag === "impossible_measurement_value") return "medida fora do intervalo esperado";
   if (flag === "abnormal_measurement_variation") return "variacao incomum contra avaliacao anterior";
+  if (flag === "anthropometry_protocol_manual_only") return "protocolo exige revisao/manual";
+  if (flag === "anthropometry_protocol_mismatch") return "protocolo nao corresponde ao sexo informado";
+  if (flag === "anthropometry_protocol_age_outside_range") return "idade fora da faixa do protocolo";
   return flag;
 }
 
@@ -563,13 +625,50 @@ function hasNumericValue(value: unknown): boolean {
 
 function buildAnthropometryProtocolItems(input: {
   sex: FormData["sex"];
+  ageYears: unknown;
   heightCm: unknown;
   weightKg: unknown;
   neckCm: unknown;
   waistCm: unknown;
   abdomenCm: unknown;
   hipCm: unknown;
+  measurementProtocol?: string | null;
+  values?: Partial<Record<NumericFieldKey, unknown>>;
 }): ProtocolItem[] {
+  const selectedProtocol = getBodyCompositionProtocol(input.measurementProtocol);
+  if (selectedProtocol && selectedProtocol.key !== "manual_bioimpedance") {
+    const protocolItems: ProtocolItem[] = [
+      {
+        label: "Protocolo",
+        ready: selectedProtocol.supported,
+        description: selectedProtocol.supported
+          ? "Calculavel automaticamente quando os campos obrigatorios forem preenchidos."
+          : "Catalogado para registro. Em V1 exige revisao/manual override para virar fonte oficial.",
+      },
+      {
+        label: "Sexo",
+        ready: !selectedProtocol.sex || input.sex === selectedProtocol.sex,
+        description: selectedProtocol.sex ? `Esperado: ${selectedProtocol.sex === "male" ? "masculino" : "feminino"}.` : "Protocolo sem restricao de sexo.",
+      },
+      {
+        label: "Idade",
+        ready: hasNumericValue(input.ageYears),
+        description:
+          selectedProtocol.ageMin != null && selectedProtocol.ageMax != null
+            ? `Faixa do protocolo: ${selectedProtocol.ageMin}-${selectedProtocol.ageMax} anos. Fora da faixa gera alerta.`
+            : "Sem faixa etaria especifica.",
+      },
+    ];
+    for (const field of selectedProtocol.requiredFields) {
+      protocolItems.push({
+        label: SKINFOLD_FIELD_LABELS[field] ?? field,
+        ready: hasNumericValue(input.values?.[field as NumericFieldKey]),
+        description: field.startsWith("skinfold_") ? "Dobra cutanea em milimetros." : "Campo operacional requerido por este protocolo.",
+      });
+    }
+    return protocolItems;
+  }
+
   const items: ProtocolItem[] = [
     {
       label: "Sexo e altura",
@@ -971,6 +1070,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         ? "Salvar alteracoes"
         : "Salvar bioimpedancia";
   const selectedSex = watch("sex");
+  const watchedAgeYears = watch("age_years");
   const watchedHeightCm = watch("height_cm");
   const watchedWeightForAnthropometry = watch("weight_kg");
   const watchedBioimpedancePercent = watch("body_fat_percent");
@@ -986,24 +1086,61 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const watchedLeftThighCm = watch("left_thigh_cm");
   const watchedRightCalfCm = watch("right_calf_cm");
   const watchedLeftCalfCm = watch("left_calf_cm");
+  const watchedMeasurementProtocol = watch("measurement_protocol");
+  const watchedSkinfoldChestMm = watch("skinfold_chest_mm");
+  const watchedSkinfoldMidaxillaryMm = watch("skinfold_midaxillary_mm");
+  const watchedSkinfoldSubscapularMm = watch("skinfold_subscapular_mm");
+  const watchedSkinfoldTricepsMm = watch("skinfold_triceps_mm");
+  const watchedSkinfoldBicepsMm = watch("skinfold_biceps_mm");
+  const watchedSkinfoldAbdominalMm = watch("skinfold_abdominal_mm");
+  const watchedSkinfoldSuprailiacMm = watch("skinfold_suprailiac_mm");
+  const watchedSkinfoldThighMm = watch("skinfold_thigh_mm");
+  const watchedSkinfoldCalfMm = watch("skinfold_calf_mm");
   const watchedBodyFatReviewCompleted = watch("body_fat_manual_review_completed");
   const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
+  const selectedProtocol = getBodyCompositionProtocol(watchedMeasurementProtocol);
   const anthropometryProtocolItems = useMemo(
     () => buildAnthropometryProtocolItems({
       sex: selectedSex,
+      ageYears: watchedAgeYears,
       heightCm: watchedHeightCm,
       weightKg: watchedWeightForAnthropometry,
       neckCm: watchedNeckCm,
       waistCm: watchedWaistCm,
       abdomenCm: watchedAbdomenCm,
       hipCm: watchedHipCm,
+      measurementProtocol: watchedMeasurementProtocol,
+      values: {
+        weight_kg: watchedWeightForAnthropometry,
+        waist_cm: watchedWaistCm,
+        skinfold_chest_mm: watchedSkinfoldChestMm,
+        skinfold_midaxillary_mm: watchedSkinfoldMidaxillaryMm,
+        skinfold_subscapular_mm: watchedSkinfoldSubscapularMm,
+        skinfold_triceps_mm: watchedSkinfoldTricepsMm,
+        skinfold_biceps_mm: watchedSkinfoldBicepsMm,
+        skinfold_abdominal_mm: watchedSkinfoldAbdominalMm,
+        skinfold_suprailiac_mm: watchedSkinfoldSuprailiacMm,
+        skinfold_thigh_mm: watchedSkinfoldThighMm,
+        skinfold_calf_mm: watchedSkinfoldCalfMm,
+      },
     }),
     [
       selectedSex,
+      watchedAgeYears,
       watchedAbdomenCm,
       watchedHeightCm,
       watchedHipCm,
+      watchedMeasurementProtocol,
       watchedNeckCm,
+      watchedSkinfoldAbdominalMm,
+      watchedSkinfoldBicepsMm,
+      watchedSkinfoldCalfMm,
+      watchedSkinfoldChestMm,
+      watchedSkinfoldMidaxillaryMm,
+      watchedSkinfoldSubscapularMm,
+      watchedSkinfoldSuprailiacMm,
+      watchedSkinfoldThighMm,
+      watchedSkinfoldTricepsMm,
       watchedWaistCm,
       watchedWeightForAnthropometry,
     ],
@@ -1029,6 +1166,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const anthropometryPreview = useMemo(
     () => calculateAnthropometryPreview({
       sex: selectedSex,
+      ageYears: watchedAgeYears,
       heightCm: watchedHeightCm,
       weightKg: watchedWeightForAnthropometry,
       bioimpedancePercent: watchedBioimpedancePercent,
@@ -1038,10 +1176,21 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       waistCm: watchedWaistCm,
       abdomenCm: watchedAbdomenCm,
       hipCm: watchedHipCm,
+      measurementProtocol: watchedMeasurementProtocol,
+      skinfoldChestMm: watchedSkinfoldChestMm,
+      skinfoldMidaxillaryMm: watchedSkinfoldMidaxillaryMm,
+      skinfoldSubscapularMm: watchedSkinfoldSubscapularMm,
+      skinfoldTricepsMm: watchedSkinfoldTricepsMm,
+      skinfoldBicepsMm: watchedSkinfoldBicepsMm,
+      skinfoldAbdominalMm: watchedSkinfoldAbdominalMm,
+      skinfoldSuprailiacMm: watchedSkinfoldSuprailiacMm,
+      skinfoldThighMm: watchedSkinfoldThighMm,
+      skinfoldCalfMm: watchedSkinfoldCalfMm,
       reviewCompleted: Boolean(watchedBodyFatReviewCompleted || watchedAnthropometryReviewCompleted),
     }),
     [
       selectedSex,
+      watchedAgeYears,
       watchedAbdomenCm,
       watchedAnthropometryReviewCompleted,
       watchedBioimpedancePercent,
@@ -1049,8 +1198,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       watchedHeightCm,
       watchedHipCm,
       watchedManualOverridePercent,
+      watchedMeasurementProtocol,
       watchedNeckCm,
       watchedPreferredBodyFatSource,
+      watchedSkinfoldAbdominalMm,
+      watchedSkinfoldBicepsMm,
+      watchedSkinfoldCalfMm,
+      watchedSkinfoldChestMm,
+      watchedSkinfoldMidaxillaryMm,
+      watchedSkinfoldSubscapularMm,
+      watchedSkinfoldSuprailiacMm,
+      watchedSkinfoldThighMm,
+      watchedSkinfoldTricepsMm,
       watchedWaistCm,
       watchedWeightForAnthropometry,
     ],
@@ -1527,6 +1686,22 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <option value="manual_override">Informar manualmente</option>
                     </Select>
                   </FormField>
+                  <FormField label="Protocolo antropometrico" error={errors.measurement_protocol?.message}>
+                    <Select defaultValue="manual_bioimpedance" {...register("measurement_protocol")}>
+                      {BODY_COMPOSITION_PROTOCOLS.map((protocol) => (
+                        <option key={protocol.key} value={protocol.key}>
+                          {protocol.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      {selectedProtocol?.supported
+                        ? "Calculavel automaticamente se todas as dobras obrigatorias forem preenchidas."
+                        : "Protocolo catalogado para registro/revisao. Nao altera a gordura oficial sem dados calculaveis ou override."}
+                    </p>
+                  </FormField>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
                   <div className="rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
                     <p className="font-semibold text-lovable-ink">Resultado salvo</p>
                     <p className="mt-1">

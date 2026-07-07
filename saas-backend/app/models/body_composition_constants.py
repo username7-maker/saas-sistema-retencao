@@ -31,6 +31,7 @@ BODY_FAT_METHODS = (
     "navy_circumference",
     "rfm",
     "geneos_composite",
+    "skinfold_protocol",
     "manual_override",
 )
 

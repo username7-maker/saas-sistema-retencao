@@ -3,6 +3,12 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app.services.body_composition_protocols import (
+    SKINFOLD_FIELDS,
+    calculate_protocol_body_fat,
+    get_protocol,
+)
+
 
 ANTHROPOMETRY_CALCULATION_FIELDS = (
     "neck_cm",
@@ -24,7 +30,7 @@ ANTHROPOMETRY_EVOLUTION_FIELDS = (
     "left_calf_cm",
 )
 
-ANTHROPOMETRY_FIELDS = ANTHROPOMETRY_CALCULATION_FIELDS + ANTHROPOMETRY_EVOLUTION_FIELDS
+ANTHROPOMETRY_FIELDS = ANTHROPOMETRY_CALCULATION_FIELDS + ANTHROPOMETRY_EVOLUTION_FIELDS + SKINFOLD_FIELDS
 
 QUALITY_FLAGS = {
     "anthropometry_incomplete",
@@ -33,6 +39,9 @@ QUALITY_FLAGS = {
     "anthropometry_inconsistent",
     "impossible_measurement_value",
     "abnormal_measurement_variation",
+    "anthropometry_protocol_manual_only",
+    "anthropometry_protocol_mismatch",
+    "anthropometry_protocol_age_outside_range",
 }
 
 _CM_TO_INCHES = 1 / 2.54
@@ -54,6 +63,15 @@ _MEASUREMENT_RANGES = {
     "left_thigh_cm": (20.0, 130.0),
     "right_calf_cm": (15.0, 90.0),
     "left_calf_cm": (15.0, 90.0),
+    "skinfold_chest_mm": (2.0, 120.0),
+    "skinfold_midaxillary_mm": (2.0, 120.0),
+    "skinfold_subscapular_mm": (2.0, 120.0),
+    "skinfold_triceps_mm": (2.0, 120.0),
+    "skinfold_biceps_mm": (2.0, 120.0),
+    "skinfold_abdominal_mm": (2.0, 120.0),
+    "skinfold_suprailiac_mm": (2.0, 120.0),
+    "skinfold_thigh_mm": (2.0, 120.0),
+    "skinfold_calf_mm": (2.0, 120.0),
 }
 
 
@@ -168,6 +186,25 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
 
 def calculate_anthropometric_body_fat(values: Any, previous_values: Any | None = None) -> dict[str, Any]:
     flags: list[str] = []
+    protocol_result = calculate_protocol_body_fat(values)
+    if protocol_result["protocol_key"] and protocol_result["body_fat_percent"] is not None:
+        flags.extend(protocol_result["flags"])
+        flags.extend(_detect_abnormal_variation(values, previous_values))
+        return {
+            "body_fat_percent": protocol_result["body_fat_percent"],
+            "navy_percent": None,
+            "rfm_percent": None,
+            "method": "skinfold_protocol",
+            "confidence": protocol_result["confidence"],
+            "range_min": protocol_result["range_min"],
+            "range_max": protocol_result["range_max"],
+            "fat_mass_kg": protocol_result["fat_mass_kg"],
+            "lean_mass_kg": protocol_result["lean_mass_kg"],
+            "flags": list(dict.fromkeys(flags)),
+            "has_minimum_measurements": True,
+        }
+    flags.extend(protocol_result["flags"])
+
     sex = _read(values, "sex")
     height_cm = _read_float(values, "height_cm")
     weight_kg = _read_float(values, "weight_kg")
@@ -177,25 +214,30 @@ def calculate_anthropometric_body_fat(values: Any, previous_values: Any | None =
     hip_cm = _read_float(values, "hip_cm")
 
     flags.extend(_validate_measurement_ranges(values))
+    selected_protocol = get_protocol(_read(values, "measurement_protocol"))
+    selected_protocol_only = bool(selected_protocol and selected_protocol.key not in {"manual_bioimpedance"})
     if _has_any_anthropometry(values) and sex not in {"male", "female"}:
         flags.append("anthropometry_incomplete")
 
-    navy_percent = _calculate_navy(
-        sex=sex,
-        height_cm=height_cm,
-        neck_cm=neck_cm,
-        waist_cm=waist_cm,
-        abdomen_cm=abdomen_cm,
-        hip_cm=hip_cm,
-        flags=flags,
-    )
-    rfm_percent = _calculate_rfm(
-        sex=sex,
-        height_cm=height_cm,
-        waist_cm=waist_cm,
-        abdomen_cm=abdomen_cm,
-        flags=flags,
-    )
+    navy_percent = None
+    rfm_percent = None
+    if not selected_protocol_only:
+        navy_percent = _calculate_navy(
+            sex=sex,
+            height_cm=height_cm,
+            neck_cm=neck_cm,
+            waist_cm=waist_cm,
+            abdomen_cm=abdomen_cm,
+            hip_cm=hip_cm,
+            flags=flags,
+        )
+        rfm_percent = _calculate_rfm(
+            sex=sex,
+            height_cm=height_cm,
+            waist_cm=waist_cm,
+            abdomen_cm=abdomen_cm,
+            flags=flags,
+        )
 
     method = None
     selected_percent = None
@@ -222,7 +264,7 @@ def calculate_anthropometric_body_fat(values: Any, previous_values: Any | None =
         method = "rfm"
         selected_percent = rfm_percent
         confidence = "low"
-    elif _has_any_anthropometry(values):
+    elif _has_any_anthropometry(values) and not selected_protocol_only:
         flags.append("anthropometry_incomplete")
 
     if selected_percent is not None and not 2 <= selected_percent <= 75:
