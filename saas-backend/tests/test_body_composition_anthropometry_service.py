@@ -143,7 +143,135 @@ def test_petroski_male_protocol_matches_actuar_reference_case() -> None:
     assert resolved["lean_mass_estimated_kg"] == 64.41
 
 
-def test_catalog_only_protocol_does_not_invent_body_fat() -> None:
+def test_expanded_supported_protocols_match_reference_formulas() -> None:
+    cases = [
+        (
+            "mcardle_1992_4_male_18_34",
+            {
+                "sex": "male",
+                "age_years": 25,
+                "weight_kg": 82,
+                "skinfold_abdominal_mm": 22,
+                "skinfold_suprailiac_mm": 14,
+                "skinfold_triceps_mm": 12,
+                "skinfold_thigh_mm": 18,
+            },
+            15.35,
+        ),
+        (
+            "mcardle_1992_3_female_18_48",
+            {
+                "sex": "female",
+                "age_years": 30,
+                "weight_kg": 64,
+                "skinfold_abdominal_mm": 18,
+                "skinfold_triceps_mm": 20,
+                "skinfold_suprailiac_mm": 16,
+            },
+            24.31,
+        ),
+        (
+            "guedes_1985_3_male_18_30",
+            {
+                "sex": "male",
+                "age_years": 24,
+                "weight_kg": 82,
+                "skinfold_triceps_mm": 12,
+                "skinfold_abdominal_mm": 22,
+                "skinfold_suprailiac_mm": 14,
+            },
+            17.6,
+        ),
+        (
+            "guedes_1985_3_female_18_30",
+            {
+                "sex": "female",
+                "age_years": 24,
+                "weight_kg": 64,
+                "skinfold_subscapular_mm": 15,
+                "skinfold_suprailiac_mm": 16,
+                "skinfold_thigh_mm": 24,
+            },
+            24.31,
+        ),
+        (
+            "petroski_1995_female_18_51",
+            {
+                "sex": "female",
+                "age_years": 32,
+                "height_cm": 165,
+                "weight_kg": 65,
+                "skinfold_midaxillary_mm": 12,
+                "skinfold_suprailiac_mm": 16,
+                "skinfold_thigh_mm": 24,
+                "skinfold_calf_mm": 18,
+            },
+            24.77,
+        ),
+        (
+            "weltman_1988_female_obese_20_60",
+            {
+                "sex": "female",
+                "age_years": 42,
+                "height_cm": 165,
+                "weight_kg": 80,
+                "abdomen_cm": 98,
+            },
+            44.22,
+        ),
+        (
+            "slaughter_1988_boys",
+            {
+                "sex": "male",
+                "age_years": 12,
+                "weight_kg": 42,
+                "skinfold_triceps_mm": 10,
+                "skinfold_calf_mm": 12,
+            },
+            17.17,
+        ),
+        (
+            "slaughter_1988_girls",
+            {
+                "sex": "female",
+                "age_years": 12,
+                "weight_kg": 44,
+                "skinfold_triceps_mm": 12,
+                "skinfold_calf_mm": 14,
+            },
+            20.96,
+        ),
+        (
+            "faulkner_1968_male_20_30",
+            {
+                "sex": "male",
+                "age_years": 25,
+                "weight_kg": 73.6,
+                "skinfold_triceps_mm": 10,
+                "skinfold_subscapular_mm": 12,
+                "skinfold_suprailiac_mm": 14,
+                "skinfold_abdominal_mm": 16,
+            },
+            13.74,
+        ),
+    ]
+
+    for protocol, payload, expected_percent in cases:
+        resolved = resolve_body_fat_fields(
+            {
+                "body_fat_percent": 30,
+                "preferred_body_fat_source": "geneos_composite",
+                "measurement_protocol": protocol,
+                **payload,
+            }
+        )
+
+        assert resolved["body_fat_used_source"] == "anthropometry"
+        assert resolved["body_fat_method"] == "skinfold_protocol"
+        assert resolved["body_fat_used_percent"] == expected_percent
+
+
+def test_protocol_with_missing_business_fields_stays_manual_only() -> None:
     resolved = resolve_body_fat_fields(
         {
             "sex": "male",
@@ -152,11 +280,8 @@ def test_catalog_only_protocol_does_not_invent_body_fat() -> None:
             "weight_kg": 82,
             "body_fat_percent": 24,
             "preferred_body_fat_source": "geneos_composite",
-            "measurement_protocol": "mcardle_1992_4_male_18_34",
-            "skinfold_chest_mm": 12,
-            "skinfold_abdominal_mm": 22,
-            "skinfold_thigh_mm": 18,
-            "skinfold_suprailiac_mm": 14,
+            "measurement_protocol": "weltman_1988_male_obese_20_60",
+            "waist_cm": 98,
         }
     )
 

@@ -49,10 +49,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="male",
         age_min=18,
         age_max=34,
-        required_fields=("skinfold_chest_mm", "skinfold_abdominal_mm", "skinfold_thigh_mm", "skinfold_suprailiac_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        required_fields=("skinfold_abdominal_mm", "skinfold_suprailiac_mm", "skinfold_triceps_mm", "skinfold_thigh_mm"),
+        calculation="ymca_4",
+        supported=True,
+        notes="Macardle/YMCA adulto 4 dobras; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="mcardle_1992_3_female_18_48",
@@ -61,9 +61,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=18,
         age_max=48,
         required_fields=("skinfold_abdominal_mm", "skinfold_triceps_mm", "skinfold_suprailiac_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="ymca_3",
+        supported=True,
+        notes="Macardle/YMCA adulto 3 dobras; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="jackson_pollock_7_female_18_55",
@@ -164,9 +164,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=18,
         age_max=30,
         required_fields=("skinfold_subscapular_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="guedes_1985_3",
+        supported=True,
+        notes="Densidade corporal Guedes adulto 3 dobras; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_3_male_18_30",
@@ -175,9 +175,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=18,
         age_max=30,
         required_fields=("skinfold_triceps_mm", "skinfold_suprailiac_mm", "skinfold_abdominal_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="guedes_1985_3",
+        supported=True,
+        notes="Densidade corporal Guedes adulto 3 dobras; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="petroski_1995_female_18_51",
@@ -185,10 +185,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=18,
         age_max=51,
-        required_fields=("skinfold_triceps_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        required_fields=("skinfold_midaxillary_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm", "weight_kg", "height_cm"),
+        calculation="petroski_1995_female_4",
+        supported=True,
+        notes="Densidade corporal Petroski feminino 4 dobras; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="petroski_1995_male_18_66",
@@ -227,10 +227,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=20,
         age_max=60,
-        required_fields=("waist_cm", "weight_kg"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        required_fields=("abdomen_cm", "weight_kg", "height_cm"),
+        calculation="weltman_1988_female",
+        supported=True,
+        notes="Weltman feminino usa abdomen, peso e altura; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="weltman_1988_male_obese_20_60",
@@ -241,7 +241,7 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         required_fields=("waist_cm", "weight_kg"),
         calculation=None,
         supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        notes="Manual-only: a equacao masculina publicada usa circunferencia iliaca, campo ainda nao capturado pelo Cordex.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_boys_black_white_6_17",
@@ -348,10 +348,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="male",
         age_min=6,
         age_max=17,
-        required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Requires maturity branch not captured in V1.",
+        required_fields=("skinfold_triceps_mm", "skinfold_calf_mm"),
+        calculation="slaughter_2sites_simple",
+        supported=True,
+        notes="Slaughter simples 2 dobras com triceps e panturrilha; variantes por raca/maturacao permanecem manual-only.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_girls",
@@ -359,10 +359,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=6,
         age_max=17,
-        required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Requires maturity branch not captured in V1.",
+        required_fields=("skinfold_triceps_mm", "skinfold_calf_mm"),
+        calculation="slaughter_2sites_simple",
+        supported=True,
+        notes="Slaughter simples 2 dobras com triceps e panturrilha; variantes por raca/maturacao permanecem manual-only.",
     ),
     BodyCompositionProtocol(
         key="mcardle_1992_female_9_12",
@@ -415,9 +415,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=20,
         age_max=30,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm", "skinfold_abdominal_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; site naming/formula provenance requires manual review in V1.",
+        calculation="faulkner_1968_4",
+        supported=True,
+        notes="Faulkner/Yuhasz modificado 4 dobras; resultado direto em percentual.",
     ),
 )
 
@@ -481,7 +481,7 @@ def calculate_protocol_body_fat(values: Any) -> dict[str, Any]:
         value = _read_float(values, field)
         if value is None:
             missing_fields.append(_field_label(field))
-        elif not 2 <= value <= 120:
+        elif not _is_plausible_field_value(field, value):
             flags.append("impossible_measurement_value")
 
     if "impossible_measurement_value" in flags or "anthropometry_protocol_mismatch" in flags or missing_fields:
@@ -613,11 +613,110 @@ def _petroski_1995_male_4(values: Any, sex: str | None, age_years: int | None) -
     return _siri(density)
 
 
+def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    if sex != "female" or age_years is None:
+        return None
+    total = _sum_fields(
+        values,
+        (
+            "skinfold_midaxillary_mm",
+            "skinfold_suprailiac_mm",
+            "skinfold_thigh_mm",
+            "skinfold_calf_mm",
+        ),
+    )
+    weight_kg = _read_float(values, "weight_kg")
+    height_cm = _read_float(values, "height_cm")
+    if total is None or weight_kg is None or height_cm is None:
+        return None
+    density = (
+        1.03465850
+        - 0.00063129 * total
+        + 0.00000187 * total**2
+        - 0.00031165 * age_years
+        - 0.00048890 * weight_kg
+        + 0.00051345 * height_cm
+    )
+    return _siri(density)
+
+
+def _guedes_1985_3(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    if sex == "male":
+        total = _sum_fields(values, ("skinfold_triceps_mm", "skinfold_abdominal_mm", "skinfold_suprailiac_mm"))
+        if total is None or total <= 0:
+            return None
+        return _siri(1.1714 - 0.0671 * math.log10(total))
+    if sex == "female":
+        total = _sum_fields(values, ("skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_subscapular_mm"))
+        if total is None or total <= 0:
+            return None
+        return _siri(1.1665 - 0.0706 * math.log10(total))
+    return None
+
+
+def _ymca_4(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _sum_fields(values, ("skinfold_abdominal_mm", "skinfold_suprailiac_mm", "skinfold_triceps_mm", "skinfold_thigh_mm"))
+    if total is None or age_years is None:
+        return None
+    if sex == "male":
+        return 0.29288 * total - 0.0005 * total**2 + 0.15845 * age_years - 5.76377
+    if sex == "female":
+        return 0.29669 * total - 0.00043 * total**2 + 0.02963 * age_years + 1.4072
+    return None
+
+
+def _ymca_3(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _sum_fields(values, ("skinfold_abdominal_mm", "skinfold_suprailiac_mm", "skinfold_triceps_mm"))
+    if total is None or age_years is None:
+        return None
+    if sex == "male":
+        return 0.39287 * total - 0.00105 * total**2 + 0.15772 * age_years - 5.18845
+    if sex == "female":
+        return 0.41563 * total - 0.00112 * total**2 + 0.03661 * age_years + 4.03653
+    return None
+
+
+def _weltman_1988_female(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    if sex != "female":
+        return None
+    abdomen_cm = _read_float(values, "abdomen_cm")
+    weight_kg = _read_float(values, "weight_kg")
+    height_cm = _read_float(values, "height_cm")
+    if abdomen_cm is None or weight_kg is None or height_cm is None:
+        return None
+    return 0.11077 * abdomen_cm - 0.17666 * height_cm + 0.14354 * weight_kg + 51.03301
+
+
+def _slaughter_2sites_simple(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _sum_fields(values, ("skinfold_triceps_mm", "skinfold_calf_mm"))
+    if total is None:
+        return None
+    if sex == "male":
+        return 0.735 * total + 1.0
+    if sex == "female":
+        return 0.610 * total + 5.1
+    return None
+
+
+def _faulkner_1968_4(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _sum_fields(values, ("skinfold_triceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm", "skinfold_abdominal_mm"))
+    if total is None:
+        return None
+    return 5.783 + 0.153 * total
+
+
 _CALCULATORS: dict[str, Callable[[Any, str | None, int | None], float | None]] = {
     "jackson_pollock_3": _jackson_pollock_3,
     "jackson_pollock_7": _jackson_pollock_7,
     "durnin_womersley_4": _durnin_womersley_4,
     "petroski_1995_male_4": _petroski_1995_male_4,
+    "petroski_1995_female_4": _petroski_1995_female_4,
+    "guedes_1985_3": _guedes_1985_3,
+    "ymca_4": _ymca_4,
+    "ymca_3": _ymca_3,
+    "weltman_1988_female": _weltman_1988_female,
+    "slaughter_2sites_simple": _slaughter_2sites_simple,
+    "faulkner_1968_4": _faulkner_1968_4,
 }
 
 
@@ -669,9 +768,24 @@ def _field_label(field: str) -> str:
         "skinfold_suprailiac_mm": "dobra suprailiaca",
         "skinfold_thigh_mm": "dobra coxa",
         "skinfold_calf_mm": "dobra panturrilha",
+        "abdomen_cm": "abdomen",
+        "height_cm": "altura",
+        "hip_cm": "quadril",
         "waist_cm": "cintura",
         "weight_kg": "peso",
     }.get(field, field)
+
+
+def _is_plausible_field_value(field: str, value: float) -> bool:
+    ranges = {
+        "height_cm": (90.0, 250.0),
+        "weight_kg": (20.0, 300.0),
+        "abdomen_cm": (30.0, 250.0),
+        "waist_cm": (30.0, 250.0),
+        "hip_cm": (35.0, 260.0),
+    }
+    minimum, maximum = ranges.get(field, (2.0, 120.0))
+    return minimum <= value <= maximum
 
 
 def _read(values: Any, key: str) -> Any:

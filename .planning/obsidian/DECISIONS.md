@@ -1,5 +1,8 @@
 # Decisions
 
+## 2026-07-07 - Protocolos Automaticos Apenas Com Campos Existentes
+Depois da paridade Petroski, o catalogo antropometrico pode calcular automaticamente Macardle/YMCA adulto, Guedes adulto, Petroski feminino, Weltman feminino, Slaughter simples e Faulkner quando os campos obrigatorios ja existem. Protocolos que dependem de raca, maturacao, circunferencia iliaca ou campos nao capturados permanecem manual-only, sem alterar `body_fat_used_percent`. O mapa corporal do relatorio deve mostrar uma figura unica grande com baloes de medidas, nao a folha completa do asset.
+
 ## 2026-07-07 - Petroski Masculino Com Paridade Actuar
 O protocolo `Petroski (1995), Homens, 18-66 anos` passa a ser calculado automaticamente quando houver idade e as dobras tricipital, subescapular, suprailiaca e panturrilha. O calculo usa densidade corporal Petroski masculino 4 dobras e conversao por Siri para alinhar o caso de referencia do Actuar, mantendo `body_fat_used_percent` como fonte oficial e sem alterar sync/schema.
 

@@ -175,7 +175,7 @@ function BodyCompositionReportPage() {
                       <h2 className="text-lg font-semibold text-[#15110f]">Medidas corporais</h2>
                       <p className="text-xs text-[#665f57]">Perimetria usada para acompanhar evolucao. Apenas pescoco, cintura/abdomen e quadril entram no calculo quando aplicavel.</p>
                     </div>
-                    <div className="grid gap-4 p-4 xl:grid-cols-[0.72fr_1fr]">
+                    <div className="grid gap-4 p-4 xl:grid-cols-[1.1fr_0.9fr]">
                       <BodyMeasurementMap rows={report.measurement_rows ?? []} sex={report.header.sex} />
                       <div className="overflow-x-auto border border-[#e8e3dc]">
                         <table className="w-full text-sm">
@@ -265,50 +265,82 @@ export default BodyCompositionReportPage;
 
 function BodyMeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null }) {
   const rowMap = new Map(rows.map((row) => [row.key, row]));
-  const mapAsset = sex === "female" ? "/body-maps/body-map-female.png" : "/body-maps/body-map-male.png";
-  const mapAlt = sex === "female" ? "Mapa corporal feminino de medidas" : "Mapa corporal masculino de medidas";
-  const groups = [
-    { label: "Calculo", keys: ["neck_cm", "waist_cm", "abdomen_cm", "hip_cm"] },
-    { label: "Evolucao", keys: ["shoulders_cm", "chest_cm", "right_arm_relaxed_cm", "left_arm_relaxed_cm", "right_arm_flexed_cm", "left_arm_flexed_cm", "right_thigh_cm", "left_thigh_cm", "right_calf_cm", "left_calf_cm"] },
+  const mapAsset = sex === "female" ? "/body-maps/body-map-front-female.png" : "/body-maps/body-map-front-male.png";
+  const mapAlt = sex === "female" ? "Mapa corporal frontal feminino de medidas" : "Mapa corporal frontal masculino de medidas";
+  const points: Array<{ key: string; side: "left" | "right"; top: string; tone: string }> = [
+    { key: "neck_cm", side: "right", top: "8%", tone: "#6fa7c7" },
+    { key: "shoulders_cm", side: "left", top: "18%", tone: "#5ca6b3" },
+    { key: "chest_cm", side: "right", top: "24%", tone: "#6d7fab" },
+    { key: "right_arm_relaxed_cm", side: "left", top: "32%", tone: "#86aa62" },
+    { key: "left_arm_relaxed_cm", side: "right", top: "32%", tone: "#86aa62" },
+    { key: "right_arm_flexed_cm", side: "left", top: "40%", tone: "#6f9d52" },
+    { key: "left_arm_flexed_cm", side: "right", top: "40%", tone: "#6f9d52" },
+    { key: "waist_cm", side: "left", top: "48%", tone: "#7fb8bc" },
+    { key: "abdomen_cm", side: "right", top: "51%", tone: "#8c8a84" },
+    { key: "hip_cm", side: "left", top: "59%", tone: "#8d69a6" },
+    { key: "right_thigh_cm", side: "left", top: "69%", tone: "#d99b42" },
+    { key: "left_thigh_cm", side: "right", top: "69%", tone: "#d99b42" },
+    { key: "right_calf_cm", side: "left", top: "84%", tone: "#c86b61" },
+    { key: "left_calf_cm", side: "right", top: "84%", tone: "#c86b61" },
   ];
-  const visibleGroups = groups.map((group) => ({
-    ...group,
-    rows: group.keys
-      .map((key) => rowMap.get(key))
-      .filter((row): row is BodyCompositionMeasurementRow => Boolean(row?.current_value != null)),
-  }));
-  const hasVisibleRows = visibleGroups.some((group) => group.rows.length > 0);
+  const visiblePoints = points
+    .map((point) => ({ ...point, row: rowMap.get(point.key) }))
+    .filter((point): point is typeof point & { row: BodyCompositionMeasurementRow } => Boolean(point.row && (point.row.current_value != null || point.row.previous_value != null)));
+  const hasVisibleRows = visiblePoints.length > 0;
 
   return (
     <div className="border border-[#e8e3dc] bg-[#f7f4ef] p-4">
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-[#6d6258]">Mapa corporal de medidas</p>
-        <p className="mt-1 text-xs text-[#665f57]">Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.</p>
+        <p className="mt-1 text-xs text-[#665f57]">Boneco anatomico generico para localizar perimetria. Nao usa foto do aluno.</p>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="overflow-hidden border border-[#e0d9cf] bg-white">
-          <img src={mapAsset} alt={mapAlt} className="h-auto w-full object-contain" loading="lazy" />
+      <div className="relative mt-4 min-h-[640px] overflow-hidden border border-[#e0d9cf] bg-white px-3 py-5">
+        <img src={mapAsset} alt={mapAlt} className="mx-auto h-[600px] max-w-[46%] object-contain" loading="lazy" />
+        {visiblePoints.map((point) => (
+          <MeasurementBubble
+            key={point.key}
+            row={point.row}
+            side={point.side}
+            top={point.top}
+            tone={point.tone}
+          />
+        ))}
+        <div className="absolute bottom-4 left-1/2 w-[72%] -translate-x-1/2 border border-[#e3ddd4] bg-[#fcfbf7]/95 px-3 py-2 text-xs text-[#665f57]">
+          <span className="font-semibold text-[#332d28]">Leitura:</span> baloes mostram a medida atual quando existe; se a avaliacao atual nao tem perimetria, mostram a ultima medida anterior.
         </div>
-        <div className="space-y-4 text-xs">
-          {visibleGroups.map((group) => (
-            <div key={group.label} className="border border-[#e3ddd4] bg-[#fcfbf7]">
-              <p className="border-b border-[#e3ddd4] px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#786f66]">{group.label}</p>
-              {group.rows.length > 0 ? (
-                group.rows.map((row) => (
-                  <div key={row.key} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-[#eee8df] px-3 py-2 last:border-b-0">
-                    <span className="font-semibold text-[#332d28]">{row.label}</span>
-                    <span className="text-[#15110f]">{row.formatted_current}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="px-3 py-3 text-[#665f57]">Sem medidas atuais.</p>
-              )}
-            </div>
-          ))}
-          {!hasVisibleRows ? (
-            <p className="border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
-          ) : null}
-        </div>
+        {!hasVisibleRows ? (
+          <p className="absolute left-6 top-24 max-w-[160px] border border-[#e3ddd4] bg-[#fcfbf7] p-3 text-xs text-[#665f57]">Sem medidas atuais para marcar no mapa.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MeasurementBubble({
+  row,
+  side,
+  top,
+  tone,
+}: {
+  row: BodyCompositionMeasurementRow;
+  side: "left" | "right";
+  top: string;
+  tone: string;
+}) {
+  const hasCurrent = row.current_value != null;
+  const value = hasCurrent ? row.formatted_current : row.formatted_previous;
+  const caption = hasCurrent ? "Atual" : "Anterior";
+  const sideClass = side === "left" ? "left-4 text-left" : "right-4 text-right";
+  const lineClass = side === "left" ? "left-full" : "right-full";
+
+  return (
+    <div className={`absolute z-10 w-[170px] ${sideClass}`} style={{ top }}>
+      <div className="relative border border-[#d8d2ca] bg-[#fcfbf7]/95 px-3 py-2 shadow-[0_8px_18px_rgba(21,17,15,0.08)]">
+        <span className={`absolute top-1/2 h-px w-12 -translate-y-1/2 ${lineClass}`} style={{ backgroundColor: tone }} />
+        <span className={`absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${lineClass}`} style={{ backgroundColor: tone }} />
+        <p className="text-[0.62rem] uppercase tracking-[0.16em] text-[#786f66]">{caption}</p>
+        <p className="mt-0.5 text-xs font-semibold text-[#332d28]">{row.label}</p>
+        <p className="text-sm font-bold text-[#15110f]">{value}</p>
       </div>
     </div>
   );

@@ -1,5 +1,10 @@
 # Current State
 
+## 2026-07-07 - Anthropometry Protocol Parity + Measurement Balloons 09.21
+Fase 09.21 aberta para expandir o calculo automatico de protocolos antropometricos alem de Petroski e redesenhar o mapa corporal do relatorio com uma figura grande e baloes de medidas. A regra de seguranca permanece: so calcular protocolos com formula publica e campos capturados; metodos dependentes de raca, maturacao, circunferencia iliaca ou campos ausentes ficam em manual review.
+
+Atualizacao: implementacao local concluida e validada. Backend/frontend calculam Macardle/YMCA adulto, Guedes adulto, Petroski feminino, Weltman feminino, Slaughter simples e Faulkner; Weltman masculino e variantes dependentes de raca/maturacao seguem manual-only. Relatorio usa assets frontais masculino/feminino e baloes de medidas. Validacao local: Spec Kit OK, backend focado 9 passed, frontend focado 9 passed, lint/build OK e `git diff --check` OK.
+
 ## 2026-07-07 - Actuar Petroski Body Map Parity 09.20
 Fase 09.20 aberta para corrigir paridade operacional do protocolo Petroski masculino observado no Actuar e trocar o mapa corporal simplificado do relatorio por assets anatomicos genericos masculino/feminino. Escopo limitado a calculo Petroski masculino 4 dobras, preview, relatorio web e testes; sem schema novo e sem copiar layout/logica proprietaria do Actuar.
 

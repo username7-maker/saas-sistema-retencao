@@ -268,7 +268,7 @@ function calculateProtocolPreview(
     const value = readProtocolValue(input, field);
     if (value == null) {
       missingFields.push(field);
-    } else if (field.startsWith("skinfold_") && (value < 2 || value > 120)) {
+    } else if (!isPlausibleProtocolValue(field, value)) {
       flags.push("impossible_measurement_value");
     }
   }
@@ -302,6 +302,13 @@ function calculateSupportedProtocolPercent(
   if (key.includes("jackson_pollock_7") || key.includes("pollock_1980_7")) return calculateJacksonPollock7(input, sex, ageYears);
   if (key.includes("durnin_womersley")) return calculateDurninWomersley(input, sex, ageYears);
   if (key === "petroski_1995_male_18_66") return calculatePetroski1995Male4(input, sex, ageYears);
+  if (key === "petroski_1995_female_18_51") return calculatePetroski1995Female4(input, sex, ageYears);
+  if (key.includes("guedes_1985_3")) return calculateGuedes1985(input, sex);
+  if (key === "mcardle_1992_4_male_18_34") return calculateYmca4(input, sex, ageYears);
+  if (key === "mcardle_1992_3_female_18_48") return calculateYmca3(input, sex, ageYears);
+  if (key === "weltman_1988_female_obese_20_60") return calculateWeltmanFemale(input, sex);
+  if (key === "slaughter_1988_boys" || key === "slaughter_1988_girls") return calculateSlaughterSimple(input, sex);
+  if (key === "faulkner_1968_male_20_30") return calculateFaulkner1968(input);
   return null;
 }
 
@@ -354,6 +361,80 @@ function calculatePetroski1995Male4(input: AnthropometryPreviewInput, sex: Sex, 
   return siri(1.10726863 - 0.00081201 * total + 0.00000212 * total ** 2 - 0.00041761 * ageYears);
 }
 
+function calculatePetroski1995Female4(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  if (sex !== "female" || ageYears == null) return null;
+  const total = sumProtocolFields(input, [
+    "skinfold_midaxillary_mm",
+    "skinfold_suprailiac_mm",
+    "skinfold_thigh_mm",
+    "skinfold_calf_mm",
+  ]);
+  const weightKg = readProtocolValue(input, "weight_kg");
+  const heightCm = readProtocolValue(input, "height_cm");
+  if (total == null || weightKg == null || heightCm == null) return null;
+  return siri(
+    1.0346585
+    - 0.00063129 * total
+    + 0.00000187 * total ** 2
+    - 0.00031165 * ageYears
+    - 0.0004889 * weightKg
+    + 0.00051345 * heightCm,
+  );
+}
+
+function calculateGuedes1985(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  if (sex === "male") {
+    const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_abdominal_mm", "skinfold_suprailiac_mm"]);
+    if (total == null || total <= 0) return null;
+    return siri(1.1714 - 0.0671 * Math.log10(total));
+  }
+  if (sex === "female") {
+    const total = sumProtocolFields(input, ["skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_subscapular_mm"]);
+    if (total == null || total <= 0) return null;
+    return siri(1.1665 - 0.0706 * Math.log10(total));
+  }
+  return null;
+}
+
+function calculateYmca4(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  const total = sumProtocolFields(input, ["skinfold_abdominal_mm", "skinfold_suprailiac_mm", "skinfold_triceps_mm", "skinfold_thigh_mm"]);
+  if (total == null || ageYears == null) return null;
+  if (sex === "male") return 0.29288 * total - 0.0005 * total ** 2 + 0.15845 * ageYears - 5.76377;
+  if (sex === "female") return 0.29669 * total - 0.00043 * total ** 2 + 0.02963 * ageYears + 1.4072;
+  return null;
+}
+
+function calculateYmca3(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
+  const total = sumProtocolFields(input, ["skinfold_abdominal_mm", "skinfold_suprailiac_mm", "skinfold_triceps_mm"]);
+  if (total == null || ageYears == null) return null;
+  if (sex === "male") return 0.39287 * total - 0.00105 * total ** 2 + 0.15772 * ageYears - 5.18845;
+  if (sex === "female") return 0.41563 * total - 0.00112 * total ** 2 + 0.03661 * ageYears + 4.03653;
+  return null;
+}
+
+function calculateWeltmanFemale(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  if (sex !== "female") return null;
+  const abdomenCm = readProtocolValue(input, "abdomen_cm");
+  const weightKg = readProtocolValue(input, "weight_kg");
+  const heightCm = readProtocolValue(input, "height_cm");
+  if (abdomenCm == null || weightKg == null || heightCm == null) return null;
+  return 0.11077 * abdomenCm - 0.17666 * heightCm + 0.14354 * weightKg + 51.03301;
+}
+
+function calculateSlaughterSimple(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_calf_mm"]);
+  if (total == null) return null;
+  if (sex === "male") return 0.735 * total + 1;
+  if (sex === "female") return 0.610 * total + 5.1;
+  return null;
+}
+
+function calculateFaulkner1968(input: AnthropometryPreviewInput): number | null {
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm", "skinfold_abdominal_mm"]);
+  if (total == null) return null;
+  return 5.783 + 0.153 * total;
+}
+
 function durninCoefficients(sex: Exclude<Sex, null | undefined>, ageYears: number): [number, number] {
   if (ageYears < 17) return sex === "male" ? [1.1533, 0.0643] : [1.1369, 0.0598];
   if (ageYears <= 19) return sex === "male" ? [1.162, 0.063] : [1.1549, 0.0678];
@@ -385,9 +466,24 @@ function readProtocolValue(input: AnthropometryPreviewInput, field: string): num
     skinfold_thigh_mm: input.skinfoldThighMm,
     skinfold_calf_mm: input.skinfoldCalfMm,
     waist_cm: input.waistCm,
+    abdomen_cm: input.abdomenCm,
+    height_cm: input.heightCm,
+    hip_cm: input.hipCm,
     weight_kg: input.weightKg,
   };
   return parseNumber(map[field]);
+}
+
+function isPlausibleProtocolValue(field: string, value: number): boolean {
+  const ranges: Record<string, [number, number]> = {
+    height_cm: [90, 250],
+    weight_kg: [20, 300],
+    abdomen_cm: [30, 250],
+    waist_cm: [30, 250],
+    hip_cm: [35, 260],
+  };
+  const [min, max] = ranges[field] ?? [2, 120];
+  return value >= min && value <= max;
 }
 
 function siri(density: number | null): number | null {
