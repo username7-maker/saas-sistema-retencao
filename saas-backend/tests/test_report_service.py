@@ -192,16 +192,15 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     html = render_premium_report_html(payload)
 
-    assert "Resultados principais" in html
+    assert "Relatorio de avaliacao fisica" in html
+    assert "Indicadores-chave" in html
     assert "Metodo de leitura da gordura corporal" in html
-    assert "Analise da composicao corporal" in html
-    assert "Dados da bioimpedancia" in html
-    assert "Medidas corporais e protocolo" in html
+    assert "Composicao corporal detalhada" in html
     assert "Medidas/protocolo" in html
     assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
     assert "body-map-front-male.png" in html
-    assert "Resumo da avaliacao" in html
+    assert "Score da avaliacao" in html
     assert "Historico da Composicao Corporal" not in html
     assert "Leitura Final" not in html
     assert "Gordura visceral" in html
@@ -215,7 +214,6 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Revisao manual" not in html
     assert "ANTHROPOMETRY" not in html
     assert "anthropometry_protocol_manual_only" not in html
-    assert "Proteina" not in html
     assert "Dados adicionais" not in html
     assert "Nota tecnica" not in html
     assert "OCR 82%" not in html
@@ -227,8 +225,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
-    assert "Historico - Anterior x Atual" in technical_html
-    assert "Leitura Final" in technical_html
+    assert "Historico" in technical_html
+    assert "Observacoes do professor" in technical_html
+    assert "Leitura Final" not in technical_html
     assert "Percentual bruto oculto" not in technical_html
     assert "Diferenca entre fontes" not in technical_html
     assert "body_fat_source_divergence" not in technical_html
@@ -238,7 +237,6 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "ANTHROPOMETRY" not in technical_html
     assert "anthropometry_protocol_manual_only" not in technical_html
     assert "Proteina" in technical_html
-    assert "Dados adicionais" in technical_html
     assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." in technical_html
 
 

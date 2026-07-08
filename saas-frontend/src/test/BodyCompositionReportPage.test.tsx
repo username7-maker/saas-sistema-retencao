@@ -166,7 +166,7 @@ describe("BodyCompositionReportPage", () => {
   it("renders the premium report with metric cards and export actions", async () => {
     renderPage();
 
-    expect(await screen.findByText("Erick Bedin")).toBeInTheDocument();
+    expect((await screen.findAllByText("Erick Bedin")).length).toBeGreaterThanOrEqual(2);
     expect(document.body).toHaveClass("body-composition-report-print");
     expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
     expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
@@ -179,18 +179,21 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.queryByText("Confianca")).not.toBeInTheDocument();
     expect(screen.queryByText("Faixa estimada")).not.toBeInTheDocument();
     expect(screen.queryByText("Revisao manual")).not.toBeInTheDocument();
-    expect(screen.getByText("Dados da bioimpedancia")).toBeInTheDocument();
-    expect(screen.getByText("Medidas corporais e protocolo")).toBeInTheDocument();
-    expect(screen.getByText("Medidas/protocolo")).toBeInTheDocument();
-    expect(screen.getByText("Medidas corporais")).toBeInTheDocument();
+    expect(screen.queryByText("Dados da bioimpedancia")).not.toBeInTheDocument();
+    expect(screen.queryByText("Medidas corporais e protocolo")).not.toBeInTheDocument();
+    expect(screen.getByText("Indicadores-chave")).toBeInTheDocument();
+    expect(screen.getByText("Composicao corporal detalhada")).toBeInTheDocument();
+    expect(screen.getAllByText("Dobras e medidas").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Medidas corporais").length).toBeGreaterThan(0);
     expect(screen.getByText("Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");
-    expect(screen.getByText("Resultados principais")).toBeInTheDocument();
-    expect(screen.getByText("Historico - Anterior x Atual")).toBeInTheDocument();
-    expect(screen.getByText("Leitura Final")).toBeInTheDocument();
+    expect(screen.queryByText("Resultados principais")).not.toBeInTheDocument();
+    expect(screen.getByText("Historico")).toBeInTheDocument();
+    expect(screen.getByText("Observacoes")).toBeInTheDocument();
+    expect(screen.queryByText("Leitura Final")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
-    expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
+    expect(screen.getByText("Leitura da avaliacao")).toBeInTheDocument();
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
     expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
