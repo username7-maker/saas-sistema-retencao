@@ -858,6 +858,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         if technical_scope
         else [metric for metric in composition_metrics if str(metric.get("key")) in summary_composition_keys]
     )
+    visible_composition_metrics = _filter_body_composition_metrics_for_pdf(visible_composition_metrics)
 
     score_metric = _body_metric_by_key(risk_metrics, "health_score") or _body_metric_by_key(primary_cards, "health_score")
     physical_age_metric = _body_metric_by_key(risk_metrics, "physical_age")
@@ -920,12 +921,8 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     if technical_scope:
         technical_comparison_sections_html = f"""
       <section class="clinical-section clinical-detail-section">
-        <h2>Historico da Composicao Corporal</h2>
-        {_render_body_history_grid(history_series, limit=5)}
-      </section>
-      <section class="clinical-section clinical-detail-section">
-        <h2>Anterior x Atual</h2>
-        <p class="clinical-section-subtitle">Leitura comparativa da avaliacao anterior contra a leitura atual.</p>
+        <h2>Historico - Anterior x Atual</h2>
+        <p class="clinical-section-subtitle">Evolucao das metricas entre as avaliacoes registradas.</p>
         {_render_body_comparison_table(comparison_rows)}
       </section>
 """
@@ -933,7 +930,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       <section class="clinical-section clinical-detail-section">
         <h2>Leitura Final</h2>
         <p class="clinical-section-subtitle">Insights deterministicos e observacoes operacionais da avaliacao.</p>
-        {_render_body_insight_panel(insights, teacher_notes, methodological_note)}
+        {_render_body_insight_panel(insights, teacher_notes, "")}
       </section>
 """
 
@@ -1003,19 +1000,23 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         <p class="clinical-section-subtitle">Valores da bioimpedancia com as faixas de referencia do exame.</p>
         <div class="clinical-table-wrap">
           <table class="clinical-composition-table">
+            <thead>
+              <tr>
+                <th>Componente</th>
+                <th>Descricao</th>
+                <th>Valor</th>
+                <th>Faixa de referencia</th>
+              </tr>
+            </thead>
             <tbody>
               {"".join(_render_body_composition_table_row(metric) for metric in visible_composition_metrics)}
             </tbody>
           </table>
         </div>
       </section>
-      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
-    </section>
-
-    {f'''<section class="clinical-page clinical-sheet clinical-measurement-page {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       {measurement_section_html}
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
-    </section>''' if measurement_section_html else ''}
+    </section>
 
     <section class="clinical-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       <section class="clinical-analysis-grid">
@@ -1024,15 +1025,15 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
             <h2>Analise musculo-gordura</h2>
             <p class="clinical-section-subtitle">Posicao de cada valor dentro da faixa de referencia.</p>
             <div class="clinical-band-panel">
-              <div class="clinical-band-head">
-                <span>Metrica</span>
-                <span>Abaixo</span>
-                <span>Normal</span>
-                <span>Acima</span>
-                <span>Valor</span>
-              </div>
               {"".join(_render_body_band_row(metric) for metric in muscle_fat_metrics)}
             </div>
+          </section>
+          <section class="clinical-sidebar-block">
+            <div class="clinical-sidebar-head">
+              <h3>Controle de peso</h3>
+              <span>Metas do ciclo</span>
+            </div>
+            <div class="clinical-metric-list">{"".join(_render_body_metric_list_row(metric) for metric in goal_metrics)}</div>
           </section>
         </div>
         <aside class="clinical-right-column">
@@ -1040,13 +1041,6 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
             <h2>Indicadores de acompanhamento</h2>
             <p class="clinical-section-subtitle">Indices calculados a partir do exame e das medidas.</p>
             <div class="clinical-band-panel">
-              <div class="clinical-band-head">
-                <span>Metrica</span>
-                <span>Abaixo</span>
-                <span>Normal</span>
-                <span>Acima</span>
-                <span>Valor</span>
-              </div>
               {"".join(_render_body_band_row(metric) for metric in obesity_band_metrics)}
             </div>
           </section>
@@ -1054,19 +1048,12 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
             <h3>Dados adicionais</h3>
             <div class="clinical-metric-list">{"".join(_render_body_metric_list_row(metric) for metric in additional_metrics)}</div>
           </section>''' if technical_scope and additional_metrics else ''}
-          <section class="clinical-sidebar-block">
-            <h3>Controle de Peso</h3>
-            <div class="clinical-metric-list">{"".join(_render_body_metric_list_row(metric) for metric in goal_metrics)}</div>
-          </section>
         </aside>
       </section>
       {technical_comparison_sections_html}
-    </section>
-
-    {f'''<section class="clinical-page clinical-sheet clinical-final-page {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       {technical_final_section_html}
       <footer class="clinical-footer">{escape(compact_methodological_note if technical_scope and compact_methodological_note else client_footer_note)}</footer>
-    </section>''' if technical_final_section_html else ''}
+    </section>
   </main>
 </body>
 </html>"""
@@ -1088,7 +1075,7 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
     return f"""
       <section class="clinical-body-fat-panel">
         <h2>Fonte oficial da gordura corporal</h2>
-        <p>O percentual abaixo e tratado como estimativa operacional, sem valor diagnostico clinico.</p>
+        <p>Origem e rastreabilidade do percentual usado em todo o relatorio.</p>
         <div class="clinical-body-fat-highlight">
           <strong>{escape(used_percent)}</strong>
           <span>{escape(source)}</span>
@@ -1104,6 +1091,25 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
         </div>
       </section>
     """
+
+
+def _filter_body_composition_metrics_for_pdf(metrics: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the PDF composition table concise and free of empty/duplicated rows."""
+    metrics_by_key = {str(metric.get("key") or ""): metric for metric in metrics}
+    missing_values = {"", "-", "--"}
+    has_estimated_fat_mass = _body_metric_formatted(metrics_by_key.get("fat_mass_estimated_kg")) not in missing_values
+    has_canonical_fat_free_mass = _body_metric_formatted(metrics_by_key.get("fat_free_mass_kg")) not in missing_values
+    filtered: list[dict[str, Any]] = []
+    for metric in metrics:
+        key = str(metric.get("key") or "")
+        if _body_metric_formatted(metric) in missing_values:
+            continue
+        if key == "body_fat_kg" and has_estimated_fat_mass:
+            continue
+        if key == "lean_mass_estimated_kg" and has_canonical_fat_free_mass:
+            continue
+        filtered.append(metric)
+    return filtered
 
 
 def _body_context_percent(context: Any, key: str) -> str:
@@ -1400,33 +1406,33 @@ def _render_body_composition_snapshot_card(metric: dict[str, Any]) -> str:
 def _render_body_composition_table_row(metric: dict[str, Any]) -> str:
     return f"""
     <tr>
+      <td><strong>{escape(_body_metric_label(metric))}</strong></td>
       <td>{escape(_body_metric_explanation(str(metric.get("key") or "")))}</td>
-      <td>
-        <div class="clinical-metric-name">{escape(str(metric.get("label") or "-"))}</div>
-        <div class="clinical-metric-unit">{escape(str(metric.get("unit") or ""))}</div>
-      </td>
-      <td>{escape(_body_metric_formatted(metric))}</td>
+      <td><strong>{escape(_body_metric_formatted(metric))}</strong></td>
       <td>{escape(_body_metric_reference(metric))}</td>
     </tr>
     """
 
 
 def _render_body_band_row(metric: dict[str, Any]) -> str:
-    marker, low_limit, high_limit = _body_metric_band_model(metric)
+    marker, _low_limit, _high_limit = _body_metric_band_model(metric)
+    has_reference = _body_metric_has_reference(metric)
+    status = str(metric.get("status") or "unknown")
     return f"""
-    <div class="clinical-band-row">
-      <div class="clinical-band-name">
+    <article class="clinical-band-row">
+      <div class="clinical-band-topline">
         <strong>{escape(_body_metric_label(metric))}</strong>
-        <span class="status-{escape(str(metric.get("status") or 'unknown'))}">{escape(_body_metric_status_label(metric))}</span>
+        <span>{escape(_body_metric_formatted(metric))}</span>
       </div>
-      <div class="clinical-band-track">
-        <div class="clinical-band-segment clinical-band-low" style="width:{low_limit:.1f}%"></div>
-        <div class="clinical-band-segment clinical-band-mid" style="left:{low_limit:.1f}%;width:{max(high_limit - low_limit, 8):.1f}%"></div>
-        <div class="clinical-band-segment clinical-band-high" style="width:{100 - high_limit:.1f}%"></div>
-        <div class="clinical-band-marker" style="left:calc({marker:.1f}% - 1px)"></div>
+      {f'''<div class="clinical-band-track">
+        <div class="clinical-band-marker" style="left:calc({marker:.1f}% - 1.5px)"></div>
       </div>
-      <div class="clinical-band-value">{escape(_body_metric_formatted(metric))}</div>
-    </div>
+      <div class="clinical-band-range">
+        <span>{escape(_body_reference_number(metric.get("reference_min")))}</span>
+        <span>{escape(_body_reference_number(metric.get("reference_max")))}</span>
+      </div>''' if has_reference else '<div class="clinical-band-no-range">Sem faixa de referencia</div>'}
+      <span class="clinical-status-pill status-{escape(status)}">{escape(_body_metric_status_label(metric))}</span>
+    </article>
     """
 
 
@@ -1446,7 +1452,7 @@ def _render_body_snapshot_compact(metric: dict[str, Any]) -> str:
     <article class="clinical-summary-chip">
       <span>{escape(_body_metric_label(metric))}</span>
       <strong>{escape(_body_metric_formatted(metric))}</strong>
-      <small>{escape(delta)} · {escape(trend)}</small>
+      <small>{escape(delta)} | {escape(trend)}</small>
     </article>
     """
 
@@ -1554,7 +1560,8 @@ def _render_body_comparison_table(rows: Sequence[dict[str, Any]]) -> str:
           <td>{escape(str(row.get("previous_formatted") or "-"))}</td>
           <td>{escape(str(row.get("current_formatted") or "-"))}</td>
           <td>{escape(_format_body_delta(row))}</td>
-          <td>{escape(_body_trend_label(str(row.get("trend") or "insufficient")))}</td>
+          <td><span class="clinical-trend-line trend-{escape(str(row.get("trend") or "insufficient"))}"></span></td>
+          <td><span class="clinical-trend-pill trend-{escape(str(row.get("trend") or "insufficient"))}">{escape(_body_trend_label(str(row.get("trend") or "insufficient")))}</span></td>
         </tr>
         """
         for row in rows
@@ -1568,6 +1575,7 @@ def _render_body_comparison_table(rows: Sequence[dict[str, Any]]) -> str:
             <th>Anterior</th>
             <th>Atual</th>
             <th>Delta</th>
+            <th>Evolucao</th>
             <th>Tendencia</th>
           </tr>
         </thead>
@@ -1663,18 +1671,41 @@ def _body_metric_reference(metric: dict[str, Any]) -> str:
     reference_min = metric.get("reference_min")
     reference_max = metric.get("reference_max")
     if reference_min is None and reference_max is None:
-        return "(sem faixa)"
-    return f"({reference_min if reference_min is not None else '-'} ~ {reference_max if reference_max is not None else '-'})"
+        return "-"
+    return f"{_body_reference_number(reference_min)} - {_body_reference_number(reference_max)}"
+
+
+def _body_metric_has_reference(metric: dict[str, Any]) -> bool:
+    return metric.get("reference_min") is not None and metric.get("reference_max") is not None
+
+
+def _body_reference_number(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.2f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
 def _body_metric_explanation(key: str) -> str:
     explanations = {
+        "body_fat_used_percent": "Percentual oficial usado no relatorio",
+        "body_fat_bioimpedance_percent": "Leitura direta do exame",
+        "body_fat_anthropometric_percent": "Estimativa por medidas manuais",
+        "fat_mass_estimated_kg": "Reserva energetica atual",
+        "lean_mass_estimated_kg": "Componentes livres de gordura",
         "body_water_kg": "Quantidade total de agua no corpo",
+        "body_water_percent": "Proporcao de agua na composicao",
         "protein_kg": "Para a construcao e preservacao muscular",
         "inorganic_salt_kg": "Para fortalecimento estrutural",
         "body_fat_kg": "Reserva energetica atual",
         "fat_free_mass_kg": "Componentes livres de gordura",
         "muscle_mass_kg": "Base muscular do organismo",
+        "skeletal_muscle_kg": "Musculatura de movimento",
     }
     return explanations.get(key, "Leitura corporal")
 
@@ -2671,6 +2702,522 @@ def _body_composition_report_css() -> str:
         padding-top: 6px;
         font-size: 8.5px;
         line-height: 1.35;
+      }
+
+      /* Reference PDF layout overrides: compact 3-page clinical report. */
+      .clinical-page {
+        width: 794px;
+        max-width: 794px;
+        min-height: 1123px;
+        padding: 46px 52px 74px;
+        background: #ffffff;
+        color: #162234;
+        overflow: hidden;
+      }
+      .clinical-header {
+        grid-template-columns: 210px 130px minmax(0, 1fr);
+        gap: 18px;
+        align-items: center;
+        padding-bottom: 19px;
+        border-bottom: 3px solid #1185a6;
+      }
+      .clinical-cordex-logo {
+        width: 158px;
+        max-width: 158px;
+      }
+      .clinical-partner-logo-wrap {
+        justify-content: center;
+        align-items: center;
+      }
+      .clinical-progym-logo {
+        width: 118px;
+        max-width: 118px;
+      }
+      .clinical-professional h1 {
+        margin: 4px 0 5px;
+        font-size: 27px;
+        color: #172235;
+      }
+      .clinical-professional p {
+        font-size: 8.5px;
+        color: #2f3948;
+      }
+      .clinical-kicker,
+      .clinical-meta-card span,
+      .clinical-summary-chip span,
+      .clinical-history-head,
+      .clinical-history-date {
+        color: #7b8798;
+        font-size: 7.6px;
+        letter-spacing: 0.18em;
+      }
+      .clinical-meta-grid {
+        margin-top: 20px;
+        border-radius: 9px;
+        overflow: hidden;
+        background: #f8fafc;
+        border-color: #dce4ec;
+      }
+      .clinical-meta-card {
+        min-height: 50px;
+        padding: 11px 14px;
+        border-color: #dce4ec;
+      }
+      .clinical-meta-card strong {
+        color: #111827;
+        font-size: 13px;
+      }
+      .clinical-cover-title,
+      .clinical-section h2 {
+        border-left: 4px solid #1185a6;
+        padding-left: 12px;
+      }
+      .clinical-cover-title {
+        margin-top: 20px;
+      }
+      .clinical-cover-title h2,
+      .clinical-body-fat-panel h2,
+      .clinical-section h2 {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172235;
+        font-size: 17px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .clinical-section h2 {
+        margin-bottom: 4px;
+      }
+      .clinical-analysis-grid .clinical-section h2 {
+        font-size: 17px;
+        line-height: 1.12;
+      }
+      .clinical-cover-title p,
+      .clinical-body-fat-panel p,
+      .clinical-section-subtitle,
+      .clinical-cover-note p,
+      .clinical-score-copy,
+      .clinical-footer {
+        color: #728094;
+      }
+      .clinical-summary-ribbon {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .clinical-summary-chip {
+        min-height: 84px;
+        border: 1px solid #dce4ec;
+        border-top: 3px solid #1185a6;
+        border-radius: 9px;
+        background: #ffffff;
+        padding: 13px 14px 11px;
+      }
+      .clinical-summary-chip strong {
+        color: #172235;
+        font-size: 25px;
+        letter-spacing: -0.04em;
+      }
+      .clinical-summary-chip small {
+        border-radius: 999px;
+        background: #eef3f7;
+        color: #536173;
+        padding: 3px 7px;
+        font-size: 7.5px;
+        font-weight: 700;
+      }
+      .clinical-body-fat-panel,
+      .clinical-cover-score,
+      .clinical-cover-note,
+      .clinical-sidebar-block,
+      .clinical-note-block,
+      .clinical-insight,
+      .clinical-band-panel,
+      .clinical-measurement-map {
+        border: 1px solid #dce4ec;
+        border-radius: 10px;
+        background: #ffffff;
+      }
+      .clinical-body-fat-panel {
+        margin-top: 22px;
+        border-left: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      .clinical-body-fat-panel h2 {
+        border-left: 4px solid #1185a6;
+        margin: 15px 16px 0;
+        padding-left: 12px;
+      }
+      .clinical-body-fat-panel p {
+        margin: 5px 16px 0 32px;
+        font-size: 8.5px;
+      }
+      .clinical-body-fat-highlight {
+        display: block;
+        float: left;
+        width: 134px;
+        min-height: 98px;
+        margin: 12px 0 0 16px;
+        padding: 6px 12px 0 0;
+        border-right: 1px solid #e7edf3;
+      }
+      .clinical-body-fat-highlight strong {
+        display: block;
+        color: #1185a6;
+        font-size: 25px;
+      }
+      .clinical-body-fat-highlight span {
+        display: block;
+        margin-top: 4px;
+        color: #7b8798;
+        font-size: 7px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .clinical-body-fat-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 12px 16px 13px 166px;
+        border-top: 0;
+        gap: 8px 16px;
+      }
+      .clinical-body-fat-grid div {
+        min-height: 32px;
+        padding: 0;
+        border: 0;
+      }
+      .clinical-body-fat-grid span {
+        color: #7b8798;
+        font-size: 7px;
+        letter-spacing: 0.16em;
+      }
+      .clinical-body-fat-grid strong {
+        color: #111827;
+        font-size: 9px;
+      }
+      .clinical-cover-evaluation-grid {
+        grid-template-columns: 0.9fr 1.35fr;
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .clinical-cover-score,
+      .clinical-cover-note,
+      .clinical-sidebar-block,
+      .clinical-note-block {
+        padding: 13px 15px;
+      }
+      .clinical-score strong {
+        color: #172235;
+        font-size: 44px;
+      }
+      .clinical-score::after {
+        content: "";
+        display: block;
+        width: 170px;
+        height: 7px;
+        margin-left: 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #1185a6 0 65%, #e5ebf2 65% 100%);
+      }
+      .clinical-table-wrap {
+        border-color: #dce4ec;
+        border-radius: 0;
+        background: #ffffff;
+      }
+      .clinical-composition-table thead th {
+        background: #f6f8fb;
+        border-bottom: 1px solid #dce4ec;
+        color: #778397;
+        font-size: 7.4px;
+        letter-spacing: 0.16em;
+        text-align: left;
+        text-transform: uppercase;
+        padding: 9px 11px;
+      }
+      .clinical-composition-table td {
+        padding: 8px 11px;
+        border-top: 1px solid #edf1f5;
+        color: #293547;
+        font-size: 8.6px;
+        line-height: 1.2;
+      }
+      .clinical-composition-table td:nth-child(1),
+      .clinical-composition-table td:nth-child(2),
+      .clinical-composition-table td:nth-child(3) {
+        border-right: 0;
+      }
+      .clinical-composition-table td:nth-child(1) strong,
+      .clinical-composition-table td:nth-child(3) strong {
+        color: #111827;
+        font-size: 10px;
+      }
+      .clinical-composition-table td:nth-child(3),
+      .clinical-composition-table td:nth-child(4) {
+        text-align: right;
+        white-space: nowrap;
+      }
+      .clinical-measurement-section {
+        margin-top: 18px;
+      }
+      .clinical-measurement-map {
+        grid-template-columns: 205px minmax(0, 1fr) 205px;
+        gap: 16px;
+        align-items: center;
+        min-height: 404px;
+        padding: 18px 18px 16px;
+        background: #fbfcfe;
+      }
+      .clinical-measurement-map img {
+        width: 100%;
+        max-height: 360px;
+        object-fit: contain;
+      }
+      .clinical-measurement-bubbles {
+        gap: 8px;
+        align-content: center;
+      }
+      .clinical-measurement-bubble {
+        min-height: 29px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 7px;
+        border-color: #dce4ec;
+        border-radius: 6px;
+        background: #ffffff;
+        padding: 7px 10px;
+        box-shadow: none;
+      }
+      .clinical-measurement-bubble::before {
+        width: 3px;
+        background: #1185a6;
+        border-radius: 999px;
+      }
+      .clinical-measurement-bubble span,
+      .clinical-measurement-bubble small {
+        display: none;
+      }
+      .clinical-measurement-bubble strong {
+        margin-top: 0;
+        color: #223047;
+        font-size: 8.4px;
+        line-height: 1.12;
+      }
+      .clinical-measurement-bubble em {
+        margin-top: 0;
+        color: #111827;
+        font-size: 9px;
+        white-space: nowrap;
+      }
+      .clinical-measurement-bubbles-right,
+      .clinical-measurement-bubble.bubble-right {
+        text-align: left;
+      }
+      .clinical-measurement-bubble.bubble-right::before {
+        left: 0;
+        right: auto;
+      }
+      .clinical-analysis-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px;
+      }
+      .clinical-left-column,
+      .clinical-right-column {
+        gap: 12px;
+      }
+      .clinical-band-panel {
+        padding: 0;
+        overflow: hidden;
+      }
+      .clinical-band-row {
+        display: block;
+        padding: 8px 12px 7px;
+        border-bottom: 1px solid #edf1f5;
+      }
+      .clinical-band-row:last-child {
+        border-bottom: 0;
+      }
+      .clinical-band-topline {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .clinical-band-topline strong {
+        color: #111827;
+        font-size: 10px;
+        line-height: 1.1;
+      }
+      .clinical-band-topline span {
+        color: #111827;
+        font-size: 10px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+      .clinical-band-track {
+        height: 6px;
+        border: 0;
+        border-radius: 999px;
+        background: #dbeef4;
+        margin-top: 5px;
+        overflow: visible;
+      }
+      .clinical-band-marker {
+        top: -4px;
+        bottom: auto;
+        width: 3px;
+        height: 14px;
+        border-radius: 999px;
+        background: #0d7895;
+      }
+      .clinical-band-range {
+        display: flex;
+        justify-content: space-between;
+        color: #a3adbb;
+        font-size: 7px;
+        margin-top: 2px;
+      }
+      .clinical-band-no-range {
+        display: inline-block;
+        margin-top: 5px;
+        border-radius: 999px;
+        background: #eef3f7;
+        color: #6d7888;
+        padding: 3px 7px;
+        font-size: 7px;
+        font-weight: 800;
+      }
+      .clinical-status-pill {
+        display: inline-flex;
+        align-items: center;
+        margin-top: 4px;
+        border-radius: 999px;
+        padding: 3px 7px;
+        font-size: 7px;
+        font-weight: 800;
+        background: #eef3f7;
+      }
+      .clinical-status-pill.status-adequate { background: #e9f9ef; color: #078143; }
+      .clinical-status-pill.status-low { background: #fff5e1; color: #9c5c00; }
+      .clinical-status-pill.status-high { background: #fff0e7; color: #b64a00; }
+      .clinical-sidebar-block {
+        border-top: 1px solid #dce4ec;
+        overflow: hidden;
+        padding: 0;
+      }
+      .clinical-sidebar-block h3,
+      .clinical-note-block h3,
+      .clinical-insight-title {
+        color: #111827;
+        font-size: 14px;
+      }
+      .clinical-sidebar-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 13px;
+        border-bottom: 1px solid #edf1f5;
+        background: #fbfcfe;
+      }
+      .clinical-sidebar-head span {
+        border-radius: 999px;
+        background: #edf9fd;
+        color: #1185a6;
+        font-size: 7px;
+        font-weight: 800;
+        padding: 3px 7px;
+      }
+      .clinical-sidebar-block > .clinical-metric-list {
+        padding: 10px 13px;
+      }
+      .clinical-metric-list-row {
+        padding: 5px 0;
+        border-bottom: 1px solid #edf1f5;
+        font-size: 9px;
+      }
+      .clinical-metric-list-row:last-child {
+        border-bottom: 0;
+      }
+      .clinical-metric-list-row span {
+        color: #536173;
+      }
+      .clinical-metric-list-row strong {
+        color: #111827;
+        font-size: 9px;
+      }
+      .clinical-detail-section {
+        margin-top: 14px;
+        padding-top: 0;
+        border-top: 0;
+      }
+      .clinical-comparison-table {
+        border: 1px solid #dce4ec;
+      }
+      .clinical-comparison-table th,
+      .clinical-comparison-table td {
+        padding: 5px 9px;
+        border-top: 1px solid #edf1f5;
+        color: #293547;
+        font-size: 7.8px;
+      }
+      .clinical-comparison-table thead th {
+        background: #f6f8fb;
+        color: #778397;
+        font-size: 7px;
+      }
+      .clinical-comparison-table td:nth-child(n+2),
+      .clinical-comparison-table th:nth-child(n+2) {
+        text-align: right;
+      }
+      .clinical-trend-line {
+        display: inline-block;
+        width: 42px;
+        height: 15px;
+        background:
+          linear-gradient(18deg, transparent 45%, #1185a6 46%, #1185a6 54%, transparent 55%),
+          radial-gradient(circle at 92% 50%, #1185a6 0 2px, transparent 2.5px);
+      }
+      .clinical-trend-pill {
+        display: inline-flex;
+        border-radius: 999px;
+        background: #eef3f7;
+        color: #536173;
+        padding: 3px 7px;
+        font-size: 7px;
+        font-weight: 800;
+      }
+      .clinical-final-grid {
+        grid-template-columns: 1.25fr 0.85fr;
+        gap: 10px;
+      }
+      .clinical-insight-grid {
+        gap: 7px;
+      }
+      .clinical-insight {
+        padding: 9px 12px;
+      }
+      .clinical-insight p,
+      .clinical-note-block p {
+        font-size: 7.8px;
+        line-height: 1.35;
+      }
+      .clinical-insight ul {
+        margin-top: 5px;
+        font-size: 7.8px;
+        line-height: 1.35;
+      }
+      .clinical-note-block {
+        padding: 9px 12px;
+      }
+      .clinical-footer {
+        position: absolute;
+        left: 52px;
+        right: 52px;
+        bottom: 32px;
+        margin-top: 0;
+        padding-top: 8px;
+        color: #7f8b9c;
+        font-size: 7px;
       }
       @page {
         size: A4;

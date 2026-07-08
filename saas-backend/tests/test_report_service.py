@@ -216,8 +216,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
-    assert "Historico da Composicao Corporal" in technical_html
-    assert "Anterior x Atual" in technical_html
+    assert "Historico - Anterior x Atual" in technical_html
+    assert "Leitura Final" in technical_html
     assert "Gordura corporal bruta da bioimpedancia" in technical_html
     assert "Proteina" in technical_html
     assert "Dados adicionais" in technical_html
