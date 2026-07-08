@@ -127,6 +127,23 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.usedPercent).toBe(12.49);
   });
 
+  it("falls back to bioimpedance when no anthropometry measurements exist", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 22,
+      heightCm: 177,
+      weightKg: 73.6,
+      bioimpedancePercent: 31.2,
+      preferredSource: "geneos_composite",
+    });
+
+    expect(result.status).toBe("using_bioimpedance");
+    expect(result.usedSource).toBe("bioimpedance");
+    expect(result.method).toBe("legacy_bioimpedance");
+    expect(result.usedPercent).toBe(31.2);
+    expect(result.flags).not.toContain("anthropometry_incomplete");
+  });
+
   it("calculates expanded public protocols with stable preview values", () => {
     const cases = [
       {

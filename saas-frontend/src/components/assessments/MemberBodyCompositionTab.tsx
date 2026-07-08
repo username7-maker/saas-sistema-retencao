@@ -299,7 +299,7 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     fields: [
       { key: "weight_kg", label: "Peso (kg)", placeholder: "84.5", step: "0.1" },
       { key: "body_fat_kg", label: "Gordura corporal (kg)", placeholder: "19.46", step: "0.01" },
-      { key: "body_fat_percent", label: "Percentual bruto do exame (%)", placeholder: "23.0", step: "0.1" },
+      { key: "body_fat_percent", label: "Percentual da bioimpedancia (%)", placeholder: "23.0", step: "0.1" },
       { key: "waist_hip_ratio", label: "Relacao cintura-quadril", placeholder: "0.88", step: "0.01" },
       { key: "fat_free_mass_kg", label: "Massa livre de gordura (kg)", placeholder: "65.0", step: "0.1" },
       { key: "lean_mass_kg", label: "Massa magra (legado)", placeholder: "63.0", step: "0.1" },
@@ -566,12 +566,14 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
 }
 
 function bodyFatSourceLabel(source: string | null | undefined): string {
+  if (source === "bioimpedance") return "Bioimpedancia";
   if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Override manual";
   return "Fonte pendente";
 }
 
 function preferredBodyFatSourceLabel(source: string | null | undefined): string {
+  if (source === "bioimpedance") return "Bioimpedancia quando nao houver medidas";
   if (source === "geneos_composite") return "Metodo composto GeneOS";
   if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Informar manualmente";
@@ -588,6 +590,7 @@ function bodyFatConfidenceLabel(confidence: string | null | undefined): string {
 }
 
 function bodyFatMethodLabel(method: string | null | undefined): string {
+  if (method === "legacy_bioimpedance" || method === "bioimpedance") return "Leitura da bioimpedancia";
   if (method === "geneos_composite") return "Navy + RFM";
   if (method === "navy_circumference") return "Navy por circunferencias";
   if (method === "rfm") return "RFM";
@@ -599,6 +602,7 @@ function bodyFatMethodLabel(method: string | null | undefined): string {
 function anthropometryStatusLabel(status: string): string {
   if (status === "ready") return "pronto para relatorio";
   if (status === "needs_review") return "precisa revisao";
+  if (status === "using_bioimpedance") return "usando bioimpedancia";
   if (status === "manual_override") return "override manual";
   return "medidas incompletas";
 }
@@ -1668,7 +1672,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 <div>
                   <p className="text-sm font-semibold text-lovable-ink">Composicao corporal por medidas</p>
                   <p className="text-xs text-lovable-ink-muted">
-                    O percentual usado no relatorio e calculado pelas dobras e medidas conforme o protocolo selecionado.
+                    O percentual usado no relatorio vem do protocolo de dobras/medidas quando houver dados suficientes. Sem medidas, pode usar a bioimpedancia.
                   </p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
@@ -1676,6 +1680,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <Select defaultValue="geneos_composite" {...register("preferred_body_fat_source")}>
                       <option value="geneos_composite">Usar metodo composto GeneOS</option>
                       <option value="anthropometry">Usar medidas manuais</option>
+                      <option value="bioimpedance">Usar bioimpedancia se nao houver medidas</option>
                       <option value="manual_override">Informar manualmente</option>
                     </Select>
                   </FormField>

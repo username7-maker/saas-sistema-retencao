@@ -69,6 +69,7 @@ function makeReport(): BodyCompositionReport {
       { key: "bmr", label: "Metabolismo basal", value: 1880, unit: "kcal", formatted_value: "1880 kcal", delta_absolute: 32, delta_percent: 1.7, trend: "up" },
     ],
     composition_metrics: [
+      { key: "body_fat_used_percent", label: "Gordura corporal estimada", value: 23.8, unit: "%", formatted_value: "23.8%", reference_min: 10, reference_max: 25, status: "adequate", hint: null },
       { key: "body_water_kg", label: "Agua corporal", value: 43.3, unit: "kg", formatted_value: "43.3 kg", reference_min: 39, reference_max: 48, status: "adequate", hint: "Dentro da faixa" },
       { key: "body_water_percent", label: "Agua corporal (%)", value: 51.2, unit: "%", formatted_value: "51.2%", reference_min: null, reference_max: null, status: "unknown", hint: null },
       { key: "protein_kg", label: "Proteina", value: 17.7, unit: "kg", formatted_value: "17.7 kg", reference_min: 16, reference_max: 19, status: "adequate", hint: null },
@@ -175,6 +176,9 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.queryByText("Bioimpedancia bruta")).not.toBeInTheDocument();
     expect(screen.queryByText("Diferenca entre fontes")).not.toBeInTheDocument();
     expect(screen.queryByText("body_fat_source_divergence")).not.toBeInTheDocument();
+    expect(screen.getByText("Dados da bioimpedancia")).toBeInTheDocument();
+    expect(screen.getByText("Medidas corporais e protocolo")).toBeInTheDocument();
+    expect(screen.getByText("Medidas/protocolo")).toBeInTheDocument();
     expect(screen.getByText("Medidas corporais")).toBeInTheDocument();
     expect(screen.getByText("Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");

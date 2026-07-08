@@ -39,9 +39,9 @@ from app.services.premium_report_service import (
 
 METHODOLOGICAL_NOTE = (
     "Comparacoes historicas sao mais confiaveis quando as medicoes sao feitas em condicoes "
-    "semelhantes de hidratacao, alimentacao, exercicio e horario. O percentual de gordura oficial "
-    "e uma estimativa por dobras e medidas conforme o protocolo selecionado pelo profissional. Ele nao "
-    "substitui avaliacao clinica."
+    "semelhantes de hidratacao, alimentacao, exercicio e horario. O percentual de gordura oficial usa "
+    "dobras e medidas quando houver protocolo valido; quando a avaliacao tiver apenas bioimpedancia, usa "
+    "o valor informado pelo exame. Ele nao substitui avaliacao clinica."
 )
 
 _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {

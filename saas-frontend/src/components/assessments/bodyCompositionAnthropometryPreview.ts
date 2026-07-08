@@ -52,12 +52,14 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const heightCm = parseNumber(input.heightCm);
   const weightKg = parseNumber(input.weightKg);
   const ageYears = parseNumber(input.ageYears);
+  const bioimpedancePercent = parseNumber(input.bioimpedancePercent);
   const manualOverridePercent = parseNumber(input.manualOverridePercent);
   const neckCm = parseNumber(input.neckCm);
   const waistCm = parseNumber(input.waistCm);
   const abdomenCm = parseNumber(input.abdomenCm);
   const hipCm = parseNumber(input.hipCm);
-  const preferredSource = input.preferredSource === "bioimpedance" ? "geneos_composite" : input.preferredSource || "geneos_composite";
+  const preferredSource = input.preferredSource || "geneos_composite";
+  const hasAnthropometryInput = hasAnyAnthropometryInput(input);
   const flags: string[] = [];
   const protocolPreview = calculateProtocolPreview(input, { sex, ageYears });
   const missingFields = protocolPreview.protocolSelected
@@ -80,7 +82,7 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
     flags.push("anthropometry_inconsistent");
     flags.push("anthropometry_needs_review");
   }
-  if (missingFields.length > 0 && preferredSource !== "manual_override") {
+  if (missingFields.length > 0 && preferredSource !== "manual_override" && (hasAnthropometryInput || bioimpedancePercent == null)) {
     flags.push("anthropometry_incomplete");
   }
 
@@ -105,6 +107,14 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
       method = preferredSource === "geneos_composite" && navyPercent != null && rfmPercent != null ? "geneos_composite" : composite.method;
       status = "ready";
     }
+  }
+
+  if (usedPercent == null && bioimpedancePercent != null && (!hasAnthropometryInput || preferredSource === "bioimpedance")) {
+    usedPercent = roundPercent(bioimpedancePercent);
+    usedSource = "bioimpedance";
+    method = "legacy_bioimpedance";
+    confidence = null;
+    status = "using_bioimpedance";
   }
 
   const [rangeMin, rangeMax] = estimatedRange(usedSource === "anthropometry" ? usedPercent : null, confidence);
@@ -489,6 +499,25 @@ function hasImpossibleMeasurement(values: Record<string, number | null>): boolea
     const value = values[key];
     return value != null && (value < min || value > max);
   });
+}
+
+function hasAnyAnthropometryInput(input: AnthropometryPreviewInput): boolean {
+  return [
+    input.neckCm,
+    input.waistCm,
+    input.abdomenCm,
+    input.hipCm,
+    input.skinfoldChestMm,
+    input.skinfoldMidaxillaryMm,
+    input.skinfoldSubscapularMm,
+    input.skinfoldTricepsMm,
+    input.skinfoldBicepsMm,
+    input.skinfoldAbdominalMm,
+    input.skinfoldSuprailiacMm,
+    input.skinfoldThighMm,
+    input.skinfoldCalfMm,
+    input.manualOverridePercent,
+  ].some((value) => parseNumber(value) != null);
 }
 
 function parseNumber(value: unknown): number | null {

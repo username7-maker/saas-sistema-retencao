@@ -458,6 +458,38 @@ body::-webkit-scrollbar-thumb:hover,
   font-weight: 700;
 }
 
+.clinical-web-source-block {
+  margin-top: 14px;
+}
+
+.clinical-web-source-block h3 {
+  margin: 0;
+  border-left: 3px solid #4f89a8;
+  padding-left: 10px;
+  color: #2f2823;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.clinical-web-source-block p {
+  margin: 5px 0 8px 13px;
+  color: #665f57;
+  font-size: 11px;
+}
+
+.clinical-web-source-pill {
+  display: inline-flex !important;
+  margin-top: 0 !important;
+  border: 1px solid #d8d0c7;
+  background: #f7f5f1;
+  padding: 3px 7px;
+  color: #4f463f;
+  font-size: 9px !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .clinical-web-measurement-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

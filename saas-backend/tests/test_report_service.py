@@ -195,6 +195,10 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Resultados principais" in html
     assert "Metodo de leitura da gordura corporal" in html
     assert "Analise da composicao corporal" in html
+    assert "Dados da bioimpedancia" in html
+    assert "Medidas corporais e protocolo" in html
+    assert "Medidas/protocolo" in html
+    assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
     assert "body-map-front-male.png" in html
     assert "Resumo da avaliacao" in html

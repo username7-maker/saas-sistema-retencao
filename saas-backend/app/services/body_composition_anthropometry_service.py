@@ -82,6 +82,7 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
     bioimpedance_percent = _first_float(data.get("body_fat_bioimpedance_percent"), data.get("body_fat_percent"))
     if bioimpedance_percent is not None:
         data["body_fat_bioimpedance_percent"] = _round_percent(bioimpedance_percent)
+    has_anthropometry_input = _has_any_anthropometry(data)
 
     anthropometry = calculate_anthropometric_body_fat(data, previous_values=previous_values)
     flags.extend(anthropometry["flags"])
@@ -99,10 +100,6 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
 
     preferred = data.get("preferred_body_fat_source")
     if preferred not in {"bioimpedance", "anthropometry", "geneos_composite", "manual_override"}:
-        preferred = "geneos_composite"
-    elif preferred == "bioimpedance":
-        # The raw bioimpedance percentage is kept for audit/comparison only. It
-        # must not become the official body-fat value for reports, AI or sharing.
         preferred = "geneos_composite"
     data["preferred_body_fat_source"] = preferred
 
@@ -124,7 +121,8 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
         range_max = None
     elif preferred in {"anthropometry", "geneos_composite"}:
         if anthropometric_percent is None:
-            flags.append("anthropometry_incomplete")
+            if has_anthropometry_input or bioimpedance_percent is None:
+                flags.append("anthropometry_incomplete")
         elif confidence == "inconsistent" and not review_completed:
             flags.append("anthropometry_inconsistent")
             flags.append("anthropometry_needs_review")
@@ -137,6 +135,14 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
         used_percent = anthropometric_percent
         used_source = "anthropometry"
         method = anthropometry["method"]
+
+    if used_percent is None and bioimpedance_percent is not None and (not has_anthropometry_input or preferred == "bioimpedance"):
+        used_percent = _round_percent(bioimpedance_percent)
+        used_source = "bioimpedance"
+        method = "legacy_bioimpedance"
+        confidence = None
+        range_min = None
+        range_max = None
 
     if used_percent is None and preferred in {"anthropometry", "geneos_composite"}:
         flags.append("anthropometry_needs_review")
@@ -160,6 +166,8 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
     elif _has_any_anthropometry(data):
         data["measurement_source"] = "composite_geneos" if preferred == "geneos_composite" else "manual_anthropometry"
         data.setdefault("measurement_protocol", "geneos_composite")
+    elif used_source == "bioimpedance":
+        data["measurement_source"] = "bioimpedance"
 
     review_required = any(
         flag in set(flags)

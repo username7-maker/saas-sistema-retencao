@@ -91,6 +91,7 @@ function metricDelta(metric: BodyCompositionMetricCard): string {
 }
 
 function sourceLabel(source: string | null | undefined): string {
+  if (source === "bioimpedance") return "Bioimpedancia";
   if (source === "anthropometry" || source === "manual_anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Informado manualmente";
   if (source === "geneos_composite") return "Metodo composto GeneOS";
@@ -98,6 +99,7 @@ function sourceLabel(source: string | null | undefined): string {
 }
 
 function methodLabel(method: string | null | undefined): string {
+  if (method === "legacy_bioimpedance" || method === "bioimpedance") return "Leitura da bioimpedancia";
   if (method === "geneos_composite") return "Navy + RFM";
   if (method === "navy_circumference") return "Navy por circunferencias";
   if (method === "skinfold_protocol") return "Protocolo de dobras";
@@ -138,7 +140,12 @@ function metricReference(metric: BodyCompositionReferenceMetric): string {
   return `<= ${formatNumber(metric.reference_max)}${metric.unit ? ` ${metric.unit}` : ""}`;
 }
 
-function metricExplanation(key: string): string {
+function metricExplanation(key: string, context?: BodyCompositionBodyFatContext | null): string {
+  if (key === "body_fat_used_percent") {
+    if (context?.used_source === "bioimpedance") return "Leitura de gordura informada pela bioimpedancia";
+    if (context?.used_source === "manual_override") return "Percentual informado pelo profissional";
+    return "Estimativa por dobras e medidas";
+  }
   const labels: Record<string, string> = {
     body_water_kg: "Agua total estimada no corpo",
     body_water_percent: "Participacao da agua corporal no peso",
@@ -153,6 +160,37 @@ function metricExplanation(key: string): string {
     physical_age: "Idade fisica informada no exame",
   };
   return labels[key] ?? "Indicador complementar da avaliacao";
+}
+
+function bodyFatPanelDescription(source: string | null | undefined): string {
+  if (source === "bioimpedance") return "Percentual lido da bioimpedancia porque esta avaliacao nao tem medidas/protocolo suficientes.";
+  if (source === "manual_override") return "Percentual informado manualmente pelo profissional responsavel.";
+  return "Percentual estimado por dobras e medidas conforme o protocolo selecionado.";
+}
+
+function metricSource(metric: BodyCompositionReferenceMetric, context: BodyCompositionBodyFatContext | null): { group: "bioimpedance" | "measurements"; label: string } {
+  const usedSource = context?.used_source ?? null;
+  if (["body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"].includes(metric.key)) {
+    if (usedSource === "bioimpedance") return { group: "bioimpedance", label: "Bioimpedancia" };
+    if (usedSource === "manual_override") return { group: "measurements", label: "Manual" };
+    return { group: "measurements", label: "Medidas/protocolo" };
+  }
+  if (metric.key === "waist_hip_ratio") return { group: "measurements", label: "Medidas corporais" };
+  return { group: "bioimpedance", label: "Bioimpedancia" };
+}
+
+function splitCompositionMetrics(metrics: BodyCompositionReferenceMetric[], context: BodyCompositionBodyFatContext | null) {
+  const bioimpedanceMetrics: BodyCompositionReferenceMetric[] = [];
+  const measurementMetrics: BodyCompositionReferenceMetric[] = [];
+  for (const metric of metrics) {
+    const source = metricSource(metric, context);
+    if (source.group === "measurements") {
+      measurementMetrics.push(metric);
+    } else {
+      bioimpedanceMetrics.push(metric);
+    }
+  }
+  return { bioimpedanceMetrics, measurementMetrics };
 }
 
 function filterCompositionMetrics(metrics: BodyCompositionReferenceMetric[]): BodyCompositionReferenceMetric[] {
@@ -274,7 +312,7 @@ function BodyCompositionReportPage() {
             <MetricList title="Dados adicionais" metrics={additionalMetrics} />
           </section>
 
-          <CompositionTable metrics={compositionMetrics} />
+          <CompositionTable metrics={compositionMetrics} context={report.body_fat_context ?? null} />
           <MeasurementsSection rows={report.measurement_rows ?? []} sex={report.header.sex} />
 
           <section className="clinical-web-analysis-grid">
@@ -358,7 +396,7 @@ function BodyFatSourcePanel({ context }: { context: BodyCompositionBodyFatContex
       <div>
         <p>Metodo de leitura da gordura corporal</p>
         <h2>{formatPercent(context.used_percent)}</h2>
-        <span>Estimativa por dobras e medidas conforme o protocolo selecionado.</span>
+        <span>{bodyFatPanelDescription(context.used_source)}</span>
       </div>
       <div className="clinical-web-body-fat-grid">
         <ContextMetric label="Fonte usada" value={sourceLabel(context.used_source)} />
@@ -396,15 +434,49 @@ function SummaryCard({ score, insight }: { score: string; insight: BodyCompositi
   );
 }
 
-function CompositionTable({ metrics }: { metrics: BodyCompositionReferenceMetric[] }) {
+function CompositionTable({ metrics, context }: { metrics: BodyCompositionReferenceMetric[]; context: BodyCompositionBodyFatContext | null }) {
+  const { bioimpedanceMetrics, measurementMetrics } = splitCompositionMetrics(metrics, context);
   return (
     <section className="clinical-web-section">
-      <ReportSectionTitle title="Analise da composicao corporal" subtitle="Valores do exame e das medidas com faixas de referencia disponiveis." />
+      <ReportSectionTitle title="Analise da composicao corporal" subtitle="Informacoes separadas por origem: bioimpedancia, medidas corporais/protocolo e calculos derivados." />
+      <CompositionSourceBlock
+        title="Dados da bioimpedancia"
+        subtitle="Valores lidos do exame de bioimpedancia ou calculados diretamente a partir desses dados."
+        metrics={bioimpedanceMetrics}
+        context={context}
+      />
+      <CompositionSourceBlock
+        title="Medidas corporais e protocolo"
+        subtitle="Valores estimados por dobras, perimetria, protocolo selecionado ou calculo derivado da gordura oficial."
+        metrics={measurementMetrics}
+        context={context}
+      />
+    </section>
+  );
+}
+
+function CompositionSourceBlock({
+  title,
+  subtitle,
+  metrics,
+  context,
+}: {
+  title: string;
+  subtitle: string;
+  metrics: BodyCompositionReferenceMetric[];
+  context: BodyCompositionBodyFatContext | null;
+}) {
+  if (metrics.length === 0) return null;
+  return (
+    <div className="clinical-web-source-block">
+      <h3>{title}</h3>
+      <p>{subtitle}</p>
       <div className="clinical-web-table-wrap">
         <table>
           <thead>
             <tr>
               <th>Componente</th>
+              <th>Fonte</th>
               <th>Descricao</th>
               <th>Valor</th>
               <th>Faixa</th>
@@ -417,7 +489,10 @@ function CompositionTable({ metrics }: { metrics: BodyCompositionReferenceMetric
                   <strong>{metric.label}</strong>
                   <span className={statusClass(metric.status)}>{statusLabel(metric.status)}</span>
                 </td>
-                <td>{metricExplanation(metric.key)}</td>
+                <td>
+                  <span className="clinical-web-source-pill">{metricSource(metric, context).label}</span>
+                </td>
+                <td>{metricExplanation(metric.key, context)}</td>
                 <td>
                   <strong>{metric.formatted_value}</strong>
                 </td>
@@ -427,7 +502,7 @@ function CompositionTable({ metrics }: { metrics: BodyCompositionReferenceMetric
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
   );
 }
 

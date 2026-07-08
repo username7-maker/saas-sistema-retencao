@@ -858,6 +858,10 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         else [metric for metric in composition_metrics if str(metric.get("key")) in summary_composition_keys]
     )
     visible_composition_metrics = _filter_body_composition_metrics_for_pdf(visible_composition_metrics)
+    bioimpedance_composition_metrics, measurement_composition_metrics = _split_body_composition_metrics_by_source(
+        visible_composition_metrics,
+        body_fat_context,
+    )
 
     score_metric = _body_metric_by_key(risk_metrics, "health_score") or _body_metric_by_key(primary_cards, "health_score")
     physical_age_metric = _body_metric_by_key(risk_metrics, "physical_age")
@@ -1001,22 +1005,9 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     <section class="clinical-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       <section class="clinical-section">
         <h2>Analise da composicao corporal</h2>
-        <p class="clinical-section-subtitle">Valores do exame e das medidas com faixas de referencia disponiveis.</p>
-        <div class="clinical-table-wrap">
-          <table class="clinical-composition-table">
-            <thead>
-              <tr>
-                <th>Componente</th>
-                <th>Descricao</th>
-                <th>Valor</th>
-                <th>Faixa de referencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {"".join(_render_body_composition_table_row(metric) for metric in visible_composition_metrics)}
-            </tbody>
-          </table>
-        </div>
+        <p class="clinical-section-subtitle">Informacoes separadas por origem: bioimpedancia, medidas corporais/protocolo e calculos derivados.</p>
+        {_render_body_composition_source_table("Dados da bioimpedancia", "Valores lidos do exame de bioimpedancia ou calculados diretamente a partir desses dados.", bioimpedance_composition_metrics, body_fat_context)}
+        {_render_body_composition_source_table("Medidas corporais e protocolo", "Valores estimados por dobras, perimetria, protocolo selecionado ou calculo derivado da gordura oficial.", measurement_composition_metrics, body_fat_context)}
       </section>
       {measurement_section_html}
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
@@ -1072,11 +1063,12 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
     method = _body_fat_method_label(_read_value(context, "method"))
     confidence = _body_fat_confidence_label(_read_value(context, "confidence"))
     review = "Exigida" if bool(_read_value(context, "manual_review_required", False)) else "Nao exigida"
+    description = _body_fat_panel_description(_read_value(context, "used_source"))
 
     return f"""
       <section class="clinical-body-fat-panel">
         <h2>Metodo de leitura da gordura corporal</h2>
-        <p>Percentual estimado por dobras e medidas conforme o protocolo selecionado.</p>
+        <p>{escape(description)}</p>
         <div class="clinical-body-fat-highlight">
           <strong>{escape(used_percent)}</strong>
           <span>{escape(source)}</span>
@@ -1089,6 +1081,14 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
         </div>
       </section>
     """
+
+
+def _body_fat_panel_description(source: Any) -> str:
+    if str(source or "") == "bioimpedance":
+        return "Percentual lido da bioimpedancia porque esta avaliacao nao tem medidas/protocolo suficientes."
+    if str(source or "") == "manual_override":
+        return "Percentual informado manualmente pelo profissional responsavel."
+    return "Percentual estimado por dobras e medidas conforme o protocolo selecionado."
 
 
 def _filter_body_composition_metrics_for_pdf(metrics: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1112,6 +1112,53 @@ def _filter_body_composition_metrics_for_pdf(metrics: Sequence[dict[str, Any]]) 
     return filtered
 
 
+def _split_body_composition_metrics_by_source(
+    metrics: Sequence[dict[str, Any]],
+    body_fat_context: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    bioimpedance_metrics: list[dict[str, Any]] = []
+    measurement_metrics: list[dict[str, Any]] = []
+    for metric in metrics:
+        group, _label = _body_metric_source(metric, body_fat_context)
+        if group == "measurements":
+            measurement_metrics.append(metric)
+        else:
+            bioimpedance_metrics.append(metric)
+    return bioimpedance_metrics, measurement_metrics
+
+
+def _render_body_composition_source_table(
+    title: str,
+    subtitle: str,
+    metrics: Sequence[dict[str, Any]],
+    body_fat_context: Any,
+) -> str:
+    if not metrics:
+        return ""
+    return f"""
+        <div class="clinical-source-table-block">
+          <h3>{escape(title)}</h3>
+          <p>{escape(subtitle)}</p>
+          <div class="clinical-table-wrap">
+            <table class="clinical-composition-table">
+              <thead>
+                <tr>
+                  <th>Componente</th>
+                  <th>Fonte</th>
+                  <th>Descricao</th>
+                  <th>Valor</th>
+                  <th>Faixa de referencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {"".join(_render_body_composition_table_row(metric, body_fat_context) for metric in metrics)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+    """
+
+
 def _body_context_percent(context: Any, key: str) -> str:
     value = _read_value(context, key)
     if value in (None, ""):
@@ -1124,6 +1171,7 @@ def _body_context_percent(context: Any, key: str) -> str:
 
 def _body_fat_source_label(value: Any) -> str:
     labels = {
+        "bioimpedance": "Bioimpedancia",
         "anthropometry": "Dobras e medidas",
         "manual_anthropometry": "Dobras e medidas",
         "geneos_composite": "Metodo composto GeneOS",
@@ -1134,6 +1182,8 @@ def _body_fat_source_label(value: Any) -> str:
 
 def _body_fat_method_label(value: Any) -> str:
     labels = {
+        "legacy_bioimpedance": "Leitura da bioimpedancia",
+        "bioimpedance": "Leitura da bioimpedancia",
         "navy_circumference": "Navy por circunferencias",
         "rfm": "RFM",
         "geneos_composite": "Navy + RFM",
@@ -1400,11 +1450,13 @@ def _render_body_composition_snapshot_card(metric: dict[str, Any]) -> str:
     """
 
 
-def _render_body_composition_table_row(metric: dict[str, Any]) -> str:
+def _render_body_composition_table_row(metric: dict[str, Any], body_fat_context: Any) -> str:
+    _group, source = _body_metric_source(metric, body_fat_context)
     return f"""
     <tr>
       <td><strong>{escape(_body_metric_label(metric))}</strong></td>
-      <td>{escape(_body_metric_explanation(str(metric.get("key") or "")))}</td>
+      <td><span class="clinical-source-pill">{escape(source)}</span></td>
+      <td>{escape(_body_metric_explanation(str(metric.get("key") or ""), body_fat_context))}</td>
       <td><strong>{escape(_body_metric_formatted(metric))}</strong></td>
       <td>{escape(_body_metric_reference(metric))}</td>
     </tr>
@@ -1418,7 +1470,7 @@ def _render_body_band_row(metric: dict[str, Any]) -> str:
     return f"""
     <article class="clinical-band-row">
       <div class="clinical-band-topline">
-        <strong>{escape(_body_metric_label(metric))}</strong>
+        <strong>{escape(_body_metric_label(metric))}<small>{escape(_body_indicator_source_label(metric))}</small></strong>
         <span>{escape(_body_metric_formatted(metric))}</span>
       </div>
       {f'''<div class="clinical-band-track">
@@ -1431,6 +1483,33 @@ def _render_body_band_row(metric: dict[str, Any]) -> str:
       <span class="clinical-status-pill status-{escape(status)}">{escape(_body_metric_status_label(metric))}</span>
     </article>
     """
+
+
+def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[str, str]:
+    key = str(metric.get("key") or "")
+    used_source = str(_read_value(body_fat_context, "used_source") or "")
+    if key in {"body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"}:
+        if used_source == "bioimpedance":
+            return ("bioimpedance", "Bioimpedancia")
+        if used_source == "manual_override":
+            return ("measurements", "Manual")
+        return ("measurements", "Medidas/protocolo")
+    if key in {"waist_hip_ratio"}:
+        return ("measurements", "Medidas corporais")
+    return ("bioimpedance", "Bioimpedancia")
+
+
+def _body_indicator_source_label(metric: dict[str, Any]) -> str:
+    key = str(metric.get("key") or "")
+    if key == "bmi":
+        return "Calculo do sistema"
+    if key in {"body_fat_used_percent"}:
+        return "Fonte oficial"
+    if key in {"waist_hip_ratio"}:
+        return "Medidas corporais"
+    if key in {"visceral_fat_level", "physical_age", "health_score"}:
+        return "Bioimpedancia"
+    return "Exame / sistema"
 
 
 def _render_body_metric_list_row(metric: dict[str, Any]) -> str:
@@ -1688,9 +1767,15 @@ def _body_reference_number(value: Any) -> str:
     return f"{number:.2f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
-def _body_metric_explanation(key: str) -> str:
+def _body_metric_explanation(key: str, body_fat_context: Any | None = None) -> str:
+    if key == "body_fat_used_percent":
+        source = str(_read_value(body_fat_context, "used_source") or "")
+        if source == "bioimpedance":
+            return "Leitura de gordura informada pela bioimpedancia"
+        if source == "manual_override":
+            return "Percentual informado pelo profissional"
+        return "Estimativa por dobras e medidas"
     explanations = {
-        "body_fat_used_percent": "Estimativa por dobras e medidas",
         "fat_mass_estimated_kg": "Reserva energetica atual",
         "lean_mass_estimated_kg": "Componentes livres de gordura",
         "body_water_kg": "Quantidade total de agua no corpo",
@@ -2307,6 +2392,30 @@ def _body_composition_report_css() -> str:
       .clinical-measurement-table-wrap {
         display: none;
       }
+      .clinical-source-table-block {
+        margin-top: 12px;
+      }
+      .clinical-source-table-block h3 {
+        margin: 0;
+        color: #2f2823;
+        font-size: 12px;
+      }
+      .clinical-source-table-block p {
+        margin: 3px 0 7px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+      .clinical-source-pill {
+        display: inline-block;
+        border: 1px solid var(--line);
+        background: #f7f5f1;
+        padding: 2px 6px;
+        color: #4f463f;
+        font-size: 7px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
       .clinical-measurement-table th,
       .clinical-measurement-table td {
         padding: 6px 8px;
@@ -2342,10 +2451,11 @@ def _body_composition_report_css() -> str:
       .clinical-composition-table tr:first-child td { border-top: 0; }
       .clinical-composition-table td:nth-child(1),
       .clinical-composition-table td:nth-child(2),
-      .clinical-composition-table td:nth-child(3) {
+      .clinical-composition-table td:nth-child(3),
+      .clinical-composition-table td:nth-child(4) {
         border-right: 1px solid var(--line);
       }
-      .clinical-composition-table td:nth-child(3) {
+      .clinical-composition-table td:nth-child(4) {
         text-align: right;
         font-size: 19px;
         font-weight: 700;
@@ -2935,18 +3045,39 @@ def _body_composition_report_css() -> str:
       }
       .clinical-composition-table td:nth-child(1),
       .clinical-composition-table td:nth-child(2),
-      .clinical-composition-table td:nth-child(3) {
+      .clinical-composition-table td:nth-child(3),
+      .clinical-composition-table td:nth-child(4) {
         border-right: 0;
       }
       .clinical-composition-table td:nth-child(1) strong,
-      .clinical-composition-table td:nth-child(3) strong {
+      .clinical-composition-table td:nth-child(4) strong {
         color: #111827;
         font-size: 10px;
       }
-      .clinical-composition-table td:nth-child(3),
-      .clinical-composition-table td:nth-child(4) {
+      .clinical-composition-table td:nth-child(4),
+      .clinical-composition-table td:nth-child(5) {
         text-align: right;
         white-space: nowrap;
+      }
+      .clinical-source-pill {
+        display: inline-block;
+        border: 1px solid #dce4ec;
+        background: #f6f8fb;
+        padding: 2px 5px;
+        color: #59667a;
+        font-size: 6.7px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .clinical-band-topline strong small {
+        display: block;
+        margin-top: 2px;
+        color: #778397;
+        font-size: 6.8px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
       .clinical-measurement-section {
         margin-top: 18px;
