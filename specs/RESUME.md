@@ -4,7 +4,8 @@
 
 ## Estado atual (2026-07-08)
 
-- Produto: **Cordex Gym OS MVP v3.0** — rumo ao piloto com a ProGym.
+- Produto: **Cordex Gym OS MVP v3.0** — **EM PRODUÇÃO na ProGym** (cliente fundadora usa
+  no dia a dia). Toda mudança é mudança em produto vivo: regressão dói em operação real.
 - Branch de trabalho vigente: `pilot-safe/p0-blockers-20260424`.
 - `saas-backend/` — FastAPI + SQLAlchemy + Alembic + APScheduler (Supabase Postgres).
 - `saas-frontend/` — React 18 + Vite + Tailwind + React Query.

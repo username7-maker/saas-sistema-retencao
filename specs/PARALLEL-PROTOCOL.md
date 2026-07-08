@@ -49,7 +49,8 @@ a worktree.
 - **Integrador/Reconciler** — merge + review + zonas neutras. Único a tocar a branch de integração.
 - **CTO** — fala com o fundador, define milestones. Não toca código.
 
-## Regra extra deste repo (produto em piloto)
+## Regra extra deste repo (produto EM PRODUÇÃO na ProGym)
 A branch de trabalho vigente é a que estiver ativa no repo (hoje: `pilot-safe/*`). O
-reconciler NUNCA mergeia direto em `main` sem o gate do piloto (testes + checklist de
-deploy + aprovação do fundador no HTC).
+reconciler NUNCA mergeia direto em `main` sem o gate de produção: testes verdes +
+checklist de deploy + aprovação do fundador no HTC. A ProGym usa o sistema no dia a dia —
+regressão em retenção, cobrança ou WhatsApp atinge operação real. Na dúvida, não deploya.
