@@ -50,7 +50,9 @@ from app.routers import (
     automation_journeys,
     checkins,
     coach,
+    commercial_funnel,
     crm,
+    daily_cockpit,
     dashboards,
     exports,
     finance,
@@ -226,6 +228,8 @@ app.include_router(crm.router, prefix=settings.api_prefix)
 app.include_router(nps.router, prefix=settings.api_prefix)
 app.include_router(onboarding.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
+app.include_router(daily_cockpit.router, prefix=settings.api_prefix)
+app.include_router(commercial_funnel.router, prefix=settings.api_prefix)
 app.include_router(finance.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)
