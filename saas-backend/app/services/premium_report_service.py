@@ -898,16 +898,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     generated_label = payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     measured_label = _format_human_datetime(header.get("measured_at"))
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Relatorio de bioimpedancia"
-    hidden_quality_flags = {"body_fat_source_divergence"}
-    visible_quality_flags = [
-        flag
-        for flag in data_quality_flags
-        if technical_scope and not str(flag).lower().startswith("ocr") and str(flag) not in hidden_quality_flags
-    ]
-    flags_html = "".join(
-        f"<span class=\"clinical-flag\">{escape(_body_flag_label(str(flag)))}</span>"
-        for flag in visible_quality_flags
-    )
+    flags_html = ""
 
     lead_insight = insights[0] if insights else None
 
@@ -1056,13 +1047,8 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
 
 def _render_body_fat_pdf_source_panel(context: Any) -> str:
     used_percent = _body_context_percent(context, "used_percent")
-    range_min = _body_context_percent(context, "range_min")
-    range_max = _body_context_percent(context, "range_max")
-    range_label = f"{range_min} a {range_max}" if range_min != "-" and range_max != "-" else "-"
     source = _body_fat_source_label(_read_value(context, "used_source"))
     method = _body_fat_method_label(_read_value(context, "method"))
-    confidence = _body_fat_confidence_label(_read_value(context, "confidence"))
-    review = "Exigida" if bool(_read_value(context, "manual_review_required", False)) else "Nao exigida"
     description = _body_fat_panel_description(_read_value(context, "used_source"))
 
     return f"""
@@ -1074,10 +1060,8 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
           <span>{escape(source)}</span>
         </div>
         <div class="clinical-body-fat-grid">
+          <div><span>Fonte usada</span><strong>{escape(source)}</strong></div>
           <div><span>Metodo</span><strong>{escape(method)}</strong></div>
-          <div><span>Confianca</span><strong>{escape(confidence)}</strong></div>
-          <div><span>Faixa estimada</span><strong>{escape(range_label)}</strong></div>
-          <div><span>Revisao manual</span><strong>{escape(review)}</strong></div>
         </div>
       </section>
     """

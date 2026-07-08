@@ -176,6 +176,9 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.queryByText("Bioimpedancia bruta")).not.toBeInTheDocument();
     expect(screen.queryByText("Diferenca entre fontes")).not.toBeInTheDocument();
     expect(screen.queryByText("body_fat_source_divergence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Confianca")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faixa estimada")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revisao manual")).not.toBeInTheDocument();
     expect(screen.getByText("Dados da bioimpedancia")).toBeInTheDocument();
     expect(screen.getByText("Medidas corporais e protocolo")).toBeInTheDocument();
     expect(screen.getByText("Medidas/protocolo")).toBeInTheDocument();

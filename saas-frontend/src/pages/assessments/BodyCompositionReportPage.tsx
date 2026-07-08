@@ -108,15 +108,6 @@ function methodLabel(method: string | null | undefined): string {
   return "Metodo pendente";
 }
 
-function confidenceLabel(confidence: string | null | undefined): string {
-  if (confidence === "high") return "Alta";
-  if (confidence === "medium_high") return "Media-alta";
-  if (confidence === "medium") return "Media";
-  if (confidence === "low") return "Baixa";
-  if (confidence === "inconsistent") return "Inconsistente";
-  return "Nao calculada";
-}
-
 function statusLabel(status: string | null | undefined): string {
   if (status === "low") return "Abaixo";
   if (status === "adequate") return "Normal";
@@ -389,8 +380,6 @@ function PrimaryMetricCard({ metric }: { metric: BodyCompositionMetricCard }) {
 
 function BodyFatSourcePanel({ context }: { context: BodyCompositionBodyFatContext | null }) {
   if (!context) return null;
-  const range = context.range_min != null || context.range_max != null ? `${formatPercent(context.range_min)} a ${formatPercent(context.range_max)}` : "-";
-  const review = context.manual_review_required ? (context.manual_review_completed ? "Concluida" : "Obrigatoria") : "Nao exigida";
   return (
     <section className="clinical-web-body-fat-panel">
       <div>
@@ -401,9 +390,6 @@ function BodyFatSourcePanel({ context }: { context: BodyCompositionBodyFatContex
       <div className="clinical-web-body-fat-grid">
         <ContextMetric label="Fonte usada" value={sourceLabel(context.used_source)} />
         <ContextMetric label="Metodo" value={methodLabel(context.method)} />
-        <ContextMetric label="Confianca" value={confidenceLabel(context.confidence)} />
-        <ContextMetric label="Faixa estimada" value={range} />
-        <ContextMetric label="Revisao manual" value={review} />
       </div>
     </section>
   );

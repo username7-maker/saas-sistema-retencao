@@ -210,6 +210,11 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Percentual bruto oculto" not in html
     assert "Diferenca entre fontes" not in html
     assert "body_fat_source_divergence" not in html
+    assert "Confianca" not in html
+    assert "Faixa estimada" not in html
+    assert "Revisao manual" not in html
+    assert "ANTHROPOMETRY" not in html
+    assert "anthropometry_protocol_manual_only" not in html
     assert "Proteina" not in html
     assert "Dados adicionais" not in html
     assert "Nota tecnica" not in html
@@ -227,6 +232,11 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Percentual bruto oculto" not in technical_html
     assert "Diferenca entre fontes" not in technical_html
     assert "body_fat_source_divergence" not in technical_html
+    assert "Confianca" not in technical_html
+    assert "Faixa estimada" not in technical_html
+    assert "Revisao manual" not in technical_html
+    assert "ANTHROPOMETRY" not in technical_html
+    assert "anthropometry_protocol_manual_only" not in technical_html
     assert "Proteina" in technical_html
     assert "Dados adicionais" in technical_html
     assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." in technical_html
