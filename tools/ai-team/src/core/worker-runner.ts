@@ -26,7 +26,7 @@ export interface StartWorkerResult {
  * NÃO faz spawn do Claude — o usuário abre o terminal manualmente em `cd <worktreePath>`.
  */
 export async function startWorker(opts: StartWorkerOpts): Promise<StartWorkerResult> {
-  const { branchPrefix } = loadConfig();
+  const { branchPrefix, baseBranch } = loadConfig();
   const branch = `${branchPrefix}/${opts.milestone}/${opts.slotId}`;
   const wtPath = path.join(WORKTREES_DIR, opts.workerName);
 
@@ -39,7 +39,7 @@ export async function startWorker(opts: StartWorkerOpts): Promise<StartWorkerRes
   }
 
   if (!alreadyExists) {
-    await worktreeAdd(opts.workerName, branch, 'main');
+    await worktreeAdd(opts.workerName, branch, baseBranch);
     // Claim dentro da branch do worker — commitado pra dashboard/reconciler
     // enxergarem via `git show <branch>:specs/slots/.../STATUS.txt`.
     const slotRel = path.join('specs', 'slots', opts.milestone, opts.slotId);

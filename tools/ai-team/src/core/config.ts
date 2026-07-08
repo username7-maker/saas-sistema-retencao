@@ -17,12 +17,19 @@ export interface AiTeamConfig {
    * adiciona `import './<arquivo>';` dos .ts irmãos que faltarem. Opt-in — vazio = não mexe.
    */
   syncBarrels: string[];
+  /**
+   * Branch de integração: base das worktrees e alvo do reconcile. Default: "main".
+   * Produto em produção pode trabalhar numa branch protegida (ex.: pilot-safe/*) sem
+   * encostar na main que dispara deploy.
+   */
+  baseBranch: string;
 }
 
 const DEFAULTS: AiTeamConfig = {
   smoke: ['pnpm', '-r', '--if-present', 'typecheck'],
   branchPrefix: 'worker',
   syncBarrels: [],
+  baseBranch: 'main',
 };
 
 function detectRoot(): string {
@@ -53,6 +60,7 @@ export function loadConfig(): AiTeamConfig {
       smoke: Array.isArray(parsed.smoke) && parsed.smoke.length > 0 ? parsed.smoke : DEFAULTS.smoke,
       branchPrefix: typeof parsed.branchPrefix === 'string' && parsed.branchPrefix ? parsed.branchPrefix : DEFAULTS.branchPrefix,
       syncBarrels: Array.isArray(parsed.syncBarrels) ? parsed.syncBarrels : DEFAULTS.syncBarrels,
+      baseBranch: typeof parsed.baseBranch === 'string' && parsed.baseBranch ? parsed.baseBranch : DEFAULTS.baseBranch,
     };
   } catch {
     cached = { ...DEFAULTS };

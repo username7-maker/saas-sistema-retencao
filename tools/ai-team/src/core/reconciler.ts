@@ -154,9 +154,10 @@ export async function reconcile(opts: ReconcileOptions = {}): Promise<ReconcileR
     smokeOutput: '',
   };
 
+  const { baseBranch } = loadConfig();
   const cur = await currentBranch();
-  if (cur !== 'main') {
-    throw new Error(`Reconciler exige estar na main; está em '${cur}'.`);
+  if (cur !== baseBranch) {
+    throw new Error(`Reconciler exige estar na branch de integração '${baseBranch}'; está em '${cur}'.`);
   }
 
   const candidates = await findDoneSlotsWithBranches();
