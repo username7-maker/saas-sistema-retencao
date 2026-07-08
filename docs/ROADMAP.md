@@ -3,7 +3,7 @@
 > Fonte da verdade do escopo por milestone. Método: `specs/PARALLEL-PROTOCOL.md`.
 > Histórico pré-método: specs `001`–`052` (entregues; ver `specs/`).
 
-## M1 — Cockpit Comercial Diário  (status: em andamento — iniciado 2026-07-08)
+## M1 — Cockpit Comercial Diário  ✅ ENTREGUE (HTC aprovado pelo fundador em 2026-07-08)
 
 **Objetivo:** a equipe da ProGym abre o Dashboard Executivo de manhã e sabe, sem planilha
 paralela: (1) quais leads precisam de resposta/follow-up, (2) quais alunos estão em risco
@@ -38,12 +38,20 @@ de execução que já existe (CRM, fila de retenção, tarefas, Central Cordex).
 
 Registro na numeração viva: **spec 053** (`specs/053-daily-commercial-cockpit/`).
 
-## M2+ (esboço — não iniciar sem fechar M1 no HTC)
+**Entrega real:** endpoints `GET /api/v1/cockpit/daily` e `GET /api/v1/cockpit/weekly-funnel`
++ bloco "Hoje" no Dashboard Executivo. 3 slots, 0 conflitos no reconcile, 1107 testes
+verdes, review sem Critical (`specs/slots/M1/REVIEW.md`). ADR 001 (baseBranch do ai-team).
 
+## M2 — candidatos (fundador prioriza no próximo kickoff)
+
+- **Acesso do cockpit pra recepção/vendas** — os endpoints já aceitam
+  salesperson/recepcionista; falta ampliar o acesso da rota `/dashboard/executive` no
+  frontend (decisão de CTO + ADR — hoje a página é owner/manager).
 - **Resposta rastreada por canal** — threading Kommo/WhatsApp pra medir resposta por
   conversa (hoje: inbound agregado do MessageLog).
 - **R$ no funil** — valor recuperado/renovado atribuído às ações (depende de dado
-  financeiro confiável no piloto).
+  financeiro confiável no piloto). Inclui `converted_at` próprio no Lead (hoje o proxy
+  é `updated_at`).
 - **Cockpit mobile** — rotina 100% no celular pra equipe que circula na academia.
 - **Planner de campanhas** — agendar campanhas/ações recorrentes a partir do Growth OS.
 - **Multi-unidade** — cockpit consolidado pra redes (2ª academia da Cordex).
