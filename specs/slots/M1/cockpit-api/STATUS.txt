@@ -1,1 +1,1 @@
-available
+claimed:worker-A
