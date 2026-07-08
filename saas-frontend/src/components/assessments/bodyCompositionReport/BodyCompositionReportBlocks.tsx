@@ -64,7 +64,7 @@ function flagLabel(flag: BodyCompositionDataQualityFlag) {
   if (flag === "suspect_bmi") return "IMC suspeito";
   if (flag === "ocr_low_confidence") return "OCR com baixa confianca";
   if (flag === "anthropometry_incomplete") return "medidas incompletas";
-  if (flag === "body_fat_source_divergence") return "divergencia entre fontes";
+  if (flag === "body_fat_source_divergence") return "revisao do protocolo";
   if (flag === "anthropometry_needs_review") return "antropometria pede revisao";
   if (flag === "anthropometry_inconsistent") return "antropometria inconsistente";
   if (flag === "impossible_measurement_value") return "medida fora da faixa";
@@ -146,7 +146,9 @@ export function ReportHeaderCard({
   dataQualityFlags: BodyCompositionDataQualityFlag[];
   parsingConfidence: number | null;
 }) {
-  const visibleQualityFlags = dataQualityFlags.filter((flag) => !flag.toLowerCase().startsWith("ocr"));
+  const visibleQualityFlags = dataQualityFlags.filter(
+    (flag) => !flag.toLowerCase().startsWith("ocr") && flag !== "body_fat_source_divergence",
+  );
 
   return (
     <header className="report-header-card space-y-4 border-b border-[#6fa7c7] pb-4">

@@ -299,7 +299,7 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     fields: [
       { key: "weight_kg", label: "Peso (kg)", placeholder: "84.5", step: "0.1" },
       { key: "body_fat_kg", label: "Gordura corporal (kg)", placeholder: "19.46", step: "0.01" },
-      { key: "body_fat_percent", label: "Gordura corporal bruta da bioimpedancia (%)", placeholder: "23.0", step: "0.1" },
+      { key: "body_fat_percent", label: "Percentual bruto do exame (%)", placeholder: "23.0", step: "0.1" },
       { key: "waist_hip_ratio", label: "Relacao cintura-quadril", placeholder: "0.88", step: "0.01" },
       { key: "fat_free_mass_kg", label: "Massa livre de gordura (kg)", placeholder: "65.0", step: "0.1" },
       { key: "lean_mass_kg", label: "Massa magra (legado)", placeholder: "63.0", step: "0.1" },
@@ -566,17 +566,16 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
 }
 
 function bodyFatSourceLabel(source: string | null | undefined): string {
-  if (source === "anthropometry") return "Medidas manuais";
+  if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Override manual";
-  if (source === "bioimpedance") return "Bioimpedancia bruta";
   return "Fonte pendente";
 }
 
 function preferredBodyFatSourceLabel(source: string | null | undefined): string {
   if (source === "geneos_composite") return "Metodo composto GeneOS";
-  if (source === "anthropometry") return "Medidas manuais";
+  if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Informar manualmente";
-  return "Bioimpedancia";
+  return "Metodo composto GeneOS";
 }
 
 function bodyFatConfidenceLabel(confidence: string | null | undefined): string {
@@ -594,7 +593,6 @@ function bodyFatMethodLabel(method: string | null | undefined): string {
   if (method === "rfm") return "RFM";
   if (method === "skinfold_protocol") return "Protocolo de dobras";
   if (method === "manual_override") return "Override manual";
-  if (method === "legacy_bioimpedance") return "Bioimpedancia bruta";
   return "Metodo pendente";
 }
 
@@ -602,13 +600,12 @@ function anthropometryStatusLabel(status: string): string {
   if (status === "ready") return "pronto para relatorio";
   if (status === "needs_review") return "precisa revisao";
   if (status === "manual_override") return "override manual";
-  if (status === "using_bioimpedance") return "usando bioimpedancia";
   return "medidas incompletas";
 }
 
 function qualityFlagLabel(flag: string): string {
   if (flag === "anthropometry_incomplete") return "medidas incompletas";
-  if (flag === "body_fat_source_divergence") return "divergencia entre fontes";
+  if (flag === "body_fat_source_divergence") return "revisao do protocolo";
   if (flag === "anthropometry_needs_review") return "revisao obrigatoria";
   if (flag === "anthropometry_inconsistent") return "Navy/RFM inconsistentes";
   if (flag === "impossible_measurement_value") return "medida fora do intervalo esperado";
@@ -1449,9 +1446,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <StatusPill tone={statusPillToneForSync(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status ?? null)}>
               Sync: {syncLabel(syncStatus?.sync_status ?? focusEvaluation?.actuar_sync_status)}
             </StatusPill>
-            {focusEvaluation?.body_fat_percent != null ? (
-              <StatusPill tone="neutral">Bioimpedancia bruta: {fmt(focusEvaluation.body_fat_percent, "%")}</StatusPill>
-            ) : null}
             {focusEvaluation?.body_fat_confidence ? (
               <StatusPill tone={focusEvaluation.body_fat_confidence === "inconsistent" ? "warning" : "success"}>
                 Confianca gordura: {bodyFatConfidenceLabel(focusEvaluation.body_fat_confidence)}
@@ -1674,7 +1668,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 <div>
                   <p className="text-sm font-semibold text-lovable-ink">Composicao corporal por medidas</p>
                   <p className="text-xs text-lovable-ink-muted">
-                    O percentual usado no relatorio e calculado pelas medidas/protocolo selecionado. A bioimpedancia bruta fica preservada apenas como referencia do exame.
+                    O percentual usado no relatorio e calculado pelas dobras e medidas conforme o protocolo selecionado.
                   </p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
@@ -1773,7 +1767,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Previa antes de salvar</p>
                       <p className="mt-1 text-xl font-semibold text-lovable-ink">{fmt(anthropometryPreview.usedPercent, "%")}</p>
                       <p className="mt-1 text-xs text-lovable-ink-muted">
-                        O backend recalcula e valida ao salvar. Esta previa permite revisar fonte, metodo e divergencias antes de gerar relatorio.
+                        O backend recalcula e valida ao salvar. Esta previa permite revisar fonte, metodo e pontos de revisao antes de gerar relatorio.
                       </p>
                     </div>
                     <StatusPill
@@ -1805,11 +1799,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <Metric label="Massa gorda estimada" value={fmt(anthropometryPreview.fatMassKg, " kg")} />
                     <Metric label="Massa livre estimada" value={fmt(anthropometryPreview.leanMassKg, " kg")} />
                   </div>
-                  {anthropometryPreview.differenceBetweenSources != null ? (
-                    <p className="mt-3 text-xs text-lovable-ink-muted">
-                      Divergencia contra a bioimpedancia bruta: {fmt(anthropometryPreview.differenceBetweenSources, " p.p.")}.
-                    </p>
-                  ) : null}
                   {anthropometryPreview.missingFields.length > 0 ? (
                     <p className="mt-3 text-xs text-lovable-warning">
                       Para calcular por medidas, complete: {anthropometryPreview.missingFields.join(", ")}.

@@ -121,7 +121,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                 },
                 "composition_metrics": [
                     {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "reference_min": 10, "reference_max": 25, "unit": "%"},
-                    {"key": "body_fat_bioimpedance_percent", "label": "Gordura corporal bruta da bioimpedancia", "formatted_value": "31,2%", "reference_min": 10, "reference_max": 25, "unit": "%"},
+                    {"key": "body_fat_bioimpedance_percent", "label": "Percentual bruto oculto", "formatted_value": "31,2%", "reference_min": 10, "reference_max": 25, "unit": "%"},
                     {"key": "body_water_kg", "label": "Agua corporal", "formatted_value": "43,3 kg", "reference_min": 39, "reference_max": 48, "unit": "kg"},
                     {"key": "protein_kg", "label": "Proteina", "formatted_value": "17,7 kg", "reference_min": 5, "reference_max": 25, "unit": "kg"},
                 ],
@@ -193,7 +193,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     html = render_premium_report_html(payload)
 
     assert "Resultados principais" in html
-    assert "Fonte oficial da gordura corporal" in html
+    assert "Metodo de leitura da gordura corporal" in html
     assert "Analise da composicao corporal" in html
     assert "Medidas corporais" in html
     assert "body-map-front-male.png" in html
@@ -203,7 +203,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Gordura visceral" in html
     assert "Relacao cintura-quadril" in html
     assert "Erick Bedin" in html
-    assert "Gordura corporal bruta da bioimpedancia" not in html
+    assert "Percentual bruto oculto" not in html
+    assert "Diferenca entre fontes" not in html
+    assert "body_fat_source_divergence" not in html
     assert "Proteina" not in html
     assert "Dados adicionais" not in html
     assert "Nota tecnica" not in html
@@ -218,7 +220,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     assert "Historico - Anterior x Atual" in technical_html
     assert "Leitura Final" in technical_html
-    assert "Gordura corporal bruta da bioimpedancia" in technical_html
+    assert "Percentual bruto oculto" not in technical_html
+    assert "Diferenca entre fontes" not in technical_html
+    assert "body_fat_source_divergence" not in technical_html
     assert "Proteina" in technical_html
     assert "Dados adicionais" in technical_html
     assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." in technical_html

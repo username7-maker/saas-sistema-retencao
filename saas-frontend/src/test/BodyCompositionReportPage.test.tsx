@@ -171,8 +171,10 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
     expect(screen.queryByText("Relatorio premium pronto")).not.toBeInTheDocument();
     expect(screen.getAllByText("Gordura corporal estimada").length).toBeGreaterThan(0);
-    expect(screen.getByText("Fonte oficial da gordura corporal")).toBeInTheDocument();
-    expect(screen.getByText("Bioimpedancia bruta")).toBeInTheDocument();
+    expect(screen.getByText("Metodo de leitura da gordura corporal")).toBeInTheDocument();
+    expect(screen.queryByText("Bioimpedancia bruta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Diferenca entre fontes")).not.toBeInTheDocument();
+    expect(screen.queryByText("body_fat_source_divergence")).not.toBeInTheDocument();
     expect(screen.getByText("Medidas corporais")).toBeInTheDocument();
     expect(screen.getByText("Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");

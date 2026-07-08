@@ -160,8 +160,6 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
     elif _has_any_anthropometry(data):
         data["measurement_source"] = "composite_geneos" if preferred == "geneos_composite" else "manual_anthropometry"
         data.setdefault("measurement_protocol", "geneos_composite")
-    elif bioimpedance_percent is not None:
-        data["measurement_source"] = "bioimpedance"
 
     review_required = any(
         flag in set(flags)

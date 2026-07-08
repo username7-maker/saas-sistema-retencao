@@ -850,7 +850,6 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         "body_water_kg",
         "muscle_mass_kg",
         "skeletal_muscle_kg",
-        "body_fat_kg",
         "fat_free_mass_kg",
     }
     visible_composition_metrics = (
@@ -895,7 +894,12 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     generated_label = payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     measured_label = _format_human_datetime(header.get("measured_at"))
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Relatorio de bioimpedancia"
-    visible_quality_flags = [flag for flag in data_quality_flags if technical_scope and not str(flag).lower().startswith("ocr")]
+    hidden_quality_flags = {"body_fat_source_divergence"}
+    visible_quality_flags = [
+        flag
+        for flag in data_quality_flags
+        if technical_scope and not str(flag).lower().startswith("ocr") and str(flag) not in hidden_quality_flags
+    ]
     flags_html = "".join(
         f"<span class=\"clinical-flag\">{escape(_body_flag_label(str(flag)))}</span>"
         for flag in visible_quality_flags
@@ -997,7 +1001,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     <section class="clinical-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       <section class="clinical-section">
         <h2>Analise da composicao corporal</h2>
-        <p class="clinical-section-subtitle">Valores da bioimpedancia com as faixas de referencia do exame.</p>
+        <p class="clinical-section-subtitle">Valores do exame e das medidas com faixas de referencia disponiveis.</p>
         <div class="clinical-table-wrap">
           <table class="clinical-composition-table">
             <thead>
@@ -1061,11 +1065,8 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
 
 def _render_body_fat_pdf_source_panel(context: Any) -> str:
     used_percent = _body_context_percent(context, "used_percent")
-    raw_percent = _body_context_percent(context, "bioimpedance_raw_percent")
-    anthropometry_percent = _body_context_percent(context, "anthropometric_percent")
     range_min = _body_context_percent(context, "range_min")
     range_max = _body_context_percent(context, "range_max")
-    difference = _body_context_percent(context, "difference_between_sources")
     range_label = f"{range_min} a {range_max}" if range_min != "-" and range_max != "-" else "-"
     source = _body_fat_source_label(_read_value(context, "used_source"))
     method = _body_fat_method_label(_read_value(context, "method"))
@@ -1074,8 +1075,8 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
 
     return f"""
       <section class="clinical-body-fat-panel">
-        <h2>Fonte oficial da gordura corporal</h2>
-        <p>Origem e rastreabilidade do percentual usado em todo o relatorio.</p>
+        <h2>Metodo de leitura da gordura corporal</h2>
+        <p>Percentual estimado por dobras e medidas conforme o protocolo selecionado.</p>
         <div class="clinical-body-fat-highlight">
           <strong>{escape(used_percent)}</strong>
           <span>{escape(source)}</span>
@@ -1084,9 +1085,6 @@ def _render_body_fat_pdf_source_panel(context: Any) -> str:
           <div><span>Metodo</span><strong>{escape(method)}</strong></div>
           <div><span>Confianca</span><strong>{escape(confidence)}</strong></div>
           <div><span>Faixa estimada</span><strong>{escape(range_label)}</strong></div>
-          <div><span>Bioimpedancia bruta</span><strong>{escape(raw_percent)}</strong></div>
-          <div><span>Antropometria</span><strong>{escape(anthropometry_percent)}</strong></div>
-          <div><span>Diferenca entre fontes</span><strong>{escape(difference)}</strong></div>
           <div><span>Revisao manual</span><strong>{escape(review)}</strong></div>
         </div>
       </section>
@@ -1103,6 +1101,8 @@ def _filter_body_composition_metrics_for_pdf(metrics: Sequence[dict[str, Any]]) 
     for metric in metrics:
         key = str(metric.get("key") or "")
         if _body_metric_formatted(metric) in missing_values:
+            continue
+        if key in {"body_fat_bioimpedance_percent", "body_fat_anthropometric_percent", "body_fat_kg"}:
             continue
         if key == "body_fat_kg" and has_estimated_fat_mass:
             continue
@@ -1124,9 +1124,8 @@ def _body_context_percent(context: Any, key: str) -> str:
 
 def _body_fat_source_label(value: Any) -> str:
     labels = {
-        "bioimpedance": "Bioimpedancia bruta",
-        "anthropometry": "Medidas manuais",
-        "manual_anthropometry": "Medidas manuais",
+        "anthropometry": "Dobras e medidas",
+        "manual_anthropometry": "Dobras e medidas",
         "geneos_composite": "Metodo composto GeneOS",
         "manual_override": "Informado manualmente",
     }
@@ -1135,8 +1134,6 @@ def _body_fat_source_label(value: Any) -> str:
 
 def _body_fat_method_label(value: Any) -> str:
     labels = {
-        "legacy_bioimpedance": "Bioimpedancia bruta",
-        "bioimpedance": "Bioimpedancia bruta",
         "navy_circumference": "Navy por circunferencias",
         "rfm": "RFM",
         "geneos_composite": "Navy + RFM",
@@ -1693,16 +1690,13 @@ def _body_reference_number(value: Any) -> str:
 
 def _body_metric_explanation(key: str) -> str:
     explanations = {
-        "body_fat_used_percent": "Percentual oficial usado no relatorio",
-        "body_fat_bioimpedance_percent": "Leitura direta do exame",
-        "body_fat_anthropometric_percent": "Estimativa por medidas manuais",
+        "body_fat_used_percent": "Estimativa por dobras e medidas",
         "fat_mass_estimated_kg": "Reserva energetica atual",
         "lean_mass_estimated_kg": "Componentes livres de gordura",
         "body_water_kg": "Quantidade total de agua no corpo",
         "body_water_percent": "Proporcao de agua na composicao",
         "protein_kg": "Para a construcao e preservacao muscular",
         "inorganic_salt_kg": "Para fortalecimento estrutural",
-        "body_fat_kg": "Reserva energetica atual",
         "fat_free_mass_kg": "Componentes livres de gordura",
         "muscle_mass_kg": "Base muscular do organismo",
         "skeletal_muscle_kg": "Musculatura de movimento",
@@ -1773,7 +1767,6 @@ def _body_flag_label(flag: str) -> str:
         "ocr_low_confidence": "OCR com baixa confianca",
         "manually_review_required": "revisao manual",
         "anthropometry_incomplete": "medidas incompletas",
-        "body_fat_source_divergence": "divergencia entre fontes",
         "anthropometry_needs_review": "antropometria pede revisao",
         "anthropometry_inconsistent": "antropometria inconsistente",
         "impossible_measurement_value": "medida fora da faixa",

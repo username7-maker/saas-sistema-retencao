@@ -170,6 +170,26 @@ def test_legacy_bioimpedance_preference_does_not_override_selected_protocol() ->
     assert resolved["body_fat_used_percent"] == 12.49
 
 
+def test_raw_exam_percent_never_becomes_official_without_measurements() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 22,
+            "height_cm": 177,
+            "weight_kg": 73.6,
+            "body_fat_percent": 31.2,
+            "preferred_body_fat_source": "bioimpedance",
+        }
+    )
+
+    assert resolved["preferred_body_fat_source"] == "geneos_composite"
+    assert resolved["body_fat_bioimpedance_percent"] == 31.2
+    assert resolved["body_fat_used_percent"] is None
+    assert resolved["body_fat_used_source"] is None
+    assert resolved["body_fat_method"] is None
+    assert resolved.get("measurement_source") is None
+
+
 def test_expanded_supported_protocols_match_reference_formulas() -> None:
     cases = [
         (

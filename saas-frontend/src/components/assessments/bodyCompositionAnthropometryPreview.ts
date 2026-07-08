@@ -52,7 +52,6 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const heightCm = parseNumber(input.heightCm);
   const weightKg = parseNumber(input.weightKg);
   const ageYears = parseNumber(input.ageYears);
-  const bioimpedancePercent = parseNumber(input.bioimpedancePercent);
   const manualOverridePercent = parseNumber(input.manualOverridePercent);
   const neckCm = parseNumber(input.neckCm);
   const waistCm = parseNumber(input.waistCm);
@@ -76,9 +75,6 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
 
   if (hasImpossibleMeasurement({ heightCm, weightKg, neckCm, waistCm, abdomenCm, hipCm })) {
     flags.push("impossible_measurement_value");
-  }
-  if (bioimpedancePercent != null && composite.percent != null && Math.abs(bioimpedancePercent - composite.percent) > 6) {
-    flags.push("body_fat_source_divergence");
   }
   if (composite.confidence === "inconsistent") {
     flags.push("anthropometry_inconsistent");
@@ -114,10 +110,6 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const [rangeMin, rangeMax] = estimatedRange(usedSource === "anthropometry" ? usedPercent : null, confidence);
   const fatMassKg = weightKg != null && usedPercent != null ? roundKg(weightKg * usedPercent / 100) : null;
   const leanMassKg = weightKg != null && fatMassKg != null ? roundKg(weightKg - fatMassKg) : null;
-  const differenceBetweenSources = bioimpedancePercent != null && composite.percent != null
-    ? roundPercent(Math.abs(bioimpedancePercent - composite.percent))
-    : null;
-
   return {
     status,
     usedPercent,
@@ -130,7 +122,7 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
     rfmPercent,
     fatMassKg,
     leanMassKg,
-    differenceBetweenSources,
+    differenceBetweenSources: null,
     missingFields,
     flags: Array.from(new Set(flags)),
   };

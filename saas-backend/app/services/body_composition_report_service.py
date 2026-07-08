@@ -40,8 +40,8 @@ from app.services.premium_report_service import (
 METHODOLOGICAL_NOTE = (
     "Comparacoes historicas sao mais confiaveis quando as medicoes sao feitas em condicoes "
     "semelhantes de hidratacao, alimentacao, exercicio e horario. O percentual de gordura oficial "
-    "pode ser uma estimativa por medidas manuais quando configurado pelo profissional. Ele nao "
-    "substitui avaliacao clinica; a bioimpedancia bruta permanece registrada como dado do exame."
+    "e uma estimativa por dobras e medidas conforme o protocolo selecionado pelo profissional. Ele nao "
+    "substitui avaliacao clinica."
 )
 
 _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
@@ -53,9 +53,6 @@ _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "muscle_mass_kg": (20.0, 60.0),
     "weight_kg": (20.0, 220.0),
     "skeletal_muscle_kg": (15.0, 45.0),
-    "body_fat_percent": (10.0, 25.0),
-    "body_fat_bioimpedance_percent": (10.0, 25.0),
-    "body_fat_anthropometric_percent": (10.0, 25.0),
     "body_fat_used_percent": (10.0, 25.0),
     "fat_mass_estimated_kg": (5.0, 30.0),
     "lean_mass_estimated_kg": (35.0, 90.0),
@@ -75,15 +72,12 @@ _CARD_DEFS = (
 
 _COMPOSITION_DEFS = (
     ("body_fat_used_percent", "Gordura corporal estimada", "%"),
-    ("body_fat_bioimpedance_percent", "Gordura corporal bruta da bioimpedancia", "%"),
-    ("body_fat_anthropometric_percent", "Gordura estimada por medidas", "%"),
     ("fat_mass_estimated_kg", "Massa de gordura estimada", "kg"),
     ("lean_mass_estimated_kg", "Massa livre de gordura estimada", "kg"),
     ("body_water_kg", "Agua corporal", "kg"),
     ("body_water_percent", "Agua corporal (%)", "%"),
     ("protein_kg", "Proteina", "kg"),
     ("inorganic_salt_kg", "Minerais", "kg"),
-    ("body_fat_kg", "Massa de gordura", "kg"),
     ("fat_free_mass_kg", "Massa livre de gordura", "kg"),
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
@@ -93,7 +87,6 @@ _MUSCLE_FAT_DEFS = (
     ("weight_kg", "Peso total", "kg"),
     ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
     ("fat_mass_estimated_kg", "Massa de gordura estimada", "kg"),
-    ("body_fat_kg", "Massa de gordura bruta da bioimpedancia", "kg"),
 )
 
 _RISK_DEFS = (
@@ -249,7 +242,7 @@ def build_body_composition_report_read(
         previous_evaluation_id=previous.id if previous else None,
         reviewed_manually=bool(getattr(evaluation, "reviewed_manually", False)),
         parsing_confidence=_read_float(evaluation, "parsing_confidence") or _read_float(evaluation, "ocr_confidence"),
-        data_quality_flags=list(getattr(evaluation, "data_quality_flags_json", None) or []),
+        data_quality_flags=_public_body_composition_flags(getattr(evaluation, "data_quality_flags_json", None) or []),
         body_fat_context=_build_body_fat_context(evaluation),
         measurement_rows=_build_measurement_rows(evaluation, previous),
         primary_cards=[_build_metric_card(evaluation, previous, key, label, unit) for key, label, unit in _CARD_DEFS],
@@ -495,14 +488,10 @@ def _resolve_previous_evaluation(
 
 
 def _build_body_fat_context(evaluation: BodyCompositionEvaluation) -> BodyCompositionBodyFatContextRead:
-    raw = _read_metric_float(evaluation, "body_fat_bioimpedance_percent")
     anthropometric = _read_float(evaluation, "body_fat_anthropometric_percent")
     used = _read_metric_float(evaluation, "body_fat_used_percent")
-    difference = None
-    if raw is not None and anthropometric is not None:
-        difference = round(anthropometric - raw, 2)
     return BodyCompositionBodyFatContextRead(
-        bioimpedance_raw_percent=raw,
+        bioimpedance_raw_percent=None,
         anthropometric_percent=anthropometric,
         used_percent=used,
         used_source=getattr(evaluation, "body_fat_used_source", None),
@@ -511,11 +500,16 @@ def _build_body_fat_context(evaluation: BodyCompositionEvaluation) -> BodyCompos
         confidence=getattr(evaluation, "body_fat_confidence", None),
         range_min=_read_float(evaluation, "body_fat_range_min"),
         range_max=_read_float(evaluation, "body_fat_range_max"),
-        difference_between_sources=difference,
+        difference_between_sources=None,
         manual_review_required=bool(getattr(evaluation, "body_fat_manual_review_required", False)),
         manual_review_completed=bool(getattr(evaluation, "body_fat_manual_review_completed", False)),
-        quality_flags=list(getattr(evaluation, "data_quality_flags_json", None) or []),
+        quality_flags=_public_body_composition_flags(getattr(evaluation, "data_quality_flags_json", None) or []),
     )
+
+
+def _public_body_composition_flags(flags: Sequence[Any]) -> list[BodyCompositionDataQualityFlag]:
+    hidden = {"body_fat_source_divergence"}
+    return [flag for flag in flags if str(flag) not in hidden]
 
 
 _MEASUREMENT_LABELS = {
@@ -726,9 +720,6 @@ def _read_float(item: Any, key: str) -> float | None:
 def _read_metric_float(item: Any, key: str) -> float | None:
     if key == "body_fat_used_percent":
         return _read_float(item, "body_fat_used_percent")
-    if key == "body_fat_bioimpedance_percent":
-        value = _read_float(item, "body_fat_bioimpedance_percent")
-        return value if value is not None else _read_float(item, "body_fat_percent")
     value = _read_float(item, key)
     if value is not None or key != "body_water_percent":
         return value

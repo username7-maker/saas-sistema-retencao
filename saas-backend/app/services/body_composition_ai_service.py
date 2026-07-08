@@ -25,10 +25,8 @@ logger = logging.getLogger(__name__)
 _FIELD_LABELS = {
     "evaluation_date": "data da avaliacao",
     "weight_kg": "peso",
-    "body_fat_kg": "gordura corporal em kg",
+    "fat_mass_estimated_kg": "massa de gordura estimada",
     "body_fat_used_percent": "percentual de gordura estimado",
-    "body_fat_bioimpedance_percent": "gordura corporal bruta da bioimpedancia",
-    "body_fat_anthropometric_percent": "gordura estimada por medidas",
     "waist_hip_ratio": "relacao cintura-quadril",
     "fat_free_mass_kg": "massa livre de gordura",
     "inorganic_salt_kg": "sal inorganico",
@@ -187,7 +185,7 @@ def _generate_with_openai(
     previous_summary = _summarize_previous(previous_evaluation)
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
-        "Analise uma bioimpedancia real e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
+        "Analise uma avaliacao de composicao corporal e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
         "Regras obrigatorias:\n"
         "- nao diagnosticar doenca\n"
         "- nao sugerir condicao medica\n"
@@ -196,8 +194,8 @@ def _generate_with_openai(
         "- nao sugerir exercicios especificos como prescricao pronta\n"
         "- nao substituir avaliacao profissional presencial\n"
         "- tratar percentual de gordura como estimativa, nunca como diagnostico ou verdade absoluta\n"
-        "- informar a fonte usada quando comentar gordura corporal: bioimpedancia bruta, antropometria/GeneOS ou override manual\n"
-        "- se houver divergencia entre bioimpedancia e medidas, explicar de forma simples e segura\n"
+        "- quando comentar gordura corporal, usar apenas a estimativa por dobras e medidas conforme o protocolo selecionado ou override manual\n"
+        "- nao mencionar o valor bruto do exame como fonte de gordura corporal nem comparar fontes no texto final\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
         "- o campo member_friendly_summary deve soar como uma conversa do professor com o aluno depois do exame\n"
@@ -270,7 +268,7 @@ def _generate_with_claude(
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Voce e um assistente de apoio operacional para professores de academia.\n"
-        "Analise uma bioimpedancia e retorne JSON com campos: coach_summary, member_friendly_summary, "
+        "Analise uma avaliacao de composicao corporal e retorne JSON com campos: coach_summary, member_friendly_summary, "
         "risk_flags, training_focus.\n"
         "Regras obrigatorias:\n"
         "- nao diagnosticar doenca\n"
@@ -280,8 +278,8 @@ def _generate_with_claude(
         "- nao sugerir exercicios especificos como prescricao pronta\n"
         "- nao substituir avaliacao profissional presencial\n"
         "- tratar percentual de gordura como estimativa, nunca como diagnostico ou verdade absoluta\n"
-        "- informar a fonte usada quando comentar gordura corporal: bioimpedancia bruta, antropometria/GeneOS ou override manual\n"
-        "- se houver divergencia entre bioimpedancia e medidas, explicar de forma simples e segura\n"
+        "- quando comentar gordura corporal, usar apenas a estimativa por dobras e medidas conforme o protocolo selecionado ou override manual\n"
+        "- nao mencionar o valor bruto do exame como fonte de gordura corporal nem comparar fontes no texto final\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- responder em portugues do Brasil\n"
         "- training_focus deve ter primary_goal, secondary_goal, suggested_focuses, cautions\n"
@@ -450,14 +448,9 @@ def _serialize_measurements(evaluation: BodyCompositionEvaluation) -> dict[str, 
 
 
 def _serialize_body_fat_context(evaluation: BodyCompositionEvaluation) -> dict[str, Any]:
-    raw = _official_float(evaluation, "body_fat_bioimpedance_percent", fallback_field="body_fat_percent")
     anthropometric = _to_float(getattr(evaluation, "body_fat_anthropometric_percent", None))
     used = _official_body_fat(evaluation)
-    difference = None
-    if raw is not None and anthropometric is not None:
-        difference = round(anthropometric - raw, 2)
     return {
-        "bioimpedance_raw_percent": raw,
         "anthropometric_percent": anthropometric,
         "used_percent": used,
         "used_source": getattr(evaluation, "body_fat_used_source", None),
@@ -466,8 +459,11 @@ def _serialize_body_fat_context(evaluation: BodyCompositionEvaluation) -> dict[s
         "confidence": getattr(evaluation, "body_fat_confidence", None),
         "range_min": _to_float(getattr(evaluation, "body_fat_range_min", None)),
         "range_max": _to_float(getattr(evaluation, "body_fat_range_max", None)),
-        "difference_between_sources": difference,
-        "quality_flags": list(getattr(evaluation, "data_quality_flags_json", None) or []),
+        "quality_flags": [
+            flag
+            for flag in (getattr(evaluation, "data_quality_flags_json", None) or [])
+            if str(flag) != "body_fat_source_divergence"
+        ],
         "manual_review_required": bool(getattr(evaluation, "body_fat_manual_review_required", False)),
         "photos_used": False,
         "visual_claims_used": False,
@@ -501,7 +497,7 @@ def _classify_fields(evaluation: BodyCompositionEvaluation) -> list[tuple[str, s
 
 
 def _resolve_primary_goal(high_flags: list[str], low_flags: list[str], evaluation: BodyCompositionEvaluation) -> str:
-    if any(label in {"gordura corporal em kg", "percentual de gordura estimado", "gordura visceral", "peso", "IMC"} for label in high_flags):
+    if any(label in {"massa de gordura estimada", "percentual de gordura estimado", "gordura visceral", "peso", "IMC"} for label in high_flags):
         return "reducao_de_gordura"
     if any(label in {"massa livre de gordura", "massa muscular", "musculo esqueletico"} for label in low_flags):
         return "ganho_de_massa"
@@ -515,7 +511,7 @@ def _resolve_primary_goal(high_flags: list[str], low_flags: list[str], evaluatio
 def _resolve_secondary_goal(primary_goal: str, high_flags: list[str], low_flags: list[str]) -> str:
     if primary_goal == "reducao_de_gordura" and any(label in {"massa livre de gordura", "massa muscular", "musculo esqueletico"} for label in low_flags):
         return "preservacao_de_massa_magra"
-    if primary_goal == "ganho_de_massa" and any(label in {"percentual de gordura estimado", "gordura corporal em kg"} for label in high_flags):
+    if primary_goal == "ganho_de_massa" and any(label in {"percentual de gordura estimado", "massa de gordura estimada"} for label in high_flags):
         return "controle_de_gordura"
     if primary_goal == "melhora_metabolica":
         return "preservacao_de_massa_magra"

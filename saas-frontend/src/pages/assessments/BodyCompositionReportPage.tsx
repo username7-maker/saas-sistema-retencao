@@ -91,10 +91,9 @@ function metricDelta(metric: BodyCompositionMetricCard): string {
 }
 
 function sourceLabel(source: string | null | undefined): string {
-  if (source === "anthropometry" || source === "manual_anthropometry") return "Medidas manuais";
+  if (source === "anthropometry" || source === "manual_anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Informado manualmente";
   if (source === "geneos_composite") return "Metodo composto GeneOS";
-  if (source === "bioimpedance") return "Bioimpedancia bruta";
   return "Fonte pendente";
 }
 
@@ -104,7 +103,6 @@ function methodLabel(method: string | null | undefined): string {
   if (method === "skinfold_protocol") return "Protocolo de dobras";
   if (method === "rfm") return "RFM";
   if (method === "manual_override") return "Informado manualmente";
-  if (method === "legacy_bioimpedance" || method === "bioimpedance") return "Bioimpedancia bruta";
   return "Metodo pendente";
 }
 
@@ -148,7 +146,6 @@ function metricExplanation(key: string): string {
     inorganic_salt_kg: "Minerais estimados no exame",
     skeletal_muscle_kg: "Massa muscular esqueletica informada",
     muscle_mass_kg: "Massa muscular informada",
-    body_fat_kg: "Gordura bruta da bioimpedancia",
     fat_mass_estimated_kg: "Massa de gordura estimada",
     fat_free_mass_kg: "Componentes livres de gordura",
     lean_mass_estimated_kg: "Massa livre estimada",
@@ -164,6 +161,7 @@ function filterCompositionMetrics(metrics: BodyCompositionReferenceMetric[]): Bo
   const hasCanonicalFatFreeMass = isPresentMetric(byKey.get("fat_free_mass_kg"));
   return metrics.filter((metric) => {
     if (!isPresentMetric(metric)) return false;
+    if (["body_fat_bioimpedance_percent", "body_fat_anthropometric_percent", "body_fat_kg"].includes(metric.key)) return false;
     if (metric.key === "body_fat_kg" && hasEstimatedFatMass) return false;
     if (metric.key === "lean_mass_estimated_kg" && hasCanonicalFatFreeMass) return false;
     return true;
@@ -358,27 +356,17 @@ function BodyFatSourcePanel({ context }: { context: BodyCompositionBodyFatContex
   return (
     <section className="clinical-web-body-fat-panel">
       <div>
-        <p>Fonte oficial da gordura corporal</p>
+        <p>Metodo de leitura da gordura corporal</p>
         <h2>{formatPercent(context.used_percent)}</h2>
-        <span>Percentual tratado como estimativa operacional, sem valor diagnostico clinico.</span>
+        <span>Estimativa por dobras e medidas conforme o protocolo selecionado.</span>
       </div>
       <div className="clinical-web-body-fat-grid">
-        <ContextMetric label="Fonte usada no relatorio" value={sourceLabel(context.used_source)} />
+        <ContextMetric label="Fonte usada" value={sourceLabel(context.used_source)} />
         <ContextMetric label="Metodo" value={methodLabel(context.method)} />
         <ContextMetric label="Confianca" value={confidenceLabel(context.confidence)} />
         <ContextMetric label="Faixa estimada" value={range} />
-        <ContextMetric label="Bioimpedancia bruta" value={formatPercent(context.bioimpedance_raw_percent)} />
-        <ContextMetric label="Antropometria" value={formatPercent(context.anthropometric_percent)} />
-        <ContextMetric label="Diferenca entre fontes" value={formatPercent(context.difference_between_sources)} />
         <ContextMetric label="Revisao manual" value={review} />
       </div>
-      {context.quality_flags.length > 0 ? (
-        <div className="clinical-web-flags">
-          {context.quality_flags.map((flag) => (
-            <span key={flag}>{flag}</span>
-          ))}
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -411,7 +399,7 @@ function SummaryCard({ score, insight }: { score: string; insight: BodyCompositi
 function CompositionTable({ metrics }: { metrics: BodyCompositionReferenceMetric[] }) {
   return (
     <section className="clinical-web-section">
-      <ReportSectionTitle title="Analise da composicao corporal" subtitle="Valores da bioimpedancia e medidas com faixas de referencia disponiveis." />
+      <ReportSectionTitle title="Analise da composicao corporal" subtitle="Valores do exame e das medidas com faixas de referencia disponiveis." />
       <div className="clinical-web-table-wrap">
         <table>
           <thead>
