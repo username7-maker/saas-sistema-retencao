@@ -1,0 +1,5 @@
+{
+  "smoke": ["python", "-m", "pytest", "saas-backend", "-q"],
+  "branchPrefix": "worker",
+  "syncBarrels": []
+}

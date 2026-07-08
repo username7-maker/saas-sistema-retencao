@@ -1,0 +1,20 @@
+{
+  "name": "@a360/ai-team",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Architect CLI — orquestra workers em git worktrees com slots + zoning. Núcleo do desenvolvimento multi-agente local.",
+  "bin": {
+    "ai-team": "./src/index.ts"
+  },
+  "scripts": {
+    "cli": "tsx src/index.ts",
+    "ai-team": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
