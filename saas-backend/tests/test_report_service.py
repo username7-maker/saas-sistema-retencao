@@ -192,14 +192,14 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     html = render_premium_report_html(payload)
 
-    assert "Resumo da composicao corporal" in html
-    assert "A gordura corporal foi estimada por medidas feitas pelo professor." in html
+    assert "Resultados principais" in html
+    assert "Fonte oficial da gordura corporal" in html
+    assert "Analise da composicao corporal" in html
     assert "Medidas corporais" in html
     assert "body-map-front-male.png" in html
-    assert "Pontuacao corporal" in html
+    assert "Resumo da avaliacao" in html
     assert "Historico da Composicao Corporal" not in html
-    assert "Comparativo rapido" in html
-    assert "Leitura final" in html
+    assert "Leitura Final" not in html
     assert "Gordura visceral" in html
     assert "Relacao cintura-quadril" in html
     assert "Erick Bedin" in html
@@ -221,7 +221,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Gordura corporal bruta da bioimpedancia" in technical_html
     assert "Proteina" in technical_html
     assert "Dados adicionais" in technical_html
-    assert "Nota tecnica" in technical_html
+    assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." in technical_html
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):
