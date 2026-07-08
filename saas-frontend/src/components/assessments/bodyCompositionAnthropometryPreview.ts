@@ -58,7 +58,7 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
   const waistCm = parseNumber(input.waistCm);
   const abdomenCm = parseNumber(input.abdomenCm);
   const hipCm = parseNumber(input.hipCm);
-  const preferredSource = input.preferredSource || "geneos_composite";
+  const preferredSource = input.preferredSource === "bioimpedance" ? "geneos_composite" : input.preferredSource || "geneos_composite";
   const flags: string[] = [];
   const protocolPreview = calculateProtocolPreview(input, { sex, ageYears });
   const missingFields = protocolPreview.protocolSelected
@@ -84,7 +84,7 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
     flags.push("anthropometry_inconsistent");
     flags.push("anthropometry_needs_review");
   }
-  if (missingFields.length > 0 && preferredSource !== "bioimpedance" && preferredSource !== "manual_override") {
+  if (missingFields.length > 0 && preferredSource !== "manual_override") {
     flags.push("anthropometry_incomplete");
   }
 
@@ -100,33 +100,15 @@ export function calculateAnthropometryPreview(input: AnthropometryPreviewInput):
     method = "manual_override";
     confidence = "medium";
     status = "manual_override";
-  } else if (preferredSource === "bioimpedance" && bioimpedancePercent != null) {
-    usedPercent = roundPercent(bioimpedancePercent);
-    usedSource = "bioimpedance";
-    method = "legacy_bioimpedance";
-    confidence = null;
-    status = "using_bioimpedance";
   } else if (composite.percent != null) {
     if (composite.confidence === "inconsistent" && !input.reviewCompleted) {
       status = "needs_review";
-      if (bioimpedancePercent != null) {
-        usedPercent = roundPercent(bioimpedancePercent);
-        usedSource = "bioimpedance";
-        method = "legacy_bioimpedance";
-        confidence = null;
-      }
     } else {
       usedPercent = composite.percent;
       usedSource = "anthropometry";
       method = preferredSource === "geneos_composite" && navyPercent != null && rfmPercent != null ? "geneos_composite" : composite.method;
       status = "ready";
     }
-  } else if (bioimpedancePercent != null) {
-    usedPercent = roundPercent(bioimpedancePercent);
-    usedSource = "bioimpedance";
-    method = "legacy_bioimpedance";
-    confidence = null;
-    status = "using_bioimpedance";
   }
 
   const [rangeMin, rangeMax] = estimatedRange(usedSource === "anthropometry" ? usedPercent : null, confidence);

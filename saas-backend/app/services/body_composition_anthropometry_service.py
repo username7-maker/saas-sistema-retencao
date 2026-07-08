@@ -99,7 +99,11 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
 
     preferred = data.get("preferred_body_fat_source")
     if preferred not in {"bioimpedance", "anthropometry", "geneos_composite", "manual_override"}:
-        preferred = "geneos_composite" if anthropometry["has_minimum_measurements"] else "bioimpedance"
+        preferred = "geneos_composite"
+    elif preferred == "bioimpedance":
+        # The raw bioimpedance percentage is kept for audit/comparison only. It
+        # must not become the official body-fat value for reports, AI or sharing.
+        preferred = "geneos_composite"
     data["preferred_body_fat_source"] = preferred
 
     manual_override = _to_float(data.get("body_fat_manual_override_percent"))
@@ -129,19 +133,13 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
             used_source = "anthropometry"
             method = "geneos_composite" if preferred == "geneos_composite" and anthropometry["navy_percent"] is not None and anthropometry["rfm_percent"] is not None else anthropometry["method"]
 
-    if used_percent is None and bioimpedance_percent is not None:
-        used_percent = _round_percent(bioimpedance_percent)
-        used_source = "bioimpedance"
-        method = "legacy_bioimpedance"
-        if preferred == "bioimpedance":
-            confidence = None
-            range_min = None
-            range_max = None
-
     if used_percent is None and anthropometric_percent is not None and confidence != "inconsistent":
         used_percent = anthropometric_percent
         used_source = "anthropometry"
         method = anthropometry["method"]
+
+    if used_percent is None and preferred in {"anthropometry", "geneos_composite"}:
+        flags.append("anthropometry_needs_review")
 
     data["body_fat_used_percent"] = used_percent
     data["body_fat_used_source"] = used_source
@@ -170,6 +168,8 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
         for flag in (
             "anthropometry_needs_review",
             "anthropometry_inconsistent",
+            "anthropometry_incomplete",
+            "anthropometry_protocol_manual_only",
             "impossible_measurement_value",
             "abnormal_measurement_variation",
         )

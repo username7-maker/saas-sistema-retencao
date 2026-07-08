@@ -1674,7 +1674,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 <div>
                   <p className="text-sm font-semibold text-lovable-ink">Composicao corporal por medidas</p>
                   <p className="text-xs text-lovable-ink-muted">
-                    O percentual usado no relatorio e resolvido pelo backend. A bioimpedancia bruta fica preservada como dado do exame.
+                    O percentual usado no relatorio e calculado pelas medidas/protocolo selecionado. A bioimpedancia bruta fica preservada apenas como referencia do exame.
                   </p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
@@ -1682,7 +1682,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <Select defaultValue="geneos_composite" {...register("preferred_body_fat_source")}>
                       <option value="geneos_composite">Usar metodo composto GeneOS</option>
                       <option value="anthropometry">Usar medidas manuais</option>
-                      <option value="bioimpedance">Usar bioimpedancia bruta</option>
                       <option value="manual_override">Informar manualmente</option>
                     </Select>
                   </FormField>

@@ -51,10 +51,13 @@ def test_inconsistent_geneos_does_not_become_official_without_review() -> None:
         }
     )
 
-    assert resolved["body_fat_used_source"] == "bioimpedance"
-    assert resolved["body_fat_used_percent"] == 24
+    assert resolved["body_fat_bioimpedance_percent"] == 24
+    assert resolved["body_fat_used_source"] is None
+    assert resolved["body_fat_used_percent"] is None
+    assert resolved["body_fat_method"] is None
     assert resolved["body_fat_manual_review_required"] is True
     assert "anthropometry_inconsistent" in resolved["data_quality_flags_json"]
+    assert "anthropometry_needs_review" in resolved["data_quality_flags_json"]
 
 
 def test_reviewed_geneos_can_be_used_as_official_source() -> None:
@@ -141,6 +144,30 @@ def test_petroski_male_protocol_matches_actuar_reference_case() -> None:
     assert resolved["body_fat_used_percent"] == 12.49
     assert resolved["fat_mass_estimated_kg"] == 9.19
     assert resolved["lean_mass_estimated_kg"] == 64.41
+
+
+def test_legacy_bioimpedance_preference_does_not_override_selected_protocol() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 22,
+            "height_cm": 177,
+            "weight_kg": 73.6,
+            "body_fat_percent": 31.2,
+            "preferred_body_fat_source": "bioimpedance",
+            "measurement_protocol": "petroski_1995_male_18_66",
+            "skinfold_triceps_mm": 9,
+            "skinfold_subscapular_mm": 12,
+            "skinfold_suprailiac_mm": 7,
+            "skinfold_calf_mm": 10,
+        }
+    )
+
+    assert resolved["preferred_body_fat_source"] == "geneos_composite"
+    assert resolved["body_fat_bioimpedance_percent"] == 31.2
+    assert resolved["body_fat_used_source"] == "anthropometry"
+    assert resolved["body_fat_method"] == "skinfold_protocol"
+    assert resolved["body_fat_used_percent"] == 12.49
 
 
 def test_expanded_supported_protocols_match_reference_formulas() -> None:
@@ -285,7 +312,10 @@ def test_protocol_with_missing_business_fields_stays_manual_only() -> None:
         }
     )
 
-    assert resolved["body_fat_used_source"] == "bioimpedance"
-    assert resolved["body_fat_used_percent"] == 24
-    assert resolved["body_fat_method"] == "legacy_bioimpedance"
+    assert resolved["body_fat_bioimpedance_percent"] == 24
+    assert resolved["body_fat_used_source"] is None
+    assert resolved["body_fat_used_percent"] is None
+    assert resolved["body_fat_method"] is None
+    assert resolved["body_fat_manual_review_required"] is True
     assert "anthropometry_protocol_manual_only" in resolved["data_quality_flags_json"]
+    assert "anthropometry_needs_review" in resolved["data_quality_flags_json"]

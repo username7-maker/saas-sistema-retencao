@@ -55,9 +55,11 @@ describe("calculateAnthropometryPreview", () => {
       preferredSource: "geneos_composite",
     });
 
-    expect(result.confidence).toBeNull();
     expect(result.status).toBe("needs_review");
-    expect(result.usedSource).toBe("bioimpedance");
+    expect(result.confidence).toBeNull();
+    expect(result.usedSource).toBeNull();
+    expect(result.usedPercent).toBeNull();
+    expect(result.method).toBeNull();
     expect(result.flags).toContain("anthropometry_inconsistent");
   });
 
@@ -102,6 +104,27 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.usedPercent).toBe(12.49);
     expect(result.fatMassKg).toBe(9.19);
     expect(result.leanMassKg).toBe(64.41);
+  });
+
+  it("does not let legacy bioimpedance preference override a selected protocol preview", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 22,
+      heightCm: 177,
+      weightKg: 73.6,
+      bioimpedancePercent: 31.2,
+      preferredSource: "bioimpedance",
+      measurementProtocol: "petroski_1995_male_18_66",
+      skinfoldTricepsMm: 9,
+      skinfoldSubscapularMm: 12,
+      skinfoldSuprailiacMm: 7,
+      skinfoldCalfMm: 10,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.usedSource).toBe("anthropometry");
+    expect(result.method).toBe("skinfold_protocol");
+    expect(result.usedPercent).toBe(12.49);
   });
 
   it("calculates expanded public protocols with stable preview values", () => {
@@ -244,8 +267,9 @@ describe("calculateAnthropometryPreview", () => {
       waistCm: 98,
     });
 
-    expect(result.usedSource).toBe("bioimpedance");
-    expect(result.method).toBe("legacy_bioimpedance");
+    expect(result.usedSource).toBeNull();
+    expect(result.usedPercent).toBeNull();
+    expect(result.method).toBeNull();
     expect(result.flags).toContain("anthropometry_protocol_manual_only");
   });
 });
