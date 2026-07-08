@@ -105,6 +105,24 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   window.URL.revokeObjectURL(url);
 }
 
+function writePdfWindowMessage(targetWindow: Window | null | undefined, title: string, message: string): void {
+  if (!targetWindow) return;
+  try {
+    targetWindow.document.title = title;
+    targetWindow.document.body.innerHTML = `
+      <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;background:#0a0b0f;color:#f8fafc;font-family:Inter,Arial,sans-serif;">
+        <section style="width:min(420px,calc(100vw - 32px));border:1px solid rgba(255,255,255,.14);border-radius:18px;background:#101320;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,.28);">
+          <p style="margin:0 0 8px;color:#60a5fa;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;">Cordex Gym OS</p>
+          <h1 style="margin:0 0 10px;font-size:22px;line-height:1.2;">${title}</h1>
+          <p style="margin:0;color:#aab4c3;font-size:14px;line-height:1.55;">${message}</p>
+        </section>
+      </main>
+    `;
+  } catch {
+    // Browser may block document writes after navigation. The PDF flow can continue.
+  }
+}
+
 export type BodyCompositionPdfKind = "summary" | "technical";
 export interface BodyCompositionSaveOptions {
   syncActuar?: boolean;
@@ -305,8 +323,10 @@ export const bodyCompositionService = {
   ): Promise<{ blob: Blob; filename: string }> {
     const path = kind === "technical" ? "technical-pdf" : "pdf";
     const response = await api.get<Blob>(`/api/v1/members/${memberId}/body-composition/${evaluationId}/${path}`, {
+      headers: { Accept: "application/pdf" },
       responseType: "blob",
       params: { ts: Date.now() },
+      timeout: 90_000,
     });
 
     return {
@@ -324,8 +344,6 @@ export const bodyCompositionService = {
     kind: BodyCompositionPdfKind,
     popup?: Window | null,
   ): Promise<void> {
-    const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
-    const url = window.URL.createObjectURL(blob);
     const targetWindow = popup ?? window.open("", "_blank");
 
     if (targetWindow) {
@@ -334,12 +352,32 @@ export const bodyCompositionService = {
       } catch {
         // noop
       }
-      targetWindow.location.href = url;
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      return;
+      writePdfWindowMessage(
+        targetWindow,
+        "Gerando PDF",
+        "Estamos montando o relatorio completo. A primeira geracao pode levar alguns segundos.",
+      );
     }
 
-    triggerBrowserDownload(blob, filename);
+    try {
+      const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
+      const url = window.URL.createObjectURL(blob);
+
+      if (targetWindow) {
+        targetWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+
+      triggerBrowserDownload(blob, filename);
+    } catch (error) {
+      writePdfWindowMessage(
+        targetWindow,
+        "Nao foi possivel gerar o PDF",
+        "O backend nao retornou o arquivo dentro do tempo esperado. Volte para o Cordex e tente novamente.",
+      );
+      throw error;
+    }
   },
 
   async readWithAssistedFallback(

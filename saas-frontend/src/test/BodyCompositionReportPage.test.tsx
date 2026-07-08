@@ -174,9 +174,11 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByText("Fonte oficial da gordura corporal")).toBeInTheDocument();
     expect(screen.getByText("Bioimpedancia bruta")).toBeInTheDocument();
     expect(screen.getByText("Medidas corporais")).toBeInTheDocument();
-    expect(screen.getByText("Mapa corporal de medidas")).toBeInTheDocument();
+    expect(screen.getByText("Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");
-    expect(screen.getByText("Leitura:")).toBeInTheDocument();
+    expect(screen.getByText("Resultados principais")).toBeInTheDocument();
+    expect(screen.getByText("Historico - Anterior x Atual")).toBeInTheDocument();
+    expect(screen.getByText("Leitura Final")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
