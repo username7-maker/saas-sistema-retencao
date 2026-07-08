@@ -40,6 +40,7 @@ import {
   useRetentionDashboard,
   useWeeklySummary,
 } from "../../hooks/useDashboard";
+import { TodayBlock } from "../../components/dashboard/cockpit";
 import { buildLovableDashboardViewModel } from "./dashboardAdapters";
 
 type ActionSource = "retention" | "commercial" | "operational";
@@ -425,6 +426,8 @@ export function DashboardLovable() {
 
   return (
     <section className="space-y-5 text-lovable-ink">
+      <TodayBlock />
+
       <div className="grid gap-5 xl:grid-cols-[1fr_390px]">
         <div className="space-y-5">
           <DashboardHero
