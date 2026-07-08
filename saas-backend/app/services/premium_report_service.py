@@ -840,7 +840,6 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     measurement_rows = report.get("measurement_rows", []) or []
     body_fat_context = report.get("body_fat_context") or {}
     teacher_notes = report.get("teacher_notes") or ""
-    methodological_note = report.get("methodological_note") or payload.footer_note or ""
     data_quality_flags = report.get("data_quality_flags", []) or []
     technical_scope = payload.report_scope == "technical"
     summary_composition_keys = {
@@ -909,8 +908,6 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     ).strip()
     compact_lead_insight_message = _truncate_body_text(lead_insight_message, 180 if technical_scope else 150)
 
-    methodological_note = str(methodological_note or "").strip()
-    compact_methodological_note = _truncate_body_text(methodological_note, 170)
     client_footer_note = (
         "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
     )
@@ -1031,7 +1028,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         <h2>Observacoes do professor</h2>
         {_render_body_client_observations(insights, teacher_notes)}
       </section>
-      <footer class="clinical-footer">{escape(compact_methodological_note if technical_scope and compact_methodological_note else client_footer_note)}</footer>
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
     </section>
   </main>
 </body>
@@ -3532,8 +3529,8 @@ def _body_composition_report_css() -> str:
         border-bottom: 3px solid #1185a6;
       }
       .clinical-header-repeat {
-        padding-bottom: 13px;
-        margin-bottom: 14px;
+        padding-bottom: 10px;
+        margin-bottom: 10px;
       }
       .clinical-cordex-logo {
         width: 150px;
@@ -3592,7 +3589,7 @@ def _body_composition_report_css() -> str:
         background: #f0fbff;
       }
       .clinical-section {
-        margin-top: 14px;
+        margin-top: 10px;
       }
       .clinical-section h2,
       .clinical-body-fat-panel h2 {
@@ -3601,7 +3598,7 @@ def _body_composition_report_css() -> str:
         margin-bottom: 3px;
       }
       .clinical-section-subtitle {
-        margin: 0 0 7px 16px;
+        margin: 0 0 5px 16px;
         color: #6e7b8d;
         font-size: 8.4px;
       }
@@ -3616,7 +3613,7 @@ def _body_composition_report_css() -> str:
         color: #768297;
         font-size: 6.9px;
         letter-spacing: 0.14em;
-        padding: 7px 8px;
+        padding: 5px 7px;
         text-align: left;
         text-transform: uppercase;
       }
@@ -3625,7 +3622,7 @@ def _body_composition_report_css() -> str:
         border-top: 1px solid #edf1f5;
         color: #223047;
         font-size: 8.4px;
-        padding: 6px 8px;
+        padding: 4px 7px;
         vertical-align: middle;
       }
       .clinical-key-table td:nth-child(2),
@@ -3707,16 +3704,16 @@ def _body_composition_report_css() -> str:
       }
       .clinical-measurement-map {
         display: grid;
-        grid-template-columns: 230px minmax(0, 1fr) 230px;
-        gap: 12px;
-        min-height: 404px;
-        padding: 12px 0 8px;
+        grid-template-columns: 205px minmax(0, 1fr) 205px;
+        gap: 10px;
+        min-height: 378px;
+        padding: 8px 0 5px;
         border: 0;
         background: #ffffff;
       }
       .clinical-measurement-map img {
         width: 100%;
-        max-height: 390px;
+        max-height: 370px;
         object-fit: contain;
         align-self: center;
       }
@@ -3724,29 +3721,29 @@ def _body_composition_report_css() -> str:
         display: flex;
         flex-direction: column;
         justify-content: center;
-        gap: 6px;
+        gap: 4px;
       }
       .clinical-measurement-bubble {
         grid-template-columns: minmax(0, 1fr) auto;
-        min-height: 31px;
+        min-height: 27px;
         border: 1px solid #dce4ec;
         background: #ffffff;
-        padding: 6px 9px;
+        padding: 4px 7px;
       }
       .clinical-measurement-bubble span,
       .clinical-measurement-bubble small {
         display: none;
       }
       .clinical-measurement-bubble strong {
-        font-size: 8.2px;
+        font-size: 7.8px;
       }
       .clinical-measurement-bubble em {
-        font-size: 9px;
+        font-size: 8.7px;
         font-style: normal;
         font-weight: 900;
       }
       .clinical-cycle-section {
-        margin-top: 10px;
+        margin-top: 7px;
       }
       .clinical-goal-grid {
         display: grid;
@@ -3758,8 +3755,8 @@ def _body_composition_report_css() -> str:
         background: #ffffff;
       }
       .clinical-goal-card {
-        min-height: 43px;
-        padding: 8px 10px;
+        min-height: 35px;
+        padding: 6px 8px;
         border-right: 1px solid #dce4ec;
         text-align: center;
       }
@@ -3776,22 +3773,22 @@ def _body_composition_report_css() -> str:
       }
       .clinical-goal-card strong {
         display: block;
-        margin-top: 4px;
+        margin-top: 3px;
         color: #172235;
         font-size: 12px;
       }
       .clinical-soft-alert {
-        margin-top: 8px;
+        margin-top: 6px;
         border: 1px solid #f4d68b;
         border-radius: 7px;
         background: #fffbeb;
         color: #92400e;
         font-size: 8px;
         line-height: 1.35;
-        padding: 7px 9px;
+        padding: 5px 8px;
       }
       .clinical-body-fat-panel {
-        margin-top: 11px;
+        margin-top: 7px;
         border: 0;
         background: transparent;
       }
@@ -3799,8 +3796,8 @@ def _body_composition_report_css() -> str:
         margin: 0 0 3px;
       }
       .clinical-body-fat-panel p {
-        margin: 0 0 7px 16px;
-        font-size: 8.2px;
+        margin: 0 0 4px 16px;
+        font-size: 7.8px;
       }
       .clinical-body-fat-highlight {
         float: none;
@@ -3810,7 +3807,7 @@ def _body_composition_report_css() -> str:
         align-items: baseline;
         width: auto;
         min-height: 0;
-        margin: 0 0 4px 16px;
+        margin: 0 0 3px 16px;
         padding: 0;
         border: 0;
       }
@@ -3831,8 +3828,8 @@ def _body_composition_report_css() -> str:
         gap: 0;
       }
       .clinical-body-fat-grid div {
-        min-height: 34px;
-        padding: 7px 10px;
+        min-height: 28px;
+        padding: 5px 8px;
         border-right: 1px solid #dce4ec;
       }
       .clinical-body-fat-grid div:last-child {
@@ -3847,9 +3844,9 @@ def _body_composition_report_css() -> str:
         border: 1px solid #dce4ec;
         background: #ffffff;
         color: #536173;
-        font-size: 8.3px;
-        line-height: 1.4;
-        padding: 9px 11px;
+        font-size: 7.8px;
+        line-height: 1.28;
+        padding: 6px 9px;
       }
       @page {
         size: A4;

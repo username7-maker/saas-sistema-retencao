@@ -237,7 +237,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "ANTHROPOMETRY" not in technical_html
     assert "anthropometry_protocol_manual_only" not in technical_html
     assert "Proteina" in technical_html
-    assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." in technical_html
+    assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." not in technical_html
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

@@ -287,7 +287,7 @@ function BodyCompositionReportPage() {
               <BodyFatSourcePanel context={report.body_fat_context ?? null} />
             </section>
             <HistoryTable comparisonRows={report.comparison_rows} historySeries={report.history_series} />
-            <ClientObservations insights={report.insights} teacherNotes={report.teacher_notes} methodologicalNote={report.methodological_note} />
+            <ClientObservations insights={report.insights} teacherNotes={report.teacher_notes} />
           </section>
         </div>
       </article>
@@ -584,11 +584,9 @@ function HistoryTable({ comparisonRows, historySeries }: { comparisonRows: BodyC
 function ClientObservations({
   insights,
   teacherNotes,
-  methodologicalNote,
 }: {
   insights: BodyCompositionInsight[];
   teacherNotes: string | null;
-  methodologicalNote: string;
 }) {
   return (
     <section className="clinical-web-section clinical-web-observations">
@@ -613,7 +611,6 @@ function ClientObservations({
           <p>{teacherNotes}</p>
         </div>
       ) : null}
-      <p className="clinical-web-method-note">{methodologicalNote}</p>
     </section>
   );
 }
