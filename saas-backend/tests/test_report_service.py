@@ -230,6 +230,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
     assert "Historico" in technical_html
+    assert "clinical-history-page" in technical_html
+    assert technical_html.rindex("clinical-history-page") > technical_html.index("<h2>Observacoes do professor</h2>")
     assert "Observacoes do professor" in technical_html
     assert "Leitura Final" not in technical_html
     assert "Percentual bruto oculto" not in technical_html

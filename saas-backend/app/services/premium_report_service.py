@@ -951,6 +951,15 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         if metric is not None and _body_metric_formatted(metric) not in {"", "-", "--"}
     ]
     detail_metrics = _body_compact_detail_metrics(composition_metrics, body_fat_context, technical_scope=technical_scope)
+    history_section_html = _render_body_history_section(comparison_rows, history_series)
+    history_page_html = _render_body_history_page(
+        history_section_html,
+        payload=payload,
+        header=header,
+        measured_label=measured_label,
+        client_footer_note=client_footer_note,
+        technical_scope=technical_scope,
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1038,13 +1047,13 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       {_render_body_recommendations(recommendations)}
       {_render_body_next_assessment(next_assessment)}
       {_render_body_fat_pdf_source_panel(body_fat_context)}
-      {_render_body_history_section(comparison_rows, history_series)}
       <section class="clinical-section clinical-observation-section">
         <h2>Observacoes do professor</h2>
         {_render_body_client_observations(insights, teacher_notes)}
       </section>
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
     </section>
+    {history_page_html}
   </main>
 </body>
 </html>"""
@@ -1062,6 +1071,38 @@ def _render_body_history_section(
         <p class="clinical-section-subtitle">Comparativo anterior x atual das metricas registradas.</p>
         {_render_body_client_history(comparison_rows, history_series)}
       </section>
+    """
+
+
+def _render_body_history_page(
+    history_section_html: str,
+    *,
+    payload: PremiumReportPayload,
+    header: dict[str, Any],
+    measured_label: str,
+    client_footer_note: str,
+    technical_scope: bool,
+) -> str:
+    if not history_section_html.strip():
+        return ""
+    return f"""
+    <section class="clinical-page clinical-history-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
+      <header class="clinical-header clinical-header-repeat">
+        <div class="clinical-brand">
+          {f'<img class="clinical-cordex-logo" src="{CORDEX_REPORT_LOGO_DATA_URI}" alt="{escape(payload.branding.product_name)}" />' if CORDEX_REPORT_LOGO_DATA_URI else f'<div class="clinical-brand-name">{escape(payload.branding.product_name)}</div>'}
+        </div>
+        <div class="clinical-partner-logo-wrap">
+          <img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" />
+        </div>
+        <div class="clinical-professional">
+          <span class="clinical-kicker">Relatorio de avaliacao fisica</span>
+          <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
+          <p>Avaliacao: {escape(measured_label)}</p>
+        </div>
+      </header>
+      {history_section_html}
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
     """
 
 
@@ -3865,14 +3906,14 @@ def _body_composition_report_css() -> str:
         display: grid;
         grid-template-columns: 205px minmax(0, 1fr) 205px;
         gap: 10px;
-        min-height: 378px;
+        min-height: 342px;
         padding: 8px 0 5px;
         border: 0;
         background: #ffffff;
       }
       .clinical-measurement-map img {
         width: 100%;
-        max-height: 370px;
+        max-height: 334px;
         object-fit: contain;
         align-self: center;
       }
@@ -3880,11 +3921,11 @@ def _body_composition_report_css() -> str:
         display: flex;
         flex-direction: column;
         justify-content: center;
-        gap: 4px;
+        gap: 3px;
       }
       .clinical-measurement-bubble {
         grid-template-columns: minmax(0, 1fr) auto;
-        min-height: 27px;
+        min-height: 25px;
         border: 1px solid #dce4ec;
         background: #ffffff;
         padding: 4px 7px;
@@ -4071,6 +4112,18 @@ def _body_composition_report_css() -> str:
       .clinical-history-simple-table td:first-child,
       .clinical-history-simple-table th:first-child {
         width: 44%;
+      }
+      .clinical-history-page .clinical-detail-section {
+        margin-top: 22px;
+        padding-top: 0;
+        border-top: 0;
+      }
+      .clinical-history-page .clinical-history-simple-table th {
+        padding: 7px 8px;
+      }
+      .clinical-history-page .clinical-history-simple-table td {
+        padding: 8px;
+        font-size: 9.2px;
       }
       .clinical-empty-copy {
         margin: 0;
