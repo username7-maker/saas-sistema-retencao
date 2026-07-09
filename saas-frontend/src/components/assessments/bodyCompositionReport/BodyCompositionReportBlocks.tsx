@@ -47,6 +47,7 @@ function formatSexLabel(value: BodyCompositionReportHeader["sex"]) {
 function statusLabel(status: BodyCompositionReferenceMetric["status"]) {
   if (status === "adequate") return "Normal";
   if (status === "low") return "Baixo";
+  if (status === "monitor") return "Monitorar";
   if (status === "high") return "Acima";
   return "Sem faixa";
 }
@@ -54,6 +55,7 @@ function statusLabel(status: BodyCompositionReferenceMetric["status"]) {
 function statusTone(status: BodyCompositionReferenceMetric["status"]) {
   if (status === "adequate") return "text-emerald-700";
   if (status === "low") return "text-amber-700";
+  if (status === "monitor") return "text-amber-700";
   if (status === "high") return "text-rose-700";
   return "text-slate-500";
 }

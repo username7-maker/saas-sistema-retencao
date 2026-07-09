@@ -99,12 +99,14 @@ function methodLabel(method: string | null | undefined): string {
 function statusLabel(status: string | null | undefined): string {
   if (status === "low") return "Abaixo";
   if (status === "adequate") return "Normal";
+  if (status === "monitor") return "Monitorar";
   if (status === "high") return "Acima";
   return "Sem faixa";
 }
 
 function statusClass(status: string | null | undefined): string {
   if (status === "low") return "text-[#b45309]";
+  if (status === "monitor") return "text-[#a16207]";
   if (status === "high") return "text-[#b91c1c]";
   if (status === "adequate") return "text-[#047857]";
   return "text-[#7a7168]";

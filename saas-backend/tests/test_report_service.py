@@ -1,8 +1,10 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
+from uuid import uuid4
 
 from app.services import report_service
+from app.services.body_composition_report_service import build_body_composition_report_read
 from app.services.premium_report_service import (
     PremiumReportBranding,
     PremiumReportMetric,
@@ -142,6 +144,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                     {
                         "key": "weight_kg",
                         "label": "Peso",
+                        "previous_value": 85.7,
+                        "current_value": 84.5,
                         "previous_formatted": "85,7 kg",
                         "current_formatted": "84,5 kg",
                         "difference_absolute": -1.2,
@@ -199,7 +203,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Medidas/protocolo" in html
     assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
-    assert "body-map-front-male.png" in html
+    assert "Mapa corporal de medidas" in html
     assert "Score da avaliacao" in html
     assert "Historico da Composicao Corporal" not in html
     assert "Leitura Final" not in html
@@ -238,6 +242,65 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "anthropometry_protocol_manual_only" not in technical_html
     assert "Proteina" in technical_html
     assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." not in technical_html
+
+
+def test_body_composition_report_builds_v3_score_indicators_and_rules():
+    member = SimpleNamespace(
+        full_name="Erick Bedin",
+        birthdate=None,
+        gym=SimpleNamespace(name="AI GYM OS Piloto"),
+        assigned_user=None,
+    )
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        evaluation_date=date(2026, 7, 8),
+        measured_at=datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
+        age_years=20,
+        sex="male",
+        height_cm=178,
+        weight_kg=84.5,
+        body_fat_used_percent=17.94,
+        body_fat_range_min=14.94,
+        body_fat_range_max=20.94,
+        body_fat_used_source="anthropometry",
+        body_fat_method="skinfold_protocol",
+        body_fat_anthropometric_percent=17.94,
+        fat_mass_estimated_kg=15.16,
+        fat_free_mass_kg=65.0,
+        muscle_mass_kg=37.2,
+        skeletal_muscle_kg=35.6,
+        visceral_fat_level=9.1,
+        waist_hip_ratio=0.88,
+        waist_cm=82,
+        abdomen_cm=86,
+        hip_cm=96,
+        right_thigh_cm=56,
+        left_thigh_cm=67,
+        right_calf_cm=43,
+        left_calf_cm=43,
+        muscle_control_kg=-7.8,
+        data_quality_flags_json=[],
+        reviewed_manually=True,
+        notes=None,
+    )
+
+    report = build_body_composition_report_read(member, evaluation, history=[evaluation])
+    risk_by_key = {metric.key: metric for metric in report.risk_metrics}
+
+    assert risk_by_key["waist_height_ratio"].formatted_value == "0.46"
+    assert risk_by_key["ffmi"].formatted_value == "20.5"
+    assert risk_by_key["visceral_fat_level"].status == "monitor"
+    assert risk_by_key["waist_hip_ratio"].status == "monitor"
+    assert risk_by_key["waist_hip_ratio"].position_label == "terco superior da faixa"
+    assert report.score_total == sum(item.score for item in report.score_breakdown)
+    assert [item.key for item in report.score_breakdown] == ["body_fat", "muscle", "visceral_fat", "waist"]
+    assert [item.key for item in report.recommendations] == [
+        "monitor_waist_visceral",
+        "repeat_thigh_measurement",
+        "review_target_weight",
+    ]
+    assert report.next_assessment is not None
+    assert report.next_assessment.formatted_due_date == "06/10/2026"
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from typing import Any, Sequence
 
 from app.models import Member
@@ -14,10 +14,13 @@ from app.schemas.body_composition import (
     BodyCompositionInsightRead,
     BodyCompositionMeasurementRowRead,
     BodyCompositionMetricCardRead,
+    BodyCompositionNextAssessmentRead,
+    BodyCompositionRecommendationRead,
     BodyCompositionRangeStatus,
     BodyCompositionReferenceMetricRead,
     BodyCompositionReportHeaderRead,
     BodyCompositionReportRead,
+    BodyCompositionScoreBreakdownItemRead,
 )
 from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_CALCULATION_FIELDS,
@@ -58,6 +61,8 @@ _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "lean_mass_estimated_kg": (35.0, 90.0),
     "visceral_fat_level": (1.0, 12.0),
     "waist_hip_ratio": (0.7, 0.95),
+    "waist_height_ratio": (0.3, 0.5),
+    "ffmi": (16.0, 25.0),
     "health_score": (70.0, 100.0),
 }
 
@@ -94,6 +99,8 @@ _RISK_DEFS = (
     ("body_fat_used_percent", "Gordura corporal estimada", "%"),
     ("visceral_fat_level", "Gordura visceral", None),
     ("waist_hip_ratio", "Relacao cintura-quadril", None),
+    ("waist_height_ratio", "Razao cintura-altura", None),
+    ("ffmi", "FFMI", None),
     ("health_score", "Health score", None),
     ("physical_age", "Idade fisica", "anos"),
 )
@@ -225,6 +232,9 @@ def build_body_composition_report_read(
         ),
     )
     previous = _resolve_previous_evaluation(evaluation, ordered_history)
+    risk_metrics = [_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _RISK_DEFS]
+    score_breakdown = _build_score_breakdown(evaluation)
+    score_total = sum(item.score for item in score_breakdown) if score_breakdown else None
     header = BodyCompositionReportHeaderRead(
         member_name=member.full_name,
         gym_name=getattr(getattr(member, "gym", None), "name", None),
@@ -244,11 +254,15 @@ def build_body_composition_report_read(
         parsing_confidence=_read_float(evaluation, "parsing_confidence") or _read_float(evaluation, "ocr_confidence"),
         data_quality_flags=_public_body_composition_flags(getattr(evaluation, "data_quality_flags_json", None) or []),
         body_fat_context=_build_body_fat_context(evaluation),
+        score_total=score_total,
+        score_breakdown=score_breakdown,
+        recommendations=_build_body_composition_recommendations(evaluation, risk_metrics),
+        next_assessment=_build_next_assessment(evaluation),
         measurement_rows=_build_measurement_rows(evaluation, previous),
         primary_cards=[_build_metric_card(evaluation, previous, key, label, unit) for key, label, unit in _CARD_DEFS],
         composition_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _COMPOSITION_DEFS],
         muscle_fat_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _MUSCLE_FAT_DEFS],
-        risk_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _RISK_DEFS],
+        risk_metrics=risk_metrics,
         goal_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _GOAL_DEFS],
         comparison_rows=[_build_comparison_row(evaluation, previous, key, label, unit) for key, label, unit in _COMPARISON_DEFS],
         history_series=[_build_history_series(ordered_history, key, label, unit) for key, label, unit in _HISTORY_DEFS],
@@ -507,6 +521,143 @@ def _build_body_fat_context(evaluation: BodyCompositionEvaluation) -> BodyCompos
     )
 
 
+def _build_score_breakdown(evaluation: BodyCompositionEvaluation) -> list[BodyCompositionScoreBreakdownItemRead]:
+    body_fat = _read_metric_float(evaluation, "body_fat_used_percent")
+    body_fat_min, body_fat_max = _resolve_reference_range(evaluation, "body_fat_used_percent")
+    ffmi = _read_metric_float(evaluation, "ffmi")
+    visceral = _read_metric_float(evaluation, "visceral_fat_level")
+    waist_hip = _read_metric_float(evaluation, "waist_hip_ratio")
+    waist_height = _read_metric_float(evaluation, "waist_height_ratio")
+
+    body_fat_score = _centered_range_score(body_fat, body_fat_min, body_fat_max)
+    muscle_score = _progressive_range_score(ffmi, *_REFERENCE_RANGES["ffmi"])
+    visceral_score = _inverse_range_score(visceral, *_REFERENCE_RANGES["visceral_fat_level"])
+    waist_score = _average_scores(
+        [
+            _inverse_range_score(waist_hip, *_REFERENCE_RANGES["waist_hip_ratio"]),
+            _inverse_range_score(waist_height, *_REFERENCE_RANGES["waist_height_ratio"]),
+        ]
+    )
+
+    return [
+        BodyCompositionScoreBreakdownItemRead(
+            key="body_fat",
+            label="Gordura corporal",
+            score=body_fat_score,
+            description="Pontua o percentual oficial usado no relatorio contra a faixa de referencia.",
+        ),
+        BodyCompositionScoreBreakdownItemRead(
+            key="muscle",
+            label="Massa muscular",
+            score=muscle_score,
+            description="Usa FFMI quando existe massa livre de gordura e altura suficientes.",
+        ),
+        BodyCompositionScoreBreakdownItemRead(
+            key="visceral_fat",
+            label="Gordura visceral",
+            score=visceral_score,
+            description="Quanto menor o indice visceral dentro da faixa, maior a pontuacao.",
+        ),
+        BodyCompositionScoreBreakdownItemRead(
+            key="waist",
+            label="Cintura / RCQ",
+            score=waist_score,
+            description="Combina relacao cintura-quadril e razao cintura-altura quando disponiveis.",
+        ),
+    ]
+
+
+def _build_body_composition_recommendations(
+    evaluation: BodyCompositionEvaluation,
+    risk_metrics: Sequence[BodyCompositionReferenceMetricRead],
+) -> list[BodyCompositionRecommendationRead]:
+    recommendations: list[BodyCompositionRecommendationRead] = []
+    metrics_by_key = {metric.key: metric for metric in risk_metrics}
+    visceral_metric = metrics_by_key.get("visceral_fat_level")
+    waist_hip_metric = metrics_by_key.get("waist_hip_ratio")
+    waist_height_metric = metrics_by_key.get("waist_height_ratio")
+
+    if any(
+        metric and metric.status in {"monitor", "high"}
+        for metric in (visceral_metric, waist_hip_metric, waist_height_metric)
+    ):
+        recommendations.append(
+            BodyCompositionRecommendationRead(
+                key="monitor_waist_visceral",
+                title="Monitorar cintura e gordura visceral",
+                detail=(
+                    "Os indicadores de cintura ou gordura visceral pedem acompanhamento. "
+                    "Repita as medidas nas proximas avaliacoes e priorize consistencia do protocolo."
+                ),
+                tone="warning",
+            )
+        )
+
+    thigh_delta = _paired_measure_delta(
+        _read_float(evaluation, "right_thigh_cm"),
+        _read_float(evaluation, "left_thigh_cm"),
+    )
+    if thigh_delta is not None and thigh_delta >= 4:
+        recommendations.append(
+            BodyCompositionRecommendationRead(
+                key="repeat_thigh_measurement",
+                title="Repetir a medicao da coxa",
+                detail=(
+                    f"A diferenca registrada entre as coxas foi de {thigh_delta:.1f} cm. "
+                    "Esse desvio e atipico e deve ser conferido antes de orientar decisoes pelo valor."
+                ),
+                tone="warning",
+            )
+        )
+
+    muscle_control = _read_float(evaluation, "muscle_control_kg")
+    if muscle_control is not None and muscle_control < 0:
+        recommendations.append(
+            BodyCompositionRecommendationRead(
+                key="review_target_weight",
+                title="Definir o objetivo do ciclo antes do peso-alvo",
+                detail=(
+                    "A meta automatica indica reducao de massa muscular. "
+                    "Revise o objetivo com o professor antes de usar esse peso-alvo como referencia."
+                ),
+                tone="warning",
+            )
+        )
+
+    if not recommendations:
+        recommendations.append(
+            BodyCompositionRecommendationRead(
+                key="repeat_protocol",
+                title="Manter o mesmo protocolo na proxima avaliacao",
+                detail="Repita as medidas em condicoes semelhantes para tornar a evolucao comparavel.",
+                tone="neutral",
+            )
+        )
+    return recommendations[:3]
+
+
+def _build_next_assessment(evaluation: BodyCompositionEvaluation) -> BodyCompositionNextAssessmentRead:
+    measured_date = _measured_at(evaluation).date()
+    due_date = measured_date + timedelta(days=90)
+    return BodyCompositionNextAssessmentRead(
+        due_date=due_date,
+        formatted_due_date=due_date.strftime("%d/%m/%Y"),
+        cycle_days=90,
+        conditions=[
+            "mesmo horario sempre que possivel",
+            "hidratacao semelhante",
+            "evitar treino intenso imediatamente antes",
+            "manter padrao de alimentacao previo",
+        ],
+    )
+
+
+def _paired_measure_delta(left: float | None, right: float | None) -> float | None:
+    if left is None or right is None:
+        return None
+    return round(abs(left - right), 1)
+
+
 def _public_body_composition_flags(flags: Sequence[Any]) -> list[BodyCompositionDataQualityFlag]:
     hidden = {"body_fat_source_divergence"}
     return [flag for flag in flags if str(flag) not in hidden]
@@ -587,6 +738,16 @@ def _build_reference_metric(
     value = _read_metric_float(evaluation, key)
     reference_min, reference_max = _resolve_reference_range(evaluation, key)
     status = _resolve_range_status(value, reference_min, reference_max)
+    position_label = _range_position_label(value, reference_min, reference_max)
+    if status == "adequate" and _is_upper_third_risk_indicator(key, value, reference_min, reference_max):
+        status = "monitor"
+    hint = _format_reference_hint(reference_min, reference_max, unit)
+    if key == "bmi":
+        hint = "Interpretar junto com o FFMI; IMC isolado pode superestimar excesso de peso em perfis musculosos."
+    elif key == "waist_height_ratio" and reference_max is not None:
+        hint = f"Meta < {_format_value(reference_max, None)}"
+        if value is not None and value <= reference_max:
+            position_label = "dentro da meta"
     return BodyCompositionReferenceMetricRead(
         key=key,
         label=label,
@@ -596,7 +757,8 @@ def _build_reference_metric(
         reference_min=reference_min,
         reference_max=reference_max,
         status=status,
-        hint=_format_reference_hint(reference_min, reference_max, unit),
+        hint=hint,
+        position_label=position_label,
     )
 
 
@@ -720,6 +882,25 @@ def _read_float(item: Any, key: str) -> float | None:
 def _read_metric_float(item: Any, key: str) -> float | None:
     if key == "body_fat_used_percent":
         return _read_float(item, "body_fat_used_percent")
+    if key == "waist_height_ratio":
+        waist = _read_float(item, "waist_cm")
+        height = _read_float(item, "height_cm")
+        if waist is None or height in (None, 0):
+            return None
+        return round(waist / height, 2)
+    if key == "ffmi":
+        fat_free_mass = (
+            _read_float(item, "fat_free_mass_kg")
+            or _read_float(item, "lean_mass_estimated_kg")
+            or _read_float(item, "lean_mass_kg")
+        )
+        height = _read_float(item, "height_cm")
+        if fat_free_mass is None or height in (None, 0):
+            return None
+        height_m = height / 100
+        if height_m <= 0:
+            return None
+        return round(fat_free_mass / (height_m * height_m), 1)
     value = _read_float(item, key)
     if value is not None or key != "body_water_percent":
         return value
@@ -808,6 +989,77 @@ def _resolve_range_status(
     return "adequate"
 
 
+def _is_upper_third_risk_indicator(
+    key: str,
+    value: float | None,
+    minimum: float | None,
+    maximum: float | None,
+) -> bool:
+    if key not in {"visceral_fat_level", "waist_hip_ratio"}:
+        return False
+    if value is None or minimum is None or maximum is None or maximum <= minimum:
+        return False
+    upper_third_start = minimum + ((maximum - minimum) * 2 / 3)
+    return value >= upper_third_start
+
+
+def _range_position_label(value: float | None, minimum: float | None, maximum: float | None) -> str | None:
+    if value is None or minimum is None or maximum is None or maximum <= minimum:
+        return None
+    if value < minimum:
+        return "abaixo da faixa"
+    if value > maximum:
+        return "acima da faixa"
+    third = (maximum - minimum) / 3
+    if value < minimum + third:
+        return "terco inferior da faixa"
+    if value < minimum + 2 * third:
+        return "terco medio da faixa"
+    return "terco superior da faixa"
+
+
+def _centered_range_score(value: float | None, minimum: float | None, maximum: float | None, max_score: int = 25) -> int:
+    if value is None or minimum is None or maximum is None or maximum <= minimum:
+        return 0
+    midpoint = (minimum + maximum) / 2
+    half_span = (maximum - minimum) / 2
+    distance = abs(value - midpoint)
+    if distance <= half_span:
+        return max(0, min(max_score, round(max_score - (distance / max(half_span, 0.01)) * 8)))
+    overflow = distance - half_span
+    return max(0, round(17 - (overflow / max(half_span, 0.01)) * 17))
+
+
+def _progressive_range_score(value: float | None, minimum: float | None, maximum: float | None, max_score: int = 25) -> int:
+    if value is None or minimum is None or maximum is None or maximum <= minimum:
+        return 0
+    if value < minimum:
+        return max(0, round((value / max(minimum, 0.01)) * 14))
+    if value > maximum:
+        return max(15, round(max_score - min(10, value - maximum)))
+    ratio = (value - minimum) / (maximum - minimum)
+    return max(0, min(max_score, round(15 + ratio * 10)))
+
+
+def _inverse_range_score(value: float | None, minimum: float | None, maximum: float | None, max_score: int = 25) -> int:
+    if value is None or minimum is None or maximum is None or maximum <= minimum:
+        return 0
+    if value <= minimum:
+        return max_score
+    if value >= maximum:
+        overflow_ratio = (value - maximum) / max(maximum - minimum, 0.01)
+        return max(0, round(10 - overflow_ratio * 10))
+    ratio = (value - minimum) / (maximum - minimum)
+    return max(0, min(max_score, round(max_score - ratio * 15)))
+
+
+def _average_scores(scores: Sequence[int]) -> int:
+    valid = [score for score in scores if score > 0]
+    if not valid:
+        return 0
+    return round(sum(valid) / len(valid))
+
+
 def _format_reference_hint(minimum: float | None, maximum: float | None, unit: str | None) -> str | None:
     if minimum is None and maximum is None:
         return None
@@ -820,6 +1072,7 @@ def _status_label(status: BodyCompositionRangeStatus) -> str:
     return {
         "low": "Baixo",
         "adequate": "Adequado",
+        "monitor": "Monitorar",
         "high": "Alto",
         "unknown": "Sem referencia",
     }[status]

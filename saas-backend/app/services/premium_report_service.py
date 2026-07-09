@@ -42,6 +42,15 @@ _CORDEX_REPORT_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "co
 if _CORDEX_REPORT_LOGO_ASSET.exists():
     CORDEX_REPORT_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_CORDEX_REPORT_LOGO_ASSET.read_bytes()).decode("ascii")
 
+BODY_MAP_DATA_URIS: dict[str, str] = {}
+for _body_map_key, _body_map_file in {
+    "male": "body-map-front-male.png",
+    "female": "body-map-front-female.png",
+}.items():
+    _body_map_asset = Path(__file__).resolve().parents[1] / "assets" / _body_map_file
+    if _body_map_asset.exists():
+        BODY_MAP_DATA_URIS[_body_map_key] = "data:image/png;base64," + b64encode(_body_map_asset.read_bytes()).decode("ascii")
+
 
 @dataclass(slots=True)
 class PremiumReportBranding:
@@ -839,6 +848,10 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     insights = report.get("insights", []) or []
     measurement_rows = report.get("measurement_rows", []) or []
     body_fat_context = report.get("body_fat_context") or {}
+    score_total = report.get("score_total")
+    score_breakdown = report.get("score_breakdown", []) or []
+    recommendations = report.get("recommendations", []) or []
+    next_assessment = report.get("next_assessment")
     teacher_notes = report.get("teacher_notes") or ""
     data_quality_flags = report.get("data_quality_flags", []) or []
     technical_scope = payload.report_scope == "technical"
@@ -898,6 +911,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     measured_label = _format_human_datetime(header.get("measured_at"))
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Relatorio de bioimpedancia"
     flags_html = ""
+    score_display = str(int(score_total)) if isinstance(score_total, int | float) else (_body_metric_formatted(score_metric) if score_metric else "--")
 
     lead_insight = insights[0] if insights else None
 
@@ -920,16 +934,18 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     key_indicator_metrics = [
         metric
         for metric in [
-            _body_metric_by_key(primary_cards, "weight_kg") or _body_metric_by_key(muscle_fat_metrics, "weight_kg"),
-            _body_metric_by_key(primary_cards, "body_fat_used_percent")
-            or _body_metric_by_key(risk_metrics, "body_fat_used_percent")
-            or _body_metric_by_key(composition_metrics, "body_fat_used_percent"),
+            _body_metric_by_key(muscle_fat_metrics, "weight_kg") or _body_metric_by_key(primary_cards, "weight_kg"),
+            _body_metric_by_key(risk_metrics, "body_fat_used_percent")
+            or _body_metric_by_key(composition_metrics, "body_fat_used_percent")
+            or _body_metric_by_key(primary_cards, "body_fat_used_percent"),
             fat_mass_metric,
             _body_metric_by_key(composition_metrics, "skeletal_muscle_kg")
             or _body_metric_by_key(composition_metrics, "muscle_mass_kg")
             or _body_metric_by_key(primary_cards, "muscle_mass_kg"),
             _body_metric_by_key(risk_metrics, "visceral_fat_level") or _body_metric_by_key(primary_cards, "visceral_fat_level"),
             _body_metric_by_key(risk_metrics, "waist_hip_ratio"),
+            _body_metric_by_key(risk_metrics, "waist_height_ratio"),
+            _body_metric_by_key(risk_metrics, "ffmi"),
             _body_metric_by_key(risk_metrics, "bmi") or _body_metric_by_key(primary_cards, "bmi"),
         ]
         if metric is not None and _body_metric_formatted(metric) not in {"", "-", "--"}
@@ -975,10 +991,11 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         <article class="clinical-cover-score">
           <h3>Score da avaliacao</h3>
           <div class="clinical-score">
-            <strong>{escape(_body_metric_formatted(score_metric) if score_metric else "--")}</strong>
+            <strong>{escape(score_display)}</strong>
             <span>/100 pontos</span>
           </div>
           <p class="clinical-score-copy">Leitura sintetica da composicao corporal para acompanhamento do progresso.</p>
+          {_render_body_score_breakdown(score_breakdown)}
         </article>
         <article class="clinical-cover-note">
           <h3>Leitura de acompanhamento</h3>
@@ -1018,12 +1035,10 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         <p class="clinical-section-subtitle">Valores calculados automaticamente para revisao do professor.</p>
         {_render_body_goal_cards(goal_metrics)}
       </section>
+      {_render_body_recommendations(recommendations)}
+      {_render_body_next_assessment(next_assessment)}
       {_render_body_fat_pdf_source_panel(body_fat_context)}
-      <section class="clinical-section clinical-detail-section">
-        <h2>Historico</h2>
-        <p class="clinical-section-subtitle">Comparativo anterior x atual das metricas registradas.</p>
-        {_render_body_client_history(comparison_rows, history_series)}
-      </section>
+      {_render_body_history_section(comparison_rows, history_series)}
       <section class="clinical-section clinical-observation-section">
         <h2>Observacoes do professor</h2>
         {_render_body_client_observations(insights, teacher_notes)}
@@ -1033,6 +1048,95 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
   </main>
 </body>
 </html>"""
+
+
+def _render_body_history_section(
+    comparison_rows: Sequence[dict[str, Any]],
+    history_series: Sequence[dict[str, Any]],
+) -> str:
+    if not _has_body_history(comparison_rows, history_series):
+        return ""
+    return f"""
+      <section class="clinical-section clinical-detail-section">
+        <h2>Historico</h2>
+        <p class="clinical-section-subtitle">Comparativo anterior x atual das metricas registradas.</p>
+        {_render_body_client_history(comparison_rows, history_series)}
+      </section>
+    """
+
+
+def _has_body_history(comparison_rows: Sequence[dict[str, Any]], history_series: Sequence[dict[str, Any]]) -> bool:
+    if comparison_rows:
+        return any(
+            row.get("previous_value") is not None and row.get("current_value") is not None
+            for row in comparison_rows
+        )
+    columns = _body_history_columns(history_series, limit=2)
+    return len(columns) >= 2
+
+
+def _render_body_score_breakdown(items: Sequence[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    rows = []
+    for item in items[:4]:
+        score = _coerce_float(_read_value(item, "score"), 0)
+        max_score = max(1.0, _coerce_float(_read_value(item, "max_score"), 25))
+        width = max(0.0, min(100.0, (score / max_score) * 100))
+        rows.append(
+            f"""
+            <div class="clinical-score-breakdown-row">
+              <span>{escape(str(_read_value(item, "label") or "-"))}</span>
+              <div class="clinical-score-breakdown-track"><i style="width:{width:.1f}%"></i></div>
+              <strong>{escape(str(int(round(score))))}/{escape(str(int(round(max_score))))}</strong>
+            </div>
+            """
+        )
+    return f"""
+    <div class="clinical-score-breakdown">
+      {''.join(rows)}
+    </div>
+    """
+
+
+def _render_body_recommendations(recommendations: Sequence[dict[str, Any]]) -> str:
+    if not recommendations:
+        return ""
+    rows = "".join(
+        f"""
+        <li>
+          <strong>{escape(str(item.get("title") or "Recomendacao"))}</strong>
+          <span>{escape(str(item.get("detail") or ""))}</span>
+        </li>
+        """
+        for item in recommendations[:3]
+    )
+    return f"""
+      <section class="clinical-section clinical-recommendations-section">
+        <h2>Recomendacoes desta avaliacao</h2>
+        <p class="clinical-section-subtitle">Geradas por regras deterministicas a partir dos indicadores.</p>
+        <ol class="clinical-recommendations-list">{rows}</ol>
+      </section>
+    """
+
+
+def _render_body_next_assessment(next_assessment: Any) -> str:
+    if not next_assessment:
+        return ""
+    due = str(_read_value(next_assessment, "formatted_due_date") or _format_dateish(_read_value(next_assessment, "due_date")))
+    cycle_days = _read_value(next_assessment, "cycle_days", 90)
+    raw_conditions = _read_value(next_assessment, "conditions") or []
+    conditions = [str(condition) for condition in raw_conditions if condition]
+    condition_text = ", ".join(conditions[:4]) if conditions else "manter condicoes semelhantes de medicao"
+    return f"""
+      <section class="clinical-next-assessment">
+        <div>
+          <h2>Proxima avaliacao recomendada</h2>
+          <p>Ciclo padrao de {escape(str(cycle_days))} dias. Medir com {escape(condition_text)}.</p>
+        </div>
+        <strong>ate {escape(due)}</strong>
+      </section>
+    """
 
 
 def _render_body_fat_pdf_source_panel(context: Any) -> str:
@@ -1113,9 +1217,10 @@ def _render_body_key_indicators_table(metrics: Sequence[dict[str, Any]], body_fa
 def _render_body_key_indicator_row(metric: dict[str, Any], body_fat_context: Any) -> str:
     _group, source = _body_metric_source(metric, body_fat_context)
     range_html = _render_body_inline_range(metric)
+    position = str(metric.get("position_label") or "").strip()
     return f"""
     <tr>
-      <td><strong>{escape(_body_metric_label(metric))}</strong></td>
+      <td><strong>{escape(_body_metric_label(metric))}</strong>{f'<small>{escape(position)}</small>' if position else ''}</td>
       <td><strong>{escape(_body_metric_formatted(metric))}</strong></td>
       <td><span class="clinical-source-pill">{escape(source)}</span></td>
       <td>{range_html}</td>
@@ -1126,7 +1231,8 @@ def _render_body_key_indicator_row(metric: dict[str, Any], body_fat_context: Any
 
 def _render_body_inline_range(metric: dict[str, Any]) -> str:
     if not _body_metric_has_reference(metric):
-        return "<span class=\"clinical-no-range-label\">Sem faixa</span>"
+        hint = str(metric.get("hint") or "Sem faixa")
+        return f"<span class=\"clinical-no-range-label\">{escape(hint)}</span>"
     marker, _low_limit, _high_limit = _body_metric_band_model(metric)
     return f"""
     <div class="clinical-inline-range">
@@ -1460,10 +1566,14 @@ def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
 
 
 def _body_map_asset_url(sex: Any) -> str:
+    key = "female" if sex == "female" else "male"
+    data_uri = BODY_MAP_DATA_URIS.get(key)
+    if data_uri:
+        return data_uri
     base_url = str(settings.frontend_url or "").rstrip("/")
     if not base_url or base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
         base_url = "https://saas-frontend-pearl.vercel.app"
-    filename = "body-map-front-female.png" if sex == "female" else "body-map-front-male.png"
+    filename = "body-map-front-female.png" if key == "female" else "body-map-front-male.png"
     return f"{base_url}/body-maps/{filename}"
 
 
@@ -1665,6 +1775,10 @@ def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[
         return ("measurements", "Medidas/protocolo")
     if key in {"waist_hip_ratio"}:
         return ("measurements", "Medidas corporais")
+    if key in {"waist_height_ratio"}:
+        return ("measurements", "Calculo")
+    if key in {"ffmi", "bmi"}:
+        return ("bioimpedance", "Calculo")
     return ("bioimpedance", "Bioimpedancia")
 
 
@@ -1676,6 +1790,8 @@ def _body_indicator_source_label(metric: dict[str, Any]) -> str:
         return "Fonte oficial"
     if key in {"waist_hip_ratio"}:
         return "Medidas corporais"
+    if key in {"waist_height_ratio", "ffmi"}:
+        return "Calculo do sistema"
     if key in {"visceral_fat_level", "physical_age", "health_score"}:
         return "Bioimpedancia"
     return "Exame / sistema"
@@ -1962,6 +2078,8 @@ def _body_metric_status_label(metric: dict[str, Any]) -> str:
     status = str(metric.get("status") or "unknown")
     if status == "adequate":
         return "Normal"
+    if status == "monitor":
+        return "Monitorar"
     if status == "low":
         return "Baixo"
     if status == "high":
@@ -2750,6 +2868,7 @@ def _body_composition_report_css() -> str:
       }
       .status-adequate { color: var(--ok); }
       .status-low { color: var(--warn); }
+      .status-monitor { color: var(--warn); }
       .status-high { color: var(--high); }
       .status-unknown { color: #6f665f; }
       .clinical-history-grid {
@@ -3391,6 +3510,7 @@ def _body_composition_report_css() -> str:
       }
       .clinical-status-pill.status-adequate { background: #e9f9ef; color: #078143; }
       .clinical-status-pill.status-low { background: #fff5e1; color: #9c5c00; }
+      .clinical-status-pill.status-monitor { background: #fff7d6; color: #a16207; }
       .clinical-status-pill.status-high { background: #fff0e7; color: #b64a00; }
       .clinical-sidebar-block {
         border-top: 1px solid #dce4ec;
@@ -3584,6 +3704,37 @@ def _body_composition_report_css() -> str:
       .clinical-cover-score .clinical-score-copy {
         color: #c8d2df;
       }
+      .clinical-score-breakdown {
+        display: grid;
+        gap: 5px;
+        margin-top: 9px;
+      }
+      .clinical-score-breakdown-row {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr) 32px;
+        gap: 7px;
+        align-items: center;
+        color: #dce7f3;
+        font-size: 7.4px;
+        font-weight: 800;
+      }
+      .clinical-score-breakdown-track {
+        height: 5px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        overflow: hidden;
+      }
+      .clinical-score-breakdown-track i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: #72d2ef;
+      }
+      .clinical-score-breakdown-row strong {
+        color: #ffffff;
+        font-size: 7.4px;
+        text-align: right;
+      }
       .clinical-cover-note {
         border-color: #bde7f5;
         background: #f0fbff;
@@ -3624,6 +3775,14 @@ def _body_composition_report_css() -> str:
         font-size: 8.4px;
         padding: 4px 7px;
         vertical-align: middle;
+      }
+      .clinical-key-table td small {
+        display: block;
+        margin-top: 2px;
+        color: #7b8798;
+        font-size: 6.5px;
+        font-weight: 700;
+        text-transform: uppercase;
       }
       .clinical-key-table td:nth-child(2),
       .clinical-key-table td:nth-child(5),
@@ -3776,6 +3935,80 @@ def _body_composition_report_css() -> str:
         margin-top: 3px;
         color: #172235;
         font-size: 12px;
+      }
+      .clinical-recommendations-section {
+        margin-top: 7px;
+      }
+      .clinical-recommendations-list {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: rec;
+      }
+      .clinical-recommendations-list li {
+        counter-increment: rec;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        column-gap: 8px;
+        border: 1px solid #dce4ec;
+        background: #ffffff;
+        padding: 5px 7px;
+      }
+      .clinical-recommendations-list li::before {
+        content: counter(rec);
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: #172235;
+        color: #ffffff;
+        font-size: 8px;
+        font-weight: 900;
+      }
+      .clinical-recommendations-list strong {
+        grid-column: 2;
+        color: #172235;
+        font-size: 8.8px;
+        line-height: 1.15;
+      }
+      .clinical-recommendations-list span {
+        grid-column: 2;
+        display: block;
+        margin-top: 2px;
+        color: #536173;
+        font-size: 7.4px;
+        line-height: 1.25;
+      }
+      .clinical-next-assessment {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        margin-top: 7px;
+        border: 1px solid #a8d6e6;
+        border-left: 3px solid #1185a6;
+        background: #f0fbff;
+        padding: 7px 10px;
+      }
+      .clinical-next-assessment h2 {
+        margin: 0;
+        color: #172235;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .clinical-next-assessment p {
+        margin: 2px 0 0;
+        color: #536173;
+        font-size: 7.5px;
+      }
+      .clinical-next-assessment strong {
+        color: #0e7490;
+        font-size: 15px;
+        white-space: nowrap;
       }
       .clinical-soft-alert {
         margin-top: 6px;

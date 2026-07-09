@@ -1388,7 +1388,7 @@ export type BodyCompositionDataQualityFlag =
   | "anthropometry_protocol_mismatch"
   | "anthropometry_protocol_age_outside_range";
 export type BodyCompositionTrend = "up" | "down" | "stable" | "insufficient";
-export type BodyCompositionRangeStatus = "low" | "adequate" | "high" | "unknown";
+export type BodyCompositionRangeStatus = "low" | "adequate" | "monitor" | "high" | "unknown";
 export type BodyCompositionInsightTone = "positive" | "warning" | "neutral";
 
 export interface BodyCompositionRangeValue {
@@ -1434,6 +1434,29 @@ export interface BodyCompositionReferenceMetric {
   reference_max: number | null;
   status: BodyCompositionRangeStatus;
   hint: string | null;
+  position_label?: string | null;
+}
+
+export interface BodyCompositionScoreBreakdownItem {
+  key: string;
+  label: string;
+  score: number;
+  max_score: number;
+  description: string;
+}
+
+export interface BodyCompositionRecommendation {
+  key: string;
+  title: string;
+  detail: string;
+  tone: BodyCompositionInsightTone;
+}
+
+export interface BodyCompositionNextAssessment {
+  due_date: string;
+  formatted_due_date: string;
+  cycle_days: number;
+  conditions: string[];
 }
 
 export interface BodyCompositionBodyFatContext {
@@ -1508,6 +1531,10 @@ export interface BodyCompositionReport {
   parsing_confidence: number | null;
   data_quality_flags: BodyCompositionDataQualityFlag[];
   body_fat_context?: BodyCompositionBodyFatContext | null;
+  score_total?: number | null;
+  score_breakdown?: BodyCompositionScoreBreakdownItem[];
+  recommendations?: BodyCompositionRecommendation[];
+  next_assessment?: BodyCompositionNextAssessment | null;
   measurement_rows?: BodyCompositionMeasurementRow[];
   primary_cards: BodyCompositionMetricCard[];
   composition_metrics: BodyCompositionReferenceMetric[];

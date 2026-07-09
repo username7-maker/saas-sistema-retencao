@@ -50,7 +50,7 @@ BodyCompositionDataQualityFlag = Literal[
     "anthropometry_protocol_age_outside_range",
 ]
 BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
-BodyCompositionRangeStatus = Literal["low", "adequate", "high", "unknown"]
+BodyCompositionRangeStatus = Literal["low", "adequate", "monitor", "high", "unknown"]
 BodyCompositionInsightTone = Literal["positive", "warning", "neutral"]
 
 
@@ -310,6 +310,29 @@ class BodyCompositionReferenceMetricRead(BaseModel):
     reference_max: float | None = None
     status: BodyCompositionRangeStatus = "unknown"
     hint: str | None = None
+    position_label: str | None = None
+
+
+class BodyCompositionScoreBreakdownItemRead(BaseModel):
+    key: str
+    label: str
+    score: int
+    max_score: int = 25
+    description: str
+
+
+class BodyCompositionRecommendationRead(BaseModel):
+    key: str
+    title: str
+    detail: str
+    tone: BodyCompositionInsightTone = "neutral"
+
+
+class BodyCompositionNextAssessmentRead(BaseModel):
+    due_date: date
+    formatted_due_date: str
+    cycle_days: int = 90
+    conditions: list[str] = Field(default_factory=list)
 
 
 class BodyCompositionBodyFatContextRead(BaseModel):
@@ -384,6 +407,10 @@ class BodyCompositionReportRead(BaseModel):
     parsing_confidence: float | None = None
     data_quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
     body_fat_context: BodyCompositionBodyFatContextRead | None = None
+    score_total: int | None = None
+    score_breakdown: list[BodyCompositionScoreBreakdownItemRead] = Field(default_factory=list)
+    recommendations: list[BodyCompositionRecommendationRead] = Field(default_factory=list)
+    next_assessment: BodyCompositionNextAssessmentRead | None = None
     measurement_rows: list[BodyCompositionMeasurementRowRead] = Field(default_factory=list)
     primary_cards: list[BodyCompositionMetricCardRead] = Field(default_factory=list)
     composition_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
