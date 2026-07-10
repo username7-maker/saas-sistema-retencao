@@ -835,6 +835,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const {
     register,
     handleSubmit,
+    getValues,
     reset,
     setValue,
     watch,
@@ -1292,11 +1293,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   }
 
   function fillFromOcr(result: BodyCompositionOcrResult, file: File) {
-    for (const section of FORM_SECTIONS) {
-      for (const field of section.fields) {
-        setValue(field.key, null);
-      }
-    }
+    const existingValues = getValues();
     const values = result.values;
     const rawValues = values as Record<string, unknown>;
     const numericKeys = Object.keys(values).filter(
@@ -1310,9 +1307,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     }
     setValue(
       "evaluation_date",
-      values.evaluation_date ?? values.measured_at?.slice(0, 10) ?? new Date().toISOString().split("T")[0],
+      values.evaluation_date
+        ?? values.measured_at?.slice(0, 10)
+        ?? existingValues.evaluation_date
+        ?? new Date().toISOString().split("T")[0],
     );
-    setValue("sex", values.sex ?? null);
+    if (values.sex) {
+      setValue("sex", values.sex);
+    }
     setValue("ocr_source_file_ref", `local://${file.name}`);
     setCurrentSource("ocr_receipt");
     setReviewedManually(false);

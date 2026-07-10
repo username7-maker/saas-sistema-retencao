@@ -125,8 +125,11 @@ def update_body_composition_evaluation(
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
     previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id, exclude_evaluation_id=evaluation_id)
+    payload_values = payload.model_dump()
+    if payload.source == "ocr_receipt":
+        payload_values = _preserve_existing_anthropometry_for_ocr_update(payload_values, evaluation)
     update_data = resolve_body_composition_persistence_fields(
-        payload.model_dump(),
+        payload_values,
         reviewer_user_id=reviewer_user_id,
         previous_evaluation=previous_evaluation,
     )
@@ -220,6 +223,34 @@ def _resolve_reviewed_manually(payload: BodyCompositionEvaluationCreate | BodyCo
     if source == "ocr_receipt":
         return bool(payload.reviewed_manually)
     return bool(payload.reviewed_manually)
+
+
+def _preserve_existing_anthropometry_for_ocr_update(
+    values: dict,
+    evaluation: BodyCompositionEvaluation,
+) -> dict:
+    """Merge stored anthropometry into an OCR update so bioimpedance cannot erase it."""
+    merged = dict(values)
+    preserved_fields = (
+        "age_years",
+        "sex",
+        "height_cm",
+        "weight_kg",
+        *ANTHROPOMETRY_FIELDS,
+        "anthropometry_notes",
+        "measurement_protocol",
+        "preferred_body_fat_source",
+        "body_fat_manual_override_percent",
+        "body_fat_manual_review_completed",
+        "anthropometry_review_completed",
+    )
+    for field in preserved_fields:
+        incoming = merged.get(field)
+        stored = getattr(evaluation, field, None)
+        is_empty = incoming is None or incoming == "" or (isinstance(incoming, bool) and not incoming)
+        if is_empty and stored is not None:
+            merged[field] = stored
+    return merged
 
 
 def _apply_ai_payload(db: Session, *, member, evaluation: BodyCompositionEvaluation) -> None:

@@ -243,6 +243,83 @@ class TestUpdateBodyComposition:
         else:
             raise AssertionError("Expected HTTPException when update payload removes all measurements")
 
+    @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt", return_value=None)
+    @patch("app.services.body_composition_service.generate_body_composition_ai")
+    @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_ocr_update_preserves_existing_anthropometry(
+        self,
+        mock_get_member,
+        mock_get_evaluation,
+        mock_generate_ai,
+        mock_prepare_sync,
+    ):
+        evaluation = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            source="manual",
+            reviewed_manually=True,
+            age_years=29,
+            sex="male",
+            height_cm=178.0,
+            neck_cm=38.0,
+            waist_cm=82.0,
+            abdomen_cm=86.0,
+            hip_cm=96.0,
+            right_thigh_cm=56.0,
+            left_thigh_cm=57.0,
+            skinfold_subscapular_mm=14.0,
+            skinfold_triceps_mm=16.0,
+            skinfold_suprailiac_mm=18.0,
+            skinfold_calf_mm=20.0,
+            measurement_protocol="petroski_1995_male_18_66",
+            preferred_body_fat_source="geneos_composite",
+            body_fat_manual_override_percent=None,
+            body_fat_manual_review_completed=True,
+            anthropometry_review_completed=True,
+            anthropometry_notes="Medidas conferidas pelo professor.",
+            ai_coach_summary=None,
+            ai_member_friendly_summary=None,
+            ai_risk_flags_json=None,
+            ai_training_focus_json=None,
+            ai_generated_at=None,
+        )
+        mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID, full_name="Aluno")
+        mock_get_evaluation.return_value = evaluation
+        mock_generate_ai.return_value = _ai_payload()
+        db = MagicMock()
+        db.scalar.return_value = None
+
+        from app.schemas.body_composition import BodyCompositionEvaluationUpdate
+        from app.services.body_composition_service import update_body_composition_evaluation
+
+        updated, attempt = update_body_composition_evaluation(
+            db,
+            GYM_ID,
+            MEMBER_ID,
+            EVALUATION_ID,
+            BodyCompositionEvaluationUpdate(
+                evaluation_date=date(2026, 3, 4),
+                source="ocr_receipt",
+                weight_kg=84.5,
+                body_fat_percent=23.0,
+                device_profile="tezewa_receipt_v1",
+                reviewed_manually=True,
+            ),
+            sync_actuar=False,
+        )
+
+        assert updated.source == "ocr_receipt"
+        assert updated.neck_cm == 38.0
+        assert updated.waist_cm == 82.0
+        assert updated.abdomen_cm == 86.0
+        assert updated.skinfold_subscapular_mm == 14.0
+        assert updated.skinfold_triceps_mm == 16.0
+        assert updated.measurement_protocol == "petroski_1995_male_18_66"
+        assert updated.body_fat_anthropometric_percent is not None
+        assert attempt is None
+
 
 class TestListBodyComposition:
     def test_lists(self):

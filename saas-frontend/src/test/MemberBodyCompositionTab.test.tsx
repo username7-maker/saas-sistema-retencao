@@ -257,6 +257,54 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
   });
 
+  it("preserves anthropometry when a bioimpedance photo is read into the current evaluation", async () => {
+    vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
+      localResult: null,
+      result: {
+        device_profile: "tezewa_receipt_v1",
+        device_model: "Tezewa",
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23,
+        },
+        ranges: {},
+        warnings: [],
+        confidence: 0.95,
+        raw_text: "Weight 84.5",
+        needs_review: false,
+        engine: "local",
+        fallback_used: false,
+      },
+      fallbackReasons: [],
+      assistedAttempted: false,
+      assistedUsed: false,
+      assistedError: null,
+    });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    expect(screen.getByDisplayValue("33")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("54")).toBeInTheDocument();
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["fake-image"], "receipt.jpg", { type: "image/jpeg" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ler foto" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.readWithAssistedFallback).toHaveBeenCalledWith("member-1", expect.any(File), {
+        deviceProfile: "tezewa_receipt_v1",
+        forceAssisted: false,
+      });
+    });
+    expect(screen.getByDisplayValue("33")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("54")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("84.5")).toBeInTheDocument();
+  });
+
   it("opens the summary pdf through the authenticated service instead of navigating to /api directly", async () => {
     vi.mocked(bodyCompositionService.openPdf).mockResolvedValue(undefined);
     const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);
