@@ -222,4 +222,19 @@ describe("BodyCompositionReportPage", () => {
 
     windowOpenSpy.mockRestore();
   });
+
+  it("closes the placeholder tab when the PDF service fails", async () => {
+    vi.mocked(bodyCompositionService.openPdf).mockRejectedValue(new Error("PDF unavailable"));
+    const close = vi.fn();
+    const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close } as unknown as Window);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
+
+    await waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    windowOpenSpy.mockRestore();
+  });
 });

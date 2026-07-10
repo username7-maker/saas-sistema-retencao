@@ -70,4 +70,33 @@ describe("AuthProvider", () => {
     expect(authServiceMock.restoreSession).toHaveBeenCalledOnce();
     expect(authServiceMock.me).toHaveBeenCalledOnce();
   });
+
+  it("refreshes an active session when the operator returns to the browser tab", async () => {
+    tokenStorageMock.getAccessToken.mockReturnValue(null);
+    authServiceMock.restoreSession.mockResolvedValue("new-access-token");
+    authServiceMock.me.mockResolvedValue({
+      id: "user-1",
+      gym_id: "gym-1",
+      full_name: "Owner Teste",
+      email: "owner@example.com",
+      role: "owner",
+      active: true,
+      created_at: "2026-03-27T00:00:00Z",
+    });
+
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    await screen.findByText("Owner Teste");
+    authServiceMock.restoreSession.mockClear();
+
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() => {
+      expect(authServiceMock.restoreSession).toHaveBeenCalledOnce();
+    });
+  });
 });

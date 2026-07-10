@@ -4,6 +4,8 @@ import { authService, type LoginPayload } from "../services/authService";
 import { tokenStorage } from "../services/storage";
 import type { User } from "../types";
 
+const SESSION_REFRESH_INTERVAL_MS = 9 * 60 * 1000;
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -37,6 +39,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshActiveSession = () => {
+      if (document.visibilityState !== "visible") return;
+      // Refresh replaces only the in-memory access token. Do not eject an operator
+      // from an unfinished form when a background refresh is temporarily unavailable.
+      void authService.restoreSession().catch(() => undefined);
+    };
+
+    const intervalId = window.setInterval(refreshActiveSession, SESSION_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refreshActiveSession);
+    document.addEventListener("visibilitychange", refreshActiveSession);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshActiveSession);
+      document.removeEventListener("visibilitychange", refreshActiveSession);
+    };
+  }, [user]);
 
   const login = useCallback(async (payload: LoginPayload) => {
     await authService.login(payload);

@@ -244,6 +244,7 @@ function BodyCompositionReportPage() {
     try {
       await bodyCompositionService.openPdf(memberId, evaluationId, kind, popup);
     } catch {
+      popup?.close();
       toast.error(kind === "technical" ? "Nao foi possivel abrir o relatorio tecnico." : "Nao foi possivel abrir o resumo do aluno.");
     }
   }

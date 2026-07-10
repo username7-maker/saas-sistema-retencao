@@ -105,6 +105,26 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   window.URL.revokeObjectURL(url);
 }
 
+function isPdfBlob(blob: Blob): boolean {
+  if (blob.size === 0) return false;
+  return !blob.type || blob.type.toLowerCase().includes("pdf");
+}
+
+function openBlobInPopup(targetWindow: Window, url: string): boolean {
+  try {
+    if (targetWindow.closed) return false;
+    if (typeof targetWindow.location.replace === "function") {
+      targetWindow.location.replace(url);
+    } else {
+      targetWindow.location.href = url;
+    }
+    targetWindow.focus?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function writePdfWindowMessage(targetWindow: Window | null | undefined, title: string, message: string): void {
   if (!targetWindow) return;
   try {
@@ -329,6 +349,10 @@ export const bodyCompositionService = {
       timeout: 90_000,
     });
 
+    if (!isPdfBlob(response.data)) {
+      throw new Error("O servidor nao retornou um PDF valido.");
+    }
+
     return {
       blob: response.data,
       filename: parseFilename(
@@ -363,9 +387,9 @@ export const bodyCompositionService = {
       const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
       const url = window.URL.createObjectURL(blob);
 
-      if (targetWindow) {
-        targetWindow.location.href = url;
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      if (targetWindow && openBlobInPopup(targetWindow, url)) {
+        // Keep the object URL alive while the browser PDF viewer initializes.
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 15 * 60_000);
         return;
       }
 

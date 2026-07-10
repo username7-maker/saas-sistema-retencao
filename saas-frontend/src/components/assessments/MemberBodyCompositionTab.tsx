@@ -169,6 +169,50 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+type BodyCompositionSessionDraft = {
+  saved_at: number;
+  values: FormData;
+  source: EvaluationSource;
+  reviewed_manually: boolean;
+};
+
+const BODY_COMPOSITION_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
+
+function bodyCompositionDraftKey(memberId: string): string {
+  return `cordex:body-composition-draft:v1:${memberId}`;
+}
+
+function readBodyCompositionDraft(memberId: string): BodyCompositionSessionDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(bodyCompositionDraftKey(memberId));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as BodyCompositionSessionDraft;
+    if (!draft.values || Date.now() - draft.saved_at > BODY_COMPOSITION_DRAFT_TTL_MS) {
+      window.sessionStorage.removeItem(bodyCompositionDraftKey(memberId));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function saveBodyCompositionDraft(memberId: string, draft: BodyCompositionSessionDraft): void {
+  try {
+    window.sessionStorage.setItem(bodyCompositionDraftKey(memberId), JSON.stringify(draft));
+  } catch {
+    // The form remains usable when browser storage is unavailable.
+  }
+}
+
+function clearBodyCompositionDraft(memberId: string): void {
+  try {
+    window.sessionStorage.removeItem(bodyCompositionDraftKey(memberId));
+  } catch {
+    // The draft is best-effort and scoped to the browser tab.
+  }
+}
+
 type NumericFieldKey =
   | "age_years"
   | "height_cm"
@@ -820,6 +864,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [cameraError, setCameraError] = useState<string | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const restoredDraftMemberRef = useRef<string | null>(null);
+  const recoveredDraftMemberRef = useRef<string | null>(null);
 
   const { data: evaluations, isLoading } = useQuery({
     queryKey: ["body-composition", memberId],
@@ -852,7 +898,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     reset,
     setValue,
     watch,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: buildDefaultValues(null),
@@ -888,6 +934,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       return bodyCompositionService.create(memberId, payload, { syncActuar });
     },
     onSuccess: async (savedEvaluation, variables) => {
+      clearBodyCompositionDraft(memberId);
       if (!variables.syncActuar) {
         toast.success(editingEvaluationId ? "Bioimpedancia atualizada apenas no sistema." : "Bioimpedancia salva apenas no sistema.");
       } else if (savedEvaluation.actuar_sync_status === "sync_pending") {
@@ -904,6 +951,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       resetEditor(savedEvaluation);
     },
     onError: (error) => {
+      if (error instanceof AxiosError && error.response?.status === 401) {
+        toast.error("Sua sessao expirou. O rascunho ficou preservado nesta aba; entre novamente e ele sera recuperado.");
+        return;
+      }
       if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
         toast.error(error.response.data.detail);
         return;
@@ -1115,6 +1166,50 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
   const watchedFormValues = watch();
   const selectedProtocol = getBodyCompositionProtocol(watchedMeasurementProtocol);
+
+  useEffect(() => {
+    if (!selectedProtocol?.sex || selectedSex === selectedProtocol.sex) return;
+    setValue("sex", selectedProtocol.sex, { shouldDirty: true, shouldValidate: true });
+  }, [selectedProtocol?.key, selectedProtocol?.sex, selectedSex, setValue]);
+
+  useEffect(() => {
+    if (restoredDraftMemberRef.current === memberId || isLoading) return;
+    restoredDraftMemberRef.current = memberId;
+    const draft = readBodyCompositionDraft(memberId);
+    if (!draft) return;
+
+    recoveredDraftMemberRef.current = memberId;
+    reset({ ...buildDefaultValues(null), ...draft.values });
+    setCurrentSource(draft.source);
+    setReviewedManually(draft.reviewed_manually);
+    toast.success("Rascunho desta avaliacao foi recuperado nesta aba. Revise e salve quando estiver pronto.");
+  }, [isLoading, memberId, reset]);
+
+  useEffect(() => {
+    const latestEvaluation = evaluations?.[0];
+    if (!latestEvaluation || isDirty || recoveredDraftMemberRef.current === memberId) return;
+
+    if (!hasNumericValue(watchedAgeYears) && hasNumericValue(latestEvaluation.age_years)) {
+      setValue("age_years", latestEvaluation.age_years, { shouldDirty: false, shouldValidate: true });
+    }
+    if (!selectedSex && latestEvaluation.sex) {
+      setValue("sex", latestEvaluation.sex, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [evaluations, isDirty, memberId, selectedSex, setValue, watchedAgeYears]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const timer = window.setTimeout(() => {
+      saveBodyCompositionDraft(memberId, {
+        saved_at: Date.now(),
+        values: watchedFormValues,
+        source: currentSource,
+        reviewed_manually: reviewedManually,
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [currentSource, isDirty, memberId, reviewedManually, watchedFormValues]);
+
   const selectedProtocolRequiredFields = useMemo(
     () => (selectedProtocol?.requiredFields ?? []).flatMap((field) => {
       const definition = FIELD_BY_KEY.get(field as NumericFieldKey);
@@ -1433,6 +1528,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       toast.error("Preencha ao menos uma metrica da bioimpedancia antes de salvar.");
       return;
     }
+    saveBodyCompositionDraft(memberId, {
+      saved_at: Date.now(),
+      values: data,
+      source: currentSource,
+      reviewed_manually: reviewedManually,
+    });
     saveMutation.mutate({ payload: buildPayload(data), syncActuar });
   }
 
@@ -1482,12 +1583,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   }
 
   function handleNewEvaluation() {
+    clearBodyCompositionDraft(memberId);
     resetEditor(null);
     setCurrentSource("manual");
     setReviewedManually(true);
   }
 
   function handleEditEvaluation(evaluation: BodyCompositionEvaluation) {
+    clearBodyCompositionDraft(memberId);
     resetEditor(evaluation);
   }
 
@@ -1933,7 +2036,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <FormField label="Sexo">
                         <Select
                           aria-label="Sexo para protocolo"
-                          value={selectedSex ?? ""}
+                          value={selectedProtocol.sex ?? selectedSex ?? ""}
+                          disabled={Boolean(selectedProtocol.sex)}
                           onChange={(event) => setValue("sex", (event.target.value || null) as FormData["sex"], { shouldDirty: true, shouldValidate: true })}
                         >
                           <option value="">Nao informado</option>
