@@ -225,6 +225,7 @@ function BodyCompositionReportPage() {
   const report = reportQuery.data;
   const allReferenceMetrics = [...report.composition_metrics, ...report.risk_metrics, ...report.goal_metrics, ...report.muscle_fat_metrics];
   const scoreMetric = metricByKey([...report.risk_metrics, ...report.primary_cards], "health_score");
+  const reportScore = report.score_total != null ? formatNumber(report.score_total) : metricValue(scoreMetric);
   const physicalAgeMetric = metricByKey(report.risk_metrics, "physical_age");
   const bmrMetric = metricByKey(report.primary_cards, "basal_metabolic_rate_kcal", "bmr");
   const leadInsight = report.insights[0] ?? null;
@@ -275,7 +276,7 @@ function BodyCompositionReportPage() {
           <section className="clinical-web-page">
             <ReportHeader header={report.header} physicalAge={metricValue(physicalAgeMetric)} bmr={metricValue(bmrMetric)} />
             <section className="clinical-web-page-grid">
-              <SummaryCard score={metricValue(scoreMetric)} insight={leadInsight} />
+              <SummaryCard score={reportScore} insight={leadInsight} />
               <KeyIndicatorsTable metrics={keyIndicators} context={report.body_fat_context ?? null} />
             </section>
             <CompositionDetailGrid metrics={detailMetrics} context={report.body_fat_context ?? null} />

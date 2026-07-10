@@ -331,7 +331,10 @@ class BodyCompositionRecommendationRead(BaseModel):
 class BodyCompositionNextAssessmentRead(BaseModel):
     due_date: date
     formatted_due_date: str
+    contact_date: date
+    formatted_contact_date: str
     cycle_days: int = 90
+    contact_offset_days: int = 75
     conditions: list[str] = Field(default_factory=list)
 
 

@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
+  Camera,
   Copy,
   Download,
   FilePlus2,
@@ -17,7 +18,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -389,6 +390,14 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     ],
   },
 ];
+
+const FIELD_BY_KEY = new Map<NumericFieldKey, FieldDef>(
+  FORM_SECTIONS.flatMap((section) => section.fields.map((field) => [field.key, field] as const)),
+);
+
+function protocolFieldLabel(field: FieldDef): string {
+  return field.key.startsWith("skinfold_") ? `${SKINFOLD_FIELD_LABELS[field.key]} (mm)` : field.label;
+}
 
 const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "weight_kg",
@@ -807,6 +816,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [currentSource, setCurrentSource] = useState<EvaluationSource>("manual");
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const { data: evaluations, isLoading } = useQuery({
     queryKey: ["body-composition", memberId],
@@ -1100,7 +1113,15 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const watchedSkinfoldCalfMm = watch("skinfold_calf_mm");
   const watchedBodyFatReviewCompleted = watch("body_fat_manual_review_completed");
   const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
+  const watchedFormValues = watch();
   const selectedProtocol = getBodyCompositionProtocol(watchedMeasurementProtocol);
+  const selectedProtocolRequiredFields = useMemo(
+    () => (selectedProtocol?.requiredFields ?? []).flatMap((field) => {
+      const definition = FIELD_BY_KEY.get(field as NumericFieldKey);
+      return definition ? [definition] : [];
+    }),
+    [selectedProtocol],
+  );
   const anthropometryProtocolItems = useMemo(
     () => buildAnthropometryProtocolItems({
       sex: selectedSex,
@@ -1220,6 +1241,77 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const reportHref = reportEvaluationId ? `/assessments/members/${memberId}/body-composition/${reportEvaluationId}/report` : null;
   const canSendReportWhatsApp = Boolean(reportEvaluationId && memberPhone?.trim());
   const canSendReportKommo = Boolean(reportEvaluationId);
+
+  useEffect(() => {
+    if (!cameraOpen) return;
+
+    let cancelled = false;
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("A camera nao esta disponivel neste navegador. Envie a foto como arquivo.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" } },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        cameraStreamRef.current = stream;
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+        }
+      } catch {
+        setCameraError("Nao foi possivel acessar a camera. Verifique a permissao do navegador ou envie a foto como arquivo.");
+      }
+    }
+
+    void startCamera();
+    return () => {
+      cancelled = true;
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    };
+  }, [cameraOpen]);
+
+  function closeCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+    setCameraError(null);
+  }
+
+  function captureCameraPhoto() {
+    const video = cameraVideoRef.current;
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      toast.error("Aguarde a imagem da camera carregar antes de fotografar.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      toast.error("Nao foi possivel preparar a foto da camera.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        toast.error("Nao foi possivel capturar a foto da camera.");
+        return;
+      }
+      const file = new File([blob], `bioimpedancia-camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+      setOcrFile(file);
+      closeCamera();
+      toast.success("Foto capturada. Clique em Ler foto para preencher os dados do exame.");
+    }, "image/jpeg", 0.92);
+  }
 
   async function handleOpenPdf(kind: "summary" | "technical") {
     if (!reportEvaluationId) return;
@@ -1403,8 +1495,47 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const localOcrText = ocrReadSession.localResult?.raw_text ?? ocrResult?.raw_text ?? null;
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
+  function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
+    const normalized = normalizeNullableNumberInput(rawValue);
+    setValue(key, (typeof normalized === "number" ? normalized : null) as never, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }
+
   return (
     <div className="space-y-6">
+      {cameraOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="camera-capture-title"
+        >
+          <section className="w-full max-w-2xl rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="camera-capture-title" className="text-base font-semibold text-lovable-ink">Fotografar exame</h2>
+                <p className="mt-1 text-xs text-lovable-ink-muted">Posicione a folha inteira, com boa luz e sem reflexos.</p>
+              </div>
+              <Button type="button" size="sm" variant="ghost" onClick={closeCamera} aria-label="Fechar camera">
+                <X size={16} />
+              </Button>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl border border-lovable-border bg-black">
+              <video ref={cameraVideoRef} autoPlay muted playsInline className="aspect-video w-full object-contain" />
+            </div>
+            {cameraError ? <p className="mt-3 text-sm text-lovable-danger">{cameraError}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={closeCamera}>Cancelar</Button>
+              <Button type="button" variant="primary" onClick={captureCameraPhoto} disabled={Boolean(cameraError)}>
+                <Camera size={14} />
+                Capturar foto
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -1569,8 +1700,21 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <Input
                     type="file"
                     accept={SUPPORTED_OCR_IMAGE_ACCEPT}
+                    capture="environment"
                     onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)}
                   />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    aria-label="Abrir camera para fotografar a bioimpedancia"
+                    onClick={() => {
+                      setCameraError(null);
+                      setCameraOpen(true);
+                    }}
+                  >
+                    <Camera size={14} />
+                    Camera
+                  </Button>
                   <Button type="button" variant="ghost" onClick={() => void handleReadPhoto()} disabled={!ocrFile || ocrLoading}>
                     <ScanText size={14} />
                     {ocrLoading ? "Lendo..." : "Ler foto"}
@@ -1580,6 +1724,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     {ocrLoading ? "Processando..." : "Tentar leitura assistida (IA)"}
                   </Button>
                 </div>
+                {ocrFile ? <p className="mt-2 text-xs text-lovable-ink-muted">Imagem pronta para leitura: {ocrFile.name}</p> : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
                   <label className="inline-flex items-center gap-2">
                     <input
@@ -1768,6 +1913,65 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     </div>
                   </div>
                 </div>
+                {selectedProtocol && selectedProtocol.key !== "manual_bioimpedance" ? (
+                  <section className="rounded-2xl border border-lovable-primary/30 bg-lovable-primary/5 p-4" aria-labelledby="protocol-measurements-title">
+                    <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p id="protocol-measurements-title" className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">
+                          O que medir neste protocolo
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-lovable-ink">{selectedProtocol.label}</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">
+                          Preencha aqui os dados obrigatorios desta leitura. Os mesmos valores seguem salvos na avaliacao completa abaixo.
+                        </p>
+                      </div>
+                      <StatusPill tone={selectedProtocol.supported ? "success" : "warning"}>
+                        {selectedProtocol.supported ? "calculo disponivel" : "registro e revisao"}
+                      </StatusPill>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <FormField label="Sexo">
+                        <Select
+                          aria-label="Sexo para protocolo"
+                          value={selectedSex ?? ""}
+                          onChange={(event) => setValue("sex", (event.target.value || null) as FormData["sex"], { shouldDirty: true, shouldValidate: true })}
+                        >
+                          <option value="">Nao informado</option>
+                          <option value="male">Masculino</option>
+                          <option value="female">Feminino</option>
+                        </Select>
+                      </FormField>
+                      <FormField label="Idade (anos)">
+                        <Input
+                          aria-label="Idade para protocolo"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="29"
+                          value={watchedAgeYears ?? ""}
+                          onChange={(event) => {
+                            const normalized = normalizeNullableIntegerInput(event.target.value);
+                            setValue("age_years", (typeof normalized === "number" ? normalized : null) as FormData["age_years"], {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }}
+                        />
+                      </FormField>
+                      {selectedProtocolRequiredFields.map((field) => (
+                        <FormField key={field.key} label={protocolFieldLabel(field)}>
+                          <Input
+                            aria-label={`${protocolFieldLabel(field)} para protocolo`}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder={field.placeholder}
+                            value={String(watchedFormValues[field.key] ?? "")}
+                            onChange={(event) => setQuickProtocolNumber(field.key, event.target.value)}
+                          />
+                        </FormField>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>

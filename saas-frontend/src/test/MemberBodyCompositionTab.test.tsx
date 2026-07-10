@@ -257,6 +257,49 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
   });
 
+  it("shows the selected protocol requirements as immediate inputs", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    expect(await screen.findByText("O que medir neste protocolo")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" })).toHaveValue("14");
+    expect(screen.getByRole("textbox", { name: "Dobra tricipital (mm) para protocolo" })).toHaveValue("16");
+    expect(screen.getByRole("textbox", { name: "Dobra suprailiaca (mm) para protocolo" })).toHaveValue("18");
+    expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
+  });
+
+  it("opens the device camera capture flow next to file upload", async () => {
+    const stop = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia },
+      configurable: true,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir camera para fotografar a bioimpedancia" }));
+
+    expect(screen.getByRole("dialog", { name: "Fotografar exame" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Fechar camera" }));
+    expect(stop).toHaveBeenCalled();
+  });
+
   it("preserves anthropometry when a bioimpedance photo is read into the current evaluation", async () => {
     vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
       localResult: null,

@@ -121,6 +121,22 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                     "manual_review_required": False,
                     "quality_flags": [],
                 },
+                "score_total": 71,
+                "score_breakdown": [
+                    {"key": "body_fat", "label": "Gordura corporal", "score": 22, "max_score": 25, "description": "Teste"},
+                    {"key": "muscle", "label": "Massa muscular", "score": 18, "max_score": 25, "description": "Teste"},
+                    {"key": "visceral_fat", "label": "Gordura visceral", "score": 18, "max_score": 25, "description": "Teste"},
+                    {"key": "waist", "label": "Cintura / RCQ", "score": 13, "max_score": 25, "description": "Teste"},
+                ],
+                "next_assessment": {
+                    "due_date": "2026-07-13",
+                    "formatted_due_date": "13/07/2026",
+                    "contact_date": "2026-06-28",
+                    "formatted_contact_date": "28/06/2026",
+                    "cycle_days": 90,
+                    "contact_offset_days": 75,
+                    "conditions": ["mesmo horario sempre que possivel"],
+                },
                 "composition_metrics": [
                     {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "reference_min": 10, "reference_max": 25, "unit": "%"},
                     {"key": "body_fat_bioimpedance_percent", "label": "Percentual bruto oculto", "formatted_value": "31,2%", "reference_min": 10, "reference_max": 25, "unit": "%"},
@@ -205,6 +221,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Medidas corporais" in html
     assert "Mapa corporal de medidas" in html
     assert "Score da avaliacao" in html
+    assert "<strong>71</strong>" in html
+    assert "Nova avaliacao em 90 dias" in html
+    assert "contato da academia: 28/06/2026" in html
     assert "Historico da Composicao Corporal" not in html
     assert "Leitura Final" not in html
     assert "Gordura visceral" in html
@@ -303,6 +322,8 @@ def test_body_composition_report_builds_v3_score_indicators_and_rules():
     ]
     assert report.next_assessment is not None
     assert report.next_assessment.formatted_due_date == "06/10/2026"
+    assert report.next_assessment.formatted_contact_date == "21/09/2026"
+    assert report.next_assessment.contact_offset_days == 75
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):

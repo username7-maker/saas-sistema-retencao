@@ -1165,7 +1165,9 @@ def _render_body_next_assessment(next_assessment: Any) -> str:
     if not next_assessment:
         return ""
     due = str(_read_value(next_assessment, "formatted_due_date") or _format_dateish(_read_value(next_assessment, "due_date")))
+    contact = str(_read_value(next_assessment, "formatted_contact_date") or _format_dateish(_read_value(next_assessment, "contact_date")))
     cycle_days = _read_value(next_assessment, "cycle_days", 90)
+    contact_offset_days = _read_value(next_assessment, "contact_offset_days", 75)
     raw_conditions = _read_value(next_assessment, "conditions") or []
     conditions = [str(condition) for condition in raw_conditions if condition]
     condition_text = ", ".join(conditions[:4]) if conditions else "manter condicoes semelhantes de medicao"
@@ -1173,9 +1175,12 @@ def _render_body_next_assessment(next_assessment: Any) -> str:
       <section class="clinical-next-assessment">
         <div>
           <h2>Proxima avaliacao recomendada</h2>
-          <p>Ciclo padrao de {escape(str(cycle_days))} dias. Medir com {escape(condition_text)}.</p>
+          <p>Nova avaliacao em {escape(str(cycle_days))} dias. Para organizar o agendamento, a academia entrara em contato em {escape(str(contact_offset_days))} dias (cerca de dois meses e meio). Medir com {escape(condition_text)}.</p>
         </div>
-        <strong>ate {escape(due)}</strong>
+        <div class="clinical-next-assessment-dates">
+          <strong>nova avaliacao: ate {escape(due)}</strong>
+          <span>contato da academia: {escape(contact)}</span>
+        </div>
       </section>
     """
 
@@ -4048,7 +4053,17 @@ def _body_composition_report_css() -> str:
       }
       .clinical-next-assessment strong {
         color: #0e7490;
-        font-size: 15px;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .clinical-next-assessment-dates {
+        display: grid;
+        gap: 2px;
+        text-align: right;
+      }
+      .clinical-next-assessment-dates span {
+        color: #536173;
+        font-size: 7.3px;
         white-space: nowrap;
       }
       .clinical-soft-alert {
