@@ -1229,6 +1229,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       hipCm: watchedHipCm,
       measurementProtocol: watchedMeasurementProtocol,
       values: {
+        height_cm: watchedHeightCm,
         weight_kg: watchedWeightForAnthropometry,
         waist_cm: watchedWaistCm,
         skinfold_chest_mm: watchedSkinfoldChestMm,
