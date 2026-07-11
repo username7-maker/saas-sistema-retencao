@@ -24,6 +24,10 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error("[ErrorBoundary]", error, info.componentStack);
   }
 
+  private handleRetry = (): void => {
+    window.location.reload();
+  };
+
   render(): ReactNode {
     if (this.state.hasError) {
       if (this.props.fallback) {
@@ -47,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
             Ocorreu um erro inesperado nesta pagina. Tente recarregar ou entre em contato com o suporte.
           </p>
           <button
-            onClick={() => this.setState({ hasError: false, error: null })}
+            onClick={this.handleRetry}
             style={{
               padding: "0.5rem 1.5rem",
               borderRadius: "0.375rem",
