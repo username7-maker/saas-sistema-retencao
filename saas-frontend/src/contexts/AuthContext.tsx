@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== "visible") return;
       // Refresh replaces only the in-memory access token. Do not eject an operator
       // from an unfinished form when a background refresh is temporarily unavailable.
-      void authService.restoreSession().catch(() => undefined);
+      void authService.restoreSession({ clearOnFailure: false }).catch(() => undefined);
     };
 
     const intervalId = window.setInterval(refreshActiveSession, SESSION_REFRESH_INTERVAL_MS);
