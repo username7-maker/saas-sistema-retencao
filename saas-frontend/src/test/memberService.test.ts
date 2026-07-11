@@ -122,4 +122,12 @@ describe("memberService", () => {
       }),
     );
   });
+
+  it("rejects HTML fallback responses instead of showing an empty list", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: "<!doctype html><html><body>SPA fallback</body></html>",
+    });
+
+    await expect(memberService.listMembers()).rejects.toThrow("Resposta invalida ao carregar membros.");
+  });
 });

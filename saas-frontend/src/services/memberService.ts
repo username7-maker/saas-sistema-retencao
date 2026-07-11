@@ -259,6 +259,10 @@ function normalizeMember(value: unknown, index: number): Member {
 }
 
 function normalizeMembersResponse(data: unknown, filters: MemberFilters): PaginatedResponse<Member> {
+  if (typeof data === "string") {
+    throw new Error("Resposta invalida ao carregar membros.");
+  }
+
   const source = asRecord(data);
   const rawItems = Array.isArray(data) ? data : Array.isArray(source.items) ? source.items : [];
   const items = rawItems.map(normalizeMember);
