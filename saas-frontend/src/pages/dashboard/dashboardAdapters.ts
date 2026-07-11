@@ -57,8 +57,10 @@ function pipelineTotal(pipeline: Record<string, number> | undefined): number {
 }
 
 function mapRetentionSeries(churn: ChurnPoint[] | undefined, nps: NPSEvolutionPoint[] | undefined): RetentionChartPoint[] {
-  const churnMap = new Map((churn ?? []).map((point) => [point.month, point.churn_rate]));
-  const npsMap = new Map((nps ?? []).map((point) => [point.month, point.average_score]));
+  const churnSeries = Array.isArray(churn) ? churn : [];
+  const npsSeries = Array.isArray(nps) ? nps : [];
+  const churnMap = new Map(churnSeries.map((point) => [point.month, point.churn_rate]));
+  const npsMap = new Map(npsSeries.map((point) => [point.month, point.average_score]));
   const months = Array.from(new Set([...churnMap.keys(), ...npsMap.keys()])).sort();
 
   return months.map((month) => ({

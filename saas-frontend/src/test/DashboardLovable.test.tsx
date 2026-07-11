@@ -302,6 +302,7 @@ describe("DashboardLovable", () => {
     dashboardHooks.useCommercialDashboard.mockReturnValue(queryResult({}));
     dashboardHooks.useOperationalDashboard.mockReturnValue(queryResult({}));
     dashboardHooks.useRetentionDashboard.mockReturnValue(queryResult({}));
+    dashboardHooks.useChurnDashboard.mockReturnValue(queryResult({}));
     dashboardHooks.useBIFoundationDashboard.mockReturnValue(queryResult({}));
     cockpitHooks.useDailyCockpit.mockReturnValue(
       queryResult({

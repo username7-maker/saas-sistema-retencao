@@ -222,8 +222,12 @@ export function DashboardLovable() {
   });
 
   const actionRows = useMemo<ActionRow[]>(() => {
+    const retentionMembers = Array.isArray(retention.data?.red?.items) ? retention.data.red.items : [];
+    const inactiveMembers = Array.isArray(operational.data?.inactive_7d_items) ? operational.data.inactive_7d_items : [];
+    const staleLeads = Array.isArray(commercial.data?.stale_leads) ? commercial.data.stale_leads : [];
+
     const retentionRows =
-      retention.data?.red?.items?.map((member) => ({
+      retentionMembers.map((member) => ({
         id: `retention-${member.id}`,
         source: "retention" as const,
         name: member.full_name,
@@ -232,10 +236,10 @@ export function DashboardLovable() {
         priority: "critical" as const,
         lastEventAt: member.last_checkin_at,
         href: "/dashboard/retention",
-      })) ?? [];
+      }));
 
     const operationalRows =
-      operational.data?.inactive_7d_items?.map((member) => ({
+      inactiveMembers.map((member) => ({
         id: `operational-${member.id}`,
         source: "operational" as const,
         name: member.full_name,
@@ -244,10 +248,10 @@ export function DashboardLovable() {
         priority: "high" as const,
         lastEventAt: member.last_checkin_at,
         href: "/dashboard/operational",
-      })) ?? [];
+      }));
 
     const commercialRows =
-      commercial.data?.stale_leads?.map((lead) => ({
+      staleLeads.map((lead) => ({
         id: `commercial-${lead.id}`,
         source: "commercial" as const,
         name: lead.full_name,
@@ -256,7 +260,7 @@ export function DashboardLovable() {
         priority: "medium" as const,
         lastEventAt: lead.last_contact_at,
         href: "/crm",
-      })) ?? [];
+      }));
 
     return [...retentionRows, ...operationalRows, ...commercialRows].sort((a, b) => {
       const priorityOrder: Record<ActionPriority, number> = { critical: 0, high: 1, medium: 2 };
