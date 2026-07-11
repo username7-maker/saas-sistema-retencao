@@ -258,7 +258,8 @@ export function LovableLayout() {
     enabled: canViewNotifications,
   });
 
-  const unreadCount = notifications?.items.filter((item) => !item.read_at).length ?? 0;
+  const notificationItems = Array.isArray(notifications?.items) ? notifications.items : [];
+  const unreadCount = notificationItems.filter((item) => !item.read_at).length;
   const userEmail = user?.email ?? "usuario@academia";
   const userRoleLabel = user?.job_title?.trim() || user?.role || "owner";
 
