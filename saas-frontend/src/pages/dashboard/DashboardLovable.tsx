@@ -223,7 +223,7 @@ export function DashboardLovable() {
 
   const actionRows = useMemo<ActionRow[]>(() => {
     const retentionRows =
-      retention.data?.red.items.map((member) => ({
+      retention.data?.red?.items?.map((member) => ({
         id: `retention-${member.id}`,
         source: "retention" as const,
         name: member.full_name,
@@ -235,7 +235,7 @@ export function DashboardLovable() {
       })) ?? [];
 
     const operationalRows =
-      operational.data?.inactive_7d_items.map((member) => ({
+      operational.data?.inactive_7d_items?.map((member) => ({
         id: `operational-${member.id}`,
         source: "operational" as const,
         name: member.full_name,
@@ -247,7 +247,7 @@ export function DashboardLovable() {
       })) ?? [];
 
     const commercialRows =
-      commercial.data?.stale_leads.map((lead) => ({
+      commercial.data?.stale_leads?.map((lead) => ({
         id: `commercial-${lead.id}`,
         source: "commercial" as const,
         name: lead.full_name,
@@ -265,7 +265,7 @@ export function DashboardLovable() {
       const bTime = b.lastEventAt ? new Date(b.lastEventAt).getTime() : Number.MAX_SAFE_INTEGER;
       return aTime - bTime;
     });
-  }, [commercial.data?.stale_leads, operational.data?.inactive_7d_items, retention.data?.red.items]);
+  }, [commercial.data?.stale_leads, operational.data?.inactive_7d_items, retention.data?.red?.items]);
 
   const chartData = useMemo(() => {
     const points = viewModel.retentionChart;
@@ -283,8 +283,8 @@ export function DashboardLovable() {
   const totalMembers = executive.data?.total_members ?? 0;
   const churnRate = executive.data?.churn_rate ?? 0;
   const mrr = executive.data?.mrr ?? 0;
-  const redCount = retention.data?.red.total ?? executive.data?.risk_distribution.red ?? 0;
-  const yellowCount = retention.data?.yellow.total ?? executive.data?.risk_distribution.yellow ?? 0;
+  const redCount = retention.data?.red?.total ?? executive.data?.risk_distribution?.red ?? 0;
+  const yellowCount = retention.data?.yellow?.total ?? executive.data?.risk_distribution?.yellow ?? 0;
   const inactiveCount = operational.data?.inactive_7d_total ?? 0;
   const checkins7d = weeklySummary.data?.checkins_this_week ?? operational.data?.realtime_checkins ?? 0;
   const newAtRisk = weeklySummary.data?.new_at_risk ?? 0;

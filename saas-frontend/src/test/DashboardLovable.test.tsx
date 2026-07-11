@@ -291,6 +291,18 @@ describe("DashboardLovable", () => {
   });
 
   it("keeps the executive dashboard visible when cockpit payloads are partial", () => {
+    dashboardHooks.useExecutiveDashboard.mockReturnValue(
+      queryResult({
+        total_members: 0,
+        active_members: 0,
+        churn_rate: 0,
+        mrr: 0,
+      }),
+    );
+    dashboardHooks.useCommercialDashboard.mockReturnValue(queryResult({}));
+    dashboardHooks.useOperationalDashboard.mockReturnValue(queryResult({}));
+    dashboardHooks.useRetentionDashboard.mockReturnValue(queryResult({}));
+    dashboardHooks.useBIFoundationDashboard.mockReturnValue(queryResult({}));
     cockpitHooks.useDailyCockpit.mockReturnValue(
       queryResult({
         generated_at: "2026-07-11T10:00:00Z",
