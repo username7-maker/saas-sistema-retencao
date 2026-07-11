@@ -35,6 +35,13 @@ const dashboardHooks = vi.hoisted(() => ({
 
 vi.mock("../hooks/useDashboard", () => dashboardHooks);
 
+const cockpitHooks = vi.hoisted(() => ({
+  useDailyCockpit: vi.fn(),
+  useWeeklyFunnel: vi.fn(),
+}));
+
+vi.mock("../hooks/useCockpit", () => cockpitHooks);
+
 function queryResult<T>(data: T, isLoading = false) {
   return {
     data,
@@ -197,6 +204,33 @@ const weeklySummaryData = {
   total_active: 103,
 };
 
+const dailyCockpitData = {
+  generated_at: "2026-07-11T10:00:00Z",
+  leads_followup: [],
+  members_attention: [],
+  actions_today: [],
+  triage_pending_count: 0,
+  counts: {
+    leads_followup: 0,
+    members_attention: 0,
+    actions_today: 0,
+  },
+};
+
+const weeklyFunnelData = {
+  week_start: "2026-07-06",
+  week_end: "2026-07-12",
+  week_offset: 0,
+  contacts: { key: "contacts", label: "Contatos", value: 0, previous_value: 0 },
+  responses: { key: "responses", label: "Respostas", value: 0, previous_value: 0 },
+  conversions: { key: "conversions", label: "Conversoes", value: 0, previous_value: 0 },
+  conversion_breakdown: {
+    leads_won: 0,
+    members_joined: 0,
+    risk_recovered: 0,
+  },
+};
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -216,14 +250,16 @@ describe("DashboardLovable", () => {
     dashboardHooks.useChurnDashboard.mockReturnValue(queryResult(churnData));
     dashboardHooks.useWeeklySummary.mockReturnValue(queryResult(weeklySummaryData));
     dashboardHooks.useBIFoundationDashboard.mockReturnValue(queryResult(biFoundationData));
+    cockpitHooks.useDailyCockpit.mockReturnValue(queryResult(dailyCockpitData));
+    cockpitHooks.useWeeklyFunnel.mockReturnValue(queryResult(weeklyFunnelData));
   });
 
   it("renders the command center dashboard with hero, KPIs, intelligence map, chart and action queue", async () => {
     renderPage();
 
-    expect(screen.getByText("Resumo executivo")).toBeInTheDocument();
-    expect(screen.getByText("Visão executiva")).toBeInTheDocument();
-    expect(screen.getByText("Briefing inteligente")).toBeInTheDocument();
+    expect(screen.getByText("Rotina comercial do dia")).toBeInTheDocument();
+    expect(screen.getByText("Performance Intelligence")).toBeInTheDocument();
+    expect(screen.getByText("IA de risco em tempo real")).toBeInTheDocument();
 
     expect(screen.getByText("Total de membros")).toBeInTheDocument();
     expect(screen.getAllByText("Alunos ativos").length).toBeGreaterThan(0);
@@ -252,6 +288,27 @@ describe("DashboardLovable", () => {
     expect(screen.getByText("Segmentos prioritários para decisão de retenção.")).toBeInTheDocument();
     expect(screen.getAllByText("Ana Silva").length).toBeGreaterThan(0);
     expect(screen.getByText("Lead Maria")).toBeInTheDocument();
+  });
+
+  it("keeps the executive dashboard visible when cockpit payloads are partial", () => {
+    cockpitHooks.useDailyCockpit.mockReturnValue(
+      queryResult({
+        generated_at: "2026-07-11T10:00:00Z",
+      }),
+    );
+    cockpitHooks.useWeeklyFunnel.mockReturnValue(
+      queryResult({
+        week_start: "2026-07-06",
+        week_end: "2026-07-12",
+        week_offset: 0,
+      }),
+    );
+
+    renderPage();
+
+    expect(screen.getByText("Rotina comercial do dia")).toBeInTheDocument();
+    expect(screen.getByText("Performance Intelligence")).toBeInTheDocument();
+    expect(screen.queryByText("Algo saiu do previsto")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when there are no priority actions", async () => {
