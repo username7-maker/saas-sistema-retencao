@@ -21,14 +21,15 @@
 
 ### Integridade da fila operacional de tasks
 
-- [ ] **WQ-01**: toda acao elegivel fica alcancavel por busca e paginacao server-side, sem limitar a operacao aos primeiros 25 itens
-- [ ] **WQ-02**: totais e contadores por estado, dominio e turno sao autoritativos e nunca exibem zero provisoriamente como dado real
-- [ ] **WQ-03**: recomendacao de IA reutiliza a task ativa equivalente e impede duplicacao canonica de trabalho ainda aberto
+- [ ] **WQ-01**: toda acao carregada no snapshot fica alcancavel por busca e paginacao server-side, sem limitar a operacao aos primeiros 25 itens, e qualquer cap de origem fica explicito
+- [ ] **WQ-02**: totais e contadores por estado, dominio e turno sao coerentes com o snapshot, sinalizam limite inferior quando truncados e nunca exibem zero provisoriamente como dado real
+- [ ] **WQ-03**: recomendacao de IA reutiliza a task ativa equivalente e preparacoes sequenciais convergem para o mesmo trabalho ainda aberto
 - [ ] **WQ-04**: fila explicita frescor, owner/equipe, prazo e motivo decisivo; dado ausente permanece desconhecido em vez de virar risco critico artificial
 - [ ] **WQ-05**: estados, snooze e ordenacao seguem a mesma semantica; item adiado sai de `fazer agora` e, em empate, o prazo mais proximo vence
 - [ ] **WQ-06**: claim com versao impede que dois operadores executem ou concluam silenciosamente o mesmo item ao mesmo tempo
 - [ ] **WQ-07**: qualquer efeito externo exige politica de consentimento aplicavel e idempotencia persistente, inclusive em acoes manuais ou send-and-wait
-- [ ] **WQ-08**: testes automatizados e smoke sintetico cobrem alcance, contagem, deduplicacao, concorrencia, consentimento e regressao das duas superficies da fila
+- [ ] **WQ-08**: testes automatizados e smoke sintetico cobrem alcance, contagem, reuso, estado e regressao das duas superficies da fila
+- [ ] **WQ-09**: harness PostgreSQL e provider sintetico provam concorrencia, consentimento e idempotencia antes do rollout estrutural
 
 ### Bioimpedancia e Actuar readiness
 
@@ -220,9 +221,10 @@
 | WQ-03 | Phase 10 | Planned |
 | WQ-04 | Phase 10 | Planned |
 | WQ-05 | Phase 10 | Planned |
-| WQ-06 | Phase 10 | Planned |
-| WQ-07 | Phase 10 | Planned |
+| WQ-06 | Phase 10.1 | Planned |
+| WQ-07 | Phase 10.1 | Planned |
 | WQ-08 | Phase 10 | Planned |
+| WQ-09 | Phase 10.1 | Planned |
 | BODY-01 | Phase 4.31 | Planned |
 | BODY-02 | Phase 4.31 | Planned |
 | BODY-03 | Phase 4.31 | Planned |

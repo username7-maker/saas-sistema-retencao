@@ -515,20 +515,31 @@ Status:
 
 ### Phase 10: Integridade operacional da fila de tasks do piloto
 
-**Goal:** Tornar a fila compartilhada de `/tasks` e `/ai/triage` confiavel para operacao real: todo trabalho precisa ser alcancavel, unico, atual, atribuivel, ordenado corretamente e seguro diante de concorrencia ou efeitos externos.
-**Requirements**: `WQ-01`, `WQ-02`, `WQ-03`, `WQ-04`, `WQ-05`, `WQ-06`, `WQ-07`, `WQ-08`
+**Goal:** Tornar a fila compartilhada de `/tasks` e `/ai/triage` honesta e navegavel no piloto: todo trabalho do snapshot deve ser alcancavel, contagens devem declarar seus limites, tarefas ativas devem ser reutilizadas e snooze/ordenacao/frescor devem refletir o estado real.
+**Requirements**: `WQ-01`, `WQ-02`, `WQ-03`, `WQ-04`, `WQ-05`, `WQ-08`
 **Depends on:** Phase 04.43.3, Phase 04.43.4, Phase 09.9
-**Plans:** 4 plans
+**Plans:** 3 plans
 
 Plans:
 - [ ] 10-01-PLAN.md - alcance server-side, contagens autoritativas, snooze e ordenacao
 - [ ] 10-02-PLAN.md - deduplicacao, frescor e prontidao das recomendacoes de IA
-- [ ] 10-03-PLAN.md - claim concorrente, consentimento e idempotencia de efeitos externos
-- [ ] 10-04-PLAN.md - integracao do runner, regressao cruzada e smoke do piloto
+- [ ] 10-03-PLAN.md - integracao do runner, regressao cruzada e smoke do piloto
 
 Status:
 - [x] context
-- [ ] ui-spec
+- [x] ui-spec
 - [ ] plan
 - [ ] execute
 - [ ] verify/validate
+
+### Phase 10.1: Concorrencia e efeitos externos seguros da Work Queue (INSERTED)
+
+**Goal:** Impedir colisao silenciosa entre operadores e garantir que efeitos externos humanos tenham consentimento aplicavel, intencao duravel e idempotencia tenant-scoped antes de chamar o provider.
+**Requirements**: `WQ-06`, `WQ-07`, `WQ-09`
+**Depends on:** Phase 10, harness de concorrencia PostgreSQL disponivel
+**Plans:** 3 plans
+
+Plans:
+- [ ] 10.1-01-PLAN.md - dedupe canonica, claim sidecar, versao/CAS e conflitos 409
+- [ ] 10.1-02-PLAN.md - consentimento por efeito e intent idempotente antes do provider
+- [ ] 10.1-03-PLAN.md - testes PostgreSQL/provider, rollout aditivo e reconciliacao de estado incerto

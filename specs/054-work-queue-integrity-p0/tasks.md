@@ -5,7 +5,6 @@
 - [ ] Corrigir semantica de snooze e ordenacao da fila.
 - [ ] Reutilizar task ativa em recomendacao de onboarding e preservar sinais desconhecidos.
 - [ ] Expor frescor, owner, prazo e prontidao no contrato operacional.
-- [ ] Implementar claim/versao com conflito recuperavel.
-- [ ] Fechar consentimento e idempotencia dos efeitos externos humanos.
+- [x] Separar claim/versao e efeitos externos na Spec 055 / Phase 10.1.
 - [ ] Integrar contrato no runner compartilhado de `/tasks` e `/ai/triage`.
 - [ ] Rodar gates automatizados e smoke sintetico do piloto.

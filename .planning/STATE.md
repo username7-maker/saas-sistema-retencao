@@ -69,6 +69,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 ### Roadmap Evolution
 
+- Phase 10.1 inserted after Phase 10: Concorrencia e efeitos externos seguros da Work Queue (URGENT)
 - Phase 10 added: Integridade operacional da fila de tasks do piloto
 - Phase 4.43 added: AI-first fase 1 - Inbox de triagem, posicionada como primeira aposta pos-freeze e bloqueada pelos gates de hardening, canais reais e transparencia de IA
 - 2026-04-02: gate operacional da 4.43 formalizado com `04.43-BASELINE.md` e `04.43-APPROVAL-POLICY.md`

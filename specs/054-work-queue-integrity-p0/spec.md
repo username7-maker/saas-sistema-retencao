@@ -2,7 +2,7 @@
 
 ## User Story
 
-Como operador, gestor ou professor do Cordex Gym OS, quero confiar que a fila operacional mostra todo o trabalho elegivel, sem duplicatas ou contagens falsas, e que assumir, adiar, executar ou preparar uma comunicacao produz exatamente um resultado seguro e auditavel.
+Como operador, gestor ou professor do Cordex Gym OS, quero navegar e pesquisar o snapshot inteiro da fila operacional, sem contagens falsas ou criacao sequencial de tasks equivalentes, para saber o que fazer agora e quando um limite tecnico ainda impede total exato.
 
 ## Requirements
 
@@ -22,20 +22,10 @@ Como operador, gestor ou professor do Cordex Gym OS, quero confiar que a fila op
 - Sinal ausente permanece `unknown`; ausencia de dado nao pode virar automaticamente score zero ou severidade critica.
 - Item executavel deve explicitar frescor, owner/equipe, prazo e motivo ou a ausencia desses dados.
 
-### Estado e concorrencia
+### Estado
 
 - Snooze deve usar uma fonte temporal canonica e retirar o item de `do_now` ate o instante configurado.
 - Em empate de prioridade, menor prazo vence; a ordenacao final deve possuir chave estavel.
-- Claim/outcome deve usar versao ou precondicao equivalente para que dois operadores nao atualizem silenciosamente o mesmo item.
-- Conflito concorrente deve retornar resposta recuperavel e auditavel.
-
-### Efeitos externos
-
-- A politica de consentimento deve ser avaliada conforme canal e efeito concreto, inclusive em fluxo humano ou send-and-wait.
-- Todo efeito externo deve possuir chave idempotente persistida e unica no escopo correto.
-- Repetir a mesma requisicao nao pode chamar o provider uma segunda vez.
-- O estado deve distinguir preparado, enviado/confirmado, falhou e aguardando resultado.
-- Nao ha autoenvio nesta fase.
 
 ### Qualidade e seguranca
 
@@ -50,6 +40,7 @@ Como operador, gestor ou professor do Cordex Gym OS, quero confiar que a fila op
 - Envio autonomo por WhatsApp, Kommo ou outro provider.
 - Dashboard executivo completo de capacidade/ROI.
 - Backfill destrutivo do historico do piloto.
+- Claim/CAS e hardening de efeitos externos; rastreados na Spec 055 / Phase 10.1.
 
 ## Acceptance Criteria
 
@@ -59,8 +50,6 @@ Como operador, gestor ou professor do Cordex Gym OS, quero confiar que a fila op
 - Recommendation de onboarding com task ativa retorna a task existente e nao aumenta o numero de tasks.
 - Duas preparacoes repetidas da mesma recommendation convergem para o mesmo resultado.
 - Item snoozed desaparece de `do_now` e reaparece apenas no instante correto.
-- Dois claims/outcomes concorrentes resultam em um vencedor e um conflito explicito.
-- Efeito externo bloqueado por consentimento nao chama provider; repeticao idempotente chama provider no maximo uma vez.
 - Tenant isolation, testes focados, typecheck, lint focal, build e `specify check` passam.
 
 ## Constitutional Alignment
@@ -68,5 +57,5 @@ Como operador, gestor ou professor do Cordex Gym OS, quero confiar que a fila op
 - Operational Truth: totais, estados e CTAs derivam do backend persistido.
 - Human Review: comunicacao continua humana e efeitos bloqueados ficam explicitos.
 - Tenant Isolation: dedupe, claim e idempotencia sao sempre tenant-scoped.
-- Durable Side Effects: intencao e resultado externo ficam persistidos e recuperaveis.
+- Durable Side Effects: esta fase nao amplia efeitos; o fechamento estrutural fica explicitamente rastreado na Spec 055.
 - Shared Semantic Payload: as duas superficies usam o mesmo `WorkQueueItem` e o mesmo contrato de lista.

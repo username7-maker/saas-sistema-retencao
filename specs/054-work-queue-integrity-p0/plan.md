@@ -18,15 +18,7 @@ Preservar `Task` e `AITriageRecommendation` como fontes persistentes e `WorkQueu
 3. Preservar `unknown` para sinais ausentes e expor frescor/prontidao no payload.
 4. Cobrir task reutilizavel, encerrada, arquivada, cross-tenant e preparacao repetida.
 
-## Wave 3 - Concurrency and External Effects
-
-1. Introduzir claim/versao compatibilidade-preservada para execucao e outcome.
-2. Responder conflito concorrente sem sobrescrita silenciosa.
-3. Aplicar consentimento conforme canal/efeito em todos os caminhos humanos relevantes.
-4. Persistir chave idempotente unica e estado do efeito antes/depois do provider.
-5. Cobrir concorrencia, retry, falha de provider, consentimento e isolamento de tenant.
-
-## Wave 4 - Shared Runner and Pilot Gate
+## Wave 3 - Shared Runner and Pilot Gate
 
 1. Enviar busca/filtros/pagina para a API e consumir o envelope autoritativo.
 2. Implementar navegacao, loading honesto, aviso de truncamento, CTA de reuso, stale/claim/conflict e feedback de snooze.
@@ -40,3 +32,4 @@ Preservar `Task` e `AITriageRecommendation` como fontes persistentes e `WorkQueu
 - Migracoes aditivas com downgrade e validacao de concorrencia quando Wave 3 exigir persistencia.
 - Nenhuma credencial ou dado real do piloto em testes/smoke.
 - Publicacao somente depois de backend e frontend estarem compativeis entre si.
+- Claim/CAS e efeitos externos seguem na Spec 055 / Phase 10.1, com migration e prova PostgreSQL separadas.
