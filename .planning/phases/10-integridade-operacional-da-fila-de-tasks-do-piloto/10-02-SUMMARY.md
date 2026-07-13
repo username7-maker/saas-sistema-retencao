@@ -42,6 +42,7 @@ AI triage preparation now converges sequentially to one active canonical onboard
 - Added `work_queue_equivalence_key` reuse for onboarding recommendations without adding a database constraint or promising concurrent uniqueness.
 - Made `payload_snapshot.metadata.prepared_task_id` the durable sequential link and rejected broken, inactive, deleted, archived, cross-tenant and cross-member candidates.
 - Validated the Work Queue `awaiting_outcome` shortcut against the same canonical task resolver before returning a task id, so a broken snapshot link does not become a false "continue task" action.
+- Hardened adversarial reuse edges: auto-approval during prepare no longer refreshes the snapshot clock, `assign_owner` uses the canonical resolver, blank `source_domain` falls back to `domain`, and invalid nested `canonical_task_id` is removed from `awaiting_outcome` responses.
 - Kept `last_refreshed_at` unchanged during prepare actions so stale recommendations do not become fresh because an operator clicked a CTA.
 - Added additive Work Queue fields: `canonical_task_id`, `last_refreshed_at`, `freshness_state`, `freshness_blocking`, `readiness_missing_fields`, `signal_value`, `priority_state`, `assigned_to_name` and `assigned_to_role`.
 - Scoped assigned-user serialization through the Task loader query instead of per-item lookups.
@@ -62,6 +63,10 @@ AI triage preparation now converges sequentially to one active canonical onboard
 - **Awaiting-outcome RED:** `1 failed, 66 deselected` in `2.41s`, proving the shortcut returned a raw `prepared_task_id` even when canonical validation failed.
 - **Final plan gate:** `89 passed` in `2.55s` after validating the shortcut.
 - **Final relevant backend gate:** Work Queue, AI triage, Autopilot, AI Service Agent, Student Personal AI and Assessment Queue returned `124 passed` in `4.83s`.
+- **Adversarial reuse RED:** `8 failed, 3 passed, 88 deselected` in `2.69s`, covering stale auto-approval refresh, raw `assign_owner`, SQL/Python blank-domain drift and nested raw `canonical_task_id`.
+- **Adversarial reuse GREEN:** `11 passed, 88 deselected` in `2.18s`.
+- **Final adversarial plan gate:** `99 passed` in `2.52s`.
+- **Final adversarial relevant backend gate:** Work Queue, AI triage, Autopilot, AI Service Agent, Student Personal AI and Assessment Queue returned `134 passed` in `4.50s`.
 - **Import-order gate:** `py -3.12 -m ruff check --select I app/schemas/ai_triage.py app/schemas/work_queue.py app/services/ai_triage_service.py app/services/work_queue_service.py` passed.
 - **Diff gate:** `git diff --check` passed.
 - **Boundary check:** changed files were limited to schemas, services, tests and this summary. No migration/model/unique constraint/lock/claim/CAS/consent/idempotency/provider behavior was added.
@@ -79,3 +84,5 @@ AI triage preparation now converges sequentially to one active canonical onboard
 2. **Task 10-02-02/03: Implement canonical reuse and readiness payload** - `7f740d2` (`feat`)
 3. **Awaiting outcome canonical validation** - `268e7b6` (`test`)
 4. **Awaiting outcome implementation** - `fa9f137` (`fix`)
+5. **Adversarial reuse validation contracts** - `70e11d4` (`test`)
+6. **Adversarial reuse hardening implementation** - `5c10075` (`fix`)
