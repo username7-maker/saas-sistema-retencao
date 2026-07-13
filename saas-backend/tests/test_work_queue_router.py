@@ -173,3 +173,22 @@ def test_wq_outcome_route_accepts_timezone_aware_scheduled_for(wq_client):
     scheduled_for = service.call_args.kwargs["payload"].scheduled_for
     assert scheduled_for is not None
     assert scheduled_for.utcoffset() is not None
+
+
+def test_wq_execute_route_forwards_expected_version(wq_client):
+    client, _fake_db = wq_client
+    service = MagicMock(return_value=_synthetic_action_result())
+
+    with patch("app.routers.work_queue.execute_work_queue_item", service):
+        response = client.post(
+            f"/api/v1/work-queue/items/task/{_synthetic_item().source_id}/execute",
+            json={
+                "operator_note": "Executar com CAS",
+                "expected_version": 4,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = service.call_args.kwargs["payload"]
+    assert payload.expected_version == 4
+    assert payload.operator_note == "Executar com CAS"

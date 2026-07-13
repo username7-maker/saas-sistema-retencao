@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
@@ -616,21 +617,29 @@ def _is_active_equivalent_work_queue_task(
     if task.deleted_at is not None or is_task_operationally_archived(task):
         return False
     extra = _task_extra(task)
-    return bool(equivalence_key and extra.get("work_queue_equivalence_key") == equivalence_key) or _task_has_onboarding_evidence(
-        task,
-        recommendation,
-    )
+    return bool(
+        equivalence_key
+        and (
+            getattr(task, "work_dedupe_key", None) == equivalence_key
+            or extra.get("work_queue_equivalence_key") == equivalence_key
+        )
+    ) or _task_has_onboarding_evidence(task, recommendation)
 
 
 def _attach_work_queue_equivalence_key(db: Session, task: Task, equivalence_key: str | None) -> None:
     if not equivalence_key:
         return
     extra = _task_extra(task)
-    if extra.get("work_queue_equivalence_key") == equivalence_key:
-        return
-    extra["work_queue_equivalence_key"] = equivalence_key
-    task.extra_data = extra
-    db.add(task)
+    changed = False
+    if extra.get("work_queue_equivalence_key") != equivalence_key:
+        extra["work_queue_equivalence_key"] = equivalence_key
+        task.extra_data = extra
+        changed = True
+    if getattr(task, "work_dedupe_key", None) != equivalence_key:
+        task.work_dedupe_key = equivalence_key
+        changed = True
+    if changed:
+        db.add(task)
 
 
 def _load_prepared_work_queue_task(
@@ -683,6 +692,7 @@ def _find_equivalent_work_queue_task(
                 Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
                 Task.deleted_at.is_(None),
                 or_(
+                    Task.work_dedupe_key == equivalence_key,
                     Task.extra_data["work_queue_equivalence_key"].astext == equivalence_key,
                     source == "onboarding",
                     source_domain == "onboarding",
@@ -1100,6 +1110,7 @@ def prepare_ai_triage_recommendation_action(
     prepared_message: str | None = None
 
     if action == "create_task":
+        equivalence_key = _work_queue_equivalence_key(recommendation)
         resolved_owner = _resolve_owner_for_action(
             db,
             gym_id=gym_id,
@@ -1115,7 +1126,6 @@ def prepare_ai_triage_recommendation_action(
         )
         created_task = task is None
         if task is None:
-            equivalence_key = _work_queue_equivalence_key(recommendation)
             extra_data = {
                     "source": "ai_triage",
                     "ai_triage_recommendation_id": str(recommendation.id),
@@ -1125,21 +1135,33 @@ def prepare_ai_triage_recommendation_action(
             }
             if equivalence_key:
                 extra_data["work_queue_equivalence_key"] = equivalence_key
-            task = create_task(
-                db,
-                TaskCreate(
-                    title=_task_title_for_recommendation(snapshot),
-                    description=_task_description_for_recommendation(snapshot),
-                    member_id=recommendation.member_id,
-                    lead_id=recommendation.lead_id,
-                    assigned_to_user_id=resolved_owner["user_id"] if resolved_owner else None,
-                    priority=_task_priority_for_recommendation(recommendation),
-                    suggested_message=snapshot.get("suggested_message"),
-                    extra_data=extra_data,
-                ),
-                gym_id=gym_id,
-                commit=False,
-            )
+            try:
+                with db.begin_nested():
+                    task = create_task(
+                        db,
+                        TaskCreate(
+                            title=_task_title_for_recommendation(snapshot),
+                            description=_task_description_for_recommendation(snapshot),
+                            member_id=recommendation.member_id,
+                            lead_id=recommendation.lead_id,
+                            assigned_to_user_id=resolved_owner["user_id"] if resolved_owner else None,
+                            priority=_task_priority_for_recommendation(recommendation),
+                            suggested_message=snapshot.get("suggested_message"),
+                            work_dedupe_key=equivalence_key,
+                            extra_data=extra_data,
+                        ),
+                        gym_id=gym_id,
+                        commit=False,
+                    )
+            except IntegrityError:
+                task = _find_equivalent_work_queue_task(
+                    db,
+                    recommendation=recommendation,
+                    equivalence_key=equivalence_key,
+                )
+                if task is None:
+                    raise
+                created_task = False
         task_id = task.id
         snapshot["recommended_owner"] = resolved_owner or existing_owner
         metadata.update(

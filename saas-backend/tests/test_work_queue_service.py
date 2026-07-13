@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.models import AITriageRecommendation, RoleEnum, TaskPriority, TaskStatus
+from app.models import AITriageRecommendation, RoleEnum, TaskPriority, TaskStatus, WorkQueueClaim
 from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
 from app.services import work_queue_service
 from app.services.work_queue_service import (
@@ -125,7 +125,66 @@ def test_execute_task_moves_todo_to_doing_and_records_operator_note(monkeypatch)
     created_events = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "event_type", None) == "execution_started"]
     assert created_events
     assert created_events[0].note == "Chamar agora"
-    db.flush.assert_called_once()
+    assert result.item.claim_version == 2
+    assert db.flush.call_count == 2
+
+
+def test_wq_execute_task_expected_version_advances_claim(monkeypatch):
+    task = _task()
+    claim = WorkQueueClaim(
+        gym_id=GYM_ID,
+        source_type="task",
+        source_id=TASK_ID,
+        version=1,
+    )
+    db = MagicMock()
+    db.scalar.side_effect = [claim, task]
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    result = execute_work_queue_item(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueExecuteInput(operator_note="Chamar agora", expected_version=1),
+    )
+
+    assert task.status == TaskStatus.DOING
+    assert claim.version == 2
+    assert claim.claimed_by_user_id == USER_ID
+    assert claim.last_action == "execute"
+    assert result.item.claim_version == 2
+    assert result.item.claimed_by_user_id == USER_ID
+    assert result.item.claim_state == "claimed"
+
+
+def test_wq_execute_task_stale_expected_version_returns_typed_409():
+    claim = WorkQueueClaim(
+        gym_id=GYM_ID,
+        source_type="task",
+        source_id=TASK_ID,
+        version=3,
+        claimed_by_user_id=USER_ID,
+    )
+    db = MagicMock()
+    db.scalar.return_value = claim
+    db.get.return_value = SimpleNamespace(id=USER_ID, full_name="Operador Atual")
+
+    with pytest.raises(HTTPException) as exc_info:
+        execute_work_queue_item(
+            db,
+            current_user=_user(),
+            source_type="task",
+            source_id=TASK_ID,
+            payload=WorkQueueExecuteInput(operator_note="Chamar agora", expected_version=1),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "work_queue_conflict"
+    assert exc_info.value.detail["current_version"] == 3
+    assert exc_info.value.detail["claimed_by_user_id"] == str(USER_ID)
+    assert exc_info.value.detail["claimed_by_name"] == "Operador Atual"
+    db.add.assert_not_called()
 
 
 def test_task_outcome_completed_marks_done(monkeypatch):

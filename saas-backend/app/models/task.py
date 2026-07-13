@@ -60,6 +60,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     suggested_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_dedupe_key: Mapped[str | None] = mapped_column(String(220), nullable=True, index=True)
     extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
     member = relationship("Member", back_populates="tasks")

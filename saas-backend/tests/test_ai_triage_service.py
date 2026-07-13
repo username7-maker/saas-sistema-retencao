@@ -81,6 +81,7 @@ def _task_candidate(**overrides):
         due_date=None,
         completed_at=None,
         suggested_message="Mensagem sintetica",
+        work_dedupe_key=None,
         extra_data={"source": "ai_triage", "source_domain": "onboarding"},
         deleted_at=None,
         created_at=now,
@@ -526,6 +527,9 @@ def test_wq_reuse_prepare_same_recommendation_converges_to_one_task_without_refr
     assert first.task_id == created_task.id
     assert second.task_id == created_task.id
     assert create_task_mock.call_count == 1
+    created_payload = create_task_mock.call_args.args[1]
+    assert created_payload.work_dedupe_key == _work_queue_equivalence_key(recommendation)
+    assert created_task.work_dedupe_key == _work_queue_equivalence_key(recommendation)
     assert recommendation.payload_snapshot["metadata"]["prepared_task_id"] == str(created_task.id)
     assert recommendation.last_refreshed_at == datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
 
@@ -594,6 +598,7 @@ def test_wq_reuse_active_equivalent_onboarding_task_is_linked_without_creating(m
     assert response.canonical_task_id == existing_task.id
     assert create_task_mock.call_count == 0
     assert "work_queue_equivalence_key" in existing_task.extra_data
+    assert existing_task.work_dedupe_key == _work_queue_equivalence_key(recommendation)
     assert recommendation.payload_snapshot["metadata"]["prepared_task_id"] == str(existing_task.id)
 
 
@@ -720,6 +725,7 @@ def test_wq_reuse_legacy_equivalent_query_treats_blank_source_domain_as_missing(
 
     statement = db.scalars.call_args.args[0]
     assert "nullif" in str(statement).casefold()
+    assert "work_dedupe_key" in str(statement).casefold()
 
 
 def test_prepare_ai_triage_recommendation_action_auto_approves_normal_item(monkeypatch):

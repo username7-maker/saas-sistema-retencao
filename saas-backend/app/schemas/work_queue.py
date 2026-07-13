@@ -90,6 +90,10 @@ class WorkQueueItemOut(BaseModel):
     channel_status: str | None = None
     kommo_contact_id: str | None = None
     kommo_lead_id: str | None = None
+    claim_version: int = 1
+    claimed_by_user_id: UUID | None = None
+    claimed_by_name: str | None = None
+    claim_state: str = "unclaimed"
 
 
 class WorkQueueListOut(BaseModel):
@@ -105,6 +109,7 @@ class WorkQueueExecuteInput(BaseModel):
     auto_approve: bool = False
     confirm_approval: bool = False
     operator_note: str | None = Field(default=None, max_length=280)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class WorkQueueOutcomeInput(BaseModel):
@@ -113,6 +118,7 @@ class WorkQueueOutcomeInput(BaseModel):
     scheduled_for: datetime | None = None
     snooze_preset: WorkQueueSnoozePreset | None = None
     contact_channel: WorkQueueContactChannel | None = None
+    expected_version: int | None = Field(default=None, ge=1)
 
     @field_validator("scheduled_for")
     @classmethod

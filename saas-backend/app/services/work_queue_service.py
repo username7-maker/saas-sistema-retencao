@@ -23,6 +23,7 @@ from app.models import (
     TaskPriority,
     TaskStatus,
     User,
+    WorkQueueClaim,
 )
 from app.schemas.ai_triage import AITriageSafeActionPrepareInput
 from app.schemas.autopilot import WorkQueueSendAndWaitInput
@@ -138,6 +139,172 @@ POSITIVE_AI_OUTCOMES = {"responded", "scheduled_assessment", "will_return", "pay
 
 def _now() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _claimant_name(db: Session, claim: WorkQueueClaim | None) -> str | None:
+    if claim is None or claim.claimed_by_user_id is None:
+        return None
+    user = db.get(User, claim.claimed_by_user_id)
+    return getattr(user, "full_name", None) if user is not None else None
+
+
+def _claim_payload(db: Session, claim: WorkQueueClaim | None) -> dict:
+    if claim is None:
+        return {
+            "claim_version": 1,
+            "claimed_by_user_id": None,
+            "claimed_by_name": None,
+            "claim_state": "unclaimed",
+        }
+    claimed = claim.claimed_by_user_id is not None and claim.released_at is None
+    return {
+        "claim_version": int(claim.version or 1),
+        "claimed_by_user_id": claim.claimed_by_user_id if claimed else None,
+        "claimed_by_name": _claimant_name(db, claim) if claimed else None,
+        "claim_state": "claimed" if claimed else "unclaimed",
+    }
+
+
+def _claim_statement(current_user: User, *, source_type: SourceType, source_id: UUID):
+    return select(WorkQueueClaim).where(
+        WorkQueueClaim.gym_id == current_user.gym_id,
+        WorkQueueClaim.source_type == source_type,
+        WorkQueueClaim.source_id == source_id,
+    )
+
+
+def _load_work_queue_claim(
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+) -> WorkQueueClaim | None:
+    claim = db.scalar(_claim_statement(current_user, source_type=source_type, source_id=source_id))
+    return claim if isinstance(claim, WorkQueueClaim) else None
+
+
+def _work_queue_conflict(db: Session, claim: WorkQueueClaim | None) -> HTTPException:
+    payload = _claim_payload(db, claim)
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "work_queue_conflict",
+            "message": "Este item mudou desde que a fila foi carregada. Atualize a fila antes de continuar.",
+            "current_version": payload["claim_version"],
+            "claimed_by_user_id": str(payload["claimed_by_user_id"]) if payload["claimed_by_user_id"] else None,
+            "claimed_by_name": payload["claimed_by_name"],
+            "claim_state": payload["claim_state"],
+        },
+    )
+
+
+def _assert_work_queue_version(
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+    expected_version: int | None,
+) -> WorkQueueClaim | None:
+    if expected_version is None:
+        return None
+    claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+    current_version = int(getattr(claim, "version", None) or 1)
+    if current_version != expected_version:
+        raise _work_queue_conflict(db, claim)
+    return claim
+
+
+def _advance_work_queue_claim(
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+    claim: WorkQueueClaim | None,
+    last_action: str,
+) -> WorkQueueClaim:
+    now = _now()
+    if claim is None:
+        claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+    if claim is None:
+        claim = WorkQueueClaim(
+            gym_id=current_user.gym_id,
+            source_type=source_type,
+            source_id=source_id,
+            version=1,
+        )
+    claim.version = int(claim.version or 1) + 1
+    claim.claimed_by_user_id = current_user.id
+    claim.claimed_at = now
+    claim.released_at = None
+    claim.last_action = last_action
+    claim.metadata_json = {
+        **(claim.metadata_json or {}),
+        "last_operator_user_id": str(current_user.id),
+        "last_action": last_action,
+        "last_action_at": now.isoformat(),
+    }
+    db.add(claim)
+    db.flush()
+    return claim
+
+
+def _with_claim(item: WorkQueueItemOut, db: Session, claim: WorkQueueClaim | None) -> WorkQueueItemOut:
+    return item.model_copy(update=_claim_payload(db, claim))
+
+
+def _with_claims_for_page(db: Session, *, current_user: User, items: list[WorkQueueItemOut]) -> list[WorkQueueItemOut]:
+    if not items:
+        return items
+    predicates = [
+        and_(WorkQueueClaim.source_type == item.source_type, WorkQueueClaim.source_id == item.source_id)
+        for item in items
+    ]
+    try:
+        claims = list(
+            db.scalars(
+                select(WorkQueueClaim).where(
+                    WorkQueueClaim.gym_id == current_user.gym_id,
+                    or_(*predicates),
+                )
+            ).all()
+        )
+    except Exception:
+        return items
+    claim_map = {(claim.source_type, claim.source_id): claim for claim in claims if isinstance(claim, WorkQueueClaim)}
+    if not claim_map:
+        return items
+    return [
+        _with_claim(item, db, claim_map.get((item.source_type, item.source_id)))
+        for item in items
+    ]
+
+
+def _with_result_claim(result: WorkQueueActionResultOut, db: Session, claim: WorkQueueClaim | None) -> WorkQueueActionResultOut:
+    return result.model_copy(update={"item": _with_claim(result.item, db, claim)})
+
+
+def _advance_result_claim(
+    result: WorkQueueActionResultOut,
+    db: Session,
+    *,
+    current_user: User,
+    source_type: SourceType,
+    source_id: UUID,
+    claim: WorkQueueClaim | None,
+    last_action: str,
+) -> WorkQueueActionResultOut:
+    advanced = _advance_work_queue_claim(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        claim=claim,
+        last_action=last_action,
+    )
+    return _with_result_claim(result, db, advanced)
 
 
 def _task_extra(task: Task) -> dict:
@@ -1728,8 +1895,9 @@ def list_work_queue_items(
     filtered = _filter_items(items, state=state, **filter_kwargs)
     total = len(filtered)
     start = (page - 1) * page_size
+    page_items = _with_claims_for_page(db, current_user=current_user, items=filtered[start : start + page_size])
     return WorkQueueListOut(
-        items=filtered[start : start + page_size],
+        items=page_items,
         total=total,
         page=page,
         page_size=page_size,
@@ -1748,14 +1916,17 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         if is_task_operationally_archived(task):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
-        return _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
+        item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
+        claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+        return _with_claim(item, db, claim)
 
     if source_type == "assessment_queue":
         if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
         _ensure_assessment_queue_access(item, current_user)
-        return item
+        claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+        return _with_claim(item, db, claim)
 
     if source_type == "ai_service_agent":
         action = db.scalar(
@@ -1772,7 +1943,8 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         if current_user.role == RoleEnum.SALESPERSON and item.domain != "commercial":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
-        return item
+        claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+        return _with_claim(item, db, claim)
 
     if source_type == "student_personal_ai":
         action = db.scalar(
@@ -1784,12 +1956,16 @@ def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceT
         )
         if action is None or current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
-        return _student_personal_ai_to_item(db, action)
+        item = _student_personal_ai_to_item(db, action)
+        claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+        return _with_claim(item, db, claim)
 
     recommendation = get_ai_triage_recommendation_or_404(db, recommendation_id=source_id, gym_id=current_user.gym_id)
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
-    return _ai_to_item(recommendation)
+    item = _ai_to_item(recommendation)
+    claim = _load_work_queue_claim(db, current_user=current_user, source_type=source_type, source_id=source_id)
+    return _with_claim(item, db, claim)
 
 
 def regenerate_work_queue_message(
@@ -2389,8 +2565,15 @@ def execute_work_queue_item(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> WorkQueueActionResultOut:
+    claim = _assert_work_queue_version(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        expected_version=payload.expected_version,
+    )
     if source_type == "task":
-        return _execute_task(
+        result = _execute_task(
             db,
             task_id=source_id,
             current_user=current_user,
@@ -2398,8 +2581,8 @@ def execute_work_queue_item(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-    if source_type == "assessment_queue":
-        return _execute_assessment_queue_item(
+    elif source_type == "assessment_queue":
+        result = _execute_assessment_queue_item(
             db,
             member_id=source_id,
             current_user=current_user,
@@ -2407,8 +2590,8 @@ def execute_work_queue_item(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-    if source_type == "ai_service_agent":
-        return _execute_ai_service_agent(
+    elif source_type == "ai_service_agent":
+        result = _execute_ai_service_agent(
             db,
             action_id=source_id,
             current_user=current_user,
@@ -2416,8 +2599,8 @@ def execute_work_queue_item(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-    if source_type == "student_personal_ai":
-        return _execute_student_personal_ai(
+    elif source_type == "student_personal_ai":
+        result = _execute_student_personal_ai(
             db,
             action_id=source_id,
             current_user=current_user,
@@ -2425,13 +2608,23 @@ def execute_work_queue_item(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-    return _execute_ai_triage(
+    else:
+        result = _execute_ai_triage(
+            db,
+            recommendation_id=source_id,
+            current_user=current_user,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+    return _advance_result_claim(
+        result,
         db,
-        recommendation_id=source_id,
         current_user=current_user,
-        payload=payload,
-        ip_address=ip_address,
-        user_agent=user_agent,
+        source_type=source_type,
+        source_id=source_id,
+        claim=claim,
+        last_action="execute",
     )
 
 
@@ -2450,6 +2643,13 @@ def send_and_wait_work_queue_item(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Enviar e aguardar resposta esta disponivel apenas para tasks humanas nesta V1.",
         )
+    claim = _assert_work_queue_version(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        expected_version=payload.expected_version,
+    )
     task = db.scalar(
         _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
     )
@@ -2665,13 +2865,22 @@ def send_and_wait_work_queue_item(
         detail = "Mensagem agendada pelo Autopilot para o proximo horario permitido."
     else:
         detail = f"Mensagem nao enviada. Status da acao: {action.status}."
-    return WorkQueueActionResultOut(
+    result = WorkQueueActionResultOut(
         item=item,
         detail=detail,
         prepared_message=message,
         context_path=item.context_path,
         task_id=task.id,
         supported=action.status in {"awaiting_outcome", "scheduled"},
+    )
+    return _advance_result_claim(
+        result,
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        claim=claim,
+        last_action="send_and_wait",
     )
 
 
@@ -2793,6 +3002,13 @@ def update_work_queue_outcome(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> WorkQueueActionResultOut:
+    claim = _assert_work_queue_version(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        expected_version=payload.expected_version,
+    )
     if source_type == "task":
         task = db.scalar(
             _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
@@ -2846,12 +3062,21 @@ def update_work_queue_outcome(
         )
         db.flush()
         item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
-        return WorkQueueActionResultOut(
+        result = WorkQueueActionResultOut(
             item=item,
             detail="Resultado registrado na task.",
             prepared_message=_effective_task_message(task),
             context_path=item.context_path,
             task_id=task.id,
+        )
+        return _advance_result_claim(
+            result,
+            db,
+            current_user=current_user,
+            source_type=source_type,
+            source_id=source_id,
+            claim=claim,
+            last_action=f"outcome:{payload.outcome}",
         )
 
     if source_type == "assessment_queue":
@@ -2899,16 +3124,25 @@ def update_work_queue_outcome(
         )
         db.flush()
         item = _member_assessment_queue_item(db, member_id=source_id, current_user=current_user)
-        return WorkQueueActionResultOut(
+        result = WorkQueueActionResultOut(
             item=item,
             detail=detail,
             prepared_message=item.suggested_message,
             context_path=item.context_path,
             task_id=None,
         )
+        return _advance_result_claim(
+            result,
+            db,
+            current_user=current_user,
+            source_type=source_type,
+            source_id=source_id,
+            claim=claim,
+            last_action=f"outcome:{payload.outcome}",
+        )
 
     if source_type == "ai_service_agent":
-        return _update_ai_service_agent_outcome(
+        result = _update_ai_service_agent_outcome(
             db,
             action_id=source_id,
             current_user=current_user,
@@ -2916,15 +3150,33 @@ def update_work_queue_outcome(
             ip_address=ip_address,
             user_agent=user_agent,
         )
+        return _advance_result_claim(
+            result,
+            db,
+            current_user=current_user,
+            source_type=source_type,
+            source_id=source_id,
+            claim=claim,
+            last_action=f"outcome:{payload.outcome}",
+        )
 
     if source_type == "student_personal_ai":
-        return _update_student_personal_ai_outcome(
+        result = _update_student_personal_ai_outcome(
             db,
             action_id=source_id,
             current_user=current_user,
             payload=payload,
             ip_address=ip_address,
             user_agent=user_agent,
+        )
+        return _advance_result_claim(
+            result,
+            db,
+            current_user=current_user,
+            source_type=source_type,
+            source_id=source_id,
+            claim=claim,
+            last_action=f"outcome:{payload.outcome}",
         )
 
     recommendation = update_ai_triage_recommendation_outcome(
@@ -2939,10 +3191,19 @@ def update_work_queue_outcome(
     )
     source = get_ai_triage_recommendation_or_404(db, recommendation_id=recommendation.id, gym_id=current_user.gym_id)
     item = _ai_to_item(source)
-    return WorkQueueActionResultOut(
+    result = WorkQueueActionResultOut(
         item=item,
         detail="Resultado registrado na Central Cordex.",
         prepared_message=item.suggested_message,
         context_path=item.context_path,
         task_id=None,
+    )
+    return _advance_result_claim(
+        result,
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
+        claim=claim,
+        last_action=f"outcome:{payload.outcome}",
     )

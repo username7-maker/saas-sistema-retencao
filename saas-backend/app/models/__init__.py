@@ -64,6 +64,7 @@ from app.models.risk_recalculation_request import RiskRecalculationRequest
 from app.models.task import Task
 from app.models.task_event import TaskEvent
 from app.models.user import User
+from app.models.work_queue_claim import WorkQueueClaim
 
 __all__ = [
     "AuditLog",
@@ -138,4 +139,5 @@ __all__ = [
     "TaskStatus",
     "TrainingPlan",
     "User",
+    "WorkQueueClaim",
 ]

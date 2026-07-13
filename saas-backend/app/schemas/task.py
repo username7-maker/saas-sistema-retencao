@@ -47,6 +47,7 @@ class TaskCreate(BaseModel):
     status: TaskStatus = TaskStatus.TODO
     due_date: datetime | None = None
     suggested_message: str | None = None
+    work_dedupe_key: str | None = Field(default=None, max_length=220)
     extra_data: dict = Field(default_factory=dict)
 
 
@@ -79,6 +80,7 @@ class TaskOut(BaseModel):
     due_date: datetime | None
     completed_at: datetime | None
     suggested_message: str | None
+    work_dedupe_key: str | None = None
     extra_data: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
