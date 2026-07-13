@@ -71,6 +71,7 @@ class AITriageSafeActionPreparedRead(BaseModel):
     supported: bool
     detail: str
     task_id: UUID | None = None
+    canonical_task_id: UUID | None = None
     follow_up_url: str | None = None
     prepared_message: str | None = None
     metadata: dict[str, Any] = {}

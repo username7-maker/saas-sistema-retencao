@@ -86,6 +86,7 @@ SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_servi
 BucketFilter = str
 DAILY_QUEUE_STALE_BACKLOG_AFTER = timedelta(days=14)
 DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS = {"finance", "trainer"}
+FRESHNESS_MAX_AGE = timedelta(hours=24)
 WORK_QUEUE_SOURCE_CAPS: dict[WorkQueueSourceType, int] = {
     "task": 300,
     "ai_triage": 200,
@@ -250,6 +251,68 @@ def _parse_optional_datetime(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _parse_uuid(value: object) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _freshness_state_from_timestamp(timestamp: datetime | None, now: datetime | None = None) -> str:
+    if timestamp is None:
+        return "unknown"
+    effective_now = now or _now()
+    refreshed_at = _as_aware_datetime(timestamp)
+    return "fresh" if effective_now - refreshed_at <= FRESHNESS_MAX_AGE else "stale"
+
+
+def _role_value(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(getattr(value, "value", value))
+
+
+def _numeric_signal_from_mapping(mapping: dict, *keys: str) -> tuple[float | None, str]:
+    for key in keys:
+        if key not in mapping:
+            continue
+        value = mapping.get(key)
+        if value is None:
+            return None, "unknown"
+        try:
+            return float(value), "known"
+        except (TypeError, ValueError):
+            return None, "unknown"
+    return None, "unknown"
+
+
+def _readiness_missing_fields(
+    *,
+    assigned_to_name: str | None,
+    assigned_to_role: str | None,
+    due_at: datetime | None,
+    reason: str | None,
+    freshness_state: str,
+    priority_state: str,
+) -> list[str]:
+    missing: list[str] = []
+    if not assigned_to_name:
+        missing.append("assigned_to_name")
+    if not assigned_to_role:
+        missing.append("assigned_to_role")
+    if due_at is None:
+        missing.append("due_at")
+    if not str(reason or "").strip():
+        missing.append("decisive_reason")
+    if freshness_state == "unknown":
+        missing.append("freshness")
+    if priority_state == "unknown":
+        missing.append("signal")
+    return missing
 
 
 def _task_visible_from(task: Task) -> datetime | None:
@@ -511,6 +574,7 @@ def _task_to_item(
 ) -> WorkQueueItemOut:
     member = _loaded_relation(task, "member")
     lead = _loaded_relation(task, "lead")
+    assigned_user = _loaded_relation(task, "assigned_user")
     member_id = getattr(member, "id", None) if member else None
     lead_id = getattr(lead, "id", None) if lead else None
     member_name = member.full_name if member else None
@@ -532,6 +596,10 @@ def _task_to_item(
         technical_step=technical_step,
     )
     effective_message = _effective_task_message(task)
+    assigned_to_name = getattr(assigned_user, "full_name", None) if assigned_user else None
+    assigned_to_role = _role_value(getattr(assigned_user, "role", None)) if assigned_user else None
+    freshness_state = _freshness_state_from_timestamp(task.updated_at)
+    signal_value, priority_state = _numeric_signal_from_mapping(extra, "risk_score", "onboarding_score")
     message_fields = _work_queue_message_fields(
         message=effective_message,
         metadata=_message_metadata_from_task(task),
@@ -542,6 +610,7 @@ def _task_to_item(
         source_type="task",
         source_id=task.id,
         subject_name=subject_name,
+        canonical_task_id=task.id,
         member_id=member_id,
         lead_id=lead_id,
         subject_phone=subject_phone,
@@ -558,8 +627,23 @@ def _task_to_item(
         requires_confirmation=False,
         state=_task_state(task),  # type: ignore[arg-type]
         due_at=task.due_date,
+        last_refreshed_at=task.updated_at,
+        freshness_state=freshness_state,  # type: ignore[arg-type]
+        freshness_blocking=False,
+        readiness_missing_fields=_readiness_missing_fields(
+            assigned_to_name=assigned_to_name,
+            assigned_to_role=assigned_to_role,
+            due_at=task.due_date,
+            reason=reason,
+            freshness_state=freshness_state,
+            priority_state=priority_state,
+        ),
+        signal_value=signal_value,
+        priority_state=priority_state,  # type: ignore[arg-type]
         visible_from=_task_visible_from(task),
         assigned_to_user_id=task.assigned_to_user_id,
+        assigned_to_name=assigned_to_name,
+        assigned_to_role=assigned_to_role,
         context_path=_task_context_path(task),
         outcome_state=str(_task_extra(task).get("work_queue_outcome") or ("completed" if task.status == TaskStatus.DONE else "pending")),
         retention_stage=retention_payload.get("retention_stage"),
@@ -780,24 +864,51 @@ def _ai_to_item(recommendation: AITriageRecommendation) -> WorkQueueItemOut:
     retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if item.source_domain == "retention" else {}
     message_fields = _work_queue_message_fields(message=item.suggested_message, metadata=item.metadata)
     execution_bucket, execution_bucket_label = _execution_bucket_for_ai(item)
+    canonical_task_id = _parse_uuid(item.metadata.get("prepared_task_id"))
+    assigned_to_name = item.recommended_owner.label if item.recommended_owner else None
+    assigned_to_role = item.recommended_owner.role if item.recommended_owner else None
+    freshness_state = _freshness_state_from_timestamp(item.last_refreshed_at)
+    if item.source_domain == "retention":
+        signal_value, priority_state = _numeric_signal_from_mapping(item.metadata, "risk_score")
+    elif item.source_domain == "onboarding":
+        signal_value, priority_state = _numeric_signal_from_mapping(item.metadata, "onboarding_score")
+    else:
+        signal_value, priority_state = None, "unknown"
+    reason = item.operator_summary or item.why_now_summary
     return WorkQueueItemOut(
         source_type="ai_triage",
         source_id=item.id,
         subject_name=item.subject_name,
+        canonical_task_id=canonical_task_id,
         member_id=item.member_id,
         lead_id=item.lead_id,
         subject_phone=str(subject_phone) if subject_phone else None,
         domain=item.source_domain,
         severity=item.priority_bucket,
         preferred_shift=str(preferred_shift) if preferred_shift else None,
-        reason=item.operator_summary or item.why_now_summary,
+        reason=reason,
         primary_action_label=item.primary_action_label or item.recommended_action,
         primary_action_type=str(item.primary_action_type or "create_task"),
         **message_fields,
         requires_confirmation=item.requires_explicit_approval,
         state=_ai_state(recommendation),  # type: ignore[arg-type]
         due_at=None,
+        last_refreshed_at=item.last_refreshed_at,
+        freshness_state=freshness_state,  # type: ignore[arg-type]
+        freshness_blocking=False,
+        readiness_missing_fields=_readiness_missing_fields(
+            assigned_to_name=assigned_to_name,
+            assigned_to_role=assigned_to_role,
+            due_at=None,
+            reason=reason,
+            freshness_state=freshness_state,
+            priority_state=priority_state,
+        ),
+        signal_value=signal_value,
+        priority_state=priority_state,  # type: ignore[arg-type]
         assigned_to_user_id=item.recommended_owner.user_id if item.recommended_owner else None,
+        assigned_to_name=assigned_to_name,
+        assigned_to_role=assigned_to_role,
         context_path=_ai_context_path(item),
         outcome_state=item.outcome_state,
         retention_stage=retention_payload.get("retention_stage"),
@@ -1091,10 +1202,10 @@ def _as_aware_datetime(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def _work_item_sort_key(item: WorkQueueItemOut, now: datetime) -> tuple[int, bool, datetime, str, str]:
+def _work_item_sort_key(item: WorkQueueItemOut, now: datetime) -> tuple[int, bool, bool, datetime, str, str]:
     score, _legacy_due = _work_item_score(item, now)
     due_at = _as_aware_datetime(item.due_at) if item.due_at else datetime.max.replace(tzinfo=timezone.utc)
-    return -score, item.due_at is None, due_at, item.source_type, str(item.source_id)
+    return -score, item.priority_state == "unknown", item.due_at is None, due_at, item.source_type, str(item.source_id)
 
 
 def _is_stale_daily_backlog(item: WorkQueueItemOut, now: datetime) -> bool:
@@ -1166,7 +1277,14 @@ def _task_select_with_tenant_relations(current_user: User):
                 Lead.deleted_at.is_(None),
             ),
         )
-        .options(contains_eager(Task.member), contains_eager(Task.lead))
+        .outerjoin(
+            User,
+            and_(
+                Task.assigned_to_user_id == User.id,
+                User.gym_id == current_user.gym_id,
+            ),
+        )
+        .options(contains_eager(Task.member), contains_eager(Task.lead), contains_eager(Task.assigned_user))
         .where(
             Task.gym_id == current_user.gym_id,
             Task.deleted_at.is_(None),

@@ -9,6 +9,8 @@ WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
 WorkQueueSnoozePreset = Literal["tomorrow", "next_week", "custom"]
 WorkQueueContactChannel = Literal["whatsapp", "kommo", "call", "in_person", "other"]
 PreferredShiftStatus = Literal["resolved_from_checkins", "manual_or_cached", "tie", "no_recent_checkins"]
+WorkQueueFreshnessState = Literal["fresh", "stale", "unknown"]
+WorkQueuePriorityState = Literal["known", "unknown"]
 WorkQueueOutcome = Literal[
     "responded",
     "no_response",
@@ -38,6 +40,7 @@ class WorkQueueItemOut(BaseModel):
     source_type: WorkQueueSourceType
     source_id: UUID
     subject_name: str
+    canonical_task_id: UUID | None = None
     member_id: UUID | None = None
     lead_id: UUID | None = None
     subject_phone: str | None = None
@@ -61,8 +64,16 @@ class WorkQueueItemOut(BaseModel):
     requires_confirmation: bool = False
     state: WorkQueueState
     due_at: datetime | None = None
+    last_refreshed_at: datetime | None = None
+    freshness_state: WorkQueueFreshnessState = "unknown"
+    freshness_blocking: bool = False
+    readiness_missing_fields: list[str] = Field(default_factory=list)
+    signal_value: float | None = None
+    priority_state: WorkQueuePriorityState = "unknown"
     visible_from: datetime | None = None
     assigned_to_user_id: UUID | None = None
+    assigned_to_name: str | None = None
+    assigned_to_role: str | None = None
     context_path: str
     outcome_state: str
     retention_stage: str | None = None

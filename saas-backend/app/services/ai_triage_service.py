@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from statistics import mean, median
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from statistics import mean, median
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
@@ -38,8 +38,7 @@ from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     RETENTION_STAGE_REACTIVATION,
 )
-from app.services.task_service import create_task
-
+from app.services.task_service import create_task, is_task_operationally_archived
 
 ACTIVE_TRIAGE_DOMAINS = ("retention", "onboarding")
 PREPARED_EXECUTION_STATES = {"prepared", "queued", "running", "completed"}
@@ -557,14 +556,162 @@ def _persist_snapshot(
     metadata: dict,
     execution_state: str | None = None,
     outcome_state: str | None = None,
+    refresh_timestamp: bool = True,
 ) -> None:
     snapshot["metadata"] = metadata
     recommendation.payload_snapshot = _json_safe(snapshot)
-    recommendation.last_refreshed_at = _utcnow()
+    if refresh_timestamp:
+        recommendation.last_refreshed_at = _utcnow()
     if execution_state is not None:
         recommendation.execution_state = execution_state
     if outcome_state is not None:
         recommendation.outcome_state = outcome_state
+
+
+def _parse_uuid(value) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _work_queue_equivalence_key(recommendation: AITriageRecommendation) -> str | None:
+    if recommendation.source_domain != "onboarding" or recommendation.member_id is None:
+        return None
+    return f"{recommendation.gym_id}:{recommendation.member_id}:onboarding:{recommendation.source_entity_kind}"
+
+
+def _task_extra(task: Task) -> dict:
+    return dict(task.extra_data or {}) if isinstance(task.extra_data, dict) else {}
+
+
+def _task_has_onboarding_evidence(task: Task, recommendation: AITriageRecommendation) -> bool:
+    if recommendation.source_domain != "onboarding":
+        return False
+    extra = _task_extra(task)
+    source = str(extra.get("source") or "").lower()
+    source_domain = str(extra.get("source_domain") or extra.get("domain") or "").lower()
+    return (
+        source == "onboarding"
+        or source_domain == "onboarding"
+        or str(extra.get("ai_triage_recommendation_id") or "") == str(recommendation.id)
+    )
+
+
+def _is_active_equivalent_work_queue_task(
+    task: Task | None,
+    recommendation: AITriageRecommendation,
+    equivalence_key: str | None,
+) -> bool:
+    if task is None:
+        return False
+    if task.gym_id != recommendation.gym_id or task.member_id != recommendation.member_id:
+        return False
+    if recommendation.lead_id is not None and task.lead_id != recommendation.lead_id:
+        return False
+    if task.status not in {TaskStatus.TODO, TaskStatus.DOING}:
+        return False
+    if task.deleted_at is not None or is_task_operationally_archived(task):
+        return False
+    extra = _task_extra(task)
+    return bool(equivalence_key and extra.get("work_queue_equivalence_key") == equivalence_key) or _task_has_onboarding_evidence(
+        task,
+        recommendation,
+    )
+
+
+def _attach_work_queue_equivalence_key(db: Session, task: Task, equivalence_key: str | None) -> None:
+    if not equivalence_key:
+        return
+    extra = _task_extra(task)
+    if extra.get("work_queue_equivalence_key") == equivalence_key:
+        return
+    extra["work_queue_equivalence_key"] = equivalence_key
+    task.extra_data = extra
+    db.add(task)
+
+
+def _load_prepared_work_queue_task(
+    db: Session,
+    *,
+    recommendation: AITriageRecommendation,
+    metadata: dict,
+    equivalence_key: str | None,
+) -> Task | None:
+    task_id = _parse_uuid(metadata.get("prepared_task_id"))
+    if task_id is None or recommendation.member_id is None:
+        return None
+    task = db.scalar(
+        select(Task).where(
+            Task.id == task_id,
+            Task.gym_id == recommendation.gym_id,
+            Task.member_id == recommendation.member_id,
+            Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
+            Task.deleted_at.is_(None),
+        )
+    )
+    if _is_active_equivalent_work_queue_task(task, recommendation, equivalence_key):
+        _attach_work_queue_equivalence_key(db, task, equivalence_key)
+        return task
+    return None
+
+
+def _find_equivalent_work_queue_task(
+    db: Session,
+    *,
+    recommendation: AITriageRecommendation,
+    equivalence_key: str | None,
+) -> Task | None:
+    if recommendation.member_id is None or equivalence_key is None:
+        return None
+    source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
+    source_domain = func.lower(func.coalesce(Task.extra_data["source_domain"].astext, Task.extra_data["domain"].astext, ""))
+    tasks = list(
+        db.scalars(
+            select(Task)
+            .where(
+                Task.gym_id == recommendation.gym_id,
+                Task.member_id == recommendation.member_id,
+                Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
+                Task.deleted_at.is_(None),
+                or_(
+                    Task.extra_data["work_queue_equivalence_key"].astext == equivalence_key,
+                    source == "onboarding",
+                    source_domain == "onboarding",
+                    Task.extra_data["ai_triage_recommendation_id"].astext == str(recommendation.id),
+                ),
+            )
+            .order_by(Task.created_at.asc(), Task.id.asc())
+        ).all()
+    )
+    for task in tasks:
+        if _is_active_equivalent_work_queue_task(task, recommendation, equivalence_key):
+            _attach_work_queue_equivalence_key(db, task, equivalence_key)
+            return task
+    return None
+
+
+def _resolve_work_queue_task_for_recommendation(
+    db: Session,
+    *,
+    recommendation: AITriageRecommendation,
+    metadata: dict,
+) -> Task | None:
+    equivalence_key = _work_queue_equivalence_key(recommendation)
+    if equivalence_key is None:
+        return None
+    return _load_prepared_work_queue_task(
+        db,
+        recommendation=recommendation,
+        metadata=metadata,
+        equivalence_key=equivalence_key,
+    ) or _find_equivalent_work_queue_task(
+        db,
+        recommendation=recommendation,
+        equivalence_key=equivalence_key,
+    )
 
 
 def _task_priority_for_recommendation(recommendation: AITriageRecommendation) -> TaskPriority:
@@ -951,56 +1098,71 @@ def prepare_ai_triage_recommendation_action(
             owner_label=owner_label,
             existing_owner=existing_owner,
         )
-        task = create_task(
+        task = _resolve_work_queue_task_for_recommendation(
             db,
-            TaskCreate(
-                title=_task_title_for_recommendation(snapshot),
-                description=_task_description_for_recommendation(snapshot),
-                member_id=recommendation.member_id,
-                lead_id=recommendation.lead_id,
-                assigned_to_user_id=resolved_owner["user_id"] if resolved_owner else None,
-                priority=_task_priority_for_recommendation(recommendation),
-                suggested_message=snapshot.get("suggested_message"),
-                extra_data={
+            recommendation=recommendation,
+            metadata=metadata,
+        )
+        created_task = task is None
+        if task is None:
+            equivalence_key = _work_queue_equivalence_key(recommendation)
+            extra_data = {
                     "source": "ai_triage",
                     "ai_triage_recommendation_id": str(recommendation.id),
                     "source_domain": recommendation.source_domain,
                     "recommended_channel": snapshot.get("recommended_channel"),
                     "owner_role": (resolved_owner or existing_owner).get("role") if (resolved_owner or existing_owner) else None,
-                },
-            ),
-            commit=False,
-        )
+            }
+            if equivalence_key:
+                extra_data["work_queue_equivalence_key"] = equivalence_key
+            task = create_task(
+                db,
+                TaskCreate(
+                    title=_task_title_for_recommendation(snapshot),
+                    description=_task_description_for_recommendation(snapshot),
+                    member_id=recommendation.member_id,
+                    lead_id=recommendation.lead_id,
+                    assigned_to_user_id=resolved_owner["user_id"] if resolved_owner else None,
+                    priority=_task_priority_for_recommendation(recommendation),
+                    suggested_message=snapshot.get("suggested_message"),
+                    extra_data=extra_data,
+                ),
+                gym_id=gym_id,
+                commit=False,
+            )
         task_id = task.id
         snapshot["recommended_owner"] = resolved_owner or existing_owner
         metadata.update(
-                {
-                    "prepared_action": "create_task",
-                    "prepared_task_id": str(task.id),
-                    "prepared_at": now.isoformat(),
-                    "prepared_by_user_id": str(current_user.id),
-                    "last_action_note": resolved_note,
-                }
-            )
-        _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared")
-        log_audit_event(
-            db,
-            action="task_created",
-            entity="task",
-            user=current_user,
-            member_id=recommendation.member_id,
-            entity_id=task.id,
-            details={
-                "source": "ai_triage",
-                "recommendation_id": str(recommendation.id),
-                "priority": task.priority.value,
-                "status": task.status.value,
-            },
-            ip_address=ip_address,
-            user_agent=user_agent,
-            flush=False,
+            {
+                "prepared_action": "create_task",
+                "prepared_task_id": str(task.id),
+                "prepared_at": now.isoformat(),
+                "prepared_by_user_id": str(current_user.id),
+                "last_action_note": resolved_note,
+            }
         )
-        detail = "Task preparada a partir da recommendation aprovada."
+        _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared", refresh_timestamp=False)
+        if created_task:
+            log_audit_event(
+                db,
+                action="task_created",
+                entity="task",
+                user=current_user,
+                member_id=recommendation.member_id,
+                entity_id=task.id,
+                details={
+                    "source": "ai_triage",
+                    "recommendation_id": str(recommendation.id),
+                    "priority": task.priority.value,
+                    "status": task.status.value,
+                },
+                ip_address=ip_address,
+                user_agent=user_agent,
+                flush=False,
+            )
+            detail = "Task preparada a partir da recommendation aprovada."
+        else:
+            detail = "Task ativa existente vinculada a recommendation aprovada."
     elif action == "assign_owner":
         resolved_owner = _resolve_owner_for_action(
             db,
@@ -1030,7 +1192,7 @@ def prepare_ai_triage_recommendation_action(
                     "last_action_note": resolved_note,
                 }
             )
-            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared")
+            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared", refresh_timestamp=False)
             detail = "Owner da recommendation atualizado."
     elif action == "open_follow_up":
         follow_up_url = _follow_up_url_for_recommendation(recommendation)
@@ -1047,7 +1209,7 @@ def prepare_ai_triage_recommendation_action(
                     "last_action_note": resolved_note,
                 }
             )
-            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared")
+            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared", refresh_timestamp=False)
             detail = "Follow-up seguro preparado no contexto operacional existente."
     elif action == "prepare_outbound_message":
         prepared_message = snapshot.get("suggested_message")
@@ -1063,7 +1225,7 @@ def prepare_ai_triage_recommendation_action(
                     "last_action_note": resolved_note,
                 }
             )
-            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared")
+            _persist_snapshot(recommendation, snapshot=snapshot, metadata=metadata, execution_state="prepared", refresh_timestamp=False)
             detail = "Mensagem preparada para revisao humana antes do envio."
     elif action == "enqueue_approved_job":
         supported = False
@@ -1101,6 +1263,7 @@ def prepare_ai_triage_recommendation_action(
         supported=supported,
         detail=detail,
         task_id=task_id,
+        canonical_task_id=task_id,
         follow_up_url=follow_up_url,
         prepared_message=prepared_message,
         metadata=dict(metadata),
