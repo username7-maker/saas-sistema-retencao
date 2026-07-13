@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { PaginatedResponse, WorkQueueActionResult, WorkQueueItem, WorkQueueOutcome } from "../types";
+import type { WorkQueueActionResult, WorkQueueItem, WorkQueueListResponse, WorkQueueOutcome } from "../types";
 
 export type WorkQueueListState = "do_now" | "awaiting_outcome" | "done" | "all";
 export type WorkQueueShiftFilter = "my_shift" | "all" | "overnight" | "morning" | "afternoon" | "evening" | "unassigned";
@@ -15,6 +15,7 @@ export interface ListWorkQueueParams {
   domain?: WorkQueueDomainFilter;
   source?: WorkQueueSourceFilter;
   bucket?: WorkQueueBucketFilter;
+  q?: string;
   page?: number;
   page_size?: number;
 }
@@ -41,10 +42,21 @@ export interface SendAndWaitPayload {
 }
 
 export const workQueueService = {
-  async listItems(params?: ListWorkQueueParams): Promise<PaginatedResponse<WorkQueueItem>> {
-    const { page = 1, page_size = 25, state = "do_now", shift = "my_shift", assignee = "all", domain = "all", source = "all", bucket = "all" } = params ?? {};
-    const { data } = await api.get<PaginatedResponse<WorkQueueItem>>("/api/v1/work-queue/items", {
-      params: { page, page_size, state, shift, assignee, domain, source, bucket },
+  async listItems(params?: ListWorkQueueParams): Promise<WorkQueueListResponse> {
+    const {
+      page = 1,
+      page_size = 25,
+      state = "do_now",
+      shift = "my_shift",
+      assignee = "all",
+      domain = "all",
+      source = "all",
+      bucket = "all",
+      q,
+    } = params ?? {};
+    const trimmedQuery = q?.trim();
+    const { data } = await api.get<WorkQueueListResponse>("/api/v1/work-queue/items", {
+      params: { page, page_size, state, shift, assignee, domain, source, bucket, q: trimmedQuery || undefined },
     });
     return data;
   },

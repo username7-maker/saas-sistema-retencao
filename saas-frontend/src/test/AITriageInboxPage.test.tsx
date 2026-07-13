@@ -165,7 +165,18 @@ function mockQueue(doNowItems: WorkQueueItem[], awaitingItems: WorkQueueItem[] =
   vi.mocked(workQueueService.listItems).mockImplementation(async (params) => {
     const state = params?.state ?? "do_now";
     const items = state === "awaiting_outcome" ? awaitingItems : state === "all" ? [...doNowItems, ...awaitingItems] : doNowItems;
-    return { items, total: items.length, page: 1, page_size: 25 };
+    return {
+      items,
+      total: items.length,
+      page: params?.page ?? 1,
+      page_size: params?.page_size ?? 25,
+      state_counts: {
+        do_now: doNowItems.length,
+        awaiting_outcome: awaitingItems.length,
+        done: 0,
+      },
+      truncated_sources: [],
+    };
   });
 }
 
@@ -330,6 +341,23 @@ describe("AITriageInboxPage", () => {
     mockQueue([]);
     renderPage();
     expect(await screen.findByText("Nenhuma acao nessa fila")).toBeInTheDocument();
+  });
+
+  it("smoke sintetico /ai/triage monta o WorkExecutionView compartilhado", async () => {
+    mockQueue([makeItem({ subject_name: "Smoke AI Triage", primary_action_label: "Executar smoke" })]);
+
+    renderPage();
+
+    expect(await screen.findByText("Execucao da Central Cordex")).toBeInTheDocument();
+    expect((await screen.findAllByText("Smoke AI Triage")).length).toBeGreaterThan(0);
+    expect(workQueueService.listItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "ai_triage",
+        state: "do_now",
+        page: 1,
+        page_size: 25,
+      }),
+    );
   });
 
   it("keeps my shift as the default filter and lets managers open all shifts", async () => {

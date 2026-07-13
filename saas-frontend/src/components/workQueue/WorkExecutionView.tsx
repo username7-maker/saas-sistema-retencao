@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Clock3, ExternalLink, Forward, MessageCircle, Search, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 
 import { EmptyState, SkeletonList } from "../ui";
 import { Badge, Button, Input, Textarea, cn } from "../ui2";
+import { Pagination } from "../ui2/Pagination";
 import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard";
 import { useAuth } from "../../hooks/useAuth";
 import {
@@ -22,6 +23,9 @@ import type { WorkQueueItem, WorkQueueOutcome } from "../../types";
 import { formatPreferredShiftScope, getPreferredShiftLabel } from "../../utils/preferredShift";
 
 type QueueMode = "do_now" | "awaiting_outcome" | "all";
+type QueueStateCountKey = "do_now" | "awaiting_outcome" | "done";
+
+const PAGE_SIZE = 25;
 
 const explicitShiftFilters: Exclude<WorkQueueShiftFilter, "my_shift" | "all" | "unassigned">[] = [
   "morning",
@@ -115,6 +119,35 @@ function formatDueAt(value: string | null): string {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function formatReturnAt(value: string | null | undefined): string {
+  if (!value) return "horario informado pelo servidor";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "horario informado pelo servidor";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatFreshnessLabel(item: WorkQueueItem): string {
+  if (item.freshness_state === "fresh") return "Dados atualizados";
+  if (item.freshness_state === "stale") return "Dados desatualizados";
+  return "Frescor nao informado";
+}
+
+function formatAssignedOwner(item: WorkQueueItem): string {
+  const name = item.assigned_to_name || item.assigned_to_user_id || "Sem responsavel";
+  return item.assigned_to_role ? `${name} (${item.assigned_to_role})` : name;
+}
+
+function formatMissingFields(fields: string[] | undefined): string | null {
+  if (!fields || fields.length === 0) return null;
+  return fields.join(", ");
+}
+
 function getShiftLabel(shift: string | null): string {
   if (!shift || shift === "unassigned") return "Sem turno";
   return getPreferredShiftLabel(shift) || shift;
@@ -194,27 +227,6 @@ function getHttpDetail(error: unknown): string {
     if (typeof response?.status === "number") return `Erro ${response.status}`;
   }
   return "Operacao nao concluida.";
-}
-
-function filterItems(items: WorkQueueItem[], search: string): WorkQueueItem[] {
-  const normalizedSearch = search.trim().toLowerCase();
-  if (!normalizedSearch) return items;
-  return items.filter((item) => {
-    const haystack = [
-      item.subject_name,
-      item.reason,
-      item.primary_action_label,
-      item.domain,
-      item.severity,
-      item.execution_bucket_label ?? "",
-      item.preferred_shift_reason ?? "",
-      item.suggested_message ?? "",
-      getShiftLabel(item.preferred_shift),
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(normalizedSearch);
-  });
 }
 
 function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected: boolean; onSelect: () => void }) {
@@ -314,15 +326,22 @@ export function WorkExecutionView({
   const [domainFilter, setDomainFilter] = useState<WorkQueueDomainFilter>(defaultDomain);
   const [bucketFilter, setBucketFilter] = useState<WorkQueueBucketFilter>("all");
   const [shiftFilter, setShiftFilter] = useState<WorkQueueShiftFilter>("my_shift");
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [hiddenItemKeys, setHiddenItemKeys] = useState<Set<string>>(() => new Set());
+  const [canonicalOverrideItem, setCanonicalOverrideItem] = useState<WorkQueueItem | null>(null);
+  const [canonicalTaskError, setCanonicalTaskError] = useState<string | null>(null);
+  const [isContinuingTask, setIsContinuingTask] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
   const [operatorNote, setOperatorNote] = useState("");
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
   const [customSnoozeDate, setCustomSnoozeDate] = useState("");
 
-  const deferredSearch = useDeferredValue(search);
   const userRole = user?.role;
   const canSeeAllShifts = userRole === "owner" || userRole === "manager";
+  const assigneeFilter = "all" as const;
   const userShiftScopeLabel = useMemo(
     () => formatPreferredShiftScope(user?.work_shift, user?.work_shift_scope),
     [user?.work_shift, user?.work_shift_scope],
@@ -334,44 +353,72 @@ export function WorkExecutionView({
     setShiftFilter(canSeeAllShifts ? "all" : "unassigned");
   }, [canSeeAllShifts, hasUserShiftScope, shiftFilter, userRole]);
 
-  const sharedParams = {
-    shift: shiftFilter,
-    assignee: "all" as const,
-    domain: domainFilter,
-    source,
-    bucket: bucketFilter,
-    page: 1,
-    page_size: 25,
-  };
+  function resetQueueCursor() {
+    setPage(1);
+    setSelectedKey(null);
+    setHiddenItemKeys(new Set());
+    setCanonicalOverrideItem(null);
+    setCanonicalTaskError(null);
+  }
 
-  const doNowQuery = useQuery({
-    queryKey: ["work-queue", "items", "do_now", source, domainFilter, bucketFilter, shiftFilter],
-    queryFn: () => workQueueService.listItems({ ...sharedParams, state: "do_now" }),
+  function applySearch(nextSearch: string) {
+    setAppliedSearch(nextSearch.trim());
+    setPage(1);
+    setSelectedKey(null);
+    setCanonicalOverrideItem(null);
+    setCanonicalTaskError(null);
+  }
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      if (searchInput.trim() !== appliedSearch) {
+        applySearch(searchInput);
+      }
+    }, 300);
+    return () => window.clearTimeout(timerId);
+  }, [appliedSearch, searchInput]);
+
+  const queueQuery = useQuery({
+    queryKey: ["work-queue", mode, source, domainFilter, bucketFilter, shiftFilter, assigneeFilter, page, appliedSearch || undefined],
+    queryFn: () =>
+      workQueueService.listItems({
+        state: mode as WorkQueueListState,
+        shift: shiftFilter,
+        assignee: assigneeFilter,
+        domain: domainFilter,
+        source,
+        bucket: bucketFilter,
+        page,
+        page_size: PAGE_SIZE,
+        q: appliedSearch || undefined,
+      }),
+    placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
   });
 
-  const awaitingQuery = useQuery({
-    queryKey: ["work-queue", "items", "awaiting_outcome", source, domainFilter, bucketFilter, shiftFilter],
-    queryFn: () => workQueueService.listItems({ ...sharedParams, state: "awaiting_outcome" }),
-    enabled: mode === "awaiting_outcome",
-    staleTime: 60 * 1000,
-  });
-
-  const allQuery = useQuery({
-    queryKey: ["work-queue", "items", "all", source, domainFilter, bucketFilter, shiftFilter],
-    queryFn: () => workQueueService.listItems({ ...sharedParams, state: "all" as WorkQueueListState }),
-    enabled: mode === "all",
-    staleTime: 60 * 1000,
-  });
-
-  const activeQuery = mode === "awaiting_outcome" ? awaitingQuery : mode === "all" ? allQuery : doNowQuery;
-  const activeItems = useMemo(() => activeQuery.data?.items ?? [], [activeQuery.data?.items]);
-  const filteredItems = useMemo(() => filterItems(activeItems, deferredSearch), [activeItems, deferredSearch]);
-  const selectedItem = useMemo(
+  const queueData = queueQuery.data;
+  const activeItems = useMemo(() => queueData?.items ?? [], [queueData?.items]);
+  const filteredItems = useMemo(() => activeItems.filter((item) => !hiddenItemKeys.has(itemKey(item))), [activeItems, hiddenItemKeys]);
+  const selectedQueueItem = useMemo(
     () => filteredItems.find((item) => itemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey],
   );
+  const selectedItem = useMemo(
+    () => (canonicalOverrideItem && selectedKey === itemKey(canonicalOverrideItem) ? canonicalOverrideItem : selectedQueueItem),
+    [canonicalOverrideItem, selectedKey, selectedQueueItem],
+  );
   const selectedMemberId = selectedItem?.member_id ?? null;
+
+  useEffect(() => {
+    if (canonicalOverrideItem && selectedKey === itemKey(canonicalOverrideItem)) return;
+    if (filteredItems.length === 0) {
+      if (selectedKey !== null) setSelectedKey(null);
+      return;
+    }
+    if (!selectedKey || !filteredItems.some((item) => itemKey(item) === selectedKey)) {
+      setSelectedKey(itemKey(filteredItems[0]));
+    }
+  }, [canonicalOverrideItem, filteredItems, selectedKey]);
 
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", selectedMemberId],
@@ -422,9 +469,26 @@ export function WorkExecutionView({
         snooze_preset,
         scheduled_for,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       setOperatorNote("");
       setCustomSnoozeDate("");
+      setCanonicalOverrideItem(null);
+      setCanonicalTaskError(null);
+      if (variables.outcome === "postponed" && result.item.visible_from) {
+        const hiddenKey = itemKey(variables.item);
+        const currentIndex = filteredItems.findIndex((item) => itemKey(item) === hiddenKey);
+        const remainingItems = filteredItems.filter((item) => itemKey(item) !== hiddenKey);
+        const nextItem = remainingItems[Math.min(Math.max(currentIndex, 0), Math.max(remainingItems.length - 1, 0))] ?? null;
+        setHiddenItemKeys((previous) => new Set(previous).add(hiddenKey));
+        setSelectedKey(nextItem ? itemKey(nextItem) : null);
+        const returnAt = formatReturnAt(result.item.visible_from);
+        setLiveMessage(`Retorna em ${returnAt}`);
+        toast.success(`Adiado. Retorna em ${returnAt}.`);
+        void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+        void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+        void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
+        return;
+      }
       setSelectedKey(itemKey(result.item));
       void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -480,13 +544,38 @@ export function WorkExecutionView({
 
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
+    setCanonicalOverrideItem(null);
+    setCanonicalTaskError(null);
     setConfirmingKey(null);
     setOperatorNote("");
     setCustomSnoozeDate("");
   }
 
+  async function continueCanonicalTask(item: WorkQueueItem) {
+    if (!item.canonical_task_id) return;
+    setIsContinuingTask(true);
+    setCanonicalTaskError(null);
+    try {
+      const taskItem = await workQueueService.getItem("task", item.canonical_task_id);
+      setCanonicalOverrideItem(taskItem);
+      setSelectedKey(itemKey(taskItem));
+      setOperatorNote("");
+      setConfirmingKey(null);
+      setCustomSnoozeDate("");
+    } catch (error) {
+      const detail = getHttpDetail(error);
+      setCanonicalTaskError(detail === "Erro 404" ? "Tarefa vinculada indisponivel." : detail);
+    } finally {
+      setIsContinuingTask(false);
+    }
+  }
+
   function executeSelected() {
     if (!selectedItem) return;
+    if (selectedItem.freshness_blocking) {
+      toast.error("Atualize a fila antes de executar este item.");
+      return;
+    }
     if (selectedItem.requires_confirmation && confirmingKey !== itemKey(selectedItem)) {
       setConfirmingKey(itemKey(selectedItem));
       return;
@@ -494,8 +583,26 @@ export function WorkExecutionView({
     executeMutation.mutate({ item: selectedItem, confirmed: selectedItem.requires_confirmation });
   }
 
-  const isLoading = activeQuery.isLoading;
-  const isError = activeQuery.isError;
+  const isLoading = queueQuery.isLoading && !queueData;
+  const isError = queueQuery.isError && !queueData;
+  const isRefreshing = queueQuery.isFetching && Boolean(queueData);
+  const hasTruncatedSources = (queueData?.truncated_sources ?? []).length > 0;
+  const queueTotal = queueData?.total ?? filteredItems.length;
+  const rangeStart = queueTotal > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const rangeEnd = queueTotal > 0 ? Math.min(page * PAGE_SIZE, queueTotal) : 0;
+  const rangeCopy =
+    queueTotal > 0
+      ? `Mostrando ${rangeStart}-${rangeEnd} de ${hasTruncatedSources ? `pelo menos ${queueTotal}` : queueTotal} acoes`
+      : "Nenhuma acao nesta pagina";
+  const truncatedCopy = hasTruncatedSources
+    ? `Fonte limitada: ${(queueData?.truncated_sources ?? []).join(", ")}. Total exibido como limite inferior.`
+    : null;
+  function countLabel(state: QueueStateCountKey): string {
+    if (isLoading) return "...";
+    if (isError) return "-";
+    const value = queueData?.state_counts?.[state] ?? (mode === state ? queueTotal : 0);
+    return `${value}${hasTruncatedSources && state === mode ? "+" : ""}`;
+  }
   const isMutating =
     executeMutation.isPending ||
     outcomeMutation.isPending ||
@@ -509,14 +616,15 @@ export function WorkExecutionView({
   const isTechnicalTrainerItem = selectedItem?.domain === "trainer" && Boolean(selectedItem.technical_ladder_step);
   const canRegenerateMessage = userRole === "owner" || userRole === "manager" || userRole === "receptionist";
   const selectedOutcomeRequiresPreparation = selectedItem ? requiresPreparationBeforeOutcome(selectedItem) : false;
-  const outcomeButtonDisabled = isMutating || selectedOutcomeRequiresPreparation;
+  const selectedFreshnessBlocking = Boolean(selectedItem?.freshness_blocking);
+  const outcomeButtonDisabled = isMutating || selectedOutcomeRequiresPreparation || selectedFreshnessBlocking;
   const selectedShiftDiagnostic = selectedItem ? getPreferredShiftDiagnostic(selectedItem) : null;
   const bucketOptions = bucketOptionsByDomain[domainFilter] ?? [];
 
   function updateDomainFilter(nextDomain: WorkQueueDomainFilter) {
     setDomainFilter(nextDomain);
     setBucketFilter("all");
-    setSelectedKey(null);
+    resetQueueCursor();
   }
 
   function markExecutionStartedForAction(item: WorkQueueItem) {
@@ -562,6 +670,10 @@ export function WorkExecutionView({
     },
   ) {
     if (!selectedItem) return;
+    if (selectedItem.freshness_blocking) {
+      toast.error("Atualize a fila antes de registrar resultado deste item.");
+      return;
+    }
     if (requiresPreparationBeforeOutcome(selectedItem)) {
       toast.error("Clique em Comecar execucao antes de registrar o resultado.");
       return;
@@ -585,6 +697,9 @@ export function WorkExecutionView({
 
   return (
     <section className={cn("space-y-5", compact ? "pt-1" : "")}>
+      <div className="sr-only" aria-live="polite">
+        {liveMessage}
+      </div>
       <div className="rounded-[28px] border border-lovable-border bg-lovable-surface/72 p-4 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -625,24 +740,44 @@ export function WorkExecutionView({
             <Button size="sm" variant={domainFilter === "all" ? "primary" : "secondary"} onClick={() => updateDomainFilter("all")}>
               Todas
             </Button>
-            <Button size="sm" variant={mode === "do_now" ? "primary" : "secondary"} onClick={() => setMode("do_now")}>
-              Fazer agora ({doNowQuery.data?.total ?? 0})
+            <Button
+              size="sm"
+              variant={mode === "do_now" ? "primary" : "secondary"}
+              onClick={() => {
+                setMode("do_now");
+                resetQueueCursor();
+              }}
+            >
+              Fazer agora ({countLabel("do_now")})
             </Button>
             <Button
               size="sm"
               variant={mode === "awaiting_outcome" ? "primary" : "secondary"}
-              onClick={() => setMode("awaiting_outcome")}
+              onClick={() => {
+                setMode("awaiting_outcome");
+                resetQueueCursor();
+              }}
             >
-              Aguardando resultado ({awaitingQuery.data?.total ?? 0})
+              Aguardando resultado ({countLabel("awaiting_outcome")})
             </Button>
-            <Button size="sm" variant={mode === "all" ? "primary" : "secondary"} onClick={() => setMode("all")}>
+            <Button
+              size="sm"
+              variant={mode === "all" ? "primary" : "secondary"}
+              onClick={() => {
+                setMode("all");
+                resetQueueCursor();
+              }}
+            >
               Todos
             </Button>
             {hasUserShiftScope ? (
               <Button
                 size="sm"
                 variant={shiftFilter === "my_shift" ? "secondary" : "ghost"}
-                onClick={() => setShiftFilter("my_shift")}
+                onClick={() => {
+                  setShiftFilter("my_shift");
+                  resetQueueCursor();
+                }}
               >
                 Meu turno: {userShiftScopeLabel}
               </Button>
@@ -650,13 +785,28 @@ export function WorkExecutionView({
               <Badge variant="warning">Login sem turno</Badge>
             )}
             {canSeeAllShifts ? (
-              <Button size="sm" variant={shiftFilter === "all" ? "secondary" : "ghost"} onClick={() => setShiftFilter("all")}>
+              <Button
+                size="sm"
+                variant={shiftFilter === "all" ? "secondary" : "ghost"}
+                onClick={() => {
+                  setShiftFilter("all");
+                  resetQueueCursor();
+                }}
+              >
                 Todos os turnos
               </Button>
             ) : null}
             {canSeeAllShifts
               ? explicitShiftFilters.map((shift) => (
-                  <Button key={shift} size="sm" variant={shiftFilter === shift ? "secondary" : "ghost"} onClick={() => setShiftFilter(shift)}>
+                  <Button
+                    key={shift}
+                    size="sm"
+                    variant={shiftFilter === shift ? "secondary" : "ghost"}
+                    onClick={() => {
+                      setShiftFilter(shift);
+                      resetQueueCursor();
+                    }}
+                  >
                     {getShiftLabel(shift)}
                   </Button>
                 ))
@@ -667,11 +817,31 @@ export function WorkExecutionView({
         <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-2xl border border-lovable-border bg-lovable-bg-muted/80 px-3">
           <Search className="h-4 w-4 text-lovable-ink-muted" />
           <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applySearch(searchInput);
+              }
+            }}
             placeholder="Buscar aluno, motivo ou acao..."
             className="border-0 bg-transparent px-0 shadow-none focus:ring-0"
           />
+          {searchInput ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Limpar busca"
+              onClick={() => {
+                setSearchInput("");
+                applySearch("");
+              }}
+            >
+              Limpar busca
+            </Button>
+          ) : null}
         </div>
 
         {bucketOptions.length > 0 ? (
@@ -687,7 +857,7 @@ export function WorkExecutionView({
                 variant={bucketFilter === option.value ? "secondary" : "ghost"}
                 onClick={() => {
                   setBucketFilter(option.value);
-                  setSelectedKey(null);
+                  resetQueueCursor();
                 }}
               >
                 {option.label}
@@ -712,7 +882,7 @@ export function WorkExecutionView({
           icon={ClipboardCheck}
         />
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(340px,0.9fr)_minmax(460px,1.1fr)]">
+        <div className="grid gap-5 xl:grid-cols-[minmax(340px,0.9fr)_minmax(460px,1.1fr)]" aria-busy={isRefreshing}>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -720,8 +890,10 @@ export function WorkExecutionView({
                   {mode === "awaiting_outcome" ? "Aguardando resultado" : mode === "all" ? "Fila completa" : "Fazer agora"}
                 </p>
                 <p className="mt-1 text-sm text-lovable-ink-muted">
-                  Mostrando ate 25 acoes. Total disponivel: {activeQuery.data?.total ?? filteredItems.length}.
+                  {rangeCopy}
+                  {isRefreshing ? " - Atualizando" : ""}
                 </p>
+                {truncatedCopy ? <p className="mt-1 text-xs font-semibold text-lovable-warning">{truncatedCopy}</p> : null}
               </div>
             </div>
 
@@ -733,6 +905,9 @@ export function WorkExecutionView({
                 onSelect={() => selectItem(item)}
               />
             ))}
+            {queueTotal > PAGE_SIZE ? (
+              <Pagination page={page} pageSize={PAGE_SIZE} total={queueTotal} onPageChange={(nextPage) => setPage(nextPage)} />
+            ) : null}
           </div>
 
           {selectedItem ? (
@@ -785,6 +960,57 @@ export function WorkExecutionView({
                 ) : null}
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={selectedItem.freshness_state === "stale" ? "warning" : selectedItem.freshness_state === "fresh" ? "success" : "neutral"}>
+                      {formatFreshnessLabel(selectedItem)}
+                    </Badge>
+                    {selectedItem.priority_state === "unknown" ? <Badge variant="warning">Prioridade sem sinal</Badge> : null}
+                    {selectedFreshnessBlocking ? <Badge variant="danger">Atualizacao obrigatoria</Badge> : null}
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-lovable-ink">Responsavel: {formatAssignedOwner(selectedItem)}</p>
+                  {formatMissingFields(selectedItem.readiness_missing_fields) ? (
+                    <p className="mt-1 text-xs text-lovable-ink-muted">Lacunas: {formatMissingFields(selectedItem.readiness_missing_fields)}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-lovable-ink-muted">Lacunas operacionais principais cobertas.</p>
+                  )}
+                  {selectedFreshnessBlocking ? (
+                    <p className="mt-2 text-xs font-semibold text-lovable-danger">Atualize a fila antes de executar este item.</p>
+                  ) : null}
+                </div>
+
+                {canonicalOverrideItem && selectedKey === itemKey(canonicalOverrideItem) ? (
+                  <div className="rounded-2xl border border-[hsl(var(--lovable-success)/0.35)] bg-[hsl(var(--lovable-success)/0.08)] p-4 text-sm font-semibold text-lovable-ink">
+                    Tarefa vinculada aberta sem criar duplicata.
+                  </div>
+                ) : null}
+
+                {selectedItem.canonical_task_id && selectedItem.source_type !== "task" ? (
+                  <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Task vinculada</p>
+                    <p className="mt-2 text-sm text-lovable-ink-muted">
+                      Esta recomendacao ja tem uma task canonica ativa. Continue por ela para evitar duplicidade.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-3"
+                      onClick={() => void continueCanonicalTask(selectedItem)}
+                      disabled={isContinuingTask}
+                    >
+                      {isContinuingTask ? "Abrindo..." : "Continuar tarefa"}
+                    </Button>
+                    {canonicalTaskError ? (
+                      <div className="mt-3 rounded-xl border border-[hsl(var(--lovable-warning)/0.35)] bg-[hsl(var(--lovable-warning)/0.08)] p-3">
+                        <p className="text-sm font-semibold text-lovable-warning">{canonicalTaskError}</p>
+                        <Button size="sm" variant="secondary" className="mt-2" onClick={() => void queueQuery.refetch()}>
+                          Atualizar fila
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Fazer agora</p>
                   <p className="mt-2 text-base font-bold text-lovable-ink">{selectedItem.primary_action_label}</p>
                   <p className="mt-2 text-sm text-lovable-ink-muted">{selectedItem.reason}</p>
@@ -834,7 +1060,7 @@ export function WorkExecutionView({
                       size="sm"
                       className="justify-start"
                       onClick={() => openWhatsAppAction(selectedItem)}
-                      disabled={isMutating || !selectedWhatsAppUrl}
+                      disabled={isMutating || selectedFreshnessBlocking || !selectedWhatsAppUrl}
                     >
                       <MessageCircle className="h-4 w-4" />
                       Abrir WhatsApp
@@ -884,7 +1110,7 @@ export function WorkExecutionView({
                         Este item e critico ou degradado. A preparacao exige confirmacao humana curta.
                       </p>
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <Button size="sm" onClick={executeSelected} disabled={isMutating}>
+                        <Button size="sm" onClick={executeSelected} disabled={isMutating || selectedFreshnessBlocking}>
                           <ArrowRight className="h-4 w-4" />
                           Confirmar e comecar
                         </Button>
@@ -898,7 +1124,7 @@ export function WorkExecutionView({
                       Acao ja preparada. Registre o resultado assim que houver retorno.
                     </p>
                   ) : (
-                    <Button className="mt-4" onClick={executeSelected} disabled={isMutating}>
+                    <Button className="mt-4" onClick={executeSelected} disabled={isMutating || selectedFreshnessBlocking}>
                       <ArrowRight className="h-4 w-4" />
                       {selectedItem.source_type === "ai_service_agent" || selectedItem.source_type === "student_personal_ai"
                         ? primaryChannelLabel(selectedItem)

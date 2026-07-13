@@ -178,6 +178,7 @@ export interface WorkQueueItem {
   source_type: WorkQueueSourceType;
   source_id: string;
   subject_name: string;
+  canonical_task_id?: string | null;
   member_id: string | null;
   lead_id: string | null;
   subject_phone: string | null;
@@ -201,8 +202,16 @@ export interface WorkQueueItem {
   requires_confirmation: boolean;
   state: WorkQueueState;
   due_at: string | null;
+  last_refreshed_at?: string | null;
+  freshness_state?: "fresh" | "stale" | "unknown" | string;
+  freshness_blocking?: boolean;
+  readiness_missing_fields?: string[];
+  signal_value?: number | null;
+  priority_state?: "known" | "unknown" | string;
   visible_from?: string | null;
   assigned_to_user_id: string | null;
+  assigned_to_name?: string | null;
+  assigned_to_role?: string | null;
   context_path: string | null;
   outcome_state: string | null;
   retention_stage?: string | null;
@@ -942,6 +951,17 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface WorkQueueStateCounts {
+  do_now: number;
+  awaiting_outcome: number;
+  done: number;
+}
+
+export interface WorkQueueListResponse extends PaginatedResponse<WorkQueueItem> {
+  state_counts: WorkQueueStateCounts;
+  truncated_sources: WorkQueueSourceType[];
 }
 
 export interface RevenuePoint {

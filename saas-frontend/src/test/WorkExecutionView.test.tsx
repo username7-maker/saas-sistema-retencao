@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,7 +7,7 @@ import { WorkExecutionView } from "../components/workQueue/WorkExecutionView";
 import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { workQueueService } from "../services/workQueueService";
-import type { LeadToMemberIntelligenceContext, WorkQueueActionResult, WorkQueueItem } from "../types";
+import type { LeadToMemberIntelligenceContext, WorkQueueActionResult, WorkQueueItem, WorkQueueListResponse } from "../types";
 
 const TASK_CANONICAL_ID = "33333333-3333-3333-3333-333333333333";
 
@@ -91,8 +91,8 @@ function makeItem(overrides: Record<string, unknown> = {}): WorkQueueItem {
   } as WorkQueueItem;
 }
 
-function makeEnvelope(overrides: Record<string, unknown> = {}) {
-  const items = (overrides.items as WorkQueueItem[] | undefined) ?? [makeItem()];
+function makeEnvelope(overrides: Partial<WorkQueueListResponse> = {}): WorkQueueListResponse {
+  const items = overrides.items ?? [makeItem()];
   return {
     items,
     total: items.length,

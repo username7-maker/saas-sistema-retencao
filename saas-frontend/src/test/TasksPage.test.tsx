@@ -9,7 +9,7 @@ import { memberService } from "../services/memberService";
 import { taskService } from "../services/taskService";
 import { userService } from "../services/userService";
 import { workQueueService } from "../services/workQueueService";
-import type { LeadToMemberIntelligenceContext, Member, Task } from "../types";
+import type { LeadToMemberIntelligenceContext, Member, Task, WorkQueueItem } from "../types";
 
 let currentUserMock = {
   id: "user-1",
@@ -131,6 +131,51 @@ function makeIntelligenceContext(member: Member = members[0]): LeadToMemberIntel
     },
     signals: [],
     data_quality_flags: [],
+  };
+}
+
+function makeWorkQueueItem(overrides: Partial<WorkQueueItem> = {}): WorkQueueItem {
+  return {
+    source_type: "ai_triage",
+    source_id: "smoke-rec-1",
+    subject_name: "Smoke Tasks",
+    member_id: "member-1",
+    lead_id: null,
+    subject_phone: "11999990001",
+    domain: "onboarding",
+    severity: "high",
+    preferred_shift: "morning",
+    preferred_shift_status: "resolved_from_checkins",
+    preferred_shift_reason: null,
+    preferred_shift_counts: { morning: 1 },
+    reason: "Smoke sintetico da rota de tasks.",
+    primary_action_label: "Executar smoke",
+    primary_action_type: "create_task",
+    suggested_message: "Mensagem sintetica.",
+    message_source: "ai_specialist",
+    prompt_key: "synthetic",
+    prompt_version: "v1",
+    model: "synthetic",
+    safety_profile: "safe",
+    message_fallback_used: false,
+    message_blocked_reasons: [],
+    requires_confirmation: false,
+    state: "do_now",
+    due_at: null,
+    visible_from: null,
+    assigned_to_user_id: "user-1",
+    assigned_to_name: "Julia Operacoes",
+    assigned_to_role: "manager",
+    context_path: "/tasks",
+    outcome_state: "pending",
+    canonical_task_id: null,
+    last_refreshed_at: "2026-07-13T12:00:00Z",
+    freshness_state: "fresh",
+    freshness_blocking: false,
+    readiness_missing_fields: [],
+    signal_value: 72,
+    priority_state: "known",
+    ...overrides,
   };
 }
 
@@ -469,6 +514,12 @@ describe("TasksPage", () => {
       total: 0,
       page: 1,
       page_size: 25,
+      state_counts: {
+        do_now: 0,
+        awaiting_outcome: 0,
+        done: 0,
+      },
+      truncated_sources: [],
     });
     vi.mocked(coachWorkspaceService.getWorkspace).mockResolvedValue({
       items: [],
@@ -530,6 +581,35 @@ describe("TasksPage", () => {
         }),
       );
     });
+  });
+
+  it("smoke sintetico /tasks monta o WorkExecutionView compartilhado", async () => {
+    vi.mocked(workQueueService.listItems).mockResolvedValue({
+      items: [makeWorkQueueItem()],
+      total: 1,
+      page: 1,
+      page_size: 25,
+      state_counts: {
+        do_now: 1,
+        awaiting_outcome: 0,
+        done: 0,
+      },
+      truncated_sources: [],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Modo execucao operacional")).toBeInTheDocument();
+    expect((await screen.findAllByText("Smoke Tasks")).length).toBeGreaterThan(0);
+    expect(workQueueService.listItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "all",
+        domain: "operations",
+        state: "do_now",
+        page: 1,
+        page_size: 25,
+      }),
+    );
   });
 
   it("opens the professor queue by default for trainer users", async () => {
