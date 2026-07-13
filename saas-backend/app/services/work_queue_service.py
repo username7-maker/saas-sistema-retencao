@@ -6,13 +6,13 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, case, func, literal, or_, select
+from sqlalchemy.orm import Session, contains_eager
 
 from app.models import (
     AITriageRecommendation,
-    AutopilotAction,
     Assessment,
+    AutopilotAction,
     BodyCompositionEvaluation,
     Lead,
     Member,
@@ -24,6 +24,7 @@ from app.models import (
     User,
 )
 from app.schemas.ai_triage import AITriageSafeActionPrepareInput
+from app.schemas.autopilot import WorkQueueSendAndWaitInput
 from app.schemas.work_queue import (
     WorkQueueActionResultOut,
     WorkQueueExecuteInput,
@@ -34,33 +35,26 @@ from app.schemas.work_queue import (
     WorkQueueSourceType,
     WorkQueueState,
 )
-from app.schemas.autopilot import WorkQueueSendAndWaitInput
-from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
-from app.services.autopilot_policy_service import AutopilotDecision
-from app.services.autopilot_safety_service import check_autopilot_safety
-from app.services.communication_channel_service import resolve_communication_channel
-from app.services.ai_triage_service import (
-    get_ai_triage_recommendation_or_404,
-    prepare_ai_triage_recommendation_action,
-    serialize_ai_triage_recommendation,
-    update_ai_triage_recommendation_outcome,
-)
 from app.services.ai_service_agent_service import (
     AI_SERVICE_AGENT_ACTION_TYPE,
     AI_SERVICE_AGENT_DRAFT_READY,
     prepare_ai_service_agent_draft_in_kommo,
     serialize_ai_service_agent_draft,
 )
-from app.services.student_personal_ai_service import (
-    STUDENT_PERSONAL_AI_ACTION_TYPE,
-    STUDENT_PERSONAL_AI_DRAFT_READY,
-    prepare_student_personal_ai_draft_in_kommo,
-    serialize_student_personal_ai_draft,
+from app.services.ai_triage_service import (
+    get_ai_triage_recommendation_or_404,
+    prepare_ai_triage_recommendation_action,
+    serialize_ai_triage_recommendation,
+    update_ai_triage_recommendation_outcome,
 )
-from app.services.audit_service import log_audit_event
-from app.services.automation_journey_service import handle_task_outcome_for_journey
 from app.services.assessment_analytics_service import get_assessments_queue
 from app.services.assessment_service import update_assessment_queue_resolution
+from app.services.audit_service import log_audit_event
+from app.services.automation_journey_service import handle_task_outcome_for_journey
+from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
+from app.services.autopilot_policy_service import AutopilotDecision
+from app.services.autopilot_safety_service import check_autopilot_safety
+from app.services.communication_channel_service import resolve_communication_channel
 from app.services.operational_message_ai_service import generate_operational_message_draft
 from app.services.preferred_shift_service import (
     PreferredShiftDiagnostic,
@@ -72,6 +66,12 @@ from app.services.retention_stage_service import (
     RETENTION_STAGE_COLD_BASE,
     is_cold_base_stage,
     retention_stage_payload,
+)
+from app.services.student_personal_ai_service import (
+    STUDENT_PERSONAL_AI_ACTION_TYPE,
+    STUDENT_PERSONAL_AI_DRAFT_READY,
+    prepare_student_personal_ai_draft_in_kommo,
+    serialize_student_personal_ai_draft,
 )
 from app.services.task_event_service import record_task_event
 from app.services.task_service import is_task_operationally_archived
@@ -250,8 +250,9 @@ def _normalize_search_query(q: str | None) -> str | None:
 
 
 def _search_expression(q: str, *columns):
-    pattern = f"%{q}%"
-    return or_(*(func.lower(func.coalesce(column, "")).like(pattern) for column in columns))
+    return or_(
+        *(func.lower(func.coalesce(column, "")).contains(q, autoescape=True) for column in columns)
+    )
 
 
 class _LoadedWorkQueueItems(list[WorkQueueItemOut]):
@@ -378,6 +379,79 @@ def _effective_task_message(task: Task) -> str | None:
     if isinstance(ai_message, str) and ai_message.strip():
         return ai_message.strip()
     return task.suggested_message
+
+
+def _effective_task_message_expression():
+    ai_message = func.nullif(
+        func.btrim(func.coalesce(Task.extra_data["ai_suggested_message"].astext, "")),
+        "",
+    )
+    return func.coalesce(ai_message, Task.suggested_message)
+
+
+def _task_action_label_expression():
+    source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
+    raw_domain = func.coalesce(Task.extra_data["domain"].astext, "")
+    normalized_domain = func.lower(raw_domain)
+    title = func.coalesce(Task.title, "")
+    title_lower = func.lower(title)
+    primary_action = func.coalesce(Task.extra_data["primary_action_label"].astext, "")
+    channel_action = func.btrim(
+        func.coalesce(Task.extra_data["work_queue_channel_action_label"].astext, "")
+    )
+
+    def primary_or(default: str):
+        return case((primary_action != "", primary_action), else_=literal(default))
+
+    finance_precedes_trainer = or_(
+        normalized_domain == "finance",
+        source == "delinquency",
+        title_lower.contains("inadimplencia"),
+    )
+    trainer_domain = and_(~finance_precedes_trainer, _trainer_task_filter())
+    trainer_label = case(
+        (
+            source == "assessment_training_delivery_check_d8",
+            primary_or("Verificar treino"),
+        ),
+        (
+            source == "assessment_feedback_followup",
+            primary_or("Registrar feedback"),
+        ),
+        (
+            source == "assessment_reassessment_due",
+            primary_or("Agendar reavaliacao"),
+        ),
+        (
+            or_(source.contains("training"), source.contains("trainer")),
+            primary_or("Revisar treino do aluno"),
+        ),
+        else_=primary_or("Abrir contexto tecnico"),
+    )
+    automation_label = case(
+        (primary_action != "", primary_action),
+        (title != "", title),
+        else_=literal("Executar etapa da jornada"),
+    )
+    effective_message = _effective_task_message_expression()
+
+    return case(
+        (channel_action != "", channel_action),
+        (trainer_domain, trainer_label),
+        (source == "automation_journey", automation_label),
+        (
+            or_(source == "delinquency", raw_domain == "finance"),
+            primary_or("Cobrar inadimplencia"),
+        ),
+        (func.coalesce(effective_message, "") != "", literal("Usar mensagem pronta")),
+        (Task.status == TaskStatus.DOING, literal("Registrar resultado")),
+        (
+            or_(source.contains("assessment"), title_lower.contains("avaliacao")),
+            literal("Abrir avaliacao"),
+        ),
+        (Task.lead_id.is_not(None), literal("Abrir lead")),
+        else_=literal("Iniciar tarefa"),
+    )
 
 
 def _work_queue_message_fields(
@@ -721,9 +795,85 @@ def _ai_service_agent_state(action: AutopilotAction) -> str:
     return "do_now"
 
 
-def _ai_service_agent_to_item(db: Session, action: AutopilotAction) -> WorkQueueItemOut:
+_ACTION_MEMBER_UNSET = object()
+
+
+def _tenant_member_for_action(db: Session, action: AutopilotAction) -> Member | None:
+    if not action.member_id:
+        return None
+    return db.scalar(
+        select(Member).where(
+            Member.id == action.member_id,
+            Member.gym_id == action.gym_id,
+            Member.deleted_at.is_(None),
+        )
+    )
+
+
+def _tenant_lead_for_action(db: Session, action: AutopilotAction) -> Lead | None:
+    if not action.lead_id:
+        return None
+    return db.scalar(
+        select(Lead).where(
+            Lead.id == action.lead_id,
+            Lead.gym_id == action.gym_id,
+            Lead.deleted_at.is_(None),
+        )
+    )
+
+
+def _tenant_members_for_actions(
+    db: Session,
+    *,
+    gym_id: UUID,
+    actions: list[AutopilotAction],
+) -> dict[UUID, Member]:
+    member_ids = {action.member_id for action in actions if action.member_id is not None}
+    if not member_ids:
+        return {}
+    members = db.scalars(
+        select(Member).where(
+            Member.id.in_(member_ids),
+            Member.gym_id == gym_id,
+            Member.deleted_at.is_(None),
+        )
+    ).all()
+    return {member.id: member for member in members}
+
+
+def _tenant_leads_for_actions(
+    db: Session,
+    *,
+    gym_id: UUID,
+    actions: list[AutopilotAction],
+) -> dict[UUID, Lead]:
+    lead_ids = {action.lead_id for action in actions if action.lead_id is not None}
+    if not lead_ids:
+        return {}
+    leads = db.scalars(
+        select(Lead).where(
+            Lead.id.in_(lead_ids),
+            Lead.gym_id == gym_id,
+            Lead.deleted_at.is_(None),
+        )
+    ).all()
+    return {lead.id: lead for lead in leads}
+
+
+def _ai_service_agent_to_item(
+    db: Session,
+    action: AutopilotAction,
+    *,
+    member: Member | None | object = _ACTION_MEMBER_UNSET,
+    lead: Lead | None | object = _ACTION_MEMBER_UNSET,
+) -> WorkQueueItemOut:
     draft = serialize_ai_service_agent_draft(action)
-    member = db.get(Member, action.member_id) if action.member_id else None
+    if member is _ACTION_MEMBER_UNSET:
+        member = _tenant_member_for_action(db, action)
+    if lead is _ACTION_MEMBER_UNSET:
+        lead = _tenant_lead_for_action(db, action)
+    resolved_member_id = member.id if member else None
+    resolved_lead_id = lead.id if lead else None
     subject_name = member.full_name if member else "Conversa Kommo"
     preferred_shift = getattr(member, "preferred_shift", None) if member else None
     domain = "commercial" if draft.intent == "sales" else draft.intent
@@ -746,8 +896,8 @@ def _ai_service_agent_to_item(db: Session, action: AutopilotAction) -> WorkQueue
         source_type="ai_service_agent",
         source_id=action.id,
         subject_name=subject_name,
-        member_id=action.member_id,
-        lead_id=action.lead_id,
+        member_id=resolved_member_id,
+        lead_id=resolved_lead_id,
         subject_phone=getattr(member, "phone", None) if member else None,
         domain=domain,
         severity=severity,
@@ -780,9 +930,20 @@ def _student_personal_ai_state(action: AutopilotAction) -> str:
     return "do_now"
 
 
-def _student_personal_ai_to_item(db: Session, action: AutopilotAction) -> WorkQueueItemOut:
+def _student_personal_ai_to_item(
+    db: Session,
+    action: AutopilotAction,
+    *,
+    member: Member | None | object = _ACTION_MEMBER_UNSET,
+    lead: Lead | None | object = _ACTION_MEMBER_UNSET,
+) -> WorkQueueItemOut:
     draft = serialize_student_personal_ai_draft(action)
-    member = db.get(Member, action.member_id) if action.member_id else None
+    if member is _ACTION_MEMBER_UNSET:
+        member = _tenant_member_for_action(db, action)
+    if lead is _ACTION_MEMBER_UNSET:
+        lead = _tenant_lead_for_action(db, action)
+    resolved_member_id = member.id if member else None
+    resolved_lead_id = lead.id if lead else None
     subject_name = member.full_name if member else "Aluno Kommo"
     preferred_shift = getattr(member, "preferred_shift", None) if member else None
     severity = "high" if action.status in {"blocked", "escalated"} or draft.sensitivity == "sensitive" else "medium"
@@ -803,8 +964,8 @@ def _student_personal_ai_to_item(db: Session, action: AutopilotAction) -> WorkQu
         source_type="student_personal_ai",
         source_id=action.id,
         subject_name=subject_name,
-        member_id=action.member_id,
-        lead_id=action.lead_id,
+        member_id=resolved_member_id,
+        lead_id=resolved_lead_id,
         subject_phone=getattr(member, "phone", None) if member else None,
         domain="trainer",
         severity=severity,
@@ -817,7 +978,7 @@ def _student_personal_ai_to_item(db: Session, action: AutopilotAction) -> WorkQu
         state=_student_personal_ai_state(action),  # type: ignore[arg-type]
         due_at=action.created_at,
         assigned_to_user_id=None,
-        context_path=f"/assessments/members/{action.member_id}" if action.member_id else "/tasks",
+        context_path=f"/assessments/members/{resolved_member_id}" if resolved_member_id else "/tasks",
         outcome_state=action.outcome or action.status,
         autopilot_state=action.status,
         autopilot_badges=badges,
@@ -965,8 +1126,35 @@ def _filter_items(
     return sorted(filtered, key=lambda item: _work_item_sort_key(item, effective_now))
 
 
+def _task_select_with_tenant_relations(current_user: User):
+    return (
+        select(Task)
+        .outerjoin(
+            Member,
+            and_(
+                Task.member_id == Member.id,
+                Member.gym_id == current_user.gym_id,
+                Member.deleted_at.is_(None),
+            ),
+        )
+        .outerjoin(
+            Lead,
+            and_(
+                Task.lead_id == Lead.id,
+                Lead.gym_id == current_user.gym_id,
+                Lead.deleted_at.is_(None),
+            ),
+        )
+        .options(contains_eager(Task.member), contains_eager(Task.lead))
+        .where(
+            Task.gym_id == current_user.gym_id,
+            Task.deleted_at.is_(None),
+        )
+    )
+
+
 def _list_task_items(db: Session, current_user: User, *, q: str | None = None) -> list[WorkQueueItemOut]:
-    filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None)]
+    filters = []
     filters.append(func.coalesce(Task.extra_data["operational_archive"]["archived_at"].astext, "") == "")
     if current_user.role == RoleEnum.TRAINER:
         filters.append(_trainer_task_filter())
@@ -982,9 +1170,8 @@ def _list_task_items(db: Session, current_user: User, *, q: str | None = None) -
                 normalized_q,
                 Task.title,
                 Task.description,
-                Task.suggested_message,
-                Task.extra_data["primary_action_label"].astext,
-                Task.extra_data["work_queue_channel_action_label"].astext,
+                _effective_task_message_expression(),
+                _task_action_label_expression(),
                 Member.full_name,
                 Lead.full_name,
             )
@@ -992,10 +1179,7 @@ def _list_task_items(db: Session, current_user: User, *, q: str | None = None) -
     cap = WORK_QUEUE_SOURCE_CAPS["task"]
     tasks = list(
         db.scalars(
-            select(Task)
-            .options(joinedload(Task.member), joinedload(Task.lead))
-            .outerjoin(Member, Task.member_id == Member.id)
-            .outerjoin(Lead, Task.lead_id == Lead.id)
+            _task_select_with_tenant_relations(current_user)
             .where(*filters)
             .order_by(Task.due_date.asc().nullslast(), Task.created_at.desc())
             .limit(cap + 1)
@@ -1049,6 +1233,42 @@ def _list_ai_items(db: Session, current_user: User, *, q: str | None = None) -> 
     )
 
 
+def _agent_status_label_expression(
+    *,
+    draft_ready_status: str,
+    draft_ready_label: str,
+    fallback_label: str,
+):
+    return case(
+        (AutopilotAction.status == draft_ready_status, literal(draft_ready_label)),
+        (AutopilotAction.status == "awaiting_outcome", literal("Aguardando Kommo")),
+        (AutopilotAction.status.in_(("blocked", "escalated")), literal("Assumir conversa")),
+        else_=literal(fallback_label),
+    )
+
+
+def _ai_service_agent_intent_expression():
+    return func.coalesce(
+        func.nullif(AutopilotAction.metadata_json["intent"].astext, ""),
+        func.nullif(AutopilotAction.domain, ""),
+        "general",
+    )
+
+
+def _agent_reason_expression():
+    return func.coalesce(
+        func.nullif(AutopilotAction.metadata_json["summary"].astext, ""),
+        AutopilotAction.policy_key,
+    )
+
+
+def _agent_message_expression():
+    return func.coalesce(
+        func.nullif(AutopilotAction.message_body, ""),
+        AutopilotAction.metadata_json["draft_reply"].astext,
+    )
+
+
 def _list_ai_service_agent_items(
     db: Session,
     current_user: User,
@@ -1062,35 +1282,78 @@ def _list_ai_service_agent_items(
         AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
         AutopilotAction.status.in_([AI_SERVICE_AGENT_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
     ]
+    intent_expression = _ai_service_agent_intent_expression()
+    if current_user.role == RoleEnum.TRAINER:
+        filters.append(
+            or_(
+                intent_expression == "assessment",
+                intent_expression == "injury",
+            )
+        )
+    elif current_user.role == RoleEnum.SALESPERSON:
+        filters.append(intent_expression == "sales")
     normalized_q = _normalize_search_query(q)
     if normalized_q:
+        status_label = _agent_status_label_expression(
+            draft_ready_status=AI_SERVICE_AGENT_DRAFT_READY,
+            draft_ready_label="Preparar na Kommo",
+            fallback_label="Revisar conversa",
+        )
+        subject_name = case(
+            (Member.id.is_not(None), Member.full_name),
+            else_=literal("Conversa Kommo"),
+        )
         filters.append(
             _search_expression(
                 normalized_q,
-                AutopilotAction.domain,
-                AutopilotAction.policy_key,
-                AutopilotAction.message_body,
-                AutopilotAction.metadata_json["summary"].astext,
-                AutopilotAction.metadata_json["subject_name"].astext,
-                AutopilotAction.metadata_json["primary_action_label"].astext,
+                subject_name,
+                _agent_reason_expression(),
+                status_label,
+                _agent_message_expression(),
             )
         )
     cap = WORK_QUEUE_SOURCE_CAPS["ai_service_agent"]
     actions = list(
         db.scalars(
             select(AutopilotAction)
+            .outerjoin(
+                Member,
+                and_(
+                    AutopilotAction.member_id == Member.id,
+                    Member.gym_id == current_user.gym_id,
+                    Member.deleted_at.is_(None),
+                ),
+            )
             .where(*filters)
-            .order_by(AutopilotAction.created_at.desc())
+            .order_by(AutopilotAction.created_at.desc(), AutopilotAction.id.desc())
             .limit(cap + 1)
         ).all()
     )
-    truncated = len(actions) > cap
-    items = [_ai_service_agent_to_item(db, action) for action in actions[:cap]]
+    members_by_id = _tenant_members_for_actions(
+        db,
+        gym_id=current_user.gym_id,
+        actions=actions,
+    )
+    leads_by_id = _tenant_leads_for_actions(
+        db,
+        gym_id=current_user.gym_id,
+        actions=actions,
+    )
+    items = [
+        _ai_service_agent_to_item(
+            db,
+            action,
+            member=members_by_id.get(action.member_id),
+            lead=leads_by_id.get(action.lead_id),
+        )
+        for action in actions
+    ]
     if current_user.role == RoleEnum.TRAINER:
         items = [item for item in items if item.domain == "assessment"]
     elif current_user.role == RoleEnum.SALESPERSON:
         items = [item for item in items if item.domain == "commercial"]
-    return _LoadedWorkQueueItems(items, truncated=truncated)
+    truncated = len(items) > cap
+    return _LoadedWorkQueueItems(items[:cap], truncated=truncated)
 
 
 def _list_student_personal_ai_items(
@@ -1108,29 +1371,62 @@ def _list_student_personal_ai_items(
     ]
     normalized_q = _normalize_search_query(q)
     if normalized_q:
+        status_label = _agent_status_label_expression(
+            draft_ready_status=STUDENT_PERSONAL_AI_DRAFT_READY,
+            draft_ready_label="Preparar resposta Kommo",
+            fallback_label="Revisar aluno",
+        )
+        subject_name = case(
+            (Member.id.is_not(None), Member.full_name),
+            else_=literal("Aluno Kommo"),
+        )
         filters.append(
             _search_expression(
                 normalized_q,
-                AutopilotAction.domain,
-                AutopilotAction.policy_key,
-                AutopilotAction.message_body,
-                AutopilotAction.metadata_json["summary"].astext,
-                AutopilotAction.metadata_json["subject_name"].astext,
-                AutopilotAction.metadata_json["primary_action_label"].astext,
+                subject_name,
+                _agent_reason_expression(),
+                status_label,
+                _agent_message_expression(),
             )
         )
     cap = WORK_QUEUE_SOURCE_CAPS["student_personal_ai"]
     actions = list(
         db.scalars(
             select(AutopilotAction)
+            .outerjoin(
+                Member,
+                and_(
+                    AutopilotAction.member_id == Member.id,
+                    Member.gym_id == current_user.gym_id,
+                    Member.deleted_at.is_(None),
+                ),
+            )
             .where(*filters)
-            .order_by(AutopilotAction.created_at.desc())
+            .order_by(AutopilotAction.created_at.desc(), AutopilotAction.id.desc())
             .limit(cap + 1)
         ).all()
     )
     truncated = len(actions) > cap
+    members_by_id = _tenant_members_for_actions(
+        db,
+        gym_id=current_user.gym_id,
+        actions=actions[:cap],
+    )
+    leads_by_id = _tenant_leads_for_actions(
+        db,
+        gym_id=current_user.gym_id,
+        actions=actions[:cap],
+    )
     return _LoadedWorkQueueItems(
-        [_student_personal_ai_to_item(db, action) for action in actions[:cap]],
+        [
+            _student_personal_ai_to_item(
+                db,
+                action,
+                member=members_by_id.get(action.member_id),
+                lead=leads_by_id.get(action.lead_id),
+            )
+            for action in actions[:cap]
+        ],
         truncated=truncated,
     )
 
@@ -1145,25 +1441,75 @@ def _list_assessment_queue_items(
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
         return []
     cap = WORK_QUEUE_SOURCE_CAPS["assessment_queue"]
-    queue = get_assessments_queue(db, page=1, page_size=cap + 1, bucket="all", gym_id=current_user.gym_id)
-    queue_rows = list(queue.items)
-    truncated = len(queue_rows) > cap or int(getattr(queue, "total", 0) or 0) > cap
+    page_size = cap + 1
+    if current_user.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
+        bucket_plan = ("all",)
+    elif current_user.role == RoleEnum.TRAINER:
+        bucket_plan = ("overdue", "week", "upcoming")
+    else:
+        bucket_plan = ("never",)
+
     excluded = exclude_member_ids or set()
     normalized_q = _normalize_search_query(q)
-    items: list[WorkQueueItemOut] = []
-    for queue_item in queue_rows[:cap]:
-        member_id = getattr(queue_item, "id", None)
-        if member_id in excluded:
-            continue
-        item = _assessment_queue_to_item(queue_item)
-        if current_user.role == RoleEnum.TRAINER and item.domain != "trainer":
-            continue
-        if current_user.role == RoleEnum.RECEPTIONIST and item.domain == "trainer":
-            continue
-        if not _matches_search(item, normalized_q):
-            continue
-        items.append(item)
-    return _LoadedWorkQueueItems(items, truncated=truncated)
+    candidates: list[WorkQueueItemOut] = []
+    seen_member_ids: set[UUID] = set()
+    target_size = cap + 1
+
+    for source_bucket in bucket_plan:
+        page = 1
+        while len(candidates) < target_size:
+            queue = get_assessments_queue(
+                db,
+                page=page,
+                page_size=page_size,
+                bucket=source_bucket,
+                gym_id=current_user.gym_id,
+            )
+            queue_rows = list(queue.items)
+            if not queue_rows:
+                break
+
+            new_member_ids = 0
+            for queue_item in queue_rows:
+                member_id = getattr(queue_item, "id", None)
+                if member_id is None or member_id in seen_member_ids:
+                    continue
+                seen_member_ids.add(member_id)
+                new_member_ids += 1
+                if member_id in excluded:
+                    continue
+
+                item = _assessment_queue_to_item(queue_item)
+                if current_user.role == RoleEnum.TRAINER and item.domain != "trainer":
+                    continue
+                if current_user.role == RoleEnum.RECEPTIONIST and item.domain == "trainer":
+                    continue
+                candidates.append(item)
+                if len(candidates) >= target_size:
+                    break
+
+            if len(candidates) >= target_size:
+                break
+            raw_total = getattr(queue, "total", None)
+            total = raw_total if isinstance(raw_total, int) else None
+            if (
+                len(queue_rows) < page_size
+                or (total is not None and page * page_size >= total)
+                or new_member_ids == 0
+            ):
+                break
+            page += 1
+
+        if len(candidates) >= target_size:
+            break
+
+    truncated = len(candidates) > cap
+    visible_candidates = candidates[:cap]
+    if normalized_q:
+        visible_candidates = [
+            item for item in visible_candidates if _matches_search(item, normalized_q)
+        ]
+    return _LoadedWorkQueueItems(visible_candidates, truncated=truncated)
 
 
 def list_work_queue_items(
@@ -1247,9 +1593,7 @@ def list_work_queue_items(
 def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceType, source_id: UUID) -> WorkQueueItemOut:
     if source_type == "task":
         task = db.scalar(
-            select(Task)
-            .options(joinedload(Task.member), joinedload(Task.lead))
-            .where(Task.id == source_id, Task.deleted_at.is_(None))
+            _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
         )
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
@@ -1312,9 +1656,7 @@ def regenerate_work_queue_message(
 
     if source_type == "task":
         task = db.scalar(
-            select(Task)
-            .options(joinedload(Task.member), joinedload(Task.lead))
-            .where(Task.id == source_id, Task.deleted_at.is_(None))
+            _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
         )
         if task is None or is_task_operationally_archived(task):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
@@ -1480,9 +1822,7 @@ def _execute_task(
     user_agent: str | None,
 ) -> WorkQueueActionResultOut:
     task = db.scalar(
-        select(Task)
-        .options(joinedload(Task.member), joinedload(Task.lead))
-        .where(Task.id == task_id, Task.deleted_at.is_(None))
+        _task_select_with_tenant_relations(current_user).where(Task.id == task_id)
     )
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
@@ -1958,9 +2298,7 @@ def send_and_wait_work_queue_item(
             detail="Enviar e aguardar resposta esta disponivel apenas para tasks humanas nesta V1.",
         )
     task = db.scalar(
-        select(Task)
-        .options(joinedload(Task.member), joinedload(Task.lead))
-        .where(Task.id == source_id, Task.deleted_at.is_(None))
+        _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
     )
     if task is None or is_task_operationally_archived(task):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
@@ -2304,9 +2642,7 @@ def update_work_queue_outcome(
 ) -> WorkQueueActionResultOut:
     if source_type == "task":
         task = db.scalar(
-            select(Task)
-            .options(joinedload(Task.member), joinedload(Task.lead))
-            .where(Task.id == source_id, Task.deleted_at.is_(None))
+            _task_select_with_tenant_relations(current_user).where(Task.id == source_id)
         )
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")

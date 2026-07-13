@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, field_validator
 
 WorkQueueSourceType = Literal["task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 WorkQueueState = Literal["do_now", "awaiting_outcome", "done"]
@@ -103,6 +102,13 @@ class WorkQueueOutcomeInput(BaseModel):
     scheduled_for: datetime | None = None
     snooze_preset: WorkQueueSnoozePreset | None = None
     contact_channel: WorkQueueContactChannel | None = None
+
+    @field_validator("scheduled_for")
+    @classmethod
+    def scheduled_for_requires_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("scheduled_for deve incluir fuso horario")
+        return value
 
 
 class WorkQueueActionResultOut(BaseModel):
