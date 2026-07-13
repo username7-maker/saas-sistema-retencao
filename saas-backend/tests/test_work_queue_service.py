@@ -965,35 +965,38 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
 def test_wq_reuse_ai_triage_execute_awaiting_outcome_validates_prepared_task_before_returning_id(monkeypatch):
     db = MagicMock()
     raw_task_id = uuid.uuid4()
-    recommendation = SimpleNamespace(
+    member_id = uuid.uuid4()
+    recommendation = AITriageRecommendation(
         id=RECOMMENDATION_ID,
         gym_id=GYM_ID,
         source_domain="onboarding",
         source_entity_kind="member",
-        source_entity_id=uuid.uuid4(),
-        member_id=uuid.uuid4(),
+        source_entity_id=member_id,
+        member_id=member_id,
         lead_id=None,
+        priority_score=55,
+        is_active=True,
+        suggestion_state="reviewed",
         approval_state="approved",
-        payload_snapshot={"metadata": {"prepared_task_id": str(raw_task_id)}},
-    )
-    item = WorkQueueItemOut(
-        source_type="ai_triage",
-        source_id=RECOMMENDATION_ID,
-        subject_name="Aluno",
-        domain="onboarding",
-        severity="medium",
-        reason="Ja preparado",
-        primary_action_label="Criar tarefa",
-        primary_action_type="create_task",
-        requires_confirmation=False,
-        state="awaiting_outcome",
-        context_path="/ai/triage",
+        execution_state="prepared",
         outcome_state="pending",
+        last_refreshed_at=datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc),
+        payload_snapshot={
+            "subject_name": "Aluno",
+            "priority_bucket": "medium",
+            "why_now_summary": "Ja preparado",
+            "why_now_details": [],
+            "recommended_action": "Criar tarefa",
+            "recommended_channel": "task",
+            "recommended_owner": {"user_id": None, "role": "reception", "label": "Recepcao"},
+            "suggested_message": "Revisar onboarding",
+            "expected_impact": "Evitar dropout",
+            "metadata": {"prepared_task_id": str(raw_task_id), "onboarding_score": 50},
+        },
     )
     resolve = MagicMock(return_value=None)
     prepare = MagicMock()
     monkeypatch.setattr("app.services.work_queue_service.get_ai_triage_recommendation_or_404", lambda *args, **kwargs: recommendation)
-    monkeypatch.setattr("app.services.work_queue_service._ai_to_item", lambda _recommendation: item)
     monkeypatch.setattr("app.services.work_queue_service._resolve_work_queue_task_for_recommendation", resolve, raising=False)
     monkeypatch.setattr("app.services.work_queue_service.prepare_ai_triage_recommendation_action", prepare)
 
@@ -1006,7 +1009,7 @@ def test_wq_reuse_ai_triage_execute_awaiting_outcome_validates_prepared_task_bef
     )
 
     assert result.task_id is None
-    assert result.context_path == "/ai/triage"
+    assert result.item.canonical_task_id is None
     assert str(raw_task_id) not in result.model_dump_json()
     resolve.assert_called_once()
     prepare.assert_not_called()

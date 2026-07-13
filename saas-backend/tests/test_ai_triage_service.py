@@ -9,10 +9,12 @@ from fastapi import HTTPException
 
 from app.models import AITriageRecommendation, RiskLevel, TaskPriority, TaskStatus
 from app.services.ai_triage_service import (
+    _find_equivalent_work_queue_task,
     get_ai_triage_metrics_summary,
     prepare_ai_triage_recommendation_action,
     _build_onboarding_snapshot,
     _build_retention_snapshot,
+    _work_queue_equivalence_key,
     serialize_ai_triage_recommendation,
     sync_ai_triage_recommendations,
     update_ai_triage_recommendation_outcome,
@@ -528,6 +530,37 @@ def test_wq_reuse_prepare_same_recommendation_converges_to_one_task_without_refr
     assert recommendation.last_refreshed_at == datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
 
 
+def test_wq_reuse_auto_approve_prepare_does_not_refresh_recommendation_timestamp(monkeypatch):
+    original_timestamp = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+    recommendation = _triage_recommendation(
+        approval_state="pending",
+        suggestion_state="suggested",
+        last_refreshed_at=original_timestamp,
+    )
+    created_task = _task_candidate(gym_id=recommendation.gym_id, member_id=recommendation.member_id)
+    db = MagicMock()
+    db.scalar.return_value = None
+    db.scalars.return_value = _ScalarResult([])
+    monkeypatch.setattr(
+        "app.services.ai_triage_service.get_ai_triage_recommendation_or_404",
+        lambda *_args, **_kwargs: recommendation,
+    )
+    monkeypatch.setattr("app.services.ai_triage_service.create_task", MagicMock(return_value=created_task))
+    monkeypatch.setattr("app.services.ai_triage_service.log_audit_event", lambda *_args, **_kwargs: None)
+
+    prepare_ai_triage_recommendation_action(
+        db,
+        recommendation_id=recommendation.id,
+        gym_id=recommendation.gym_id,
+        action="create_task",
+        current_user=SimpleNamespace(id=uuid4(), gym_id=recommendation.gym_id),
+        auto_approve=True,
+    )
+
+    assert recommendation.approval_state == "approved"
+    assert recommendation.last_refreshed_at == original_timestamp
+
+
 def test_wq_reuse_active_equivalent_onboarding_task_is_linked_without_creating(monkeypatch):
     recommendation = _triage_recommendation()
     existing_task = _task_candidate(
@@ -603,6 +636,90 @@ def test_wq_reuse_ignores_inactive_deleted_archived_cross_tenant_or_cross_member
 
     assert response.task_id == new_task.id
     assert create_task_mock.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "prepared_task_id",
+    ["not-a-uuid", None],
+)
+def test_wq_reuse_assign_owner_ignores_malformed_or_missing_prepared_task_id(monkeypatch, prepared_task_id):
+    metadata = {}
+    if prepared_task_id is not None:
+        metadata["prepared_task_id"] = prepared_task_id
+    recommendation = _triage_recommendation(payload_snapshot={**_triage_recommendation().payload_snapshot, "metadata": metadata})
+    db = MagicMock()
+    monkeypatch.setattr(
+        "app.services.ai_triage_service.get_ai_triage_recommendation_or_404",
+        lambda *_args, **_kwargs: recommendation,
+    )
+    monkeypatch.setattr("app.services.ai_triage_service.log_audit_event", lambda *_args, **_kwargs: None)
+
+    response = prepare_ai_triage_recommendation_action(
+        db,
+        recommendation_id=recommendation.id,
+        gym_id=recommendation.gym_id,
+        action="assign_owner",
+        current_user=SimpleNamespace(id=uuid4(), gym_id=recommendation.gym_id),
+        owner_role="manager",
+    )
+
+    assert response.task_id is None
+    db.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "candidate_overrides",
+    [
+        {"status": TaskStatus.DONE},
+        {"status": TaskStatus.CANCELLED},
+        {"deleted_at": datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)},
+        {"extra_data": {"source": "ai_triage", "source_domain": "onboarding", "operational_archive": {"archived_at": "2026-07-13T12:00:00+00:00"}}},
+        {"gym_id": uuid4()},
+        {"member_id": uuid4()},
+    ],
+)
+def test_wq_reuse_assign_owner_never_mutates_ineligible_prepared_task(monkeypatch, candidate_overrides):
+    recommendation = _triage_recommendation()
+    invalid_overrides = {"gym_id": recommendation.gym_id, "member_id": recommendation.member_id}
+    invalid_overrides.update(candidate_overrides)
+    invalid_task = _task_candidate(**invalid_overrides)
+    recommendation.payload_snapshot["metadata"]["prepared_task_id"] = str(invalid_task.id)
+    db = MagicMock()
+    db.get.return_value = invalid_task
+    db.scalar.return_value = None
+    db.scalars.return_value = _ScalarResult([invalid_task])
+    monkeypatch.setattr(
+        "app.services.ai_triage_service.get_ai_triage_recommendation_or_404",
+        lambda *_args, **_kwargs: recommendation,
+    )
+    monkeypatch.setattr("app.services.ai_triage_service.log_audit_event", lambda *_args, **_kwargs: None)
+
+    response = prepare_ai_triage_recommendation_action(
+        db,
+        recommendation_id=recommendation.id,
+        gym_id=recommendation.gym_id,
+        action="assign_owner",
+        current_user=SimpleNamespace(id=uuid4(), gym_id=recommendation.gym_id),
+        owner_role="manager",
+    )
+
+    assert response.task_id is None
+    assert invalid_task.assigned_to_user_id is None
+
+
+def test_wq_reuse_legacy_equivalent_query_treats_blank_source_domain_as_missing():
+    recommendation = _triage_recommendation()
+    db = MagicMock()
+    db.scalars.return_value = _ScalarResult([])
+
+    _find_equivalent_work_queue_task(
+        db,
+        recommendation=recommendation,
+        equivalence_key=_work_queue_equivalence_key(recommendation),
+    )
+
+    statement = db.scalars.call_args.args[0]
+    assert "nullif" in str(statement).casefold()
 
 
 def test_prepare_ai_triage_recommendation_action_auto_approves_normal_item(monkeypatch):
