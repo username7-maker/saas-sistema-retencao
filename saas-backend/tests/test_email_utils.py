@@ -5,7 +5,6 @@ from app.utils import email as email_utils
 
 def test_send_email_result_is_blocked_without_resend_api_key(monkeypatch):
     monkeypatch.setattr(email_utils.settings, "resend_api_key", "")
-    monkeypatch.setattr(email_utils, "_email_provider_block_reason", None)
 
     result = email_utils.send_email_result("member@example.com", "Subject", "Body")
 
@@ -19,7 +18,6 @@ def test_send_email_result_posts_to_resend(monkeypatch):
     monkeypatch.setattr(email_utils.settings, "resend_api_key", "test-key")
     monkeypatch.setattr(email_utils.settings, "resend_sender", "Cordex Gym OS <onboarding@resend.dev>")
     monkeypatch.setattr(email_utils.settings, "resend_reply_to", "automai904@gmail.com")
-    monkeypatch.setattr(email_utils, "_email_provider_block_reason", None)
 
     def fake_post(url, *, headers, json, timeout):
         observed.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
@@ -38,31 +36,39 @@ def test_send_email_result_posts_to_resend(monkeypatch):
     assert observed["json"]["text"] == "Body"
 
 
-def test_send_email_result_blocks_unverified_sender(monkeypatch):
+def test_send_email_result_recovers_after_unverified_sender_rejection(monkeypatch):
     monkeypatch.setattr(email_utils.settings, "resend_api_key", "test-key")
     monkeypatch.setattr(email_utils.settings, "resend_sender", "Cordex Gym OS <noreply@cordex.com>")
-    monkeypatch.setattr(email_utils, "_email_provider_block_reason", None)
+    responses = iter(
+        [
+            httpx.Response(403, json={"message": "The domain is not verified. Verify a domain before sending."}),
+            httpx.Response(200, json={"id": "email-123"}),
+        ]
+    )
+    calls = 0
 
     def fake_post(*_args, **_kwargs):
-        return httpx.Response(403, json={"message": "The domain is not verified. Verify a domain before sending."})
+        nonlocal calls
+        calls += 1
+        return next(responses)
 
     monkeypatch.setattr(email_utils.httpx, "post", fake_post)
 
-    first = email_utils.send_email_result("member@example.com", "Subject", "Body")
-    second = email_utils.send_email_result("member@example.com", "Subject", "Body")
+    first = email_utils.send_email_result("blocked@example.com", "Subject", "Body")
+    second = email_utils.send_email_result("allowed@example.com", "Subject", "Body")
 
     assert first.sent is False
     assert first.blocked is True
     assert first.reason == "sender_identity_unverified"
-    assert second.sent is False
-    assert second.blocked is True
-    assert second.reason == "sender_identity_unverified"
+    assert second.sent is True
+    assert second.blocked is False
+    assert second.reason == "sent"
+    assert calls == 2
 
 
 def test_send_email_result_classifies_resend_permission_denied(monkeypatch):
     monkeypatch.setattr(email_utils.settings, "resend_api_key", "test-key")
     monkeypatch.setattr(email_utils.settings, "resend_sender", "Cordex Gym OS <onboarding@resend.dev>")
-    monkeypatch.setattr(email_utils, "_email_provider_block_reason", None)
 
     def fake_post(*_args, **_kwargs):
         return httpx.Response(401, json={"message": "Invalid API key"})
@@ -80,7 +86,6 @@ def test_send_email_with_attachment_uses_base64_content(monkeypatch):
     observed = {}
     monkeypatch.setattr(email_utils.settings, "resend_api_key", "test-key")
     monkeypatch.setattr(email_utils.settings, "resend_sender", "Cordex Gym OS <onboarding@resend.dev>")
-    monkeypatch.setattr(email_utils, "_email_provider_block_reason", None)
 
     def fake_post(_url, *, headers, json, timeout):
         observed.update({"json": json})

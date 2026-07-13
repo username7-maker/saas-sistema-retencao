@@ -18,9 +18,6 @@ class EmailSendResult:
     reason: str | None = None
 
 
-_email_provider_block_reason: str | None = None
-
-
 def _extract_resend_error_text(response: httpx.Response) -> str:
     try:
         payload = response.json()
@@ -49,14 +46,6 @@ def _classify_resend_response(response: httpx.Response) -> EmailSendResult:
     return EmailSendResult(sent=False, blocked=False, reason="resend_http_error")
 
 
-def _record_blocked_reason(reason: str) -> None:
-    global _email_provider_block_reason
-    if _email_provider_block_reason == reason:
-        return
-    _email_provider_block_reason = reason
-    logger.error("Envio de email bloqueado por configuracao do provedor: %s", reason, extra={"reason": reason})
-
-
 def _resend_payload(to_email: str, subject: str, content: str) -> dict[str, object]:
     payload: dict[str, object] = {
         "from": settings.resend_sender,
@@ -72,8 +61,6 @@ def _resend_payload(to_email: str, subject: str, content: str) -> dict[str, obje
 def _send_resend_payload(payload: dict[str, object]) -> EmailSendResult:
     if not settings.resend_api_key.strip():
         return EmailSendResult(sent=False, blocked=True, reason="resend_api_key_missing")
-    if _email_provider_block_reason:
-        return EmailSendResult(sent=False, blocked=True, reason=_email_provider_block_reason)
 
     try:
         response = httpx.post(
@@ -89,7 +76,9 @@ def _send_resend_payload(payload: dict[str, object]) -> EmailSendResult:
             return EmailSendResult(sent=True, blocked=False, reason="sent")
         result = _classify_resend_response(response)
         if result.blocked and result.reason:
-            _record_blocked_reason(result.reason)
+            # Provider errors can be recipient-specific (for example, Resend's
+            # testing sender). Never turn one rejection into a process-wide
+            # permanent block for every later recipient.
             logger.warning(
                 "Resend recusou o envio de email: %s",
                 result.reason,
