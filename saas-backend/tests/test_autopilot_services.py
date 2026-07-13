@@ -258,7 +258,10 @@ def test_execute_autopilot_action_commits_dispatch_reservation_before_provider(m
     monkeypatch.setattr("app.services.autopilot_action_service.check_autopilot_safety", lambda *_args, **_kwargs: SafetyResult(True))
     monkeypatch.setattr("app.services.autopilot_action_service.get_gym_instance", lambda *_args, **_kwargs: "instance")
 
+    provider_calls = []
+
     def fake_send(*_args, **_kwargs):
+        provider_calls.append("sent")
         assert db.commit.called
         return log
 
@@ -269,7 +272,74 @@ def test_execute_autopilot_action_commits_dispatch_reservation_before_provider(m
     assert result.status == "awaiting_outcome"
     assert result.provider_status == "accepted"
     assert result.provider_reference == "provider-1"
+    assert provider_calls == ["sent"]
+    replay = execute_autopilot_action(db, action, require_auto_send=False, flush=False, commit_before_provider=True)
+    assert replay is action
+    assert provider_calls == ["sent"]
     db.commit.assert_called_once()
+
+
+def test_execute_autopilot_action_marks_provider_failure_without_retry(monkeypatch):
+    action = AutopilotAction(
+        id=ACTION_ID,
+        gym_id=GYM_ID,
+        policy_key="manual_send_and_wait_retention",
+        domain="retention",
+        action_type="send_whatsapp",
+        status="planned",
+        member_id=MEMBER_ID,
+        channel="whatsapp",
+        message_body="Ola",
+        metadata_json={},
+    )
+    member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, phone="11999999999", status=MemberStatus.ACTIVE)
+    log = SimpleNamespace(id=uuid.uuid4(), status="failed", provider_message_id=None, error_detail="provider_rejected", extra_data={})
+    db = MagicMock()
+    db.get.return_value = member
+    provider = MagicMock(return_value=log)
+    monkeypatch.setattr("app.services.autopilot_action_service.check_autopilot_safety", lambda *_args, **_kwargs: SafetyResult(True))
+    monkeypatch.setattr("app.services.autopilot_action_service.get_gym_instance", lambda *_args, **_kwargs: "instance")
+    monkeypatch.setattr("app.services.autopilot_action_service.send_whatsapp_sync", provider)
+
+    result = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+    replay = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+
+    assert result.status == "failed"
+    assert result.provider_status == "failed"
+    assert result.provider_error == "provider_rejected"
+    assert replay is action
+    provider.assert_called_once()
+
+
+def test_execute_autopilot_action_uncertain_provider_exception_is_durable_and_not_retried(monkeypatch):
+    action = AutopilotAction(
+        id=ACTION_ID,
+        gym_id=GYM_ID,
+        policy_key="manual_send_and_wait_retention",
+        domain="retention",
+        action_type="send_whatsapp",
+        status="planned",
+        member_id=MEMBER_ID,
+        channel="whatsapp",
+        message_body="Ola",
+        metadata_json={},
+    )
+    member = SimpleNamespace(id=MEMBER_ID, gym_id=GYM_ID, phone="11999999999", status=MemberStatus.ACTIVE)
+    db = MagicMock()
+    db.get.return_value = member
+    provider = MagicMock(side_effect=RuntimeError("provider timeout"))
+    monkeypatch.setattr("app.services.autopilot_action_service.check_autopilot_safety", lambda *_args, **_kwargs: SafetyResult(True))
+    monkeypatch.setattr("app.services.autopilot_action_service.get_gym_instance", lambda *_args, **_kwargs: "instance")
+    monkeypatch.setattr("app.services.autopilot_action_service.send_whatsapp_sync", provider)
+
+    result = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+    replay = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
+
+    assert result.status == "dispatch_uncertain"
+    assert result.provider_status == "dispatch_uncertain"
+    assert "provider timeout" in result.provider_error
+    assert replay is action
+    provider.assert_called_once()
 
 
 def test_execute_autopilot_action_replay_status_does_not_call_provider(monkeypatch):

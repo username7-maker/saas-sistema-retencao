@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -54,6 +54,13 @@ class AutopilotAction(Base, TimestampMixin):
         Index("ix_autopilot_actions_lead_status", "lead_id", "status"),
         Index("ix_autopilot_actions_scheduled", "scheduled_for", "status"),
         Index("ix_autopilot_actions_timeout", "timeout_at", "status"),
+        Index(
+            "uq_autopilot_actions_gym_idempotency_key",
+            "gym_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

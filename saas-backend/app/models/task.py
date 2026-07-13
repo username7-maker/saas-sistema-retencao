@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,17 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
         Index("ix_tasks_status_assigned", "status", "assigned_to_user_id"),
         Index("ix_tasks_due_status", "due_date", "status"),
         Index("ix_tasks_kanban_column", "kanban_column"),
+        Index(
+            "uq_tasks_active_work_dedupe",
+            "work_dedupe_key",
+            unique=True,
+            postgresql_where=text(
+                "work_dedupe_key IS NOT NULL "
+                "AND deleted_at IS NULL "
+                "AND status NOT IN ('done','cancelled') "
+                "AND COALESCE(extra_data->'operational_archive'->>'archived_at', '') = ''"
+            ),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
