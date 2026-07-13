@@ -237,7 +237,11 @@ def _parse_optional_datetime(value: object) -> datetime | None:
 
 
 def _task_visible_from(task: Task) -> datetime | None:
-    return _parse_optional_datetime(_task_extra(task).get("work_queue_visible_from"))
+    extra = _task_extra(task)
+    visible_from = extra.get("work_queue_visible_from")
+    if visible_from is None:
+        visible_from = extra.get("work_queue_snoozed_until")
+    return _parse_optional_datetime(visible_from)
 
 
 def _normalize_search_query(q: str | None) -> str | None:
@@ -905,6 +909,12 @@ def _as_aware_datetime(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _work_item_sort_key(item: WorkQueueItemOut, now: datetime) -> tuple[int, bool, datetime, str, str]:
+    score, _legacy_due = _work_item_score(item, now)
+    due_at = _as_aware_datetime(item.due_at) if item.due_at else datetime.max.replace(tzinfo=timezone.utc)
+    return -score, item.due_at is None, due_at, item.source_type, str(item.source_id)
+
+
 def _is_stale_daily_backlog(item: WorkQueueItemOut, now: datetime) -> bool:
     if item.domain in DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS:
         return False
@@ -952,7 +962,7 @@ def _filter_items(
         if not _matches_assignee(item, current_user, assignee):
             continue
         filtered.append(item)
-    return sorted(filtered, key=lambda item: _work_item_score(item, effective_now), reverse=True)
+    return sorted(filtered, key=lambda item: _work_item_sort_key(item, effective_now))
 
 
 def _list_task_items(db: Session, current_user: User, *, q: str | None = None) -> list[WorkQueueItemOut]:
@@ -2230,6 +2240,7 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
         extra["owner_role"] = "coach"
         extra["domain"] = "trainer"
         extra["technical_followup_required"] = True
+        extra["work_queue_visible_from"] = scheduled_for.isoformat()
         extra["work_queue_snoozed_until"] = scheduled_for.isoformat()
     elif outcome in {"postponed", "no_response", "payment_promised"}:
         if _task_domain(task) == "retention" and outcome == "no_response":
@@ -2250,6 +2261,7 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
         task.kanban_column = TaskStatus.TODO.value
         task.due_date = scheduled_for
         task.completed_at = None
+        extra["work_queue_visible_from"] = scheduled_for.isoformat()
         extra["work_queue_snoozed_until"] = scheduled_for.isoformat()
         extra["work_queue_snooze_preset"] = payload.snooze_preset
         if outcome == "payment_promised":
