@@ -2050,11 +2050,12 @@ def _execute_ai_triage(
             metadata=metadata,
         )
         task_id = task.id if task else None
+        item = item_before.model_copy(update={"canonical_task_id": task_id})
         return WorkQueueActionResultOut(
-            item=item_before,
+            item=item,
             detail="Acao ja preparada. Registre o resultado para fechar o ciclo.",
-            prepared_message=item_before.suggested_message,
-            context_path=str(metadata.get("follow_up_url") or item_before.context_path) if task_id else item_before.context_path,
+            prepared_message=item.suggested_message,
+            context_path=str(metadata.get("follow_up_url") or item.context_path) if task_id else item.context_path,
             task_id=task_id,
             supported=True,
         )

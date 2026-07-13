@@ -667,7 +667,13 @@ def _find_equivalent_work_queue_task(
     if recommendation.member_id is None or equivalence_key is None:
         return None
     source = func.lower(func.coalesce(Task.extra_data["source"].astext, ""))
-    source_domain = func.lower(func.coalesce(Task.extra_data["source_domain"].astext, Task.extra_data["domain"].astext, ""))
+    source_domain = func.lower(
+        func.coalesce(
+            func.nullif(Task.extra_data["source_domain"].astext, ""),
+            func.nullif(Task.extra_data["domain"].astext, ""),
+            "",
+        )
+    )
     tasks = list(
         db.scalars(
             select(Task)
@@ -954,11 +960,13 @@ def _apply_approval_decision(
     note: str | None,
     ip_address: str | None,
     user_agent: str | None,
+    refresh_timestamp: bool = True,
 ) -> None:
     previous_approval_state = recommendation.approval_state
     recommendation.suggestion_state = "reviewed"
     recommendation.approval_state = decision
-    recommendation.last_refreshed_at = _utcnow()
+    if refresh_timestamp:
+        recommendation.last_refreshed_at = _utcnow()
     if decision == "approved":
         recommendation.execution_state = "pending"
         if recommendation.outcome_state == "dismissed":
@@ -1062,6 +1070,7 @@ def prepare_ai_triage_recommendation_action(
                 note=resolved_note,
                 ip_address=ip_address,
                 user_agent=user_agent,
+                refresh_timestamp=False,
             )
         elif auto_approve:
             _apply_approval_decision(
@@ -1072,6 +1081,7 @@ def prepare_ai_triage_recommendation_action(
                 note=resolved_note,
                 ip_address=ip_address,
                 user_agent=user_agent,
+                refresh_timestamp=False,
             )
         else:
             raise HTTPException(
@@ -1177,13 +1187,15 @@ def prepare_ai_triage_recommendation_action(
             detail = "Nenhum owner concreto foi informado para esta recommendation."
         else:
             snapshot["recommended_owner"] = resolved_owner
-            task_id_raw = metadata.get("prepared_task_id")
-            if task_id_raw:
-                task = db.get(Task, UUID(str(task_id_raw)))
-                if task and task.gym_id == gym_id and task.deleted_at is None:
-                    task.assigned_to_user_id = resolved_owner.get("user_id")
-                    db.add(task)
-                    task_id = task.id
+            task = _resolve_work_queue_task_for_recommendation(
+                db,
+                recommendation=recommendation,
+                metadata=metadata,
+            )
+            if task is not None:
+                task.assigned_to_user_id = resolved_owner.get("user_id")
+                db.add(task)
+                task_id = task.id
             metadata.update(
                 {
                     "prepared_action": "assign_owner",
