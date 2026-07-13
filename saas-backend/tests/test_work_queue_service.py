@@ -1560,6 +1560,48 @@ def test_wq_assessment_receptionist_queries_only_never_bucket_before_cap(monkeyp
     assert result[0].domain == "assessment"
 
 
+def test_wq_assessment_owner_trainer_domain_is_bucketed_before_cap(monkeypatch):
+    never_rows = [_assessment_row(index, queue_bucket="never") for index in range(201)]
+    trainer_target = _assessment_row(
+        777,
+        queue_bucket="week",
+        full_name="Aluna trainer depois do cap adversarial",
+    )
+    requested_buckets: list[str] = []
+
+    def fake_queue(_db, *, page, page_size, bucket, gym_id, **_kwargs):
+        requested_buckets.append(bucket)
+        if bucket == "all":
+            return SimpleNamespace(
+                items=never_rows,
+                total=len(never_rows),
+                page=page,
+                page_size=page_size,
+            )
+        if bucket == "week":
+            return SimpleNamespace(
+                items=[trainer_target],
+                total=1,
+                page=page,
+                page_size=page_size,
+            )
+        return SimpleNamespace(items=[], total=0, page=page, page_size=page_size)
+
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", fake_queue)
+
+    result = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        domain="trainer",
+        source="assessment_queue",
+    )
+
+    assert requested_buckets == ["overdue", "week", "upcoming"]
+    assert [item.source_id for item in result.items] == [trainer_target.id]
+
+
 def test_wq_assessment_exclusions_apply_before_global_cap_and_do_not_create_false_truncation(monkeypatch):
     monkeypatch.setitem(work_queue_service.WORK_QUEUE_SOURCE_CAPS, "assessment_queue", 2)
     excluded = _assessment_row(1, queue_bucket="never")
