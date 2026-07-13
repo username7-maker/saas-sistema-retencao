@@ -1,4 +1,5 @@
 import uuid
+import inspect
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -16,6 +17,7 @@ from app.services.work_queue_service import (
     list_work_queue_items,
     update_work_queue_outcome,
 )
+from app.services import work_queue_service
 
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -882,3 +884,354 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
 
     assert result.task_id == TASK_ID
     prepare.assert_not_called()
+
+
+def _wq_item(index: int, **overrides) -> WorkQueueItemOut:
+    defaults = dict(
+        source_type="task",
+        source_id=uuid.UUID(int=index + 1),
+        subject_name=f"Aluno sintetico {index:03d}",
+        domain="onboarding",
+        severity="high",
+        preferred_shift="morning",
+        reason="Acompanhamento sintetico",
+        primary_action_label="Abrir contexto",
+        primary_action_type="open_context",
+        requires_confirmation=False,
+        state="do_now",
+        context_path="/tasks",
+        outcome_state="pending",
+    )
+    defaults.update(overrides)
+    return WorkQueueItemOut(**defaults)
+
+
+def _patch_wq_loaders_empty(monkeypatch) -> None:
+    for loader_name in (
+        "_list_task_items",
+        "_list_ai_items",
+        "_list_assessment_queue_items",
+        "_list_ai_service_agent_items",
+        "_list_student_personal_ai_items",
+    ):
+        monkeypatch.setattr(work_queue_service, loader_name, lambda *_args, **_kwargs: [])
+
+
+def test_wq_dataset_188_reaches_page_two_without_repeating_page_one(monkeypatch):
+    items = [_wq_item(index) for index in range(188)]
+    monkeypatch.setattr(work_queue_service, "_list_task_items", lambda *_args, **_kwargs: items)
+
+    first_page = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        source="task",
+        page=1,
+        page_size=25,
+    )
+    second_page = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        source="task",
+        page=2,
+        page_size=25,
+    )
+
+    assert first_page.total == 188
+    assert second_page.total == 188
+    assert [item.source_id for item in first_page.items] == [uuid.UUID(int=value) for value in range(1, 26)]
+    assert [item.source_id for item in second_page.items] == [uuid.UUID(int=value) for value in range(26, 51)]
+    assert not ({item.source_id for item in first_page.items} & {item.source_id for item in second_page.items})
+    assert getattr(second_page, "truncated_sources", None) == []
+
+
+@pytest.mark.parametrize(
+    ("field", "query"),
+    [
+        ("subject_name", "aluna-agulha"),
+        ("reason", "motivo-agulha"),
+        ("primary_action_label", "acao-agulha"),
+    ],
+)
+def test_wq_search_finds_item_after_first_25_before_pagination(monkeypatch, field, query):
+    items = [_wq_item(index) for index in range(188)]
+    target = items[150].model_copy(update={field: query})
+    items[150] = target
+    monkeypatch.setattr(work_queue_service, "_list_task_items", lambda *_args, **_kwargs: items)
+
+    assert "q" in inspect.signature(list_work_queue_items).parameters
+    result = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        source="task",
+        q=f"  {query.upper()}  ",
+        page=1,
+        page_size=25,
+    )
+
+    assert result.total == 1
+    assert [item.source_id for item in result.items] == [target.source_id]
+
+
+def test_wq_state_counts_ignore_only_state_and_use_effective_eligibility(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    mine = USER_ID
+    matching = dict(
+        domain="retention",
+        preferred_shift="morning",
+        assigned_to_user_id=mine,
+        execution_bucket="retention_attention",
+        reason="motivo-agulha",
+        retention_stage="attention",
+    )
+    items = [
+        _wq_item(1, **matching),
+        _wq_item(2, **{**matching, "visible_from": now + timedelta(minutes=1)}),
+        _wq_item(3, **{**matching, "due_at": now - timedelta(days=30)}),
+        _wq_item(4, **{**matching, "retention_stage": "cold_base"}),
+        _wq_item(5, **{**matching, "state": "awaiting_outcome"}),
+        _wq_item(6, **{**matching, "state": "done"}),
+        _wq_item(7, **{**matching, "reason": "nao corresponde"}),
+        _wq_item(8, **{**matching, "preferred_shift": "evening"}),
+        _wq_item(9, **{**matching, "assigned_to_user_id": uuid.uuid4()}),
+        _wq_item(10, **{**matching, "domain": "onboarding"}),
+        _wq_item(11, **{**matching, "execution_bucket": "retention_reactivation"}),
+    ]
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+    monkeypatch.setattr(work_queue_service, "_list_task_items", lambda *_args, **_kwargs: items)
+
+    assert "q" in inspect.signature(list_work_queue_items).parameters
+    result = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(),
+        state="done",
+        shift="my_shift",
+        assignee="mine",
+        domain="retention",
+        source="task",
+        bucket="retention_attention",
+        q="  MOTIVO-AGULHA  ",
+    )
+
+    assert result.state_counts == {"do_now": 1, "awaiting_outcome": 1, "done": 1}
+    assert result.total == 1
+    assert [item.source_id for item in result.items] == [uuid.UUID(int=7)]
+
+
+@pytest.mark.parametrize(
+    ("source", "loader_name", "cap"),
+    [
+        ("task", "_list_task_items", 300),
+        ("ai_triage", "_list_ai_items", 200),
+        ("assessment_queue", "_list_assessment_queue_items", 200),
+        ("ai_service_agent", "_list_ai_service_agent_items", 100),
+        ("student_personal_ai", "_list_student_personal_ai_items", 100),
+    ],
+)
+def test_wq_cap_plus_one_marks_source_and_excludes_sentinel(monkeypatch, source, loader_name, cap):
+    _patch_wq_loaders_empty(monkeypatch)
+    items = [_wq_item(index, source_type=source) for index in range(cap + 1)]
+    monkeypatch.setattr(work_queue_service, loader_name, lambda *_args, **_kwargs: items)
+
+    result = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        source=source,
+        page=1,
+        page_size=100,
+    )
+
+    assert result.total == cap
+    assert result.state_counts == {"do_now": cap, "awaiting_outcome": 0, "done": 0}
+    assert result.truncated_sources == [source]
+    assert uuid.UUID(int=cap + 1) not in {item.source_id for item in result.items}
+
+
+def test_wq_explicit_assessment_source_runs_dedicated_loader(monkeypatch):
+    _patch_wq_loaders_empty(monkeypatch)
+    item = _wq_item(0, source_type="assessment_queue", domain="assessment")
+    loader = MagicMock(return_value=[item])
+    monkeypatch.setattr(work_queue_service, "_list_assessment_queue_items", loader)
+
+    result = list_work_queue_items(
+        MagicMock(),
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        source="assessment_queue",
+    )
+
+    assert loader.call_count == 1
+    assert result.total == 1
+    assert [entry.source_id for entry in result.items] == [item.source_id]
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "cap"),
+    [
+        ("_list_task_items", 300),
+        ("_list_ai_items", 200),
+        ("_list_ai_service_agent_items", 100),
+        ("_list_student_personal_ai_items", 100),
+    ],
+)
+def test_wq_persisted_loader_query_is_tenant_scoped_searchable_and_cap_plus_one(
+    monkeypatch,
+    loader_name,
+    cap,
+):
+    loader = getattr(work_queue_service, loader_name)
+    assert "q" in inspect.signature(loader).parameters
+    scalar_result = MagicMock()
+    scalar_result.unique.return_value = scalar_result
+    scalar_result.all.return_value = []
+    db = MagicMock()
+    db.scalars.return_value = scalar_result
+    monkeypatch.setattr(work_queue_service, "preferred_shift_diagnostics_from_checkins", lambda *_args, **_kwargs: {})
+
+    loader(db, _user(role=RoleEnum.OWNER), q="  ALVO-SINTETICO  ")
+
+    statement = db.scalars.call_args.args[0]
+    params = statement.compile().params
+    assert GYM_ID in params.values()
+    assert getattr(statement._limit_clause, "value", None) == cap + 1
+    assert any("alvo-sintetico" in str(value).casefold() for value in params.values())
+
+
+def test_wq_assessment_loader_is_tenant_scoped_cap_plus_one_and_searches_post_cap(monkeypatch):
+    loader = work_queue_service._list_assessment_queue_items
+    assert "q" in inspect.signature(loader).parameters
+    matching_id = uuid.UUID(int=700)
+    queue_rows = [
+        SimpleNamespace(
+            id=matching_id,
+            full_name="Aluna alvo sintetico",
+            preferred_shift="morning",
+            risk_score=50,
+            next_assessment_due=None,
+            queue_bucket="never",
+            coverage_label="Nenhuma avaliacao registrada",
+            due_label="Primeira avaliacao pendente",
+            queue_resolution_status="active",
+        ),
+        SimpleNamespace(
+            id=uuid.UUID(int=701),
+            full_name="Aluno sem correspondencia",
+            preferred_shift="morning",
+            risk_score=50,
+            next_assessment_due=None,
+            queue_bucket="never",
+            coverage_label="Nenhuma avaliacao registrada",
+            due_label="Primeira avaliacao pendente",
+            queue_resolution_status="active",
+        ),
+    ]
+    get_queue = MagicMock(return_value=SimpleNamespace(items=queue_rows))
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", get_queue)
+
+    result = loader(MagicMock(), _user(role=RoleEnum.OWNER), q="  ALVO SINTETICO  ")
+
+    assert get_queue.call_args.kwargs["gym_id"] == GYM_ID
+    assert get_queue.call_args.kwargs["page_size"] == 201
+    assert [item.source_id for item in result] == [matching_id]
+
+
+def test_wq_legacy_snooze_is_visible_from_fallback_and_canonical_value_wins():
+    legacy = datetime(2026, 7, 14, 9, 0, tzinfo=timezone.utc)
+    canonical = legacy + timedelta(hours=2)
+
+    legacy_item = _task_to_item(_task(extra_data={"work_queue_snoozed_until": legacy.isoformat()}))
+    canonical_item = _task_to_item(
+        _task(
+            extra_data={
+                "work_queue_visible_from": canonical.isoformat(),
+                "work_queue_snoozed_until": legacy.isoformat(),
+            }
+        )
+    )
+
+    assert legacy_item.visible_from == legacy
+    assert canonical_item.visible_from == canonical
+
+
+def test_wq_visible_from_excludes_before_boundary_and_returns_at_exact_instant(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    future = _wq_item(800, visible_from=now + timedelta(microseconds=1))
+    exact = _wq_item(801, visible_from=now)
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+
+    result = _filter_items(
+        [future, exact],
+        current_user=_user(role=RoleEnum.OWNER),
+        state="do_now",
+        shift="all",
+        assignee="all",
+        domain="all",
+    )
+
+    assert [item.source_id for item in result] == [exact.source_id]
+
+
+def test_wq_equal_scores_sort_due_ascending_null_last_then_stable_source_key(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    earlier = now + timedelta(days=8)
+    later = now + timedelta(days=9)
+    items = [
+        _wq_item(900, source_type="task", due_at=None),
+        _wq_item(902, source_type="task", due_at=later),
+        _wq_item(901, source_type="ai_triage", due_at=later),
+        _wq_item(899, source_type="task", due_at=earlier),
+    ]
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+    scores = [work_queue_service._work_item_score(item, now)[0] for item in items]
+    assert len(set(scores)) == 1
+
+    result = _filter_items(
+        items,
+        current_user=_user(role=RoleEnum.OWNER),
+        state="all",
+        shift="all",
+        assignee="all",
+        domain="all",
+    )
+
+    assert [(item.source_type, item.source_id) for item in result] == [
+        ("task", uuid.UUID(int=900)),
+        ("ai_triage", uuid.UUID(int=902)),
+        ("task", uuid.UUID(int=903)),
+        ("task", uuid.UUID(int=901)),
+    ]
+
+
+def test_wq_snooze_outcome_writes_canonical_and_legacy_visibility(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    visible_from = now + timedelta(days=1)
+    task = _task(status=TaskStatus.DOING, kanban_column=TaskStatus.DOING.value)
+    db = MagicMock()
+    db.scalar.return_value = task
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+    monkeypatch.setattr(work_queue_service, "log_audit_event", lambda *args, **kwargs: None)
+
+    result = update_work_queue_outcome(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueOutcomeInput(
+            outcome="no_response",
+            scheduled_for=visible_from,
+            snooze_preset="custom",
+        ),
+    )
+
+    assert task.extra_data.get("work_queue_visible_from") == visible_from.isoformat()
+    assert task.extra_data.get("work_queue_snoozed_until") == visible_from.isoformat()
+    assert result.item.visible_from == visible_from
+    assert task.due_date == visible_from
