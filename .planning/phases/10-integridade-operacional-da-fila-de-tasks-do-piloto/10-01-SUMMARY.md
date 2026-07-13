@@ -112,6 +112,8 @@ The four initially passing cases were the exact visibility boundary and the thre
 - **Independent tenant-backstop GREEN:** `4 passed, 54 deselected` in `2.10s` after scoped Task eager loading and identifier/path suppression.
 - **Assessment-domain RED:** `1 failed, 58 deselected` in `2.35s`, reproducing owner/manager `domain=trainer` starvation behind `never` rows.
 - **Assessment-domain GREEN:** `1 passed, 58 deselected` in `1.93s` after intersecting requested domain with the role bucket plan before the cap.
+- **Adversarial follow-up RED:** `4 failed, 58 deselected` in `2.37s`, proving two remaining P1 gaps: unresolved Task Member/Lead FKs still serialized as IDs/paths, and `covered` assessment items were missing from the trainer bucket plan.
+- **Adversarial follow-up GREEN:** `4 passed, 58 deselected` in `2.14s` after suppressing unresolved Task relationship identifiers/paths and restoring `covered` as a trainer/owner-domain operational bucket.
 
 Post-RED edits to regression files did not weaken the frozen contracts. The only mechanical changes were import sorting, blank-line normalization and wrapping one long assertion; behavior assertions were only added, never removed or broadened.
 
@@ -125,10 +127,13 @@ Post-RED edits to regression files did not weaken the frozen contracts. The only
 - `git diff --check` completed without errors.
 - Remediation final Plan 10-01 gate: `66 passed` in `4.02s`.
 - Remediation relevant backend gate (Work Queue, AI triage, Autopilot, AI Service Agent, Student Personal AI and Assessment Queue): `108 passed` in `4.38s`.
+- Final Plan 10-01 gate after adversarial follow-up: `69 passed` in `4.79s`.
+- Final relevant backend gate after adversarial follow-up (Work Queue, AI triage, Autopilot, AI Service Agent, Student Personal AI and Assessment Queue): `111 passed` in `4.80s`.
 - PostgreSQL-dialect compilation succeeded for Task, AI Service Agent and Student Personal AI statements; all three emitted explicit `ESCAPE` handling for literal wildcard input.
 - Product import-order gate: `py -3.12 -m ruff check --select I app/schemas/work_queue.py app/services/work_queue_service.py` passed.
+- Product import-order gate after adversarial follow-up: `py -3.12 -m ruff check --select I app/services/work_queue_service.py` passed.
 - Forbidden-boundary audit returned `boundary-clean`; no migration/model/frontend/claim/CAS/consent/idempotency/provider addition was present.
-- `requirements-completed: [WQ-01, WQ-02, WQ-05]` was retained only after the final `66 passed` plan gate and `108 passed` relevant backend gate were green.
+- `requirements-completed: [WQ-01, WQ-02, WQ-05]` was retained only after the final `69 passed` plan gate and `111 passed` relevant backend gate were green.
 
 ### Self-check: PASS
 
@@ -148,6 +153,8 @@ Each task was committed atomically:
 6. **Remediation implementation: search, RBAC, scoped identities and timezone** - `c588232` (`fix`)
 7. **Assessment requested-domain pre-cap regression** - `f4976a1` (`test`)
 8. **Assessment requested-domain pre-cap implementation** - `a6509c3` (`fix`)
+9. **Adversarial follow-up contracts: unresolved Task links and covered bucket** - `f9072ca` (`test`)
+10. **Adversarial follow-up implementation: safe Task serialization and covered bucket** - `4c3c144` (`fix`)
 
 ## Files Created/Modified
 
