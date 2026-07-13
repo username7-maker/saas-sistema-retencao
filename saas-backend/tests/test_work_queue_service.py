@@ -302,6 +302,27 @@ def test_task_to_item_includes_preferred_shift_diagnostic_when_unassigned():
     assert item.preferred_shift_counts["morning"] == 0
 
 
+@pytest.mark.parametrize(
+    ("relation_field", "id_field"),
+    [
+        ("member", "member_id"),
+        ("lead", "lead_id"),
+    ],
+)
+def test_wq_task_to_item_suppresses_unresolved_relationship_foreign_key_and_path(relation_field, id_field):
+    unresolved_id = uuid.uuid4()
+    task = _task(**{id_field: unresolved_id, relation_field: None})
+
+    item = _task_to_item(task)
+
+    assert item.subject_name == task.title
+    assert item.member_id is None
+    assert item.lead_id is None
+    assert item.subject_phone is None
+    assert item.context_path == "/tasks"
+    assert str(unresolved_id) not in item.model_dump_json()
+
+
 def test_matches_my_shift_for_overnight_user():
     user = _user()
     user.work_shift = "overnight"
@@ -1536,8 +1557,37 @@ def test_wq_assessment_trainer_buckets_prevent_unauthorized_first_assessments_fr
         _user(role=RoleEnum.TRAINER),
     )
 
-    assert requested_buckets == ["overdue", "week", "upcoming"]
+    assert requested_buckets == ["overdue", "week", "upcoming", "covered"]
     assert [item.source_id for item in result] == [week_target.id]
+
+
+def test_wq_assessment_trainer_bucket_plan_keeps_covered_operational_followups(monkeypatch):
+    covered_target = _assessment_row(
+        888,
+        queue_bucket="covered",
+        full_name="Aluna coberta aguardando acompanhamento tecnico",
+    )
+    requested_buckets: list[str] = []
+
+    def fake_queue(_db, *, page, page_size, bucket, gym_id, **_kwargs):
+        assert gym_id == GYM_ID
+        assert page == 1
+        assert page_size == 201
+        requested_buckets.append(bucket)
+        if bucket == "covered":
+            return SimpleNamespace(items=[covered_target], total=1, page=page, page_size=page_size)
+        return SimpleNamespace(items=[], total=0, page=page, page_size=page_size)
+
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", fake_queue)
+
+    result = work_queue_service._list_assessment_queue_items(
+        MagicMock(),
+        _user(role=RoleEnum.TRAINER),
+    )
+
+    assert requested_buckets == ["overdue", "week", "upcoming", "covered"]
+    assert [item.source_id for item in result] == [covered_target.id]
+    assert result[0].domain == "trainer"
 
 
 def test_wq_assessment_receptionist_queries_only_never_bucket_before_cap(monkeypatch):
@@ -1598,7 +1648,7 @@ def test_wq_assessment_owner_trainer_domain_is_bucketed_before_cap(monkeypatch):
         source="assessment_queue",
     )
 
-    assert requested_buckets == ["overdue", "week", "upcoming"]
+    assert requested_buckets == ["overdue", "week", "upcoming", "covered"]
     assert [item.source_id for item in result.items] == [trainer_target.id]
 
 
