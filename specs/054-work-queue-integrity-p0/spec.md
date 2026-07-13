@@ -18,7 +18,7 @@ Como operador, gestor ou professor do Cordex Gym OS, quero navegar e pesquisar o
 
 - Uma recomendacao de onboarding deve reutilizar uma task ativa equivalente quando ela existir.
 - Task encerrada, cancelada, deletada, arquivada ou de outro tenant nunca pode ser reutilizada.
-- Preparacao repetida da mesma recommendation deve ser idempotente.
+- Preparacao repetida sequencialmente, sem concorrencia, da mesma recommendation deve convergir para a mesma task; garantia concorrente pertence a Spec 055 / Phase 10.1.
 - Sinal ausente permanece `unknown`; ausencia de dado nao pode virar automaticamente score zero ou severidade critica.
 - Item executavel deve explicitar frescor, owner/equipe, prazo e motivo ou a ausencia desses dados.
 
@@ -48,7 +48,7 @@ Como operador, gestor ou professor do Cordex Gym OS, quero navegar e pesquisar o
 - Resposta informa `total`, pagina, tamanho, contagens por estado e fontes truncadas sem afirmar exatidao falsa.
 - UI mostra carregamento de contagem sem usar `0` provisoriamente e exibe faixa/total ou indicacao de limite inferior.
 - Recommendation de onboarding com task ativa retorna a task existente e nao aumenta o numero de tasks.
-- Duas preparacoes repetidas da mesma recommendation convergem para o mesmo resultado.
+- Duas preparacoes sequenciais e non-concurrent da mesma recommendation convergem para o mesmo resultado; este criterio nao cobre corrida entre sessions.
 - Item snoozed desaparece de `do_now` e reaparece apenas no instante correto.
 - Tenant isolation, testes focados, typecheck, lint focal, build e `specify check` passam.
 
@@ -56,6 +56,6 @@ Como operador, gestor ou professor do Cordex Gym OS, quero navegar e pesquisar o
 
 - Operational Truth: totais, estados e CTAs derivam do backend persistido.
 - Human Review: comunicacao continua humana e efeitos bloqueados ficam explicitos.
-- Tenant Isolation: dedupe, claim e idempotencia sao sempre tenant-scoped.
+- Tenant Isolation: busca e reuso sequencial permanecem tenant-scoped; claim/CAS e idempotencia estrutural sao tratados apenas na Spec 055 / Phase 10.1.
 - Durable Side Effects: esta fase nao amplia efeitos; o fechamento estrutural fica explicitamente rastreado na Spec 055.
 - Shared Semantic Payload: as duas superficies usam o mesmo `WorkQueueItem` e o mesmo contrato de lista.

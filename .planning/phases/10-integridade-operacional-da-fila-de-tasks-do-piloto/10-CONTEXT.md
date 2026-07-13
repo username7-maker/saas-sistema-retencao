@@ -20,7 +20,7 @@ A fase nasce de auditoria tecnica, estrutural e operacional da fila publicada do
 3. Nenhuma execucao ambigua: frescor, owner, prazo, estado, snooze e ordenacao.
 4. Nenhuma conclusao sem prova: suites focadas e smoke sintetico.
 
-Claim/versao e efeitos externos idempotentes permanecem decisoes obrigatorias, mas foram movidos para a Phase 10.1 porque dependem de migration, fronteira transacional nova e harness PostgreSQL concorrente.
+Claim/versao e efeitos externos idempotentes permanecem decisoes obrigatorias, mas pertencem somente a Spec 055 / Phase 10.1 porque dependem de migration, fronteira transacional nova e harness PostgreSQL concorrente.
 
 ## Contrato de interface
 
@@ -47,7 +47,7 @@ Claim/versao e efeitos externos idempotentes permanecem decisoes obrigatorias, m
 - Reutilizar componentes/tokens Cordex existentes; nenhuma nova linguagem visual.
 - Estados nao podem depender apenas de cor.
 - Controles de busca, paginacao, filtros e refresh devem ser acessiveis por teclado e ter nome discernivel.
-- Mobile empilha fila e inspector sem esconder acesso a paginacao ou ao estado do claim.
+- Mobile empilha fila e inspector sem esconder acesso a paginacao ou ao estado do item.
 
 ## Fora do corte
 

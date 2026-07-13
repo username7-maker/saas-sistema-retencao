@@ -528,7 +528,7 @@ Plans:
 Status:
 - [x] context
 - [x] ui-spec
-- [ ] plan
+- [x] plan
 - [ ] execute
 - [ ] verify/validate
 
