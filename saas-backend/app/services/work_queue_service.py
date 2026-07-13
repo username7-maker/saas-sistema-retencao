@@ -6,8 +6,9 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, case, func, literal, or_, select
+from sqlalchemy import and_, case, func, inspect, literal, or_, select
 from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm.attributes import NO_VALUE
 
 from app.models import (
     AITriageRecommendation,
@@ -216,11 +217,26 @@ def _task_state(task: Task) -> str:
     return "do_now"
 
 
+def _loaded_relation(obj, relation_name: str):
+    try:
+        loaded_value = inspect(obj).attrs[relation_name].loaded_value
+    except Exception:
+        return getattr(obj, relation_name, None)
+    return None if loaded_value is NO_VALUE else loaded_value
+
+
+def _resolved_relation_id(obj, relation_name: str) -> UUID | None:
+    relation = _loaded_relation(obj, relation_name)
+    return getattr(relation, "id", None) if relation is not None else None
+
+
 def _task_context_path(task: Task) -> str:
-    if task.member_id:
-        return f"/assessments/members/{task.member_id}?tab=acoes"
-    if task.lead_id:
-        return f"/crm?leadId={task.lead_id}"
+    member_id = _resolved_relation_id(task, "member")
+    if member_id:
+        return f"/assessments/members/{member_id}?tab=acoes"
+    lead_id = _resolved_relation_id(task, "lead")
+    if lead_id:
+        return f"/crm?leadId={lead_id}"
     return "/tasks"
 
 
@@ -482,9 +498,10 @@ def _work_queue_message_fields(
 
 
 def _task_shift_diagnostics(db: Session, task: Task) -> dict[UUID, PreferredShiftDiagnostic]:
-    if not getattr(task, "member", None):
+    member = _loaded_relation(task, "member")
+    if not member:
         return {}
-    return preferred_shift_diagnostics_from_checkins(db, [task.member])
+    return preferred_shift_diagnostics_from_checkins(db, [member])
 
 
 def _task_to_item(
@@ -492,16 +509,20 @@ def _task_to_item(
     *,
     shift_diagnostics: dict[UUID, PreferredShiftDiagnostic] | None = None,
 ) -> WorkQueueItemOut:
-    member_name = task.member.full_name if task.member else None
-    lead_name = task.lead.full_name if task.lead else None
+    member = _loaded_relation(task, "member")
+    lead = _loaded_relation(task, "lead")
+    member_id = getattr(member, "id", None) if member else None
+    lead_id = getattr(lead, "id", None) if lead else None
+    member_name = member.full_name if member else None
+    lead_name = lead.full_name if lead else None
     subject_name = member_name or lead_name or task.title
-    subject_phone = (task.member.phone if task.member else None) or (task.lead.phone if task.lead else None)
+    subject_phone = (member.phone if member else None) or (lead.phone if lead else None)
     reason = task.description or task.title
-    preferred_shift = getattr(task.member, "preferred_shift", None) if task.member else None
-    shift_diagnostic = shift_diagnostics.get(task.member_id) if shift_diagnostics and task.member_id else None
+    preferred_shift = getattr(member, "preferred_shift", None) if member else None
+    shift_diagnostic = shift_diagnostics.get(member_id) if shift_diagnostics and member_id else None
     extra = _task_extra(task)
     domain = _task_domain(task)
-    retention_stage = extra.get("retention_stage") or (getattr(task.member, "retention_stage", None) if task.member else None)
+    retention_stage = extra.get("retention_stage") or (getattr(member, "retention_stage", None) if member else None)
     retention_payload = retention_stage_payload(str(retention_stage) if retention_stage else None) if domain == "retention" else {}
     technical_step = str(extra.get("technical_ladder_step") or "") or None
     execution_bucket, execution_bucket_label = _execution_bucket_for_task(
@@ -521,8 +542,8 @@ def _task_to_item(
         source_type="task",
         source_id=task.id,
         subject_name=subject_name,
-        member_id=task.member_id,
-        lead_id=task.lead_id,
+        member_id=member_id,
+        lead_id=lead_id,
         subject_phone=subject_phone,
         domain=domain,
         severity=_task_severity(task),
@@ -1443,7 +1464,7 @@ def _list_assessment_queue_items(
         return []
     cap = WORK_QUEUE_SOURCE_CAPS["assessment_queue"]
     page_size = cap + 1
-    trainer_buckets = ("overdue", "week", "upcoming")
+    trainer_buckets = ("overdue", "week", "upcoming", "covered")
     if current_user.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
         if requested_domain == "trainer":
             bucket_plan = trainer_buckets
