@@ -8,7 +8,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import AITriageRecommendation, RoleEnum, TaskPriority, TaskStatus, WorkQueueClaim
+from app.schemas.autopilot import WorkQueueSendAndWaitInput
 from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
+from app.services.autopilot_safety_service import SafetyResult
 from app.services import work_queue_service
 from app.services.work_queue_service import (
     _filter_items,
@@ -16,6 +18,7 @@ from app.services.work_queue_service import (
     _task_to_item,
     execute_work_queue_item,
     list_work_queue_items,
+    send_and_wait_work_queue_item,
     update_work_queue_outcome,
 )
 
@@ -79,6 +82,18 @@ def _autopilot_action(*, action_type: str, status: str, intent: str, member_id=N
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _channel_resolution(channel="whatsapp"):
+    return SimpleNamespace(
+        requested_channel="auto",
+        channel=channel,
+        primary_channel=channel,
+        fallback_channel="whatsapp",
+        used_fallback=False,
+        detail="synthetic",
+        kommo_ready=channel == "kommo",
+    )
 
 
 def _assessment_row(index: int, *, queue_bucket: str, full_name: str | None = None):
@@ -185,6 +200,95 @@ def test_wq_execute_task_stale_expected_version_returns_typed_409():
     assert exc_info.value.detail["claimed_by_user_id"] == str(USER_ID)
     assert exc_info.value.detail["claimed_by_name"] == "Operador Atual"
     db.add.assert_not_called()
+
+
+def test_send_and_wait_missing_consent_blocks_before_autopilot_action(monkeypatch):
+    member = SimpleNamespace(id=uuid.uuid4(), full_name="Aluno Consent", phone="11999999999", preferred_shift=None)
+    task = _task(
+        member_id=member.id,
+        member=member,
+        lead=None,
+        suggested_message="Ola, vamos retomar?",
+        extra_data={"domain": "retention"},
+    )
+    db = MagicMock()
+    db.scalar.return_value = task
+    create_action = MagicMock()
+    execute_action = MagicMock()
+    monkeypatch.setattr(work_queue_service, "resolve_communication_channel", lambda *_args, **_kwargs: _channel_resolution("whatsapp"))
+    monkeypatch.setattr(
+        work_queue_service,
+        "check_autopilot_safety",
+        lambda *_args, **_kwargs: SafetyResult(
+            False,
+            ["missing_member_communication_consent"],
+            consent_snapshot={"allowed": False, "reason": "missing_member_communication_consent"},
+        ),
+    )
+    monkeypatch.setattr(work_queue_service, "create_autopilot_action", create_action)
+    monkeypatch.setattr(work_queue_service, "execute_autopilot_action", execute_action)
+
+    with pytest.raises(HTTPException) as exc_info:
+        send_and_wait_work_queue_item(
+            db,
+            current_user=_user(),
+            source_type="task",
+            source_id=TASK_ID,
+            payload=WorkQueueSendAndWaitInput(message="Ola, vamos retomar?"),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "missing_member_communication_consent" in str(exc_info.value.detail)
+    create_action.assert_not_called()
+    execute_action.assert_not_called()
+
+
+def test_send_and_wait_replay_uses_same_intent_without_provider(monkeypatch):
+    member = SimpleNamespace(id=uuid.uuid4(), full_name="Aluno Replay", phone="11999999999", preferred_shift=None)
+    task = _task(
+        member_id=member.id,
+        member=member,
+        lead=None,
+        suggested_message="Ola, vamos retomar?",
+        extra_data={"domain": "retention"},
+    )
+    existing_action = SimpleNamespace(
+        id=uuid.uuid4(),
+        status="awaiting_outcome",
+        scheduled_for=None,
+        failure_reason=None,
+        metadata_json={},
+    )
+    provider = MagicMock()
+    create_action = MagicMock(return_value=existing_action)
+    db = MagicMock()
+    db.scalar.return_value = task
+    monkeypatch.setattr(work_queue_service, "resolve_communication_channel", lambda *_args, **_kwargs: _channel_resolution("whatsapp"))
+    monkeypatch.setattr(
+        work_queue_service,
+        "check_autopilot_safety",
+        lambda *_args, **_kwargs: SafetyResult(
+            True,
+            consent_snapshot={"allowed": True, "record_id": "consent-1", "effect": "human_outbound_message"},
+        ),
+    )
+    monkeypatch.setattr(work_queue_service, "create_autopilot_action", create_action)
+    monkeypatch.setattr("app.services.autopilot_action_service.send_whatsapp_sync", provider)
+
+    result = send_and_wait_work_queue_item(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueSendAndWaitInput(message="Ola, vamos retomar?"),
+    )
+
+    provider.assert_not_called()
+    assert result.supported is True
+    assert task.extra_data["autopilot_action_id"] == str(existing_action.id)
+    assert create_action.call_args.kwargs["idempotency_key"] == f"send-and-wait:whatsapp:{task.id}"
+    assert create_action.call_args.kwargs["request_fingerprint"]
+    assert create_action.call_args.kwargs["consent_snapshot"]["record_id"] == "consent-1"
 
 
 def test_task_outcome_completed_marks_done(monkeypatch):

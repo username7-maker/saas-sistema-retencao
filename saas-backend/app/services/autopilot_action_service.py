@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -15,9 +18,31 @@ from app.services.communication_channel_service import resolve_communication_cha
 from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError, send_member_message_via_kommo_salesbot
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
 
+REPLAY_SAFE_PROVIDER_STATUSES = {"awaiting_outcome", "succeeded", "dispatch_uncertain", "failed_uncertain"}
+
 
 def _now() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def build_autopilot_request_fingerprint(**payload: object) -> str:
+    normalized = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _idempotency_conflict(existing: AutopilotAction, request_fingerprint: str | None) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "autopilot_idempotency_conflict",
+            "message": "Intent idempotente ja existe com fingerprint diferente.",
+            "idempotency_key": existing.idempotency_key,
+            "existing_action_id": str(existing.id),
+            "existing_fingerprint": existing.request_fingerprint,
+            "request_fingerprint": request_fingerprint,
+            "status": existing.status,
+        },
+    )
 
 
 def create_autopilot_action(
@@ -30,6 +55,8 @@ def create_autopilot_action(
     related_task_id: UUID | None = None,
     message_body: str | None = None,
     idempotency_key: str | None = None,
+    request_fingerprint: str | None = None,
+    consent_snapshot: dict | None = None,
     flush: bool = True,
 ) -> AutopilotAction:
     if idempotency_key:
@@ -37,10 +64,15 @@ def create_autopilot_action(
             select(AutopilotAction).where(
                 AutopilotAction.gym_id == gym_id,
                 AutopilotAction.idempotency_key == idempotency_key,
-                AutopilotAction.status.in_(["planned", "scheduled", "executing", "sent", "awaiting_outcome", "succeeded"]),
             )
         )
         if existing:
+            if (
+                request_fingerprint
+                and existing.request_fingerprint
+                and existing.request_fingerprint != request_fingerprint
+            ):
+                raise _idempotency_conflict(existing, request_fingerprint)
             return existing
     first_name = ((member.full_name if member else lead.full_name if lead else "") or "").split(" ")[0]
     resolved_message = message_body
@@ -61,6 +93,9 @@ def create_autopilot_action(
         timeout_at=_now() + timedelta(hours=decision.next_timeout_hours),
         max_attempts=1,
         idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        consent_snapshot=consent_snapshot or {},
+        provider_status="intent_persisted",
         metadata_json={"decision_reason": decision.reason, **decision.metadata},
     )
     db.add(action)
@@ -194,20 +229,35 @@ def execute_autopilot_action(
     *,
     require_auto_send: bool = True,
     flush: bool = True,
+    commit_before_provider: bool = False,
 ) -> AutopilotAction:
+    if action.status in REPLAY_SAFE_PROVIDER_STATUSES:
+        return action
     if action.status not in {"planned", "scheduled"}:
         return action
     if action.action_type == "send_primary_channel":
-        return _execute_primary_channel_action(db, action, require_auto_send=require_auto_send, flush=flush)
+        return _execute_primary_channel_action(
+            db,
+            action,
+            require_auto_send=require_auto_send,
+            flush=flush,
+            commit_before_provider=commit_before_provider,
+        )
     if action.action_type == "kommo_operator_handoff":
-        return _execute_kommo_operator_handoff(db, action, flush=flush)
+        return _execute_kommo_operator_handoff(db, action, flush=flush, commit_before_provider=commit_before_provider)
     if action.action_type != "send_whatsapp":
         action.status = "skipped" if action.action_type == "no_op" else "blocked"
         db.add(action)
         if flush:
             db.flush()
         return action
-    return _execute_whatsapp_action(db, action, require_auto_send=require_auto_send, flush=flush)
+    return _execute_whatsapp_action(
+        db,
+        action,
+        require_auto_send=require_auto_send,
+        flush=flush,
+        commit_before_provider=commit_before_provider,
+    )
 
 
 def _execute_primary_channel_action(
@@ -216,6 +266,7 @@ def _execute_primary_channel_action(
     *,
     require_auto_send: bool,
     flush: bool = True,
+    commit_before_provider: bool = False,
 ) -> AutopilotAction:
     resolution = resolve_communication_channel(db, gym_id=action.gym_id, requested_channel="auto")
     metadata = dict(action.metadata_json or {})
@@ -247,6 +298,7 @@ def _execute_primary_channel_action(
             lead=lead,
             message_text=action.message_body,
             require_auto_send=require_auto_send,
+            ignore_autopilot_action_id=action.id,
         )
         if safety.scheduled_for:
             action.status = "scheduled"
@@ -275,7 +327,7 @@ def _execute_primary_channel_action(
             if flush:
                 db.flush()
             return action
-        return _execute_kommo_operator_handoff(db, action, flush=flush)
+        return _execute_kommo_operator_handoff(db, action, flush=flush, commit_before_provider=commit_before_provider)
 
     if resolution.channel == "manual":
         action.status = "blocked"
@@ -297,7 +349,13 @@ def _execute_primary_channel_action(
             db.flush()
         return action
 
-    return _execute_whatsapp_action(db, action, require_auto_send=require_auto_send, flush=flush)
+    return _execute_whatsapp_action(
+        db,
+        action,
+        require_auto_send=require_auto_send,
+        flush=flush,
+        commit_before_provider=commit_before_provider,
+    )
 
 
 def _execute_whatsapp_action(
@@ -306,6 +364,7 @@ def _execute_whatsapp_action(
     *,
     require_auto_send: bool,
     flush: bool = True,
+    commit_before_provider: bool = False,
 ) -> AutopilotAction:
     member = db.get(Member, action.member_id) if action.member_id else None
     lead = db.get(Lead, action.lead_id) if action.lead_id else None
@@ -319,6 +378,7 @@ def _execute_whatsapp_action(
         lead=lead,
         message_text=action.message_body,
         require_auto_send=require_auto_send,
+        ignore_autopilot_action_id=action.id,
     )
     if safety.scheduled_for:
         action.status = "scheduled"
@@ -352,21 +412,39 @@ def _execute_whatsapp_action(
         return mark_autopilot_action_failed(db, action, reason="missing_phone_or_message", flush=flush)
     action.status = "executing"
     action.executed_at = _now()
+    action.dispatched_at = action.executed_at
+    action.provider_status = "dispatching"
     action.channel = "whatsapp"
     db.add(action)
-    log = send_whatsapp_sync(
-        db,
-        phone=phone,
-        message=action.message_body,
-        instance=get_gym_instance(db, action.gym_id),
-        member_id=action.member_id,
-        lead_id=action.lead_id,
-        template_name=action.template_key,
-        event_type="autopilot",
-    )
+    if flush or commit_before_provider:
+        db.flush()
+    if commit_before_provider:
+        db.commit()
+    try:
+        log = send_whatsapp_sync(
+            db,
+            phone=phone,
+            message=action.message_body,
+            instance=get_gym_instance(db, action.gym_id),
+            member_id=action.member_id,
+            lead_id=action.lead_id,
+            template_name=action.template_key,
+            event_type="autopilot",
+        )
+    except Exception as exc:
+        action.status = "dispatch_uncertain"
+        action.provider_status = "dispatch_uncertain"
+        action.provider_error = str(exc)
+        action.failure_reason = str(exc)
+        db.add(action)
+        if flush:
+            db.flush()
+        return action
     _attach_action_to_message_log(log, action.id)
     if log.status in {"sent", "delivered", "read"}:
         action.status = "awaiting_outcome"
+        action.provider_status = "accepted"
+        action.provider_reference = str(getattr(log, "provider_message_id", None) or log.id)
         record_event(
             db,
             gym_id=action.gym_id,
@@ -381,6 +459,8 @@ def _execute_whatsapp_action(
         )
     else:
         action.status = "failed"
+        action.provider_status = "failed"
+        action.provider_error = log.error_detail or log.status
         action.failure_reason = log.error_detail or log.status
         record_event(
             db,
@@ -400,14 +480,26 @@ def _execute_whatsapp_action(
     return action
 
 
-def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flush: bool = True) -> AutopilotAction:
+def _execute_kommo_operator_handoff(
+    db: Session,
+    action: AutopilotAction,
+    *,
+    flush: bool = True,
+    commit_before_provider: bool = False,
+) -> AutopilotAction:
     member = db.get(Member, action.member_id) if action.member_id else None
     if member is None:
         return mark_autopilot_action_failed(db, action, reason="kommo_member_required", flush=flush)
 
     action.status = "executing"
     action.executed_at = _now()
+    action.dispatched_at = action.executed_at
+    action.provider_status = "dispatching"
     db.add(action)
+    if flush or commit_before_provider:
+        db.flush()
+    if commit_before_provider:
+        db.commit()
     metadata = dict(action.metadata_json or {})
     title = str(metadata.get("task_title") or metadata.get("title") or f"{PRODUCT_NAME} - {action.policy_key}")[:120]
     try:
@@ -421,6 +513,8 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
             source_id=action.related_task_id or action.id,
             title=title,
         )
+        action.provider_status = "accepted"
+        action.provider_reference = result.task_id or result.lead_id or result.contact_id
         metadata.update(
             {
                 "kommo_contact_id": result.contact_id,
@@ -472,7 +566,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
                 "kommo_route_fallback_reason": result.route_fallback_reason,
             }
         )
-        action.status = "failed"
+        action.status = "failed_uncertain"
+        action.provider_status = "failed_uncertain"
+        action.provider_error = str(exc)
         action.failure_reason = str(exc)
         action.metadata_json = metadata
         record_event(
@@ -496,7 +592,9 @@ def _execute_kommo_operator_handoff(db: Session, action: AutopilotAction, *, flu
             flush=False,
         )
     except KommoServiceError as exc:
-        action.status = "failed"
+        action.status = "dispatch_uncertain"
+        action.provider_status = "dispatch_uncertain"
+        action.provider_error = str(exc)
         action.failure_reason = str(exc)
         action.metadata_json = metadata
         record_event(

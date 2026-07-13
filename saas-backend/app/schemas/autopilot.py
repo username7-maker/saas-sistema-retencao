@@ -52,6 +52,12 @@ class AutopilotActionOut(BaseModel):
     failure_reason: str | None
     escalation_reason: str | None
     idempotency_key: str | None
+    request_fingerprint: str | None = None
+    consent_snapshot: dict = Field(default_factory=dict)
+    provider_status: str | None = None
+    provider_reference: str | None = None
+    provider_error: str | None = None
+    dispatched_at: datetime | None = None
     metadata_json: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime

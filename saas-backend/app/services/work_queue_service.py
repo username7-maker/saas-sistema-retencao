@@ -54,7 +54,11 @@ from app.services.assessment_analytics_service import get_assessments_queue
 from app.services.assessment_service import update_assessment_queue_resolution
 from app.services.audit_service import log_audit_event
 from app.services.automation_journey_service import handle_task_outcome_for_journey
-from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
+from app.services.autopilot_action_service import (
+    build_autopilot_request_fingerprint,
+    create_autopilot_action,
+    execute_autopilot_action,
+)
 from app.services.autopilot_policy_service import AutopilotDecision
 from app.services.autopilot_safety_service import check_autopilot_safety
 from app.services.communication_channel_service import resolve_communication_channel
@@ -2707,6 +2711,7 @@ def send_and_wait_work_queue_item(
             metadata_json={
                 "source": "work_queue_send_and_wait",
                 "blocked_reasons": safety.reasons,
+                "consent_snapshot": safety.consent_snapshot,
                 "requested_channel": channel_resolution.requested_channel,
                 "resolved_channel": effective_channel,
             },
@@ -2715,10 +2720,23 @@ def send_and_wait_work_queue_item(
         db.flush()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Envio bloqueado: " + ", ".join(safety.reasons))
 
+    policy_key = f"manual_send_and_wait_{domain}"
+    idempotency_key = f"send-and-wait:{effective_channel}:{task.id}"
+    request_fingerprint = build_autopilot_request_fingerprint(
+        effect="work_queue_send_and_wait",
+        channel=effective_channel,
+        task_id=task.id,
+        member_id=task.member_id,
+        lead_id=task.lead_id,
+        domain=domain,
+        action_type=action_type,
+        message=message,
+        template_key=payload.template_key,
+    )
     decision = AutopilotDecision(
         decision="auto_execute",
         domain=domain,
-        policy_key=f"manual_send_and_wait_{domain}",
+        policy_key=policy_key,
         action_type=action_type,
         template_key=payload.template_key,
         confidence=1.0,
@@ -2744,71 +2762,26 @@ def send_and_wait_work_queue_item(
         lead=task.lead,
         related_task_id=task.id,
         message_body=message,
-        idempotency_key=f"send-and-wait:{effective_channel}:{task.id}:{message[:80]}",
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        consent_snapshot=safety.consent_snapshot,
         flush=False,
     )
+    db.flush()
+    db.commit()
     if safety.scheduled_for:
         action.status = "scheduled"
         action.scheduled_for = safety.scheduled_for
         action.failure_reason = ",".join(safety.reasons)
         db.add(action)
     else:
-        action = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
-    if effective_channel == "kommo" and action.status == "failed" and channel_resolution.fallback_channel == "whatsapp":
-        effective_channel = "whatsapp"
-        used_channel_fallback = True
-        fallback_safety = check_autopilot_safety(
+        action = execute_autopilot_action(
             db,
-            gym_id=current_user.gym_id,
-            domain=domain,
-            policy_key=f"manual_send_and_wait_{domain}_fallback_whatsapp",
-            action_type="send_whatsapp",
-            member=task.member,
-            lead=task.lead,
-            message_text=message,
+            action,
             require_auto_send=False,
-            ignore_recent_human_activity=True,
+            flush=False,
+            commit_before_provider=True,
         )
-        if fallback_safety.allowed or fallback_safety.scheduled_for:
-            fallback_decision = AutopilotDecision(
-                decision="auto_execute",
-                domain=domain,
-                policy_key=f"manual_send_and_wait_{domain}_fallback_whatsapp",
-                action_type="send_whatsapp",
-                template_key=payload.template_key,
-                confidence=1.0,
-                reason="Fallback WhatsApp apos falha no handoff Kommo.",
-                next_timeout_hours=48,
-                metadata={
-                    "human_initiated": True,
-                    "operator_user_id": str(current_user.id),
-                    "requested_channel": channel_resolution.requested_channel,
-                    "resolved_channel": "whatsapp",
-                    "used_channel_fallback": True,
-                    "kommo_failure_reason": action.failure_reason,
-                    "task_title": task.title,
-                    "task_reason": task.description or task.title,
-                    "context_path": _task_context_path(task),
-                },
-            )
-            action = create_autopilot_action(
-                db,
-                gym_id=current_user.gym_id,
-                decision=fallback_decision,
-                member=task.member,
-                lead=task.lead,
-                related_task_id=task.id,
-                message_body=message,
-                idempotency_key=f"send-and-wait:fallback-whatsapp:{task.id}:{message[:80]}",
-                flush=False,
-            )
-            if fallback_safety.scheduled_for:
-                action.status = "scheduled"
-                action.scheduled_for = fallback_safety.scheduled_for
-                action.failure_reason = ",".join(fallback_safety.reasons)
-                db.add(action)
-            else:
-                action = execute_autopilot_action(db, action, require_auto_send=False, flush=False)
 
     extra = _task_extra(task)
     extra["autopilot_action_id"] = str(action.id)

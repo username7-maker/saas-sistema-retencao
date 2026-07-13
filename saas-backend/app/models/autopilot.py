@@ -79,6 +79,12 @@ class AutopilotAction(Base, TimestampMixin):
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     escalation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(96), nullable=True, index=True)
+    consent_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False, server_default="{}")
+    provider_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provider_reference: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    provider_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False, server_default="{}")
 
     events = relationship("AutopilotEvent", backref="autopilot_action", foreign_keys=[AutopilotEvent.autopilot_action_id])

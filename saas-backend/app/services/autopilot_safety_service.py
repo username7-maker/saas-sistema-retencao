@@ -47,6 +47,7 @@ class SafetyResult:
     reasons: list[str] = field(default_factory=list)
     scheduled_for: datetime | None = None
     settings: GymAutopilotSettings | None = None
+    consent_snapshot: dict | None = None
 
 
 def _now() -> datetime:
@@ -76,6 +77,97 @@ def _member_has_whatsapp_consent(db: Session, *, gym_id: UUID, member_id: UUID) 
     if record.expires_at and record.expires_at < _now():
         return False
     return True
+
+
+OUTBOUND_HUMAN_ACTION_TYPES = {"send_whatsapp", "kommo_operator_handoff"}
+COMMUNICATION_CONSENT_TYPES = ("communication", "whatsapp_consent")
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _latest_member_communication_consent(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+) -> MemberConsentRecord | None:
+    return db.scalar(
+        select(MemberConsentRecord)
+        .where(
+            MemberConsentRecord.gym_id == gym_id,
+            MemberConsentRecord.member_id == member_id,
+            MemberConsentRecord.consent_type.in_(COMMUNICATION_CONSENT_TYPES),
+        )
+        .order_by(MemberConsentRecord.created_at.desc())
+        .limit(1)
+    )
+
+
+def outbound_human_consent_snapshot(
+    db: Session,
+    *,
+    gym_id: UUID,
+    channel: str,
+    purpose: str,
+    member: Member | None = None,
+    lead: Lead | None = None,
+) -> dict:
+    effect = "human_outbound_message"
+    if lead is not None and member is None:
+        return {
+            "allowed": False,
+            "reason": "lead_consent_not_supported_v1",
+            "effect": effect,
+            "channel": channel,
+            "purpose": purpose,
+            "lead_id": str(lead.id),
+        }
+    if member is None:
+        return {
+            "allowed": False,
+            "reason": "missing_subject_for_consent",
+            "effect": effect,
+            "channel": channel,
+            "purpose": purpose,
+        }
+
+    record = _latest_member_communication_consent(db, gym_id=gym_id, member_id=member.id)
+    if record is None:
+        return {
+            "allowed": False,
+            "reason": "missing_member_communication_consent",
+            "effect": effect,
+            "channel": channel,
+            "purpose": purpose,
+            "member_id": str(member.id),
+        }
+
+    status = record.status
+    reason = None
+    if record.status != "accepted":
+        reason = "member_communication_consent_not_accepted"
+    elif record.expires_at and record.expires_at < _now():
+        status = "expired"
+        reason = "member_communication_consent_expired"
+
+    return {
+        "allowed": reason is None,
+        "reason": reason,
+        "effect": effect,
+        "channel": channel,
+        "purpose": purpose,
+        "member_id": str(member.id),
+        "record_id": str(record.id),
+        "consent_type": record.consent_type,
+        "status": status,
+        "signed_at": _iso(record.signed_at),
+        "revoked_at": _iso(record.revoked_at),
+        "expires_at": _iso(record.expires_at),
+        "source": record.source,
+        "document_version": record.document_version,
+    }
 
 
 def _within_business_hours(settings: GymAutopilotSettings, now: datetime) -> bool:
@@ -127,12 +219,22 @@ def _recent_human_task_activity(db: Session, *, gym_id: UUID, member_id: UUID | 
     return bool(db.scalar(select(func.count()).select_from(Task).where(*filters)) or 0)
 
 
-def _pending_duplicate_action(db: Session, *, gym_id: UUID, policy_key: str, member_id: UUID | None, lead_id: UUID | None) -> bool:
+def _pending_duplicate_action(
+    db: Session,
+    *,
+    gym_id: UUID,
+    policy_key: str,
+    member_id: UUID | None,
+    lead_id: UUID | None,
+    ignore_action_id: UUID | None = None,
+) -> bool:
     filters = [
         AutopilotAction.gym_id == gym_id,
         AutopilotAction.policy_key == policy_key,
         AutopilotAction.status.in_(["planned", "scheduled", "executing", "sent", "awaiting_outcome"]),
     ]
+    if ignore_action_id:
+        filters.append(AutopilotAction.id != ignore_action_id)
     if member_id:
         filters.append(AutopilotAction.member_id == member_id)
     elif lead_id:
@@ -154,6 +256,7 @@ def check_autopilot_safety(
     message_text: str | None = None,
     require_auto_send: bool = False,
     ignore_recent_human_activity: bool = False,
+    ignore_autopilot_action_id: UUID | None = None,
 ) -> SafetyResult:
     settings = get_or_create_autopilot_settings(db, gym_id=gym_id)
     reasons: list[str] = []
@@ -185,17 +288,48 @@ def check_autopilot_safety(
         reasons.append("member_cancelled")
     if lead and lead.stage in {LeadStage.WON, LeadStage.LOST}:
         reasons.append("lead_closed")
-    if require_auto_send and member and not _member_has_whatsapp_consent(db, gym_id=gym_id, member_id=member.id):
+    consent_snapshot = None
+    if action_type in OUTBOUND_HUMAN_ACTION_TYPES:
+        channel = "kommo" if action_type == "kommo_operator_handoff" else "whatsapp"
+        consent_snapshot = outbound_human_consent_snapshot(
+            db,
+            gym_id=gym_id,
+            channel=channel,
+            purpose=domain,
+            member=member,
+            lead=lead,
+        )
+        if not consent_snapshot.get("allowed"):
+            reasons.append(str(consent_snapshot.get("reason") or "missing_member_communication_consent"))
+    if (
+        require_auto_send
+        and action_type not in OUTBOUND_HUMAN_ACTION_TYPES
+        and member
+        and not _member_has_whatsapp_consent(db, gym_id=gym_id, member_id=member.id)
+    ):
         reasons.append("missing_member_whatsapp_consent")
-    if require_auto_send and lead:
+    if require_auto_send and action_type not in OUTBOUND_HUMAN_ACTION_TYPES and lead:
         reasons.append("lead_consent_not_supported_v1")
     if require_auto_send and not _within_business_hours(settings, now):
-        return SafetyResult(False, [*reasons, "outside_business_hours"], scheduled_for=_next_business_time(settings, now), settings=settings)
+        return SafetyResult(
+            False,
+            [*reasons, "outside_business_hours"],
+            scheduled_for=_next_business_time(settings, now),
+            settings=settings,
+            consent_snapshot=consent_snapshot,
+        )
     if require_auto_send:
         weekly_limit = settings.max_auto_messages_per_member_per_week if member else settings.max_auto_messages_per_lead_per_week
         if _recent_auto_messages_count(db, gym_id=gym_id, member_id=member_id, lead_id=lead_id, window=timedelta(days=7)) >= weekly_limit:
             reasons.append("weekly_message_limit")
-    if _pending_duplicate_action(db, gym_id=gym_id, policy_key=policy_key, member_id=member_id, lead_id=lead_id):
+    if _pending_duplicate_action(
+        db,
+        gym_id=gym_id,
+        policy_key=policy_key,
+        member_id=member_id,
+        lead_id=lead_id,
+        ignore_action_id=ignore_autopilot_action_id,
+    ):
         reasons.append("duplicate_pending_action")
     if not ignore_recent_human_activity and _recent_human_task_activity(
         db,
@@ -206,4 +340,4 @@ def check_autopilot_safety(
     ):
         reasons.append("recent_human_activity")
 
-    return SafetyResult(allowed=not reasons, reasons=reasons, settings=settings)
+    return SafetyResult(allowed=not reasons, reasons=reasons, settings=settings, consent_snapshot=consent_snapshot)
