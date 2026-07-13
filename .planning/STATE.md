@@ -1,9 +1,14 @@
 ---
-milestone: v3.3.0
-phase: 04.35
-plan: "Upload real de foto e funcoes mais ricas por usuario"
+gsd_state_version: 1.0
+milestone: v3.2.0
+milestone_name: Operacao de Base
 status: Publicada e validada no piloto; V1 entregou upload de avatar para equipe e separacao clara entre cargo exibido e papel de acesso.
-last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
+last_updated: "2026-07-13T18:06:15.422Z"
+progress:
+  total_phases: 32
+  completed_phases: 3
+  total_plans: 32
+  completed_plans: 3
 ---
 
 # STATE
@@ -13,14 +18,12 @@ last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Fechar identidade de equipe com upload real de avatar e separacao clara entre cargo exibido e papel de acesso.
+**Current focus:** Phase 10 — integridade-operacional-da-fila-de-tasks-do-piloto
 
 ## Current Position
 
-**Phase:** 04.35
-**Plan:** `Upload real de foto e funcoes mais ricas por usuario`
-**Status:** `published/validated`; V1 aplica upload real para avatar de equipe e reduz URL manual como caminho principal.
-**Last activity:** 2026-05-28 - fase 04.35 publicada no piloto.
+Phase: 10 (integridade-operacional-da-fila-de-tasks-do-piloto) — EXECUTING
+Plan: 1 of 3
 
 ## Progress Snapshot
 
