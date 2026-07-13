@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.models import RoleEnum, TaskPriority, TaskStatus
+from app.models import AITriageRecommendation, RoleEnum, TaskPriority, TaskStatus
 from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
 from app.services import work_queue_service
 from app.services.work_queue_service import (
@@ -50,6 +50,7 @@ def _task(**kwargs):
         updated_at=datetime.now(tz=timezone.utc),
         member=None,
         lead=None,
+        assigned_user=None,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -951,6 +952,140 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
 
     assert result.task_id == TASK_ID
     prepare.assert_not_called()
+
+
+def _ai_recommendation(**overrides):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    prepared_task_id = overrides.pop("prepared_task_id", None)
+    metadata = overrides.pop("metadata", {"onboarding_score": 0, "days_since_join": 7})
+    if prepared_task_id is not None:
+        metadata = dict(metadata)
+        metadata["prepared_task_id"] = str(prepared_task_id)
+    defaults = dict(
+        id=RECOMMENDATION_ID,
+        gym_id=GYM_ID,
+        source_domain="onboarding",
+        source_entity_kind="member",
+        source_entity_id=uuid.uuid4(),
+        member_id=uuid.uuid4(),
+        lead_id=None,
+        priority_score=55,
+        is_active=True,
+        suggestion_state="reviewed",
+        approval_state="approved",
+        execution_state="prepared" if prepared_task_id else "pending",
+        outcome_state="pending",
+        last_refreshed_at=now,
+        payload_snapshot={
+            "subject_name": "Aluno onboarding",
+            "priority_bucket": "medium",
+            "why_now_summary": "Onboarding exige acao coordenada.",
+            "why_now_details": ["Dia 7 do onboarding."],
+            "recommended_action": "Retomar tarefas da jornada inicial",
+            "recommended_channel": "task",
+            "recommended_owner": {"user_id": USER_ID, "role": "reception", "label": "Recepcao"},
+            "suggested_message": "Revisar proximos checkpoints.",
+            "expected_impact": "Reduzir dropout.",
+            "metadata": metadata,
+        },
+    )
+    defaults.update(overrides)
+    return AITriageRecommendation(**defaults)
+
+
+def test_wq_readiness_ai_triage_exposes_canonical_task_freshness_assignment_and_legacy_zero(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    canonical_task_id = uuid.uuid4()
+    recommendation = _ai_recommendation(
+        prepared_task_id=canonical_task_id,
+        last_refreshed_at=now - timedelta(hours=24),
+    )
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+
+    item = work_queue_service._ai_to_item(recommendation)
+
+    assert item.canonical_task_id == canonical_task_id
+    assert item.last_refreshed_at == now - timedelta(hours=24)
+    assert item.freshness_state == "fresh"
+    assert item.freshness_blocking is False
+    assert item.assigned_to_user_id == USER_ID
+    assert item.assigned_to_name == "Recepcao"
+    assert item.assigned_to_role == "reception"
+    assert item.signal_value == 0
+    assert item.priority_state == "known"
+    assert "signal" not in item.readiness_missing_fields
+    assert "due_at" in item.readiness_missing_fields
+    assert item.severity != "critical"
+
+
+def test_wq_readiness_ai_triage_marks_stale_and_missing_signal_without_inventing_criticality(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    recommendation = _ai_recommendation(
+        metadata={"days_since_join": 9},
+        last_refreshed_at=now - timedelta(hours=24, seconds=1),
+        payload_snapshot={
+            "subject_name": "Aluno sem sinal",
+            "priority_bucket": "medium",
+            "why_now_summary": "Onboarding exige acao.",
+            "why_now_details": [],
+            "recommended_action": "Revisar onboarding",
+            "recommended_channel": "task",
+            "recommended_owner": {"user_id": None, "role": None, "label": None},
+            "suggested_message": "Revisar contexto.",
+            "expected_impact": "Evitar dropout.",
+            "metadata": {"days_since_join": 9},
+        },
+    )
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+
+    item = work_queue_service._ai_to_item(recommendation)
+
+    assert item.freshness_state == "stale"
+    assert item.signal_value is None
+    assert item.priority_state == "unknown"
+    assert "signal" in item.readiness_missing_fields
+    assert "assigned_to_name" in item.readiness_missing_fields
+    assert "assigned_to_role" in item.readiness_missing_fields
+    assert item.severity == "medium"
+
+
+def test_wq_readiness_task_uses_updated_at_assignment_and_unknown_signal(monkeypatch):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    assigned_user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID, full_name="Dono Operacional", role=RoleEnum.MANAGER)
+    task = _task(
+        assigned_to_user_id=USER_ID,
+        assigned_user=assigned_user,
+        updated_at=now - timedelta(hours=25),
+        due_date=None,
+    )
+    monkeypatch.setattr(work_queue_service, "_now", lambda: now)
+
+    item = _task_to_item(task)
+
+    assert item.canonical_task_id == TASK_ID
+    assert item.last_refreshed_at == now - timedelta(hours=25)
+    assert item.freshness_state == "stale"
+    assert item.assigned_to_name == "Dono Operacional"
+    assert item.assigned_to_role == "manager"
+    assert item.signal_value is None
+    assert item.priority_state == "unknown"
+    assert "due_at" in item.readiness_missing_fields
+    assert "signal" in item.readiness_missing_fields
+
+
+def test_wq_readiness_task_loader_scopes_assigned_user_before_serialization(monkeypatch):
+    db = MagicMock()
+    db.scalars.return_value = _scalars_result([], unique=True)
+    monkeypatch.setattr(work_queue_service, "preferred_shift_diagnostics_from_checkins", lambda *_args, **_kwargs: {})
+
+    work_queue_service._list_task_items(db, _user(role=RoleEnum.OWNER))
+
+    statement = db.scalars.call_args.args[0]
+    sql = str(statement).casefold()
+    params = statement.compile().params
+    assert GYM_ID in params.values()
+    assert "join users" in sql
+    assert "users.gym_id" in sql
 
 
 def _wq_item(index: int, **overrides) -> WorkQueueItemOut:
