@@ -66,6 +66,17 @@ def _synthetic_envelope(*, include_item: bool = False) -> dict:
     }
 
 
+def _synthetic_action_result() -> dict:
+    return {
+        "item": _synthetic_item(),
+        "detail": "Resultado sintetico registrado.",
+        "prepared_message": None,
+        "context_path": "/tasks",
+        "task_id": _synthetic_item().source_id,
+        "supported": True,
+    }
+
+
 def test_wq_list_route_forwards_search_and_returns_exact_envelope(wq_client):
     client, _fake_db = wq_client
     service = MagicMock(return_value=_synthetic_envelope())
@@ -123,3 +134,42 @@ def test_wq_synthetic_smoke_uses_in_process_overrides_only(wq_client):
     }
     assert service.call_args.kwargs["current_user"].gym_id == GYM_ID
     fake_db.commit.assert_called_once()
+
+
+def test_wq_outcome_route_rejects_naive_scheduled_for_with_clear_422(wq_client):
+    client, _fake_db = wq_client
+    service = MagicMock(return_value=_synthetic_action_result())
+
+    with patch("app.routers.work_queue.update_work_queue_outcome", service):
+        response = client.patch(
+            f"/api/v1/work-queue/items/task/{_synthetic_item().source_id}/outcome",
+            json={
+                "outcome": "postponed",
+                "snooze_preset": "custom",
+                "scheduled_for": "2026-07-14T09:00:00",
+            },
+        )
+
+    assert response.status_code == 422
+    assert "fuso horario" in response.text.casefold()
+    service.assert_not_called()
+
+
+def test_wq_outcome_route_accepts_timezone_aware_scheduled_for(wq_client):
+    client, _fake_db = wq_client
+    service = MagicMock(return_value=_synthetic_action_result())
+
+    with patch("app.routers.work_queue.update_work_queue_outcome", service):
+        response = client.patch(
+            f"/api/v1/work-queue/items/task/{_synthetic_item().source_id}/outcome",
+            json={
+                "outcome": "postponed",
+                "snooze_preset": "custom",
+                "scheduled_for": "2026-07-14T09:00:00-03:00",
+            },
+        )
+
+    assert response.status_code == 200
+    scheduled_for = service.call_args.kwargs["payload"].scheduled_for
+    assert scheduled_for is not None
+    assert scheduled_for.utcoffset() is not None

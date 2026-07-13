@@ -56,6 +56,53 @@ def _task(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def _autopilot_action(*, action_type: str, status: str, intent: str, member_id=None, **overrides):
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    defaults = dict(
+        id=uuid.uuid4(),
+        gym_id=GYM_ID,
+        member_id=member_id,
+        lead_id=None,
+        domain=intent,
+        policy_key="synthetic-policy",
+        action_type=action_type,
+        status=status,
+        message_body="Rascunho sintetico",
+        outcome=None,
+        metadata_json={
+            "intent": intent,
+            "sensitivity": "normal",
+            "summary": "Resumo sintetico",
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _assessment_row(index: int, *, queue_bucket: str, full_name: str | None = None):
+    return SimpleNamespace(
+        id=uuid.UUID(int=10_000 + index),
+        full_name=full_name or f"Aluno avaliacao {index:03d}",
+        preferred_shift="morning",
+        risk_score=60,
+        next_assessment_due=None,
+        queue_bucket=queue_bucket,
+        coverage_label="Cobertura sintetica",
+        due_label="Pendencia sintetica",
+        queue_resolution_status="active",
+    )
+
+
+def _scalars_result(values, *, unique: bool = False):
+    result = MagicMock()
+    result.all.return_value = list(values)
+    if unique:
+        result.unique.return_value = result
+    return result
+
+
 def test_execute_task_moves_todo_to_doing_and_records_operator_note(monkeypatch):
     task = _task()
     db = MagicMock()
@@ -1235,3 +1282,280 @@ def test_wq_snooze_outcome_writes_canonical_and_legacy_visibility(monkeypatch):
     assert task.extra_data.get("work_queue_snoozed_until") == visible_from.isoformat()
     assert result.item.visible_from == visible_from
     assert task.due_date == visible_from
+
+
+def test_wq_task_search_statement_contains_every_visible_derived_action_default(monkeypatch):
+    db = MagicMock()
+    db.scalars.return_value = _scalars_result([], unique=True)
+    monkeypatch.setattr(work_queue_service, "preferred_shift_diagnostics_from_checkins", lambda *_args, **_kwargs: {})
+
+    work_queue_service._list_task_items(db, _user(role=RoleEnum.OWNER), q="registrar resultado")
+
+    statement = db.scalars.call_args.args[0]
+    compiled = statement.compile()
+    bound_values = {str(value) for value in compiled.params.values()}
+    expected_visible_defaults = {
+        "Verificar treino",
+        "Registrar feedback",
+        "Agendar reavaliacao",
+        "Revisar treino do aluno",
+        "Abrir contexto tecnico",
+        "Executar etapa da jornada",
+        "Cobrar inadimplencia",
+        "Usar mensagem pronta",
+        "Registrar resultado",
+        "Abrir avaliacao",
+        "Abrir lead",
+        "Iniciar tarefa",
+    }
+
+    assert expected_visible_defaults <= bound_values
+    assert "CASE" in str(statement).upper()
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "visible_labels"),
+    [
+        (
+            "_list_ai_service_agent_items",
+            {"Preparar na Kommo", "Aguardando Kommo", "Assumir conversa", "Revisar conversa"},
+        ),
+        (
+            "_list_student_personal_ai_items",
+            {"Preparar resposta Kommo", "Aguardando Kommo", "Assumir conversa", "Revisar aluno"},
+        ),
+    ],
+)
+def test_wq_agent_search_statement_reaches_tenant_member_name_and_derived_status_labels(loader_name, visible_labels):
+    db = MagicMock()
+    db.scalars.return_value = _scalars_result([])
+
+    getattr(work_queue_service, loader_name)(db, _user(role=RoleEnum.OWNER), q="nome visivel")
+
+    statement = db.scalars.call_args.args[0]
+    compiled = statement.compile()
+    sql = str(statement).casefold()
+    bound_values = {str(value) for value in compiled.params.values()}
+
+    assert "members.full_name" in sql
+    assert "members.gym_id" in sql
+    assert "members.deleted_at" in sql
+    assert visible_labels <= bound_values
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "action_type", "draft_status", "intent"),
+    [
+        (
+            "_list_ai_service_agent_items",
+            work_queue_service.AI_SERVICE_AGENT_ACTION_TYPE,
+            work_queue_service.AI_SERVICE_AGENT_DRAFT_READY,
+            "sales",
+        ),
+        (
+            "_list_student_personal_ai_items",
+            work_queue_service.STUDENT_PERSONAL_AI_ACTION_TYPE,
+            work_queue_service.STUDENT_PERSONAL_AI_DRAFT_READY,
+            "routine_support",
+        ),
+    ],
+)
+def test_wq_agent_list_resolves_members_in_one_tenant_scoped_batch_without_db_get(
+    loader_name,
+    action_type,
+    draft_status,
+    intent,
+):
+    member_id = uuid.uuid4()
+    action = _autopilot_action(
+        action_type=action_type,
+        status=draft_status,
+        intent=intent,
+        member_id=member_id,
+    )
+    member = SimpleNamespace(
+        id=member_id,
+        gym_id=GYM_ID,
+        full_name="Nome resolvido no tenant",
+        phone="5511999999999",
+        preferred_shift="morning",
+        deleted_at=None,
+    )
+    db = MagicMock()
+    db.scalars.side_effect = [_scalars_result([action]), _scalars_result([member])]
+    db.get.return_value = member
+
+    result = getattr(work_queue_service, loader_name)(db, _user(role=RoleEnum.OWNER))
+
+    assert [item.subject_name for item in result] == ["Nome resolvido no tenant"]
+    assert db.scalars.call_count == 2
+    db.get.assert_not_called()
+    member_statement = db.scalars.call_args_list[1].args[0]
+    member_sql = str(member_statement).casefold()
+    member_params = member_statement.compile().params
+    assert GYM_ID in member_params.values()
+    assert "members.deleted_at" in member_sql
+
+
+@pytest.mark.parametrize(
+    ("mapper_name", "action_type", "draft_status", "intent", "fallback_name"),
+    [
+        (
+            "_ai_service_agent_to_item",
+            work_queue_service.AI_SERVICE_AGENT_ACTION_TYPE,
+            work_queue_service.AI_SERVICE_AGENT_DRAFT_READY,
+            "sales",
+            "Conversa Kommo",
+        ),
+        (
+            "_student_personal_ai_to_item",
+            work_queue_service.STUDENT_PERSONAL_AI_ACTION_TYPE,
+            work_queue_service.STUDENT_PERSONAL_AI_DRAFT_READY,
+            "routine_support",
+            "Aluno Kommo",
+        ),
+    ],
+)
+def test_wq_agent_individual_member_lookup_is_id_gym_deleted_scoped_and_never_leaks_cross_tenant_pii(
+    mapper_name,
+    action_type,
+    draft_status,
+    intent,
+    fallback_name,
+):
+    member_id = uuid.uuid4()
+    action = _autopilot_action(
+        action_type=action_type,
+        status=draft_status,
+        intent=intent,
+        member_id=member_id,
+    )
+    foreign_member = SimpleNamespace(
+        id=member_id,
+        gym_id=uuid.uuid4(),
+        full_name="PII DE OUTRO TENANT",
+        phone="5511888888888",
+        preferred_shift="evening",
+        deleted_at=None,
+    )
+    db = MagicMock()
+    db.scalar.return_value = None
+    db.get.return_value = foreign_member
+
+    item = getattr(work_queue_service, mapper_name)(db, action)
+
+    assert item.subject_name == fallback_name
+    assert item.subject_phone is None
+    db.get.assert_not_called()
+    statement = db.scalar.call_args.args[0]
+    sql = str(statement).casefold()
+    params = statement.compile().params
+    assert member_id in params.values()
+    assert GYM_ID in params.values()
+    assert "members.deleted_at" in sql
+
+
+@pytest.mark.parametrize(
+    ("role", "allowed_intents"),
+    [
+        (RoleEnum.TRAINER, {"assessment", "injury"}),
+        (RoleEnum.SALESPERSON, {"sales"}),
+    ],
+)
+def test_wq_ai_service_agent_rbac_intent_predicate_is_in_sql_before_source_cap(role, allowed_intents):
+    db = MagicMock()
+    db.scalars.return_value = _scalars_result([])
+
+    work_queue_service._list_ai_service_agent_items(db, _user(role=role))
+
+    statement = db.scalars.call_args.args[0]
+    sql = str(statement)
+    values = {str(value) for value in statement.compile().params.values()}
+    assert allowed_intents <= values
+    assert "metadata_json" in sql
+    assert sql.upper().index("WHERE") < sql.upper().index("LIMIT")
+    assert getattr(statement._limit_clause, "value", None) == work_queue_service.WORK_QUEUE_SOURCE_CAPS["ai_service_agent"] + 1
+
+
+def test_wq_assessment_trainer_buckets_prevent_unauthorized_first_assessments_from_starving_week_work(monkeypatch):
+    never_rows = [_assessment_row(index, queue_bucket="never") for index in range(201)]
+    week_target = _assessment_row(999, queue_bucket="week", full_name="Aluna autorizada apos distribuicao adversarial")
+    requested_buckets: list[str] = []
+
+    def fake_queue(_db, *, page, page_size, bucket, gym_id, **_kwargs):
+        assert gym_id == GYM_ID
+        assert page_size == 201
+        requested_buckets.append(bucket)
+        if bucket == "all":
+            return SimpleNamespace(items=never_rows, total=len(never_rows), page=page, page_size=page_size)
+        if bucket == "week":
+            return SimpleNamespace(items=[week_target], total=1, page=page, page_size=page_size)
+        return SimpleNamespace(items=[], total=0, page=page, page_size=page_size)
+
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", fake_queue)
+
+    result = work_queue_service._list_assessment_queue_items(
+        MagicMock(),
+        _user(role=RoleEnum.TRAINER),
+    )
+
+    assert requested_buckets == ["overdue", "week", "upcoming"]
+    assert [item.source_id for item in result] == [week_target.id]
+
+
+def test_wq_assessment_receptionist_queries_only_never_bucket_before_cap(monkeypatch):
+    requested_buckets: list[str] = []
+
+    def fake_queue(_db, *, page, page_size, bucket, gym_id, **_kwargs):
+        requested_buckets.append(bucket)
+        row = _assessment_row(1, queue_bucket="never")
+        return SimpleNamespace(items=[row], total=1, page=page, page_size=page_size)
+
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", fake_queue)
+
+    result = work_queue_service._list_assessment_queue_items(
+        MagicMock(),
+        _user(role=RoleEnum.RECEPTIONIST),
+    )
+
+    assert requested_buckets == ["never"]
+    assert len(result) == 1
+    assert result[0].domain == "assessment"
+
+
+def test_wq_assessment_exclusions_apply_before_global_cap_and_do_not_create_false_truncation(monkeypatch):
+    monkeypatch.setitem(work_queue_service.WORK_QUEUE_SOURCE_CAPS, "assessment_queue", 2)
+    excluded = _assessment_row(1, queue_bucket="never")
+    first = _assessment_row(2, queue_bucket="overdue")
+    second = _assessment_row(3, queue_bucket="week")
+
+    def fake_queue(_db, *, page, page_size, bucket, gym_id, **_kwargs):
+        assert bucket == "all"
+        assert page == 1
+        assert page_size == 3
+        return SimpleNamespace(items=[excluded, first, second], total=3, page=page, page_size=page_size)
+
+    monkeypatch.setattr(work_queue_service, "get_assessments_queue", fake_queue)
+
+    result = work_queue_service._list_assessment_queue_items(
+        MagicMock(),
+        _user(role=RoleEnum.OWNER),
+        exclude_member_ids={excluded.id},
+    )
+
+    assert [item.source_id for item in result] == [first.id, second.id]
+    assert result.truncated is False
+
+
+def test_wq_sql_search_escapes_percent_and_underscore_as_literal_characters(monkeypatch):
+    db = MagicMock()
+    db.scalars.return_value = _scalars_result([], unique=True)
+    monkeypatch.setattr(work_queue_service, "preferred_shift_diagnostics_from_checkins", lambda *_args, **_kwargs: {})
+
+    work_queue_service._list_task_items(db, _user(role=RoleEnum.OWNER), q="100%_fit")
+
+    statement = db.scalars.call_args.args[0]
+    compiled = statement.compile()
+    values = {str(value) for value in compiled.params.values()}
+    assert "100/%/_fit" in values
+    assert "ESCAPE" in str(statement).upper()
