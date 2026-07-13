@@ -922,6 +922,11 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
         approval_state="approved",
         payload_snapshot={"metadata": {"prepared_task_id": str(TASK_ID)}},
         gym_id=GYM_ID,
+        source_domain="onboarding",
+        source_entity_kind="member",
+        source_entity_id=uuid.uuid4(),
+        member_id=uuid.uuid4(),
+        lead_id=None,
     )
     item = WorkQueueItemOut(
         source_type="ai_triage",
@@ -938,8 +943,10 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
         outcome_state="pending",
     )
     prepare = MagicMock()
+    resolve = MagicMock(return_value=SimpleNamespace(id=TASK_ID))
     monkeypatch.setattr("app.services.work_queue_service.get_ai_triage_recommendation_or_404", lambda *args, **kwargs: recommendation)
     monkeypatch.setattr("app.services.work_queue_service._ai_to_item", lambda _recommendation: item)
+    monkeypatch.setattr("app.services.work_queue_service._resolve_work_queue_task_for_recommendation", resolve)
     monkeypatch.setattr("app.services.work_queue_service.prepare_ai_triage_recommendation_action", prepare)
 
     result = execute_work_queue_item(
@@ -951,6 +958,7 @@ def test_ai_triage_execute_does_not_duplicate_already_prepared(monkeypatch):
     )
 
     assert result.task_id == TASK_ID
+    resolve.assert_called_once()
     prepare.assert_not_called()
 
 

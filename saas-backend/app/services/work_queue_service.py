@@ -43,6 +43,7 @@ from app.services.ai_service_agent_service import (
     serialize_ai_service_agent_draft,
 )
 from app.services.ai_triage_service import (
+    _resolve_work_queue_task_for_recommendation,
     get_ai_triage_recommendation_or_404,
     prepare_ai_triage_recommendation_action,
     serialize_ai_triage_recommendation,
@@ -2043,13 +2044,17 @@ def _execute_ai_triage(
     item_before = _ai_to_item(recommendation)
     if item_before.state == "awaiting_outcome":
         metadata = dict((recommendation.payload_snapshot or {}).get("metadata") or {})
-        task_id_raw = metadata.get("prepared_task_id")
-        task_id = UUID(str(task_id_raw)) if task_id_raw else None
+        task = _resolve_work_queue_task_for_recommendation(
+            db,
+            recommendation=recommendation,
+            metadata=metadata,
+        )
+        task_id = task.id if task else None
         return WorkQueueActionResultOut(
             item=item_before,
             detail="Acao ja preparada. Registre o resultado para fechar o ciclo.",
             prepared_message=item_before.suggested_message,
-            context_path=str(metadata.get("follow_up_url") or item_before.context_path),
+            context_path=str(metadata.get("follow_up_url") or item_before.context_path) if task_id else item_before.context_path,
             task_id=task_id,
             supported=True,
         )
