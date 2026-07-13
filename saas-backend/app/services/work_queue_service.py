@@ -1437,17 +1437,24 @@ def _list_assessment_queue_items(
     *,
     exclude_member_ids: set[UUID] | None = None,
     q: str | None = None,
+    requested_domain: DomainFilter = "all",
 ) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
         return []
     cap = WORK_QUEUE_SOURCE_CAPS["assessment_queue"]
     page_size = cap + 1
+    trainer_buckets = ("overdue", "week", "upcoming")
     if current_user.role in {RoleEnum.OWNER, RoleEnum.MANAGER}:
-        bucket_plan = ("all",)
+        if requested_domain == "trainer":
+            bucket_plan = trainer_buckets
+        elif requested_domain in {"assessment", "operations"}:
+            bucket_plan = ("never",)
+        else:
+            bucket_plan = ("all",)
     elif current_user.role == RoleEnum.TRAINER:
-        bucket_plan = ("overdue", "week", "upcoming")
+        bucket_plan = trainer_buckets if requested_domain in {"all", "trainer"} else ()
     else:
-        bucket_plan = ("never",)
+        bucket_plan = ("never",) if requested_domain in {"all", "assessment", "operations"} else ()
 
     excluded = exclude_member_ids or set()
     normalized_q = _normalize_search_query(q)
@@ -1551,6 +1558,7 @@ def list_work_queue_items(
                 current_user,
                 exclude_member_ids=trainer_task_member_ids,
                 q=normalized_q,
+                requested_domain=domain,
             ),
         )
     if source in {"all", "ai_triage"}:
