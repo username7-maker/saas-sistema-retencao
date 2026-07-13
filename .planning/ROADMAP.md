@@ -518,10 +518,10 @@ Status:
 **Goal:** Tornar a fila compartilhada de `/tasks` e `/ai/triage` honesta e navegavel no piloto: todo trabalho do snapshot deve ser alcancavel, contagens devem declarar seus limites, tarefas ativas devem ser reutilizadas e snooze/ordenacao/frescor devem refletir o estado real.
 **Requirements**: `WQ-01`, `WQ-02`, `WQ-03`, `WQ-04`, `WQ-05`, `WQ-08`
 **Depends on:** Phase 04.43.3, Phase 04.43.4, Phase 09.9
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 10-01-PLAN.md - alcance server-side, contagens autoritativas, snooze e ordenacao
+- [x] 10-01-PLAN.md - alcance server-side, contagens autoritativas, snooze e ordenacao
 - [ ] 10-02-PLAN.md - deduplicacao, frescor e prontidao das recomendacoes de IA
 - [ ] 10-03-PLAN.md - integracao do runner, regressao cruzada e smoke do piloto
 

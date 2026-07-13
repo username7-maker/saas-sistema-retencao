@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.2.0
 milestone_name: Operacao de Base
-status: Publicada e validada no piloto; V1 entregou upload de avatar para equipe e separacao clara entre cargo exibido e papel de acesso.
-last_updated: "2026-07-13T18:06:15.422Z"
+status: Ready to execute
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-07-13T18:28:45.307Z"
 progress:
   total_phases: 32
   completed_phases: 3
   total_plans: 32
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # STATE
@@ -23,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 ## Current Position
 
 Phase: 10 (integridade-operacional-da-fila-de-tasks-do-piloto) — EXECUTING
-Plan: 1 of 3
+Plan: 2 of 3
 
 ## Progress Snapshot
 
 **Active milestone:** v3.3.0
 **Phases planned:** 23
 **Plans planned:** 23
-**Plans completed:** 3
+**Plans completed:** 4
 
 ## Accumulated Context
 
@@ -41,7 +42,6 @@ Plan: 1 of 3
 - Phase 4.1 fechou birthday importado, recalc duravel de risco, websocket distribuido e suites verdes
 - Phase 4.2 alinhou RBAC com backend, criou task-lite do trainer e completou CI do frontend
 - O milestone 4.x entrou em freeze lateral e agora trata o piloto como gate de saida do hardening
-
 ### Current Milestone Scope
 
 - Phase 4: import mapper e reconciliacao manual - concluida
@@ -69,7 +69,6 @@ Plan: 1 of 3
 - Phase 7.2: assessment + coach workspace foundation - aberta; objetivo e criar fila tecnica do professor por turno com avaliacao, bioimpedancia, treino, feedback e reavaliacao sem app do aluno ou prescricao automatica
 - Phase 5: bulk update dedicado de membros - pausada ate a saida do hardening
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
-
 ### Roadmap Evolution
 
 - Phase 10.1 inserted after Phase 10: Concorrencia e efeitos externos seguros da Work Queue (URGENT)
@@ -125,12 +124,26 @@ Plan: 1 of 3
 - 2026-04-19: a `4.43` fechou a `Wave 4` no piloto; o frontend publicado no alias `saas-frontend-pearl.vercel.app` completou walkthrough controlado com `Wave 4 Retention Member` e `Wave 4 Onboarding Member`, a captura browser gerou evidencias reais da inbox/lista/detalhe/aprovacao/metricas, e a comparacao contra o baseline congelado foi registrada em `04.43-WAVE4-WALKTHROUGH-2026-04-19.{md,json}` e `04.43-VALIDATION.md`
 - 2026-04-23: a `4.43.1` abriu um slice incremental pos-validacao para reduzir o atrito da AI Inbox; o backend passou a expor `operator_summary`, `primary_action_type`, `primary_action_label`, `requires_explicit_approval` e `show_outcome_step`, `actions/prepare` ganhou `auto_approve`, `confirm_approval` e `operator_note`, e a UI foi reorganizada para `Fazer agora`, mensagem/resumo curto, CTA principal e detalhes analiticos recolhidos; validacao local fechou `20 passed` no backend, `7 passed` no frontend e `npm run build` verde, e a rodada foi publicada no piloto com frontend `dpl_AriTb8CyJLUkfTQeWetXZ5EHoXGE` e Railway `6f507927-9cd5-4711-95e6-741c5990a60f`
 - 2026-05-02: a `7.0` passou para `verify/validate` concluido; a revisao CTO confirmou rota, service, schema e contrato frontend do `lead-member-context-v1`, consumo operacional por surfaces compartilhadas, flags explicitas para lacunas e consultas presas a `gym_id`/helpers de autorizacao; regressao focada fechou `22 passed` no backend e `npm run build` verde no frontend
-
 ### Security Hardening Backlog Now Converted To Phases
 
 - Workstream 4.36+4.40: sessao e borda segura - P0
 - Phase 4.37: protecao de PII, import/export e baseline LGPD - P0
 - Phase 4.39: guardrails de tenant e consistencia transacional - P0/P1 do loop core
 - Phase 4.38: fila duravel, retry e observabilidade de jobs - P1 estrutural
-
 These phases now gate any feature expansion beyond the pilot.
+
+## Performance Metrics
+
+| Plan | Duration | Tasks | Files |
+|---|---|---|---|
+| Phase 10 P01 | 17min | 3 tasks | 6 files |
+
+## Session
+
+**Last Date:** 2026-07-13T18:28:02.340Z
+**Stopped At:** Completed 10-01-PLAN.md
+**Resume File:** None
+
+## Decisions
+
+- [Phase 10]: Work Queue persisted sources search tenant-scoped before caps; assessment remains post-cap with explicit truncation, counts ignore only state, and snooze uses canonical visibility with legacy fallback. — This preserves reachability and truthful lower bounds without expanding into Phase 10.1 concurrency or effects.

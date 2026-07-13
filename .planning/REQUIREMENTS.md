@@ -21,11 +21,11 @@
 
 ### Integridade da fila operacional de tasks
 
-- [ ] **WQ-01**: toda acao carregada no snapshot fica alcancavel por busca e paginacao server-side, sem limitar a operacao aos primeiros 25 itens, e qualquer cap de origem fica explicito
-- [ ] **WQ-02**: totais e contadores por estado, dominio e turno sao coerentes com o snapshot, sinalizam limite inferior quando truncados e nunca exibem zero provisoriamente como dado real
+- [x] **WQ-01**: toda acao carregada no snapshot fica alcancavel por busca e paginacao server-side, sem limitar a operacao aos primeiros 25 itens, e qualquer cap de origem fica explicito
+- [x] **WQ-02**: totais e contadores por estado, dominio e turno sao coerentes com o snapshot, sinalizam limite inferior quando truncados e nunca exibem zero provisoriamente como dado real
 - [ ] **WQ-03**: recomendacao de IA reutiliza a task ativa equivalente e preparacoes sequenciais convergem para o mesmo trabalho ainda aberto
 - [ ] **WQ-04**: fila explicita frescor, owner/equipe, prazo e motivo decisivo; ausencia comprovada permanece `unknown`, sem reclassificar o zero legado quando nao existe provenance
-- [ ] **WQ-05**: estados, snooze e ordenacao seguem a mesma semantica; item adiado sai de `fazer agora` e, em empate, o prazo mais proximo vence
+- [x] **WQ-05**: estados, snooze e ordenacao seguem a mesma semantica; item adiado sai de `fazer agora` e, em empate, o prazo mais proximo vence
 - [ ] **WQ-06**: claim com versao impede que dois operadores executem ou concluam silenciosamente o mesmo item ao mesmo tempo
 - [ ] **WQ-07**: qualquer efeito externo exige politica de consentimento aplicavel e idempotencia persistente, inclusive em acoes manuais ou send-and-wait
 - [ ] **WQ-08**: testes automatizados e smoke sintetico cobrem alcance, contagem, reuso, estado e regressao das duas superficies da fila
