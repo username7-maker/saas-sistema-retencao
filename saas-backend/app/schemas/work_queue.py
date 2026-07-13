@@ -82,6 +82,15 @@ class WorkQueueItemOut(BaseModel):
     kommo_lead_id: str | None = None
 
 
+class WorkQueueListOut(BaseModel):
+    items: list[WorkQueueItemOut]
+    total: int
+    page: int
+    page_size: int
+    state_counts: dict[WorkQueueState, int]
+    truncated_sources: list[WorkQueueSourceType]
+
+
 class WorkQueueExecuteInput(BaseModel):
     auto_approve: bool = False
     confirm_approval: bool = False

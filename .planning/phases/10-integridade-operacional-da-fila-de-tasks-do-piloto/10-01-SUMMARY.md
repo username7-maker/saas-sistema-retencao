@@ -52,15 +52,24 @@ completed: pending
 
 The four passing Wave 0 cases were the exact `visible_from` boundary and the three existing FastAPI pagination bounds (`page=0`, `page_size=0`, `page_size=101`).
 
+## Task 10-01-02 GREEN Evidence
+
+- **Owned subset:** `py -3.12 -m pytest -q tests/test_work_queue_service.py tests/test_work_queue_router.py -k "wq_ and not legacy_snooze and not equal_scores and not snooze_outcome"`
+- **Result:** exit `0`; `22 passed, 27 deselected` in `4.04s`.
+- **Regression subset:** both files excluding only the three Task 10-01-03 RED cases returned `46 passed, 3 deselected` in `3.91s`.
+- **Broad Wave 0 command:** `22 passed` with exactly three expected RED IDs reserved for Task 10-01-03: `test_wq_legacy_snooze_is_visible_from_fallback_and_canonical_value_wins`, `test_wq_equal_scores_sort_due_ascending_null_last_then_stable_source_key`, and `test_wq_snooze_outcome_writes_canonical_and_legacy_visibility`.
+- **Sequence adjustment:** the plan's Task 10-01-02 `-k "wq_"` selector also includes Task 10-01-03 contracts. The narrower owned subset preserves atomic commits; the exact broad command remains the mandatory Task 10-01-03 gate.
+
 ## Performance
 
 - **Started:** 2026-07-13T18:09:54.3325292Z
 - **Completed:** pending
-- **Tasks:** 1 of 3 in progress
+- **Tasks:** 2 of 3 in progress
 
 ## Task Commits
 
-Pending until each atomic task commit is created.
+1. **Task 10-01-01: Wave 0 contract freeze** - `88c800a` (`test`)
+2. **Task 10-01-02: Envelope, search, counts and truncation** - pending commit
 
 ## Deviations from Plan
 

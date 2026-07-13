@@ -23,14 +23,16 @@ from app.models import (
     TaskStatus,
     User,
 )
-from app.schemas import PaginatedResponse
 from app.schemas.ai_triage import AITriageSafeActionPrepareInput
 from app.schemas.work_queue import (
     WorkQueueActionResultOut,
     WorkQueueExecuteInput,
     WorkQueueItemOut,
+    WorkQueueListOut,
     WorkQueueOutcome,
     WorkQueueOutcomeInput,
+    WorkQueueSourceType,
+    WorkQueueState,
 )
 from app.schemas.autopilot import WorkQueueSendAndWaitInput
 from app.services.autopilot_action_service import create_autopilot_action, execute_autopilot_action
@@ -83,6 +85,13 @@ SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_servi
 BucketFilter = str
 DAILY_QUEUE_STALE_BACKLOG_AFTER = timedelta(days=14)
 DAILY_QUEUE_STALE_BACKLOG_EXEMPT_DOMAINS = {"finance", "trainer"}
+WORK_QUEUE_SOURCE_CAPS: dict[WorkQueueSourceType, int] = {
+    "task": 300,
+    "ai_triage": 200,
+    "assessment_queue": 200,
+    "ai_service_agent": 100,
+    "student_personal_ai": 100,
+}
 
 TRAINER_TASK_SOURCES = {
     "assessment_training_delivery_check_d8",
@@ -229,6 +238,22 @@ def _parse_optional_datetime(value: object) -> datetime | None:
 
 def _task_visible_from(task: Task) -> datetime | None:
     return _parse_optional_datetime(_task_extra(task).get("work_queue_visible_from"))
+
+
+def _normalize_search_query(q: str | None) -> str | None:
+    normalized = (q or "").strip().casefold()
+    return normalized or None
+
+
+def _search_expression(q: str, *columns):
+    pattern = f"%{q}%"
+    return or_(*(func.lower(func.coalesce(column, "")).like(pattern) for column in columns))
+
+
+class _LoadedWorkQueueItems(list[WorkQueueItemOut]):
+    def __init__(self, items: list[WorkQueueItemOut], *, truncated: bool = False) -> None:
+        super().__init__(items)
+        self.truncated = truncated
 
 
 def _technical_ladder_step_label(step: str | None) -> str | None:
@@ -842,6 +867,18 @@ def _matches_bucket(item: WorkQueueItemOut, bucket: BucketFilter) -> bool:
     return item.execution_bucket == normalized
 
 
+def _matches_search(item: WorkQueueItemOut, q: str | None) -> bool:
+    if not q:
+        return True
+    searchable_values = (
+        item.subject_name,
+        item.reason,
+        item.primary_action_label,
+        item.suggested_message,
+    )
+    return any(q in str(value or "").casefold() for value in searchable_values)
+
+
 def _work_item_score(item: WorkQueueItemOut, now: datetime) -> tuple[int, datetime]:
     severity_weight = {"critical": 500, "urgent": 500, "high": 350, "medium": 180, "low": 80}.get(item.severity, 120)
     state_weight = {"do_now": 200, "awaiting_outcome": 140, "done": -500}.get(item.state, 0)
@@ -886,9 +923,12 @@ def _filter_items(
     assignee: AssigneeFilter,
     domain: DomainFilter,
     bucket: BucketFilter = "all",
+    q: str | None = None,
+    now: datetime | None = None,
 ) -> list[WorkQueueItemOut]:
     filtered = []
-    now = _now()
+    effective_now = now or _now()
+    normalized_q = _normalize_search_query(q)
     for item in items:
         if state != "all" and item.state != state:
             continue
@@ -898,22 +938,24 @@ def _filter_items(
             continue
         if not _matches_bucket(item, bucket):
             continue
+        if not _matches_search(item, normalized_q):
+            continue
         if state == "do_now":
             if item.domain == "retention" and is_cold_base_stage(item.retention_stage):
                 continue
-            if item.visible_from and _as_aware_datetime(item.visible_from) > now:
+            if item.visible_from and _as_aware_datetime(item.visible_from) > effective_now:
                 continue
-            if _is_stale_daily_backlog(item, now):
+            if _is_stale_daily_backlog(item, effective_now):
                 continue
         if not _matches_shift(item, current_user, shift):
             continue
         if not _matches_assignee(item, current_user, assignee):
             continue
         filtered.append(item)
-    return sorted(filtered, key=lambda item: _work_item_score(item, now), reverse=True)
+    return sorted(filtered, key=lambda item: _work_item_score(item, effective_now), reverse=True)
 
 
-def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+def _list_task_items(db: Session, current_user: User, *, q: str | None = None) -> list[WorkQueueItemOut]:
     filters = [Task.gym_id == current_user.gym_id, Task.deleted_at.is_(None)]
     filters.append(func.coalesce(Task.extra_data["operational_archive"]["archived_at"].astext, "") == "")
     if current_user.role == RoleEnum.TRAINER:
@@ -923,77 +965,164 @@ def _list_task_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
             func.coalesce(Task.extra_data["domain"].astext, "") != "finance",
         )
         filters.append(func.coalesce(Task.extra_data["source"].astext, "") != "delinquency")
+    normalized_q = _normalize_search_query(q)
+    if normalized_q:
+        filters.append(
+            _search_expression(
+                normalized_q,
+                Task.title,
+                Task.description,
+                Task.suggested_message,
+                Task.extra_data["primary_action_label"].astext,
+                Task.extra_data["work_queue_channel_action_label"].astext,
+                Member.full_name,
+                Lead.full_name,
+            )
+        )
+    cap = WORK_QUEUE_SOURCE_CAPS["task"]
     tasks = list(
         db.scalars(
             select(Task)
             .options(joinedload(Task.member), joinedload(Task.lead))
+            .outerjoin(Member, Task.member_id == Member.id)
+            .outerjoin(Lead, Task.lead_id == Lead.id)
             .where(*filters)
             .order_by(Task.due_date.asc().nullslast(), Task.created_at.desc())
-            .limit(300)
+            .limit(cap + 1)
         )
         .unique()
         .all()
     )
+    truncated = len(tasks) > cap
+    tasks = tasks[:cap]
     shift_diagnostics = preferred_shift_diagnostics_from_checkins(db, [task.member for task in tasks if task.member is not None])
-    return [_task_to_item(task, shift_diagnostics=shift_diagnostics) for task in tasks if not is_task_operationally_archived(task)]
+    return _LoadedWorkQueueItems(
+        [_task_to_item(task, shift_diagnostics=shift_diagnostics) for task in tasks if not is_task_operationally_archived(task)],
+        truncated=truncated,
+    )
 
 
-def _list_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+def _list_ai_items(db: Session, current_user: User, *, q: str | None = None) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST}:
         return []
     # Keep Work Queue list reads cheap and predictable. AI triage refresh can call
     # OpenAI many times, so it must run through its own endpoint/job, not every
     # time /tasks renders.
+    filters = [AITriageRecommendation.gym_id == current_user.gym_id, AITriageRecommendation.is_active.is_(True)]
+    normalized_q = _normalize_search_query(q)
+    if normalized_q:
+        filters.append(
+            _search_expression(
+                normalized_q,
+                AITriageRecommendation.source_domain,
+                AITriageRecommendation.payload_snapshot["subject_name"].astext,
+                AITriageRecommendation.payload_snapshot["operator_summary"].astext,
+                AITriageRecommendation.payload_snapshot["why_now_summary"].astext,
+                AITriageRecommendation.payload_snapshot["recommended_action"].astext,
+                AITriageRecommendation.payload_snapshot["suggested_message"].astext,
+                AITriageRecommendation.payload_snapshot["primary_action_label"].astext,
+            )
+        )
+    cap = WORK_QUEUE_SOURCE_CAPS["ai_triage"]
     recommendations = list(
         db.scalars(
             select(AITriageRecommendation)
-            .where(AITriageRecommendation.gym_id == current_user.gym_id, AITriageRecommendation.is_active.is_(True))
+            .where(*filters)
             .order_by(AITriageRecommendation.priority_score.desc(), AITriageRecommendation.updated_at.desc())
-            .limit(200)
+            .limit(cap + 1)
         ).all()
     )
-    return [_ai_to_item(recommendation) for recommendation in recommendations]
+    truncated = len(recommendations) > cap
+    return _LoadedWorkQueueItems(
+        [_ai_to_item(recommendation) for recommendation in recommendations[:cap]],
+        truncated=truncated,
+    )
 
 
-def _list_ai_service_agent_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+def _list_ai_service_agent_items(
+    db: Session,
+    current_user: User,
+    *,
+    q: str | None = None,
+) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER, RoleEnum.SALESPERSON}:
         return []
+    filters = [
+        AutopilotAction.gym_id == current_user.gym_id,
+        AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
+        AutopilotAction.status.in_([AI_SERVICE_AGENT_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
+    ]
+    normalized_q = _normalize_search_query(q)
+    if normalized_q:
+        filters.append(
+            _search_expression(
+                normalized_q,
+                AutopilotAction.domain,
+                AutopilotAction.policy_key,
+                AutopilotAction.message_body,
+                AutopilotAction.metadata_json["summary"].astext,
+                AutopilotAction.metadata_json["subject_name"].astext,
+                AutopilotAction.metadata_json["primary_action_label"].astext,
+            )
+        )
+    cap = WORK_QUEUE_SOURCE_CAPS["ai_service_agent"]
     actions = list(
         db.scalars(
             select(AutopilotAction)
-            .where(
-                AutopilotAction.gym_id == current_user.gym_id,
-                AutopilotAction.action_type == AI_SERVICE_AGENT_ACTION_TYPE,
-                AutopilotAction.status.in_([AI_SERVICE_AGENT_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
-            )
+            .where(*filters)
             .order_by(AutopilotAction.created_at.desc())
-            .limit(100)
+            .limit(cap + 1)
         ).all()
     )
-    items = [_ai_service_agent_to_item(db, action) for action in actions]
+    truncated = len(actions) > cap
+    items = [_ai_service_agent_to_item(db, action) for action in actions[:cap]]
     if current_user.role == RoleEnum.TRAINER:
-        return [item for item in items if item.domain == "assessment"]
-    if current_user.role == RoleEnum.SALESPERSON:
-        return [item for item in items if item.domain == "commercial"]
-    return items
+        items = [item for item in items if item.domain == "assessment"]
+    elif current_user.role == RoleEnum.SALESPERSON:
+        items = [item for item in items if item.domain == "commercial"]
+    return _LoadedWorkQueueItems(items, truncated=truncated)
 
 
-def _list_student_personal_ai_items(db: Session, current_user: User) -> list[WorkQueueItemOut]:
+def _list_student_personal_ai_items(
+    db: Session,
+    current_user: User,
+    *,
+    q: str | None = None,
+) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER}:
         return []
+    filters = [
+        AutopilotAction.gym_id == current_user.gym_id,
+        AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
+        AutopilotAction.status.in_([STUDENT_PERSONAL_AI_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
+    ]
+    normalized_q = _normalize_search_query(q)
+    if normalized_q:
+        filters.append(
+            _search_expression(
+                normalized_q,
+                AutopilotAction.domain,
+                AutopilotAction.policy_key,
+                AutopilotAction.message_body,
+                AutopilotAction.metadata_json["summary"].astext,
+                AutopilotAction.metadata_json["subject_name"].astext,
+                AutopilotAction.metadata_json["primary_action_label"].astext,
+            )
+        )
+    cap = WORK_QUEUE_SOURCE_CAPS["student_personal_ai"]
     actions = list(
         db.scalars(
             select(AutopilotAction)
-            .where(
-                AutopilotAction.gym_id == current_user.gym_id,
-                AutopilotAction.action_type == STUDENT_PERSONAL_AI_ACTION_TYPE,
-                AutopilotAction.status.in_([STUDENT_PERSONAL_AI_DRAFT_READY, "blocked", "escalated", "awaiting_outcome"]),
-            )
+            .where(*filters)
             .order_by(AutopilotAction.created_at.desc())
-            .limit(100)
+            .limit(cap + 1)
         ).all()
     )
-    return [_student_personal_ai_to_item(db, action) for action in actions]
+    truncated = len(actions) > cap
+    return _LoadedWorkQueueItems(
+        [_student_personal_ai_to_item(db, action) for action in actions[:cap]],
+        truncated=truncated,
+    )
 
 
 def _list_assessment_queue_items(
@@ -1001,13 +1130,18 @@ def _list_assessment_queue_items(
     current_user: User,
     *,
     exclude_member_ids: set[UUID] | None = None,
+    q: str | None = None,
 ) -> list[WorkQueueItemOut]:
     if current_user.role not in {RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER, RoleEnum.RECEPTIONIST}:
         return []
-    queue = get_assessments_queue(db, page=1, page_size=200, bucket="all", gym_id=current_user.gym_id)
+    cap = WORK_QUEUE_SOURCE_CAPS["assessment_queue"]
+    queue = get_assessments_queue(db, page=1, page_size=cap + 1, bucket="all", gym_id=current_user.gym_id)
+    queue_rows = list(queue.items)
+    truncated = len(queue_rows) > cap or int(getattr(queue, "total", 0) or 0) > cap
     excluded = exclude_member_ids or set()
+    normalized_q = _normalize_search_query(q)
     items: list[WorkQueueItemOut] = []
-    for queue_item in queue.items:
+    for queue_item in queue_rows[:cap]:
         member_id = getattr(queue_item, "id", None)
         if member_id in excluded:
             continue
@@ -1016,8 +1150,10 @@ def _list_assessment_queue_items(
             continue
         if current_user.role == RoleEnum.RECEPTIONIST and item.domain == "trainer":
             continue
+        if not _matches_search(item, normalized_q):
+            continue
         items.append(item)
-    return items
+    return _LoadedWorkQueueItems(items, truncated=truncated)
 
 
 def list_work_queue_items(
@@ -1030,28 +1166,72 @@ def list_work_queue_items(
     domain: DomainFilter = "all",
     source: SourceFilter = "all",
     bucket: BucketFilter = "all",
+    q: str | None = None,
     page: int = 1,
     page_size: int = 25,
-) -> PaginatedResponse[WorkQueueItemOut]:
+) -> WorkQueueListOut:
     items: list[WorkQueueItemOut] = []
+    truncated_sources: list[WorkQueueSourceType] = []
+    normalized_q = _normalize_search_query(q)
+
+    def extend_source(source_type: WorkQueueSourceType, loaded: list[WorkQueueItemOut]) -> None:
+        cap = WORK_QUEUE_SOURCE_CAPS[source_type]
+        loaded_items = list(loaded)
+        truncated = bool(getattr(loaded, "truncated", False)) or len(loaded_items) > cap
+        if truncated and source_type not in truncated_sources:
+            truncated_sources.append(source_type)
+        items.extend(loaded_items[:cap])
+
     if source in {"all", "task"}:
-        items.extend(_list_task_items(db, current_user))
-    if source == "all" and domain in {"all", "operations", "assessment", "trainer"}:
+        extend_source("task", _list_task_items(db, current_user, q=normalized_q))
+    if source in {"all", "assessment_queue"} and domain in {"all", "operations", "assessment", "trainer"}:
         trainer_task_member_ids = {
             item.member_id for item in items if item.domain == "trainer" and item.member_id is not None
         }
-        items.extend(_list_assessment_queue_items(db, current_user, exclude_member_ids=trainer_task_member_ids))
+        extend_source(
+            "assessment_queue",
+            _list_assessment_queue_items(
+                db,
+                current_user,
+                exclude_member_ids=trainer_task_member_ids,
+                q=normalized_q,
+            ),
+        )
     if source in {"all", "ai_triage"}:
-        items.extend(_list_ai_items(db, current_user))
+        extend_source("ai_triage", _list_ai_items(db, current_user, q=normalized_q))
     if source in {"all", "ai_service_agent"}:
-        items.extend(_list_ai_service_agent_items(db, current_user))
+        extend_source("ai_service_agent", _list_ai_service_agent_items(db, current_user, q=normalized_q))
     if source in {"all", "student_personal_ai"}:
-        items.extend(_list_student_personal_ai_items(db, current_user))
+        extend_source(
+            "student_personal_ai",
+            _list_student_personal_ai_items(db, current_user, q=normalized_q),
+        )
 
-    filtered = _filter_items(items, current_user=current_user, state=state, shift=shift, assignee=assignee, domain=domain, bucket=bucket)
+    now = _now()
+    filter_kwargs = {
+        "current_user": current_user,
+        "shift": shift,
+        "assignee": assignee,
+        "domain": domain,
+        "bucket": bucket,
+        "q": normalized_q,
+        "now": now,
+    }
+    state_counts: dict[WorkQueueState, int] = {
+        work_state: len(_filter_items(items, state=work_state, **filter_kwargs))
+        for work_state in ("do_now", "awaiting_outcome", "done")
+    }
+    filtered = _filter_items(items, state=state, **filter_kwargs)
     total = len(filtered)
     start = (page - 1) * page_size
-    return PaginatedResponse(items=filtered[start : start + page_size], total=total, page=page, page_size=page_size)
+    return WorkQueueListOut(
+        items=filtered[start : start + page_size],
+        total=total,
+        page=page,
+        page_size=page_size,
+        state_counts=state_counts,
+        truncated_sources=truncated_sources,
+    )
 
 
 def get_work_queue_item(db: Session, *, current_user: User, source_type: SourceType, source_id: UUID) -> WorkQueueItemOut:

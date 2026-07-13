@@ -8,13 +8,13 @@ from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
 from app.schemas import (
-    PaginatedResponse,
     WorkQueueActionResultOut,
     WorkQueueExecuteInput,
     WorkQueueItemOut,
     WorkQueueOutcomeInput,
     WorkQueueSendAndWaitInput,
 )
+from app.schemas.work_queue import WorkQueueListOut
 from app.services.work_queue_service import (
     execute_work_queue_item,
     get_work_queue_item,
@@ -34,7 +34,7 @@ DomainFilter = Literal["all", "operations", "retention", "onboarding", "assessme
 SourceFilter = Literal["all", "task", "ai_triage", "assessment_queue", "ai_service_agent", "student_personal_ai"]
 
 
-@router.get("/items", response_model=PaginatedResponse[WorkQueueItemOut])
+@router.get("/items", response_model=WorkQueueListOut)
 def list_work_queue_items_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -47,9 +47,10 @@ def list_work_queue_items_endpoint(
     domain: DomainFilter = Query("all"),
     source: SourceFilter = Query("all"),
     bucket: str = Query("all", max_length=80),
+    q: str | None = Query(default=None, max_length=160),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
-) -> PaginatedResponse[WorkQueueItemOut]:
+) -> WorkQueueListOut:
     payload = list_work_queue_items(
         db,
         current_user=current_user,
@@ -59,6 +60,7 @@ def list_work_queue_items_endpoint(
         domain=domain,
         source=source,
         bucket=bucket,
+        q=q.strip() if q and q.strip() else None,
         page=page,
         page_size=page_size,
     )
