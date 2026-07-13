@@ -92,4 +92,24 @@ describe("LoginPage", () => {
     });
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Se o e-mail estiver cadastrado, enviaremos as instrucoes.");
   });
+
+  it("shows the email provider detail when password recovery is blocked", async () => {
+    vi.mocked(api.post).mockRejectedValue({
+      response: {
+        data: {
+          detail: "Remetente ou domínio de e-mail não verificado.",
+        },
+      },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Esqueci minha senha" }));
+    fireEvent.change(screen.getByPlaceholderText("academia-centro"), { target: { value: "cordex-gym" } });
+    fireEvent.change(screen.getByPlaceholderText("gestor@academia.com"), { target: { value: "owner@cordex.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Enviar link de redefini/i }));
+
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith("Remetente ou domínio de e-mail não verificado.");
+    });
+  });
 });

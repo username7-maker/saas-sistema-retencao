@@ -46,7 +46,7 @@ describe("ResetPasswordPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByPlaceholderText("Minimo de 8 caracteres"), { target: { value: "NewPass123" } });
+    fireEvent.change(screen.getByPlaceholderText("Mínimo de 8 caracteres"), { target: { value: "NewPass123" } });
     fireEvent.change(screen.getByPlaceholderText("Repita a nova senha"), { target: { value: "NewPass123" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar nova senha" }));
 
