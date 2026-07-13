@@ -9,6 +9,7 @@
 - `canonical_task_id` abre `getItem("task", canonical_task_id)` em modo read-only, sem preparar/criar/executar recomendacao duplicada.
 - `freshness_state`, `freshness_blocking`, `readiness_missing_fields`, `assigned_to_name`, `assigned_to_role`, `signal_value` e `priority_state` aparecem como copy operacional honesta.
 - Snooze usa `visible_from`, remove o card localmente, seleciona o proximo item e anuncia o retorno canonico.
+- Revisao adversarial apontou composicoes P1 e elas foram fechadas: qualquer outcome com `visible_from` remove o card, task aberta por `canonical_task_id` esconde a recommendation original, troca de pagina limpa override canonico e o foco acompanha pagina/snooze.
 - `/tasks` e `/ai/triage` receberam smoke sintetico isolado com `MemoryRouter`, `QueryClient` e `workQueueService` mockado.
 
 ## Smoke sintetico
@@ -31,7 +32,7 @@ Frontend:
 
 - `cd saas-frontend; npm.cmd test -- --run src/test/WorkExecutionView.test.tsx src/test/AITriageInboxPage.test.tsx src/test/TasksPage.test.tsx`
   - Exit code: `0`
-  - Saida resumida: `3 passed, 29 passed`
+  - Saida resumida: `3 passed, 32 passed`
 - `cd saas-frontend; npm.cmd run build`
   - Exit code: `0`
 - `cd saas-frontend; npm.cmd run lint`

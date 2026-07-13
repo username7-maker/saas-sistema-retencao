@@ -281,6 +281,9 @@ describe("WorkExecutionView", () => {
       expect(workQueueService.listItems).toHaveBeenCalledWith(expect.objectContaining({ page: 2, page_size: 25 }));
     });
     expect((await screen.findAllByText("Pagina Dois")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Pagina Dois .*Criar tarefa/i })).toHaveFocus();
+    });
     expect(screen.getByText("Mostrando 26-50 de pelo menos 188 acoes")).toBeInTheDocument();
   });
 
@@ -327,6 +330,49 @@ describe("WorkExecutionView", () => {
     expect(await screen.findByText("Tarefa vinculada indisponivel.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Atualizar fila" })).toBeInTheDocument();
     expect(workQueueService.executeItem).not.toHaveBeenCalled();
+  });
+
+  it("WQ runner limpa override canonico ao navegar para outra pagina", async () => {
+    const recommendation = makeItem({
+      source_id: "rec-canonical-page",
+      canonical_task_id: TASK_CANONICAL_ID,
+      primary_action_label: "Criar tarefa",
+    });
+    const task = makeItem({
+      source_type: "task",
+      source_id: TASK_CANONICAL_ID,
+      canonical_task_id: TASK_CANONICAL_ID,
+      subject_name: "Task Canonica Pagina Um",
+      primary_action_label: "Retomar task existente",
+    });
+    vi.mocked(workQueueService.listItems).mockImplementation(async (params) =>
+      makeEnvelope({
+        items: [
+          params?.page === 2
+            ? makeItem({ source_id: "rec-page-2", subject_name: "Pagina Dois Depois Canonica" })
+            : recommendation,
+        ],
+        total: 60,
+        page: params?.page ?? 1,
+        page_size: 25,
+        state_counts: { do_now: 60, awaiting_outcome: 0, done: 0 },
+      }),
+    );
+    vi.mocked(workQueueService.getItem).mockResolvedValue(task);
+
+    renderRunner();
+
+    expect((await screen.findAllByText("Ana Sintetica")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Continuar tarefa" }));
+    expect((await screen.findAllByText("Task Canonica Pagina Um")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Proximo" }));
+
+    expect((await screen.findAllByText("Pagina Dois Depois Canonica")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Pagina Dois Depois Canonica .*Criar tarefa/i })).toHaveFocus();
+    });
+    expect(screen.queryByText("Task Canonica Pagina Um")).not.toBeInTheDocument();
   });
 
   it("WQ runner mostra frescor, responsavel e lacunas sem bloquear quando freshness_blocking=false", async () => {
@@ -387,7 +433,108 @@ describe("WorkExecutionView", () => {
       expect(workQueueService.updateOutcome).toHaveBeenCalledWith("task", "task-1", expect.objectContaining({ outcome: "postponed", snooze_preset: "tomorrow" }));
     });
     expect((await screen.findAllByText("Bruno Proximo")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Bruno Proximo .*Enviar WhatsApp/i })).toHaveFocus();
+    });
     expect(screen.queryByRole("button", { name: /Ana Snooze .*Ligar/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Retorna em 14\/07\/2026/)).toBeInTheDocument();
+  });
+
+  it("WQ runner remove card quando no_response volta com visible_from canonico", async () => {
+    const first = makeItem({
+      source_type: "task",
+      source_id: "task-no-response",
+      canonical_task_id: "task-no-response",
+      subject_name: "Ana Sem Resposta",
+      primary_action_label: "Ligar",
+    });
+    const second = makeItem({
+      source_type: "task",
+      source_id: "task-next",
+      canonical_task_id: "task-next",
+      subject_name: "Bruno Continua",
+      primary_action_label: "Enviar WhatsApp",
+    });
+    vi.mocked(workQueueService.listItems).mockResolvedValue(
+      makeEnvelope({ items: [first, second], total: 2, state_counts: { do_now: 2, awaiting_outcome: 0, done: 0 } }),
+    );
+    vi.mocked(workQueueService.updateOutcome).mockResolvedValue(
+      makeResult({
+        ...first,
+        state: "do_now",
+        visible_from: "2026-07-14T09:00:00-03:00",
+      } as WorkQueueItem),
+    );
+
+    renderRunner();
+
+    expect((await screen.findAllByText("Ana Sem Resposta")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Nao atendeu" }));
+
+    await waitFor(() => {
+      expect(workQueueService.updateOutcome).toHaveBeenCalledWith(
+        "task",
+        "task-no-response",
+        expect.objectContaining({ outcome: "no_response", snooze_preset: "tomorrow" }),
+      );
+    });
+    expect((await screen.findAllByText("Bruno Continua")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Bruno Continua .*Enviar WhatsApp/i })).toHaveFocus();
+    });
+    expect(screen.queryByRole("button", { name: /Ana Sem Resposta .*Ligar/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Retorna em 14\/07\/2026/)).toBeInTheDocument();
+  });
+
+  it("WQ runner remove recommendation original ao adiar task aberta via canonical_task_id", async () => {
+    const recommendation = makeItem({
+      source_id: "rec-linked-task",
+      canonical_task_id: TASK_CANONICAL_ID,
+      subject_name: "Ana Recommendation",
+      primary_action_label: "Criar tarefa",
+    });
+    const nextRecommendation = makeItem({
+      source_id: "rec-next-after-linked-task",
+      subject_name: "Bruno Depois Canonica",
+      primary_action_label: "Enviar WhatsApp",
+    });
+    const task = makeItem({
+      source_type: "task",
+      source_id: TASK_CANONICAL_ID,
+      canonical_task_id: TASK_CANONICAL_ID,
+      subject_name: "Task Canonica Adiavel",
+      primary_action_label: "Ligar",
+    });
+    vi.mocked(workQueueService.listItems).mockResolvedValue(
+      makeEnvelope({ items: [recommendation, nextRecommendation], total: 2, state_counts: { do_now: 2, awaiting_outcome: 0, done: 0 } }),
+    );
+    vi.mocked(workQueueService.getItem).mockResolvedValue(task);
+    vi.mocked(workQueueService.updateOutcome).mockResolvedValue(
+      makeResult({
+        ...task,
+        visible_from: "2026-07-14T09:00:00-03:00",
+      } as WorkQueueItem),
+    );
+
+    renderRunner();
+
+    expect((await screen.findAllByText("Ana Recommendation")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Continuar tarefa" }));
+    expect((await screen.findAllByText("Task Canonica Adiavel")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Amanha" }));
+
+    await waitFor(() => {
+      expect(workQueueService.updateOutcome).toHaveBeenCalledWith(
+        "task",
+        TASK_CANONICAL_ID,
+        expect.objectContaining({ outcome: "postponed", snooze_preset: "tomorrow" }),
+      );
+    });
+    expect((await screen.findAllByText("Bruno Depois Canonica")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Bruno Depois Canonica .*Enviar WhatsApp/i })).toHaveFocus();
+    });
+    expect(screen.queryByRole("button", { name: /Ana Recommendation .*Criar tarefa/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Task Canonica Adiavel")).not.toBeInTheDocument();
   });
 });

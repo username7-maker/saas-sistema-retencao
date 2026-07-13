@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Clock3, ExternalLink, Forward, MessageCircle, Search, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -229,11 +229,29 @@ function getHttpDetail(error: unknown): string {
   return "Operacao nao concluida.";
 }
 
-function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected: boolean; onSelect: () => void }) {
+function QueueCard({
+  item,
+  selected,
+  shouldFocus,
+  onSelect,
+}: {
+  item: WorkQueueItem;
+  selected: boolean;
+  shouldFocus: boolean;
+  onSelect: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const shiftDiagnostic = getPreferredShiftDiagnostic(item);
+
+  useEffect(() => {
+    if (shouldFocus) {
+      buttonRef.current?.focus();
+    }
+  }, [shouldFocus]);
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onSelect}
       className={cn(
@@ -331,6 +349,8 @@ export function WorkExecutionView({
   const [page, setPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [hiddenItemKeys, setHiddenItemKeys] = useState<Set<string>>(() => new Set());
+  const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null);
+  const [focusFirstOnNextItems, setFocusFirstOnNextItems] = useState(false);
   const [canonicalOverrideItem, setCanonicalOverrideItem] = useState<WorkQueueItem | null>(null);
   const [canonicalTaskError, setCanonicalTaskError] = useState<string | null>(null);
   const [isContinuingTask, setIsContinuingTask] = useState(false);
@@ -356,6 +376,8 @@ export function WorkExecutionView({
   function resetQueueCursor() {
     setPage(1);
     setSelectedKey(null);
+    setPendingFocusKey(null);
+    setFocusFirstOnNextItems(false);
     setHiddenItemKeys(new Set());
     setCanonicalOverrideItem(null);
     setCanonicalTaskError(null);
@@ -365,6 +387,17 @@ export function WorkExecutionView({
     setAppliedSearch(nextSearch.trim());
     setPage(1);
     setSelectedKey(null);
+    setPendingFocusKey(null);
+    setFocusFirstOnNextItems(false);
+    setCanonicalOverrideItem(null);
+    setCanonicalTaskError(null);
+  }
+
+  function changePage(nextPage: number) {
+    setPage(nextPage);
+    setSelectedKey(null);
+    setPendingFocusKey(null);
+    setFocusFirstOnNextItems(true);
     setCanonicalOverrideItem(null);
     setCanonicalTaskError(null);
   }
@@ -413,12 +446,21 @@ export function WorkExecutionView({
     if (canonicalOverrideItem && selectedKey === itemKey(canonicalOverrideItem)) return;
     if (filteredItems.length === 0) {
       if (selectedKey !== null) setSelectedKey(null);
+      setFocusFirstOnNextItems(false);
+      setPendingFocusKey(null);
+      return;
+    }
+    if (focusFirstOnNextItems && queueData?.page === page) {
+      const nextKey = itemKey(filteredItems[0]);
+      setSelectedKey(nextKey);
+      setPendingFocusKey(nextKey);
+      setFocusFirstOnNextItems(false);
       return;
     }
     if (!selectedKey || !filteredItems.some((item) => itemKey(item) === selectedKey)) {
       setSelectedKey(itemKey(filteredItems[0]));
     }
-  }, [canonicalOverrideItem, filteredItems, selectedKey]);
+  }, [canonicalOverrideItem, filteredItems, focusFirstOnNextItems, page, queueData?.page, selectedKey]);
 
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", selectedMemberId],
@@ -474,13 +516,27 @@ export function WorkExecutionView({
       setCustomSnoozeDate("");
       setCanonicalOverrideItem(null);
       setCanonicalTaskError(null);
-      if (variables.outcome === "postponed" && result.item.visible_from) {
-        const hiddenKey = itemKey(variables.item);
-        const currentIndex = filteredItems.findIndex((item) => itemKey(item) === hiddenKey);
-        const remainingItems = filteredItems.filter((item) => itemKey(item) !== hiddenKey);
+      if (result.item.visible_from) {
+        const hiddenKeys = new Set<string>([itemKey(variables.item)]);
+        if (variables.item.source_type === "task") {
+          filteredItems.forEach((item) => {
+            if (item.canonical_task_id === variables.item.source_id) {
+              hiddenKeys.add(itemKey(item));
+            }
+          });
+        }
+        const currentIndex = filteredItems.findIndex((item) => hiddenKeys.has(itemKey(item)));
+        const remainingItems = filteredItems.filter((item) => !hiddenKeys.has(itemKey(item)));
         const nextItem = remainingItems[Math.min(Math.max(currentIndex, 0), Math.max(remainingItems.length - 1, 0))] ?? null;
-        setHiddenItemKeys((previous) => new Set(previous).add(hiddenKey));
+        setHiddenItemKeys((previous) => {
+          const next = new Set(previous);
+          hiddenKeys.forEach((key) => next.add(key));
+          return next;
+        });
+        setCanonicalOverrideItem(null);
+        setCanonicalTaskError(null);
         setSelectedKey(nextItem ? itemKey(nextItem) : null);
+        setPendingFocusKey(nextItem ? itemKey(nextItem) : null);
         const returnAt = formatReturnAt(result.item.visible_from);
         setLiveMessage(`Retorna em ${returnAt}`);
         toast.success(`Adiado. Retorna em ${returnAt}.`);
@@ -544,6 +600,7 @@ export function WorkExecutionView({
 
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
+    setPendingFocusKey(null);
     setCanonicalOverrideItem(null);
     setCanonicalTaskError(null);
     setConfirmingKey(null);
@@ -902,11 +959,12 @@ export function WorkExecutionView({
                 key={itemKey(item)}
                 item={item}
                 selected={selectedItem ? itemKey(item) === itemKey(selectedItem) : false}
+                shouldFocus={pendingFocusKey === itemKey(item)}
                 onSelect={() => selectItem(item)}
               />
             ))}
             {queueTotal > PAGE_SIZE ? (
-              <Pagination page={page} pageSize={PAGE_SIZE} total={queueTotal} onPageChange={(nextPage) => setPage(nextPage)} />
+              <Pagination page={page} pageSize={PAGE_SIZE} total={queueTotal} onPageChange={changePage} />
             ) : null}
           </div>
 
