@@ -1,5 +1,5 @@
-import uuid
 import inspect
+import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.models import RoleEnum, TaskPriority, TaskStatus
 from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, WorkQueueOutcomeInput
+from app.services import work_queue_service
 from app.services.work_queue_service import (
     _filter_items,
     _matches_shift,
@@ -17,8 +18,6 @@ from app.services.work_queue_service import (
     list_work_queue_items,
     update_work_queue_outcome,
 )
-from app.services import work_queue_service
-
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 USER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -1311,6 +1310,38 @@ def test_wq_task_search_statement_contains_every_visible_derived_action_default(
 
     assert expected_visible_defaults <= bound_values
     assert "CASE" in str(statement).upper()
+    sql = str(statement).casefold()
+    assert sql.count("join members") == 1
+    assert sql.count("join leads") == 1
+    assert "members.gym_id" in sql
+    assert "members.deleted_at" in sql
+    assert "leads.gym_id" in sql
+    assert "leads.deleted_at" in sql
+
+
+def test_wq_individual_task_statement_scopes_task_and_serialized_relationships_to_tenant():
+    db = MagicMock()
+    db.scalar.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        work_queue_service.get_work_queue_item(
+            db,
+            current_user=_user(role=RoleEnum.OWNER),
+            source_type="task",
+            source_id=TASK_ID,
+        )
+
+    assert exc_info.value.status_code == 404
+    statement = db.scalar.call_args.args[0]
+    sql = str(statement).casefold()
+    params = statement.compile().params
+    assert GYM_ID in params.values()
+    assert sql.count("join members") == 1
+    assert sql.count("join leads") == 1
+    assert "members.gym_id" in sql
+    assert "members.deleted_at" in sql
+    assert "leads.gym_id" in sql
+    assert "leads.deleted_at" in sql
 
 
 @pytest.mark.parametrize(
@@ -1388,6 +1419,7 @@ def test_wq_agent_list_resolves_members_in_one_tenant_scoped_batch_without_db_ge
     result = getattr(work_queue_service, loader_name)(db, _user(role=RoleEnum.OWNER))
 
     assert [item.subject_name for item in result] == ["Nome resolvido no tenant"]
+    assert [item.member_id for item in result] == [member_id]
     assert db.scalars.call_count == 2
     db.get.assert_not_called()
     member_statement = db.scalars.call_args_list[1].args[0]
@@ -1446,6 +1478,9 @@ def test_wq_agent_individual_member_lookup_is_id_gym_deleted_scoped_and_never_le
 
     assert item.subject_name == fallback_name
     assert item.subject_phone is None
+    assert item.member_id is None
+    assert item.lead_id is None
+    assert str(member_id) not in item.context_path
     db.get.assert_not_called()
     statement = db.scalar.call_args.args[0]
     sql = str(statement).casefold()
@@ -1474,7 +1509,9 @@ def test_wq_ai_service_agent_rbac_intent_predicate_is_in_sql_before_source_cap(r
     assert allowed_intents <= values
     assert "metadata_json" in sql
     assert sql.upper().index("WHERE") < sql.upper().index("LIMIT")
-    assert getattr(statement._limit_clause, "value", None) == work_queue_service.WORK_QUEUE_SOURCE_CAPS["ai_service_agent"] + 1
+    assert getattr(statement._limit_clause, "value", None) == (
+        work_queue_service.WORK_QUEUE_SOURCE_CAPS["ai_service_agent"] + 1
+    )
 
 
 def test_wq_assessment_trainer_buckets_prevent_unauthorized_first_assessments_from_starving_week_work(monkeypatch):
