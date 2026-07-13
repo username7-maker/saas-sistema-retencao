@@ -221,10 +221,10 @@
 | WQ-03 | Phase 10 | Planned |
 | WQ-04 | Phase 10 | Planned |
 | WQ-05 | Phase 10 | Planned |
-| WQ-06 | Phase 10.1 | Planned |
-| WQ-07 | Phase 10.1 | Planned |
+| WQ-06 | Phase 10.1 | Completed |
+| WQ-07 | Phase 10.1 | Completed |
 | WQ-08 | Phase 10 | Planned |
-| WQ-09 | Phase 10.1 | Planned |
+| WQ-09 | Phase 10.1 | Completed |
 | BODY-01 | Phase 4.31 | Planned |
 | BODY-02 | Phase 4.31 | Planned |
 | BODY-03 | Phase 4.31 | Planned |

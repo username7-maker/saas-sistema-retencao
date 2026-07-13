@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.2.0
 milestone_name: Operacao de Base
 status: Ready to execute
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-07-13T18:28:45.307Z"
+stopped_at: Completed Phase 10.1 local validation without deploy
+last_updated: "2026-07-13T22:35:00.000Z"
 progress:
   total_phases: 32
   completed_phases: 3
   total_plans: 32
-  completed_plans: 4
+  completed_plans: 7
 ---
 
 # STATE
@@ -24,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 ## Current Position
 
 Phase: 10 (integridade-operacional-da-fila-de-tasks-do-piloto) — EXECUTING
-Plan: 2 of 3
+Plan: Phase 10.1 complete; Phase 10 publication remains separate
 
 ## Progress Snapshot
 
 **Active milestone:** v3.3.0
 **Phases planned:** 23
 **Plans planned:** 23
-**Plans completed:** 4
+**Plans completed:** 7
 
 ## Accumulated Context
 
@@ -71,6 +71,7 @@ Plan: 2 of 3
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 ### Roadmap Evolution
 
+- 2026-07-13: Phase 10.1 fechou localmente a concorrencia e efeitos externos seguros da Work Queue: `work_dedupe_key` com unique parcial, `WorkQueueClaim` com CAS/409, consentimento por efeito para outbound humano, intent idempotente antes do provider, provider states duraveis e harness PostgreSQL com skip explicito quando nao ha URL de teste. Sem deploy e sem validacao publicada.
 - Phase 10.1 inserted after Phase 10: Concorrencia e efeitos externos seguros da Work Queue (URGENT)
 - Phase 10 added: Integridade operacional da fila de tasks do piloto
 - Phase 4.43 added: AI-first fase 1 - Inbox de triagem, posicionada como primeira aposta pos-freeze e bloqueada pelos gates de hardening, canais reais e transparencia de IA
@@ -140,8 +141,8 @@ These phases now gate any feature expansion beyond the pilot.
 
 ## Session
 
-**Last Date:** 2026-07-13T18:28:02.340Z
-**Stopped At:** Completed 10-01-PLAN.md
+**Last Date:** 2026-07-13T22:35:00.000Z
+**Stopped At:** Completed Phase 10.1 local validation without deploy
 **Resume File:** None
 
 ## Decisions

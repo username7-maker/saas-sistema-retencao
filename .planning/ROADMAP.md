@@ -537,9 +537,16 @@ Status:
 **Goal:** Impedir colisao silenciosa entre operadores e garantir que efeitos externos humanos tenham consentimento aplicavel, intencao duravel e idempotencia tenant-scoped antes de chamar o provider.
 **Requirements**: `WQ-06`, `WQ-07`, `WQ-09`
 **Depends on:** Phase 10, harness de concorrencia PostgreSQL disponivel
-**Plans:** 3 plans
+**Plans:** 3/3 plans executed
 
 Plans:
-- [ ] 10.1-01-PLAN.md - dedupe canonica, claim sidecar, versao/CAS e conflitos 409
-- [ ] 10.1-02-PLAN.md - consentimento por efeito e intent idempotente antes do provider
-- [ ] 10.1-03-PLAN.md - testes PostgreSQL/provider, rollout aditivo e reconciliacao de estado incerto
+- [x] 10.1-01-PLAN.md - dedupe canonica, claim sidecar, versao/CAS e conflitos 409
+- [x] 10.1-02-PLAN.md - consentimento por efeito e intent idempotente antes do provider
+- [x] 10.1-03-PLAN.md - testes PostgreSQL/provider, rollout aditivo e reconciliacao de estado incerto
+
+Status:
+- [x] context
+- [x] research
+- [x] plan
+- [x] execute
+- [x] verify/validate
