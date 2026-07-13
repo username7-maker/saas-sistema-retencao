@@ -512,3 +512,23 @@ Status:
 - [x] plan
 - [x] execute
 - [x] verify/validate
+
+### Phase 10: Integridade operacional da fila de tasks do piloto
+
+**Goal:** Tornar a fila compartilhada de `/tasks` e `/ai/triage` confiavel para operacao real: todo trabalho precisa ser alcancavel, unico, atual, atribuivel, ordenado corretamente e seguro diante de concorrencia ou efeitos externos.
+**Requirements**: `WQ-01`, `WQ-02`, `WQ-03`, `WQ-04`, `WQ-05`, `WQ-06`, `WQ-07`, `WQ-08`
+**Depends on:** Phase 04.43.3, Phase 04.43.4, Phase 09.9
+**Plans:** 4 plans
+
+Plans:
+- [ ] 10-01-PLAN.md - alcance server-side, contagens autoritativas, snooze e ordenacao
+- [ ] 10-02-PLAN.md - deduplicacao, frescor e prontidao das recomendacoes de IA
+- [ ] 10-03-PLAN.md - claim concorrente, consentimento e idempotencia de efeitos externos
+- [ ] 10-04-PLAN.md - integracao do runner, regressao cruzada e smoke do piloto
+
+Status:
+- [x] context
+- [ ] ui-spec
+- [ ] plan
+- [ ] execute
+- [ ] verify/validate
