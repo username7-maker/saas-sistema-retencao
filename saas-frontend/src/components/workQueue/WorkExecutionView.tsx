@@ -19,7 +19,7 @@ import {
 } from "../../services/workQueueService";
 import { memberService } from "../../services/memberService";
 import { taskService } from "../../services/taskService";
-import type { WorkQueueItem, WorkQueueOutcome } from "../../types";
+import type { WorkQueueActionResult, WorkQueueItem, WorkQueueOutcome } from "../../types";
 import { formatPreferredShiftScope, getPreferredShiftLabel } from "../../utils/preferredShift";
 
 type QueueMode = "do_now" | "awaiting_outcome" | "all";
@@ -469,6 +469,27 @@ export function WorkExecutionView({
     staleTime: 60 * 1000,
   });
 
+  async function applyExecutionResult(result: WorkQueueActionResult) {
+    setCanonicalTaskError(null);
+    setSelectedKey(itemKey(result.item));
+
+    if (result.item.source_type !== "task") {
+      setCanonicalOverrideItem(result.item);
+    }
+
+    if (!result.task_id || result.item.source_type === "task") return;
+
+    try {
+      const taskItem = await workQueueService.getItem("task", result.task_id);
+      setCanonicalOverrideItem(taskItem);
+      setSelectedKey(itemKey(taskItem));
+      setLiveMessage("Task ativa aberta para registrar resultado.");
+    } catch (error) {
+      const detail = getHttpDetail(error);
+      setCanonicalTaskError(detail === "Erro 404" ? "Tarefa vinculada indisponivel." : detail);
+    }
+  }
+
   const executeMutation = useMutation({
     mutationFn: ({ item, confirmed }: { item: WorkQueueItem; confirmed: boolean }) =>
       workQueueService.executeItem(item.source_type, item.source_id, {
@@ -479,7 +500,7 @@ export function WorkExecutionView({
     onSuccess: (result) => {
       setConfirmingKey(null);
       setOperatorNote("");
-      setSelectedKey(itemKey(result.item));
+      void applyExecutionResult(result);
       void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
       void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
@@ -1036,7 +1057,7 @@ export function WorkExecutionView({
                   ) : null}
                 </div>
 
-                {canonicalOverrideItem && selectedKey === itemKey(canonicalOverrideItem) ? (
+                {canonicalOverrideItem?.source_type === "task" && selectedKey === itemKey(canonicalOverrideItem) ? (
                   <div className="rounded-2xl border border-[hsl(var(--lovable-success)/0.35)] bg-[hsl(var(--lovable-success)/0.08)] p-4 text-sm font-semibold text-lovable-ink">
                     Tarefa vinculada aberta sem criar duplicata.
                   </div>

@@ -332,6 +332,99 @@ describe("WorkExecutionView", () => {
     expect(workQueueService.executeItem).not.toHaveBeenCalled();
   });
 
+  it("WQ runner libera outcomes imediatamente apos comecar execucao sem depender de refetch", async () => {
+    const recommendation = makeItem({
+      source_id: "rec-started",
+      primary_action_label: "Criar tarefa",
+      state: "do_now",
+    });
+    vi.mocked(workQueueService.listItems).mockResolvedValue(makeEnvelope({ items: [recommendation] }));
+    vi.mocked(workQueueService.executeItem).mockResolvedValue(
+      makeResult({
+        ...recommendation,
+        state: "awaiting_outcome",
+      } as WorkQueueItem),
+    );
+
+    renderRunner();
+
+    expect((await screen.findAllByText("Ana Sintetica")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /comecar execucao/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Acao ja preparada. Registre o resultado assim que houver retorno.")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
+
+    await waitFor(() => {
+      expect(workQueueService.updateOutcome).toHaveBeenCalledWith(
+        "ai_triage",
+        "rec-started",
+        expect.objectContaining({ outcome: "completed" }),
+      );
+    });
+  });
+
+  it("WQ runner abre task criada pela execucao para comentario e adiamento", async () => {
+    const recommendation = makeItem({
+      source_id: "rec-created-task",
+      primary_action_label: "Criar tarefa",
+      state: "do_now",
+    });
+    const task = makeItem({
+      source_type: "task",
+      source_id: TASK_CANONICAL_ID,
+      canonical_task_id: TASK_CANONICAL_ID,
+      subject_name: "Task Criada Pela Execucao",
+      primary_action_label: "Registrar contato",
+      state: "awaiting_outcome",
+    });
+    vi.mocked(workQueueService.listItems).mockResolvedValue(makeEnvelope({ items: [recommendation] }));
+    vi.mocked(workQueueService.executeItem).mockResolvedValue({
+      ...makeResult({
+        ...recommendation,
+        state: "awaiting_outcome",
+        canonical_task_id: TASK_CANONICAL_ID,
+      } as WorkQueueItem),
+      task_id: TASK_CANONICAL_ID,
+    });
+    vi.mocked(workQueueService.getItem).mockResolvedValue(task);
+
+    renderRunner();
+
+    expect((await screen.findAllByText("Ana Sintetica")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /comecar execucao/i }));
+
+    expect((await screen.findAllByText("Task Criada Pela Execucao")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Tarefa vinculada aberta sem criar duplicata.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Observacao opcional para esta acao"), {
+      target: { value: "Aluno pediu retorno a tarde." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Comentario" }));
+
+    await waitFor(() => {
+      expect(taskService.createEvent).toHaveBeenCalledWith(
+        TASK_CANONICAL_ID,
+        expect.objectContaining({
+          event_type: "comment",
+          note: "Aluno pediu retorno a tarde.",
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Amanha" }));
+
+    await waitFor(() => {
+      expect(workQueueService.updateOutcome).toHaveBeenCalledWith(
+        "task",
+        TASK_CANONICAL_ID,
+        expect.objectContaining({ outcome: "postponed", snooze_preset: "tomorrow" }),
+      );
+    });
+  });
+
   it("WQ runner limpa override canonico ao navegar para outra pagina", async () => {
     const recommendation = makeItem({
       source_id: "rec-canonical-page",
