@@ -2,7 +2,7 @@
 
 ## Resultado
 
-Implementado localmente em 2026-07-14.
+Implementado e publicado no piloto em 2026-07-14.
 
 O campo rapido de medidas do protocolo de antropometria agora preserva o texto enquanto o operador digita, incluindo estados intermediarios como `15.` e valores finais como `15.1`. O valor numerico continua sendo atualizado para calculo quando a entrada e valida.
 
@@ -26,3 +26,10 @@ A sessao do frontend foi reforcada para uso prolongado:
 - O bug nao estava na formula Petroski: o parser ja aceitava decimal. A falha estava na transformacao imediata do texto do input para numero, que quebrava a digitacao progressiva.
 - Nao foi alterada spec formal porque o contrato de protocolo/antropometria ja cobre medidas numericas; a mudanca e uma correcao de implementacao e experiencia operacional.
 - A pagina pode ser mantida aberta de forma mais resiliente, mas nao existe garantia tecnica de "tempo indeterminado" se o navegador/OS descartar a aba ou se o refresh cookie expirar por politica backend.
+
+## Publicacao
+
+- Commit: `e4fcc2a`
+- Vercel production: `dpl_4atPtWqAv9kH4FjSAazZZ9FUGBt1`
+- Deployment URL: `https://saas-frontend-alh99au2b-automai.vercel.app`
+- Alias do piloto: `https://saas-frontend-pearl.vercel.app`

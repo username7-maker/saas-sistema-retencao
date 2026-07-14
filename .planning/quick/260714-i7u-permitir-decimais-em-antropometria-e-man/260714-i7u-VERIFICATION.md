@@ -36,5 +36,25 @@ Resultado: sem erros de whitespace; apenas aviso normal de CRLF do Windows.
 
 ## Pendente antes de fechar
 
-- Commitar a correcao.
-- Publicar frontend no piloto Vercel e verificar alias de producao.
+Nenhum item pendente.
+
+## Publicacao e smoke
+
+```powershell
+vercel.cmd deploy --prod --yes
+```
+
+Resultado: deployment `dpl_4atPtWqAv9kH4FjSAazZZ9FUGBt1`, `READY`, alias `https://saas-frontend-pearl.vercel.app`.
+
+```powershell
+vercel.cmd inspect saas-frontend-alh99au2b-automai.vercel.app
+```
+
+Resultado: `status Ready`, target `production`, alias do piloto presente.
+
+```powershell
+Invoke-WebRequest -Uri "https://saas-frontend-pearl.vercel.app"
+Invoke-WebRequest -Uri "https://saas-frontend-pearl.vercel.app/tasks"
+```
+
+Resultado: ambos `200` com `#root` do app carregado.
