@@ -213,6 +213,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     html = render_premium_report_html(payload)
 
     assert "Relatorio de avaliacao fisica" in html
+    assert "Avaliacao: 14/04/2026" in html
+    assert "Avaliacao: 14/04/2026 10:00" not in html
     assert "Indicadores-chave" in html
     assert "Metodo de leitura da gordura corporal" in html
     assert "Composicao corporal detalhada" in html
@@ -248,6 +250,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
+    assert "Avaliacao: 14/04/2026" in technical_html
+    assert "Avaliacao: 14/04/2026 10:00" not in technical_html
     assert "Historico" in technical_html
     assert "clinical-history-page" in technical_html
     assert technical_html.rindex("clinical-history-page") > technical_html.index("<h2>Observacoes do professor</h2>")

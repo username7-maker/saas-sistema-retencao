@@ -24,7 +24,7 @@ const CORDEX_LOGO_SRC = "/brand/cordex-logo-report.png";
 const PROGYM_LOGO_SRC = "/progym-logo.png";
 const EMPTY_VALUES = new Set(["", "-", "--"]);
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDate(value: string | null | undefined): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -32,8 +32,6 @@ function formatDateTime(value: string | null | undefined): string {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   }).format(date);
 }
 
@@ -328,7 +326,7 @@ function ReportHeader({
         <MetaCell label="Sexo" value={sexLabel(header.sex)} />
         <MetaCell label="Idade fisica" value={physicalAge} />
         <MetaCell label="Metab. basal" value={bmr} />
-        <MetaCell label="Data / hora" value={formatDateTime(header.measured_at)} />
+        <MetaCell label="Data" value={formatDate(header.measured_at)} />
       </section>
     </header>
   );
@@ -341,7 +339,7 @@ function ReportMiniHeader({ header }: { header: BodyCompositionReportHeader }) {
       <div>
         <p>Relatorio de avaliacao fisica</p>
         <strong>{header.member_name}</strong>
-        <span>{formatDateTime(header.measured_at)}</span>
+        <span>{formatDate(header.measured_at)}</span>
       </div>
     </header>
   );

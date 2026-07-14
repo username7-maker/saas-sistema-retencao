@@ -908,7 +908,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     ]
 
     generated_label = payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-    measured_label = _format_human_datetime(header.get("measured_at"))
+    measured_label = _format_human_date(header.get("measured_at"))
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Relatorio de bioimpedancia"
     flags_html = ""
     score_display = str(int(score_total)) if isinstance(score_total, int | float) else (_body_metric_formatted(score_metric) if score_metric else "--")
@@ -2207,17 +2207,17 @@ def _body_sex_label(value: Any) -> str:
     return "-"
 
 
-def _format_human_datetime(value: Any) -> str:
+def _format_human_date(value: Any) -> str:
     if not value:
         return "Sem registro"
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return parsed.strftime("%d/%m/%Y %H:%M")
+            return parsed.strftime("%d/%m/%Y")
         except ValueError:
             return value
     if isinstance(value, datetime):
-        return value.strftime("%d/%m/%Y %H:%M")
+        return value.strftime("%d/%m/%Y")
     return str(value)
 
 

@@ -178,6 +178,10 @@ describe("BodyCompositionReportPage", () => {
     expect(document.body).toHaveClass("body-composition-report-print");
     expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
     expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
+    expect(screen.getByText("Data")).toBeInTheDocument();
+    expect(screen.getAllByText("14/04/2026").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/Data \/ hora/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/10:00|07:00/)).not.toBeInTheDocument();
     expect(screen.queryByText("Relatorio premium pronto")).not.toBeInTheDocument();
     expect(screen.getAllByText("Gordura corporal estimada").length).toBeGreaterThan(0);
     expect(screen.getByText("Metodo de leitura da gordura corporal")).toBeInTheDocument();
