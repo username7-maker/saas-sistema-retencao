@@ -4,7 +4,7 @@ milestone: v3.2.0
 milestone_name: Operacao de Base
 status: Ready to execute
 stopped_at: Completed Phase 10.1 local validation without deploy
-last_updated: "2026-07-13T22:35:00.000Z"
+last_updated: "2026-07-14T13:14:15.5933567-03:00"
 progress:
   total_phases: 32
   completed_phases: 3
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 ## Current Position
 
 Phase: 10 (integridade-operacional-da-fila-de-tasks-do-piloto) — EXECUTING
-Plan: Phase 10.1 complete; Phase 10 publication remains separate
+Plan: Phase 10.1 complete; quick pilot fix 260714-i7u in validation/publication
 
 ## Progress Snapshot
 
@@ -71,6 +71,7 @@ Plan: Phase 10.1 complete; Phase 10 publication remains separate
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 ### Roadmap Evolution
 
+- 2026-07-14: Quick Task `260714-i7u` abriu correcao de piloto para permitir dobras decimais no fluxo rapido Petroski sem zerar durante a digitacao e reforcar refresh de sessao do frontend para paginas abertas por longos periodos. Validacao local fechou testes focados, build, `specify check` e `git diff --check`; publicacao Vercel ainda pendente neste registro.
 - 2026-07-13: Phase 10.1 fechou localmente a concorrencia e efeitos externos seguros da Work Queue: `work_dedupe_key` com unique parcial, `WorkQueueClaim` com CAS/409, consentimento por efeito para outbound humano, intent idempotente antes do provider, provider states duraveis e harness PostgreSQL com skip explicito quando nao ha URL de teste. Sem deploy e sem validacao publicada.
 - Phase 10.1 inserted after Phase 10: Concorrencia e efeitos externos seguros da Work Queue (URGENT)
 - Phase 10 added: Integridade operacional da fila de tasks do piloto
@@ -137,12 +138,13 @@ These phases now gate any feature expansion beyond the pilot.
 
 | Plan | Duration | Tasks | Files |
 |---|---|---|---|
+| Quick 260714-i7u | in progress | 2 tasks | 5 files |
 | Phase 10 P01 | 17min | 3 tasks | 6 files |
 
 ## Session
 
-**Last Date:** 2026-07-13T22:35:00.000Z
-**Stopped At:** Completed Phase 10.1 local validation without deploy
+**Last Date:** 2026-07-14T13:14:15.5933567-03:00
+**Stopped At:** Quick 260714-i7u local validation complete; publication pending
 **Resume File:** None
 
 ## Decisions

@@ -106,6 +106,28 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.leanMassKg).toBe(64.41);
   });
 
+  it("calculates Petroski when skinfold values include decimal millimeters", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 22,
+      heightCm: 177,
+      weightKg: 73.6,
+      bioimpedancePercent: 31.2,
+      preferredSource: "geneos_composite",
+      measurementProtocol: "petroski_1995_male_18_66",
+      skinfoldTricepsMm: 9.5,
+      skinfoldSubscapularMm: 12.1,
+      skinfoldSuprailiacMm: 7.4,
+      skinfoldCalfMm: 10.2,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.usedSource).toBe("anthropometry");
+    expect(result.method).toBe("skinfold_protocol");
+    expect(result.usedPercent).toBeGreaterThan(0);
+    expect(result.fatMassKg).toBeGreaterThan(0);
+  });
+
   it("does not let legacy bioimpedance preference override a selected protocol preview", () => {
     const result = calculateAnthropometryPreview({
       sex: "male",

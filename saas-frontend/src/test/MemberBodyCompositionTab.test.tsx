@@ -279,6 +279,32 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
   });
 
+  it("keeps decimal skinfold input editable in the protocol quick fields", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    const subscapular = await screen.findByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" });
+
+    fireEvent.change(subscapular, { target: { value: "15." } });
+    expect(subscapular).toHaveValue("15.");
+
+    fireEvent.change(subscapular, { target: { value: "15.1" } });
+    expect(subscapular).toHaveValue("15.1");
+
+    fireEvent.blur(subscapular);
+    expect(subscapular).toHaveValue("15.1");
+  });
+
   it("locks Petroski women to the required sex and keeps the current age available to the protocol", async () => {
     renderTab();
 

@@ -78,15 +78,32 @@ function normalizeNullableNumberInput(value: unknown): number | null | unknown {
   if (typeof value === "number") return Number.isFinite(value) ? value : value;
   if (typeof value !== "string") return value;
 
-  const cleaned = value
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/[kK][gG]|[kK][cC][aA][lL]|%/g, "")
-    .replace(",", ".");
+  const cleaned = cleanNullableNumberInput(value);
 
   if (!cleaned) return null;
   if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return value;
   return Number(cleaned);
+}
+
+function cleanNullableNumberInput(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[kK][gG]|[kK][cC][aA][lL]|%/g, "")
+    .replace(",", ".");
+}
+
+function normalizeEditableNullableNumberInput(value: string): number | null | undefined {
+  const cleaned = cleanNullableNumberInput(value);
+
+  if (!cleaned) return null;
+  if (/^-?\d+(\.\d+)?$/.test(cleaned)) return Number(cleaned);
+  if (/^-?\d+\.$/.test(cleaned)) return Number(cleaned.slice(0, -1));
+  return undefined;
+}
+
+function formatEditableNumberInputValue(value: unknown): string {
+  return value == null || value === "" ? "" : String(value);
 }
 
 function normalizeNullableIntegerInput(value: unknown): number | null | unknown {
@@ -862,6 +879,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [quickProtocolInputValues, setQuickProtocolInputValues] = useState<Partial<Record<NumericFieldKey, string>>>({});
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
@@ -916,6 +934,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
 
   function resetEditor(evaluation?: BodyCompositionEvaluation | null) {
     reset(buildDefaultValues(evaluation));
+    setQuickProtocolInputValues({});
     setCurrentSource((evaluation?.source as EvaluationSource | undefined) ?? "manual");
     setReviewedManually(evaluation?.reviewed_manually ?? true);
     setOcrMetadata(buildOcrMetadata(evaluation));
@@ -1173,12 +1192,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   }, [selectedProtocol?.key, selectedProtocol?.sex, selectedSex, setValue]);
 
   useEffect(() => {
+    setQuickProtocolInputValues({});
+  }, [memberId, selectedProtocol?.key]);
+
+  useEffect(() => {
     if (restoredDraftMemberRef.current === memberId || isLoading) return;
     restoredDraftMemberRef.current = memberId;
     const draft = readBodyCompositionDraft(memberId);
     if (!draft) return;
 
     recoveredDraftMemberRef.current = memberId;
+    setQuickProtocolInputValues({});
     reset({ ...buildDefaultValues(null), ...draft.values });
     setCurrentSource(draft.source);
     setReviewedManually(draft.reviewed_manually);
@@ -1600,8 +1624,32 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
   function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
-    const normalized = normalizeNullableNumberInput(rawValue);
-    setValue(key, (typeof normalized === "number" ? normalized : null) as never, {
+    setQuickProtocolInputValues((current) => ({ ...current, [key]: rawValue }));
+
+    const normalized = normalizeEditableNullableNumberInput(rawValue);
+    if (normalized === undefined) return;
+
+    setValue(key, normalized as never, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }
+
+  function commitQuickProtocolNumber(key: NumericFieldKey) {
+    const rawValue = quickProtocolInputValues[key];
+    if (rawValue == null) return;
+
+    const normalized = normalizeEditableNullableNumberInput(rawValue);
+
+    setQuickProtocolInputValues((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+
+    if (normalized === undefined) return;
+
+    setValue(key, normalized as never, {
       shouldDirty: true,
       shouldValidate: true,
     });
@@ -2069,8 +2117,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                             type="text"
                             inputMode="decimal"
                             placeholder={field.placeholder}
-                            value={String(watchedFormValues[field.key] ?? "")}
+                            value={quickProtocolInputValues[field.key] ?? formatEditableNumberInputValue(watchedFormValues[field.key])}
                             onChange={(event) => setQuickProtocolNumber(field.key, event.target.value)}
+                            onBlur={() => commitQuickProtocolNumber(field.key)}
                           />
                         </FormField>
                       ))}
