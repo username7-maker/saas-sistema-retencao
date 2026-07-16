@@ -115,6 +115,42 @@ git diff --check
 PASS
 ```
 
+## Pilot deployment - 2026-07-16
+
+Production/pilot database migration:
+
+```text
+railway run ... alembic current
+20260715_0052
+
+railway run ... alembic upgrade head
+Running upgrade 20260715_0052 -> 20260716_0050, assessment anthropometry local
+Running upgrade 20260716_0050 -> 20260716_0051, assessment origin backfill
+
+railway run ... alembic current
+20260716_0051 (head)
+```
+
+The pilot database already contained the abandoned `20260715_0052` revision from the superseded unified-assessment branch. Spec 056 added a no-op Alembic marker for that revision and chained the local V1 migrations after it. No Actuar Core code or old unified-assessment implementation was merged into Spec 056.
+
+Deployments:
+
+```text
+Railway api:    388a36be-0938-44b6-80b0-1605c2986cb6 - SUCCESS
+Railway worker: b7dc8573-1096-43c2-89f9-b2c79146e713 - SUCCESS
+Vercel:         dpl_yvFpA7SDmYhFVpxH5ccE8YaGx8Hw - Ready
+Frontend alias: https://saas-frontend-pearl.vercel.app
+Backend URL:    https://ai-gym-os-api-production.up.railway.app
+```
+
+Published smoke checks:
+
+```text
+GET /health       -> ok
+GET /health/ready -> ok
+GET frontend alias -> 200, SPA root present
+```
+
 ## Notes
 
 - `npm.cmd ci` was required because the isolated worktree did not have `node_modules`.

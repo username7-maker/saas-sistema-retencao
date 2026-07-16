@@ -57,6 +57,38 @@ git diff --check
 PASS
 ```
 
+## Publicacao no piloto - 2026-07-16
+
+```text
+railway run ... alembic current
+20260715_0052
+
+railway run ... alembic upgrade head
+20260715_0052 -> 20260716_0050
+20260716_0050 -> 20260716_0051
+
+railway run ... alembic current
+20260716_0051 (head)
+```
+
+Observacao: o banco do piloto ja estava marcado com `20260715_0052`, revisao vinda da branch antiga de avaliacao unificada. A Phase 11 registrou essa revisao como marker Alembic no-op e aplicou apenas as migrations locais da Spec 056 depois dela. Actuar Core permaneceu fora da publicacao.
+
+```text
+Railway api:    388a36be-0938-44b6-80b0-1605c2986cb6 - SUCCESS
+Railway worker: b7dc8573-1096-43c2-89f9-b2c79146e713 - SUCCESS
+Vercel:         dpl_yvFpA7SDmYhFVpxH5ccE8YaGx8Hw - Ready
+Frontend alias: https://saas-frontend-pearl.vercel.app
+Backend URL:    https://ai-gym-os-api-production.up.railway.app
+```
+
+Smoke publicado:
+
+```text
+GET https://ai-gym-os-api-production.up.railway.app/health       -> ok
+GET https://ai-gym-os-api-production.up.railway.app/health/ready -> ok
+GET https://saas-frontend-pearl.vercel.app                       -> 200, SPA root presente
+```
+
 ## Validation notes
 
 - Bioimpedancia foi tratada por caracterizacao e o componente `MemberBodyCompositionTab` nao foi alterado.

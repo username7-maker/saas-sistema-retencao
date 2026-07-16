@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 **Status:** `published/validated`; V1 aplica upload real para avatar de equipe e reduz URL manual como caminho principal.
 **Last activity:** 2026-05-28 - fase 04.35 publicada no piloto.
 
-**Active implementation branch:** Phase 11 / Spec 056 - avaliacao antropometrica local sem bioimpedancia. Implementada em worktree isolada, sem alterar o fluxo de bioimpedancia e sem executar Actuar/IA/WhatsApp/Kommo.
+**Active implementation branch:** Phase 11 / Spec 056 - avaliacao antropometrica local sem bioimpedancia. Implementada em worktree isolada, sem alterar o fluxo de bioimpedancia e sem executar Actuar/IA/WhatsApp/Kommo. Publicada no piloto em 2026-07-16 com Railway API `388a36be-0938-44b6-80b0-1605c2986cb6`, Railway worker `b7dc8573-1096-43c2-89f9-b2c79146e713` e Vercel `dpl_yvFpA7SDmYhFVpxH5ccE8YaGx8Hw`.
 
 **Phase 11.1 status:** Spec 057 live spike executado. Credencial corrigida passou login, Erick Bedin ativo foi identificado (`2004-04-27`, `Situacao=A`, `LR3583`) e o save minimo confirmou `AssessmentId` redigido, mas o Actuar persistiu `CurrentMuscleMass=0`. Actuar Core permanece NO-GO ate tratar esse zero artificial, persistir `external_assessment_id` real e provar deduplicacao/retry.
 
