@@ -1,7 +1,7 @@
 """assessment anthropometry local
 
 Revision ID: 20260716_0050
-Revises: 20260707_0049
+Revises: 20260715_0052
 Create Date: 2026-07-16
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20260716_0050"
-down_revision: str | None = "20260707_0049"
+down_revision: str | None = "20260715_0052"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
