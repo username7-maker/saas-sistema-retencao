@@ -21,6 +21,8 @@ export interface MemberCreatePayload {
   email?: string;
   phone?: string;
   birthdate?: string;
+  sex_for_clinical_calculation?: "male" | "female" | null;
+  height_cm?: number | null;
   plan_name: string;
   monthly_fee?: number;
   join_date: string;
@@ -32,6 +34,8 @@ export interface MemberUpdatePayload {
   email?: string;
   phone?: string;
   birthdate?: string | null;
+  sex_for_clinical_calculation?: "male" | "female" | null;
+  height_cm?: number | null;
   plan_name?: string;
   monthly_fee?: number;
   status?: Member["status"];

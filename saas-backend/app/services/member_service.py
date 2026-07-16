@@ -126,6 +126,8 @@ def create_member(
         monthly_fee=payload.monthly_fee,
         join_date=payload.join_date,
         preferred_shift=payload.preferred_shift,
+        sex_for_clinical_calculation=payload.sex_for_clinical_calculation,
+        height_cm=payload.height_cm,
         assigned_user_id=payload.assigned_user_id,
         loyalty_months=payload.loyalty_months,
         extra_data=payload.extra_data,

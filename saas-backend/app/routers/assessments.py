@@ -1,9 +1,11 @@
+import uuid
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
@@ -17,6 +19,9 @@ from app.schemas.assessment import (
     AssessmentForecastOut,
     AssessmentMiniOut,
     AssessmentOut,
+    AnthropometryAssessmentInput,
+    AnthropometryPreviewOut,
+    AnthropometryProtocolOut,
     AssessmentQueueResolutionOut,
     AssessmentQueueResolutionUpdate,
     AssessmentQueueItemOut,
@@ -57,7 +62,15 @@ from app.services.assessment_service import (
     list_assessments,
     update_assessment_queue_resolution,
 )
+from app.services.assessment_anthropometry_report_service import generate_anthropometric_assessment_pdf
+from app.services.assessment_anthropometry_service import (
+    create_anthropometric_assessment,
+    get_anthropometric_assessment_or_404,
+    list_supported_anthropometry_protocols,
+    preview_anthropometric_assessment,
+)
 from app.services.audit_service import log_audit_event
+from app.services.member_service import get_member_or_404 as get_member_scoped
 
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
@@ -74,6 +87,11 @@ ASSESSMENT_WRITE_ROLES = (
     RoleEnum.MANAGER,
     RoleEnum.TRAINER,
 )
+
+
+def _ensure_anthropometry_feature_enabled() -> None:
+    if not settings.anthropometric_assessment_v1:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avaliacao antropometrica desabilitada")
 
 
 @router.get("/actuar-sync-queue", response_model=list[ActuarSyncQueueItemRead])
@@ -299,13 +317,127 @@ def create_assessment_endpoint(
     return AssessmentOut.model_validate(assessment)
 
 
+@router.get("/anthropometry/protocols", response_model=list[AnthropometryProtocolOut])
+def list_anthropometry_protocols_endpoint(
+    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
+) -> list[AnthropometryProtocolOut]:
+    _ensure_anthropometry_feature_enabled()
+    return [AnthropometryProtocolOut.model_validate(item) for item in list_supported_anthropometry_protocols()]
+
+
+@router.post("/members/{member_id}/anthropometry/preview", response_model=AnthropometryPreviewOut)
+def preview_anthropometry_endpoint(
+    member_id: UUID,
+    payload: AnthropometryAssessmentInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
+) -> AnthropometryPreviewOut:
+    _ensure_anthropometry_feature_enabled()
+    member = get_member_scoped(db, member_id, gym_id=current_user.gym_id)
+    preview = preview_anthropometric_assessment(payload, member=member)
+    return AnthropometryPreviewOut.model_validate(preview)
+
+
+@router.post("/members/{member_id}/anthropometry", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
+def create_anthropometry_endpoint(
+    request: Request,
+    member_id: UUID,
+    payload: AnthropometryAssessmentInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> AssessmentOut:
+    _ensure_anthropometry_feature_enabled()
+    try:
+        parsed_key = uuid.UUID(idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Idempotency-Key precisa ser um UUID") from exc
+    assessment = create_anthropometric_assessment(
+        db,
+        member_id=member_id,
+        evaluator_id=current_user.id,
+        gym_id=current_user.gym_id,
+        payload=payload,
+        idempotency_key=parsed_key,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="anthropometric_assessment_created",
+        entity="assessment",
+        user=current_user,
+        member_id=member_id,
+        entity_id=assessment.id,
+        details={
+            "assessment_number": assessment.assessment_number,
+            "measurement_protocol": assessment.measurement_protocol,
+            "calculation_hash": assessment.calculation_hash,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    db.refresh(assessment)
+    return AssessmentOut.model_validate(assessment)
+
+
+@router.get("/members/{member_id}/{assessment_id}/pdf")
+def export_anthropometry_pdf_endpoint(
+    request: Request,
+    member_id: UUID,
+    assessment_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
+) -> Response:
+    _ensure_anthropometry_feature_enabled()
+    member = get_member_scoped(db, member_id, gym_id=current_user.gym_id)
+    assessment = get_anthropometric_assessment_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        assessment_id=assessment_id,
+    )
+    pdf_bytes, filename = generate_anthropometric_assessment_pdf(
+        member,
+        assessment,
+        generated_by=getattr(current_user, "full_name", None),
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="anthropometric_assessment_pdf_exported",
+        entity="assessment",
+        user=current_user,
+        member_id=member_id,
+        entity_id=assessment_id,
+        details={"filename": filename, "measurement_protocol": assessment.measurement_protocol},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Report-Scope": "anthropometry",
+        },
+    )
+
+
 @router.get("/members/{member_id}", response_model=list[AssessmentOut])
 def list_assessments_endpoint(
     member_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> list[AssessmentOut]:
-    return [AssessmentOut.model_validate(item) for item in list_assessments(db, member_id)]
+    return [AssessmentOut.model_validate(item) for item in list_assessments(db, member_id, gym_id=current_user.gym_id)]
 
 
 @router.get("/members/{member_id}/evolution", response_model=EvolutionOut)

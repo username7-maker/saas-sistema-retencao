@@ -50,6 +50,8 @@ class Member(Base, TimestampMixin, SoftDeleteMixin):
     join_date: Mapped[date] = mapped_column(Date, default=date.today, nullable=False, index=True)
     cancellation_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     preferred_shift: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    sex_for_clinical_calculation: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    height_cm: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     nps_last_score: Mapped[int] = mapped_column(SmallInteger, default=7, nullable=False)
     loyalty_months: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

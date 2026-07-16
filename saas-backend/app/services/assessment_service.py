@@ -9,10 +9,11 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, Member, RoleEnum, Task, TaskPriority, TaskStatus, User
+from app.models import BodyCompositionEvaluation, Checkin, Member, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
 from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
+from app.services.assessment_anthropometry_service import build_bioimpedance_history_item, build_history_assessment_item
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
@@ -633,14 +634,46 @@ def update_assessment_queue_resolution(
     return member
 
 
-def list_assessments(db: Session, member_id: UUID) -> list[Assessment]:
-    get_member_or_404(db, member_id)
-    return list(
+def list_assessments(db: Session, member_id: UUID, gym_id: UUID | None = None) -> list:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    assessment_filters = [Assessment.member_id == member_id, Assessment.deleted_at.is_(None)]
+    body_filters = [BodyCompositionEvaluation.member_id == member_id]
+    if gym_id is not None:
+        assessment_filters.append(Assessment.gym_id == gym_id)
+        body_filters.append(BodyCompositionEvaluation.gym_id == gym_id)
+    assessments = list(
         db.scalars(
             select(Assessment)
-            .where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
+            .where(*assessment_filters)
             .order_by(desc(Assessment.assessment_date))
         ).all()
+    )
+    body_evaluations = list(
+        db.scalars(
+            select(BodyCompositionEvaluation)
+            .where(*body_filters)
+            .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        ).all()
+    )
+    method_keys = {
+        (getattr(item, "assessment_method", None) or getattr(item, "record_origin", None) or "legacy", getattr(item, "measurement_protocol", None))
+        for item in assessments
+    }
+    if body_evaluations:
+        method_keys.add(("bioimpedance", None))
+    comparison_warning = "Metodos diferentes; comparacao direta limitada" if len(method_keys) > 1 else None
+    history_items = [
+        build_history_assessment_item(item, comparison_warning=comparison_warning)
+        for item in assessments
+    ]
+    history_items.extend(
+        build_bioimpedance_history_item(item, comparison_warning=comparison_warning)
+        for item in body_evaluations
+    )
+    return sorted(
+        history_items,
+        key=lambda item: getattr(item, "assessment_date", datetime.now(tz=timezone.utc)) or datetime.now(tz=timezone.utc),
+        reverse=True,
     )
 
 

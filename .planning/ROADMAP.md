@@ -5,10 +5,33 @@
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
 - In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
 - In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.1 retrofit implementado como lifecycle operacional em Membros/Perfil; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md) com `8.4 AI Service Agent Kommo V1` e `8.5 Personal IA V1` publicadas no piloto, e `8.6 Video Movement Corrector V1` aberta como proximo AI First tecnico supervisionado, [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
+- In progress **Phase 11 Avaliacao antropometrica sem bioimpedancia** - Spec 056 entrega V1 local; Spec 057 registra spike Actuar Core; Spec 058 registra backlog de expansoes
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
 **Goal:** Congelar expansao lateral por um ciclo curto, operar 4.36+4.40 como um unico workstream de sessao e borda, fechar hardening estrutural do core e usar a Fase 4.3 apenas como gate de saida monitorado.
+
+### Phase 11: Avaliacao antropometrica sem bioimpedancia
+
+**Goal:** Permitir avaliacao local manual quando o aluno nao pode usar bioimpedancia, com calculos backend, historico, PDF e regua propria.
+**Requirements**: `ANTHRO-01` a `ANTHRO-05`
+**Depends on:** Phase 7.2 / workspace de avaliacoes existente
+**Plans:** 1 plan
+
+Plans:
+- [x] 11-01-PLAN.md - modo local sem bioimpedancia, sem Actuar/IA/WhatsApp/Kommo
+
+Status:
+- [x] context
+- [x] research
+- [x] ui-spec
+- [x] plan
+- [x] execute
+- [x] verify/validate
+
+Deferred:
+- Spec 057: spike e Actuar Core
+- Spec 058: expansoes posteriores
 
 ### Phase 4: Import mapper e reconciliacao manual
 

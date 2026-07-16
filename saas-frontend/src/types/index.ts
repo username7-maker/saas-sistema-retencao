@@ -648,6 +648,8 @@ export interface Member {
   email: string | null;
   phone: string | null;
   birthdate?: string | null;
+  sex_for_clinical_calculation?: "male" | "female" | null;
+  height_cm?: number | null;
   status: "active" | "paused" | "cancelled";
   plan_name: string;
   monthly_fee: number;

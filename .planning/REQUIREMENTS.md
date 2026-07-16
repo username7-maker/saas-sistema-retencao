@@ -26,6 +26,15 @@
 - [ ] **BODY-03**: campos nao suportados pelo Actuar e necessidade de sync manual ficam visiveis no workflow
 - [ ] **BODY-04**: owner, manager e trainer conseguem entender com clareza se o fluxo esta ativo, parcial ou manualmente assistido
 
+### Avaliacao antropometrica sem bioimpedancia
+
+- [x] **ANTHRO-01**: professor conclui uma avaliacao local sem arquivo, OCR, camera ou dado de bioimpedancia
+- [x] **ANTHRO-02**: backend calcula IMC, percentual de gordura, massa de gordura, massa livre de gordura, RCQ e TMB estimada quando aplicavel
+- [x] **ANTHRO-03**: snapshot antropometrico preserva protocolo, versao, tentativas, entradas, politica de repeticao, origens por indicador e hash
+- [x] **ANTHRO-04**: historico e PDF identificam a modalidade antropometrica sem alterar registros antigos nem inventar metricas indisponiveis
+- [x] **ANTHRO-05**: confirmacao idempotente cria regua D+8, D+14, D+75 e D+90 sem alterar o helper da bioimpedancia
+- [ ] **ANTHRO-ACTUAR-01**: Actuar Core para antropometria so avanca depois de spike controlado com matriz PASS/FAIL e captura segura de `external_assessment_id`
+
 ### Canais reais do piloto
 
 - [x] **COMMS-01**: WhatsApp do piloto funciona de ponta a ponta com instancia conectada, webhook configurado e uso real no produto

@@ -138,7 +138,7 @@ describe("AssessmentRegistrationComposer anthropometry mode", () => {
     expect(screen.getByLabelText(/sexo usado na formula/i)).toHaveValue("male");
     expect(screen.getByLabelText(/altura/i)).toHaveValue(177);
     expect(screen.getByLabelText(/peso/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/dobra tricipital/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/dobra tricipital - tentativa 1/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/dobra peitoral/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/peso/i), { target: { value: "73.6" } });

@@ -6,7 +6,7 @@ export interface Assessment {
   gym_id: string;
   member_id: string;
   evaluator_id: string | null;
-  assessment_number: number;
+  assessment_number: number | null;
   assessment_date: string;
   next_assessment_due: string | null;
   height_cm: number | null;
@@ -14,6 +14,21 @@ export interface Assessment {
   bmi: number | null;
   body_fat_pct: number | null;
   lean_mass_kg: number | null;
+  fat_mass_kg?: number | null;
+  waist_hip_ratio?: number | null;
+  basal_metabolic_rate?: number | null;
+  assessment_method?: "manual_anthropometry" | "bioimpedance" | "hybrid" | "imported" | null;
+  record_origin?: "cordex" | "legacy" | "actuar" | null;
+  sex_used_for_formula?: "male" | "female" | null;
+  age_used_for_formula?: number | null;
+  height_used_for_formula?: number | null;
+  weight_used_for_formula?: number | null;
+  measurement_protocol?: string | null;
+  formula_version?: string | null;
+  calculation_hash?: string | null;
+  anthropometry_snapshot_json?: Record<string, unknown> | null;
+  history_badge?: string | null;
+  comparison_warning?: string | null;
   waist_cm: number | null;
   hip_cm: number | null;
   chest_cm: number | null;
@@ -653,6 +668,58 @@ export interface AssessmentCreateInput {
   extra_data?: Record<string, unknown>;
 }
 
+export interface AnthropometryProtocol {
+  key: string;
+  label: string;
+  sex: "male" | "female" | null;
+  age_min: number | null;
+  age_max: number | null;
+  required_fields: string[];
+  supported: boolean;
+  notes?: string | null;
+}
+
+export interface AnthropometryMeasurementInput {
+  attempts: number[];
+  unit: "mm" | "cm" | "kg";
+  side: "right" | "left" | "not_applicable";
+  side_exception_reason?: string | null;
+}
+
+export interface AnthropometryAssessmentInput {
+  assessment_date?: string;
+  sex_for_formula?: "male" | "female";
+  age_years?: number | null;
+  measurement_protocol: string;
+  measurements: Record<string, AnthropometryMeasurementInput>;
+  observations?: string;
+}
+
+export interface AnthropometryPreview {
+  assessment_method: "manual_anthropometry";
+  record_origin: "cordex";
+  measurement_policy_version?: string;
+  protocol: {
+    key: string;
+    label: string;
+    [key: string]: unknown;
+  };
+  formula_version: string;
+  calculation_hash: string;
+  results: {
+    bmi?: number | null;
+    body_fat_pct?: number | null;
+    fat_mass_kg?: number | null;
+    lean_mass_kg?: number | null;
+    waist_hip_ratio?: number | null;
+    basal_metabolic_rate?: number | null;
+    muscle_mass_kg?: number | null;
+    [key: string]: number | string | boolean | null | undefined;
+  };
+  indicator_origins: Record<string, string>;
+  snapshot: Record<string, unknown>;
+}
+
 export interface MemberConstraintsUpsertInput {
   medical_conditions?: string;
   injuries?: string;
@@ -812,6 +879,27 @@ export const assessmentService = {
   async create(memberId: string, payload: AssessmentCreateInput): Promise<Assessment> {
     const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}`, payload);
     return data;
+  },
+
+  async anthropometryProtocols(): Promise<AnthropometryProtocol[]> {
+    const { data } = await api.get<AnthropometryProtocol[]>("/api/v1/assessments/anthropometry/protocols");
+    return data;
+  },
+
+  async previewAnthropometry(memberId: string, payload: AnthropometryAssessmentInput): Promise<AnthropometryPreview> {
+    const { data } = await api.post<AnthropometryPreview>(`/api/v1/assessments/members/${memberId}/anthropometry/preview`, payload);
+    return data;
+  },
+
+  async createAnthropometry(memberId: string, payload: AnthropometryAssessmentInput, idempotencyKey: string): Promise<Assessment> {
+    const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}/anthropometry`, payload, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    return data;
+  },
+
+  openAnthropometryPdf(memberId: string, assessmentId: string): string {
+    return `/api/v1/assessments/members/${memberId}/${assessmentId}/pdf`;
   },
 
   async evolution(memberId: string): Promise<EvolutionData> {

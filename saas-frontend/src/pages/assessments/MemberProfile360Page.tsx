@@ -1307,6 +1307,7 @@ export function MemberProfile360Page() {
   const birthdayFullDate = member.birthdate ? new Date(`${member.birthdate}T12:00:00`).toLocaleDateString("pt-BR") : null;
   const birthdayDisplay = birthdayDayMonth ? birthdayDayMonth : importedBirthdayLabel;
   const birthdayMeta = birthdayDayMonth ? birthdayCountdown : importedBirthdayLabel ? "via importacao" : null;
+  const initialRegistrationMode = searchParams.get("mode") === "manual_anthropometry" ? "manual_anthropometry" : "select";
 
   const memberTasks = (memberTasksQuery.data?.items ?? [])
     .filter((task) => task.member_id === memberId)
@@ -1549,7 +1550,13 @@ export function MemberProfile360Page() {
 
         {visibleTabs.includes("registro") ? (
           <TabsContent value="registro">
-            <AssessmentRegistrationComposer memberId={memberId} onSaved={() => openTab("overview")} />
+            <AssessmentRegistrationComposer
+              memberId={memberId}
+              member={member}
+              initialMode={initialRegistrationMode}
+              onOpenBioimpedance={() => openTab("bioimpedancia")}
+              onSaved={() => openTab("overview")}
+            />
           </TabsContent>
         ) : null}
 
