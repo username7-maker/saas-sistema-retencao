@@ -5,7 +5,7 @@
 - Completed **[v3.1.0 Prontidao Operacional](./milestones/v3.1.0-ROADMAP.md)** - Phases 1-3 (shipped 2026-03-24)
 - In progress **v3.2.0 Operacao de Base** - Phases 4, 4.1, 4.2, 4.3, 4.31, 4.32, 4.33, 4.34, 4.35, 4.36, 4.37, 4.38, 4.39, 4.40, 4.41, 4.42, 4.42.1, 4.42.2, 4.42.3, 4.42.4, 4.42.5, 4.43, 4.43.1, 4.43.2, 5, 6
 - In progress **[v3.3.0 AI Lead-to-Member Intelligence Foundation](./milestones/v3.3.0-ROADMAP.md)** - Phase 7.0 validada; 7.1 retrofit implementado como lifecycle operacional em Membros/Perfil; 7.2 aberta como `Assessment + Coach Workspace Foundation`; 7.3 implementada como `BI Foundation Upgrade`, depois [v3.4.0](./milestones/v3.4.0-ROADMAP.md) com `8.4 AI Service Agent Kommo V1` e `8.5 Personal IA V1` publicadas no piloto, e `8.6 Video Movement Corrector V1` aberta como proximo AI First tecnico supervisionado, [v3.5.0](./milestones/v3.5.0-ROADMAP.md) and [v3.6.0](./milestones/v3.6.0-ROADMAP.md)
-- In progress **Phase 11 Avaliacao antropometrica sem bioimpedancia** - Spec 056 entrega V1 local; Spec 057 registra spike Actuar Core; Spec 058 registra backlog de expansoes
+- In progress **Phase 11 Avaliacao antropometrica sem bioimpedancia** - Spec 056 entrega V1 local; Spec 057 registra spike Actuar Core com NO-GO controlado ate teste real; Spec 058 registra backlog de expansoes
 
 ## Active Milestone - v3.2.0 Operacao de Base
 
@@ -32,6 +32,26 @@ Status:
 Deferred:
 - Spec 057: spike e Actuar Core
 - Spec 058: expansoes posteriores
+
+### Phase 11.1: Anthropometry Actuar Core
+
+**Goal:** Validar, antes de qualquer implementacao, se o Actuar aceita o payload minimo antropometrico e se o id externo da avaliacao criada pode ser capturado com seguranca.
+**Requirements**: `ANTHRO-ACTUAR-01`
+**Depends on:** Phase 11 / Spec 056
+**Plans:** 1 plan
+
+Plans:
+- [x] 11.1-PLAN.md - spike Actuar Core antes do sync
+
+Status:
+- [x] context
+- [x] plan
+- [x] preflight
+- [ ] live spike
+- [x] verify/validate
+
+Decision:
+- NO-GO para implementacao enquanto nao houver credenciais/sessao Actuar aprovadas, aluno de teste designado, prova de massa muscular vazia e captura de `external_assessment_id`.
 
 ### Phase 4: Import mapper e reconciliacao manual
 

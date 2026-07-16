@@ -2,7 +2,9 @@
 
 ## Status
 
-Deferred. This spec is documentation and spike scope only. No Actuar sync is part of Spec 056.
+Spike preflight executed on 2026-07-16. Implementation is NO-GO until a live Actuar test passes the matrix in `ACTUAR-SPIKE.md`.
+
+No Actuar sync is part of Spec 056, and no anthropometric Actuar sync is authorized by this Spec 057 result yet.
 
 ## Required spike before implementation
 
@@ -27,6 +29,13 @@ If Actuar requires muscle mass or does not expose a safe way to recover the crea
 - V1.1 does not advance;
 - the local V1 remains published;
 - UI must show that Actuar sending is not available for anthropometry.
+
+Current preflight result:
+
+- muscle-mass-empty save is unverified;
+- minimum payload save is unverified;
+- current backend/bridge contract does not yet persist a created assessment id as `external_assessment_id`;
+- therefore Actuar Core implementation remains blocked.
 
 ## Conditional implementation after PASS
 

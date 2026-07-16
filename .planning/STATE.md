@@ -5,6 +5,7 @@ plan: "Upload real de foto e funcoes mais ricas por usuario"
 status: Publicada e validada no piloto; V1 entregou upload de avatar para equipe e separacao clara entre cargo exibido e papel de acesso.
 last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
 active_branch_phase: 11 - avaliacao antropometrica local sem bioimpedancia
+active_branch_phase_11_1: anthropometry actuar core preflight no-go
 ---
 
 # STATE
@@ -24,6 +25,8 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 **Last activity:** 2026-05-28 - fase 04.35 publicada no piloto.
 
 **Active implementation branch:** Phase 11 / Spec 056 - avaliacao antropometrica local sem bioimpedancia. Implementada em worktree isolada, sem alterar o fluxo de bioimpedancia e sem executar Actuar/IA/WhatsApp/Kommo.
+
+**Phase 11.1 status:** Spec 057 preflight executado. Actuar Core permanece NO-GO ate teste real controlado confirmar massa muscular vazia, payload minimo e captura segura de `external_assessment_id`.
 
 ## Progress Snapshot
 
@@ -68,12 +71,14 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 7.0: lead-to-member intelligence graph - validada; payload canonico `lead-member-context-v1` segue read-only, tenant-scoped e consumido por Profile 360, AI Inbox, Tarefas, Retencao, CRM, Coach workspace e BI Foundation
 - Phase 7.2: assessment + coach workspace foundation - aberta; objetivo e criar fila tecnica do professor por turno com avaliacao, bioimpedancia, treino, feedback e reavaliacao sem app do aluno ou prescricao automatica
 - Phase 11: avaliacao antropometrica sem bioimpedancia - Spec 056 implementa V1 local com formulario manual, calculos backend, historico, PDF e regua D+8/D+14/D+75/D+90; Spec 057/058 ficam diferidas
+- Phase 11.1: Anthropometry Actuar Core - preflight executado; live spike bloqueado por ausencia de credenciais/sessao Actuar aprovadas e aluno de teste designado
 - Phase 5: bulk update dedicado de membros - pausada ate a saida do hardening
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 
 ### Roadmap Evolution
 
 - 2026-07-16: Phase 11 registrada para avaliacao antropometrica sem bioimpedancia; V1 local usa `Assessment`, `anthropometry_snapshot_json`, idempotencia por chave, PDF premium e historico por leitura, mantendo bioimpedancia congelada.
+- 2026-07-16: Phase 11.1 registrou NO-GO controlado para Actuar Core antropometrico; testes Actuar/bridge existentes fecharam `69 passed`, mas a implementacao fica bloqueada ate prova live de massa muscular vazia, payload minimo e `external_assessment_id`.
 - Phase 4.43 added: AI-first fase 1 - Inbox de triagem, posicionada como primeira aposta pos-freeze e bloqueada pelos gates de hardening, canais reais e transparencia de IA
 - 2026-04-02: gate operacional da 4.43 formalizado com `04.43-BASELINE.md` e `04.43-APPROVAL-POLICY.md`
 - 2026-04-02: 4.32 e 4.33 passaram a existir como fases GSD completas em documentacao, em vez de placeholders no roadmap
