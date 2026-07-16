@@ -33,6 +33,20 @@ interface LoadPoint {
   load: number | null;
 }
 
+interface PerimetryPoint {
+  label: string;
+  [key: string]: string | number | null;
+}
+
+const PERIMETRY_SERIES = [
+  { key: "waist_cm", label: "Cintura", color: "hsl(var(--lovable-primary))" },
+  { key: "hip_cm", label: "Quadril", color: "hsl(var(--lovable-success))" },
+  { key: "shoulders_cm", label: "Ombros", color: "#38bdf8" },
+  { key: "chest_cm", label: "Torax", color: "#a78bfa" },
+  { key: "right_arm_relaxed_cm", label: "Braco D relax.", color: "#f59e0b" },
+  { key: "right_thigh_cm", label: "Coxa D", color: "#ef4444" },
+] as const;
+
 function shortMonthLabel(value: string): string {
   const normalized = value.match(/^\d{4}-\d{2}$/) ? `${value}-01` : value;
   const date = new Date(normalized);
@@ -63,6 +77,7 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
     Array.isArray((evolution as Partial<EvolutionData>).main_lift_load) && evolution.main_lift_load.length > 0
       ? evolution.main_lift_load
       : labels.map(() => null);
+  const perimetry = evolution.perimetry ?? {};
 
   const frequencyData: FrequencyPoint[] = checkinsLabelsRaw.map((label, index) => ({
     label,
@@ -80,8 +95,17 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
     load: mainLiftRaw[index] ?? null,
   }));
 
+  const perimetryData: PerimetryPoint[] = labels.map((label, index) => {
+    const point: PerimetryPoint = { label };
+    for (const series of PERIMETRY_SERIES) {
+      point[series.key] = perimetry[series.key]?.[index] ?? null;
+    }
+    return point;
+  });
+
   const hasCompositionData = hasAtLeastOneValue(leanMassRaw) || hasAtLeastOneValue(bodyFatRaw);
   const hasLoadData = hasAtLeastOneValue(mainLiftRaw);
+  const visiblePerimetrySeries = PERIMETRY_SERIES.filter((series) => hasAtLeastOneValue(perimetry[series.key] ?? []));
 
   return (
     <section className="space-y-4">
@@ -170,6 +194,50 @@ export function EvolutionCharts({ evolution }: EvolutionChartsProps) {
           </div>
         </article>
       </div>
+
+      {visiblePerimetrySeries.length > 0 ? (
+        <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetria para evolucao</h3>
+          <p className="mt-1 text-xs text-lovable-ink-muted">Acompanhamento das medidas corporais registradas nas avaliacoes.</p>
+          <div className="mt-3 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={perimetryData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--lovable-chart-grid) / 0.6)" />
+                <XAxis dataKey="label" tickFormatter={shortMonthLabel} stroke="hsl(var(--lovable-ink-muted))" />
+                <YAxis stroke="hsl(var(--lovable-ink-muted))" />
+                <Tooltip
+                  labelFormatter={(value) => shortMonthLabel(String(value))}
+                  formatter={(value, key) => {
+                    if (value === null || value === undefined) return ["-", String(key)];
+                    const label = PERIMETRY_SERIES.find((series) => series.key === key)?.label ?? String(key);
+                    return [`${Number(value).toFixed(1)} cm`, label];
+                  }}
+                  contentStyle={{
+                    background: "rgba(14,16,24,0.97)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "12px",
+                    padding: "10px 14px",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.48)",
+                  }}
+                />
+                <Legend />
+                {visiblePerimetrySeries.map((series) => (
+                  <Line
+                    key={series.key}
+                    type="monotone"
+                    dataKey={series.key}
+                    name={series.label}
+                    stroke={series.color}
+                    strokeWidth={2.25}
+                    connectNulls
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+      ) : null}
 
       <article className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">

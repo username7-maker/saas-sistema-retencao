@@ -262,6 +262,7 @@ class EvolutionOut(BaseModel):
     body_fat: list[float | None]
     lean_mass: list[float | None]
     bmi: list[float | None]
+    perimetry: dict[str, list[float | None]] = Field(default_factory=dict)
     strength: list[int | None]
     flexibility: list[int | None]
     cardio: list[int | None]

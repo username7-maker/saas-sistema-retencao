@@ -14,6 +14,10 @@ from app.models.assessment import Assessment, MemberConstraints, MemberGoal, Tra
 from app.services.assessment_analytics_service import generate_ai_insights
 from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
 from app.services.assessment_anthropometry_service import build_bioimpedance_history_item, build_history_assessment_item
+from app.services.body_composition_anthropometry_service import (
+    ANTHROPOMETRY_CALCULATION_FIELDS,
+    ANTHROPOMETRY_EVOLUTION_FIELDS,
+)
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
@@ -742,6 +746,11 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
     body_fat = [_decimal_to_float(item.body_fat_pct) for item in assessments]
     lean_mass = [_decimal_to_float(item.lean_mass_kg) for item in assessments]
     bmi = [_decimal_to_float(item.bmi) for item in assessments]
+    perimetry_fields = tuple(dict.fromkeys((*ANTHROPOMETRY_CALCULATION_FIELDS, *ANTHROPOMETRY_EVOLUTION_FIELDS)))
+    perimetry = {
+        field: [_assessment_perimetry_value(item, field) for item in assessments]
+        for field in perimetry_fields
+    }
     strength = [item.strength_score for item in assessments]
     flexibility = [item.flexibility_score for item in assessments]
     cardio = [item.cardio_score for item in assessments]
@@ -771,6 +780,7 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
         "body_fat": body_fat,
         "lean_mass": lean_mass,
         "bmi": bmi,
+        "perimetry": perimetry,
         "strength": strength,
         "flexibility": flexibility,
         "cardio": cardio,
@@ -783,6 +793,7 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
             "body_fat": _calculate_delta(body_fat),
             "lean_mass": _calculate_delta(lean_mass),
             "bmi": _calculate_delta(bmi),
+            **{f"perimetry.{field}": _calculate_delta(values) for field, values in perimetry.items()},
             "strength": _calculate_delta(strength),
             "flexibility": _calculate_delta(flexibility),
             "cardio": _calculate_delta(cardio),
@@ -868,6 +879,45 @@ def _decimal_to_float(value: Decimal | None) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _assessment_perimetry_value(assessment: Assessment, field: str) -> float | None:
+    snapshot = assessment.anthropometry_snapshot_json if isinstance(assessment.anthropometry_snapshot_json, dict) else {}
+    measurements = snapshot.get("measurements", {}) if isinstance(snapshot, dict) else {}
+    if isinstance(measurements, dict):
+        item = measurements.get(field)
+        if isinstance(item, dict):
+            parsed = _coerce_float(item.get("consolidated_value"))
+            if parsed is not None:
+                return parsed
+
+    extra = assessment.extra_data if isinstance(assessment.extra_data, dict) else {}
+    perimetry = extra.get("perimetry_evolution", {}) if isinstance(extra, dict) else {}
+    if isinstance(perimetry, dict):
+        parsed = _coerce_float(perimetry.get(field))
+        if parsed is not None:
+            return parsed
+
+    fallback_fields = {
+        "waist_cm": "waist_cm",
+        "hip_cm": "hip_cm",
+        "chest_cm": "chest_cm",
+        "right_arm_relaxed_cm": "arm_cm",
+        "right_thigh_cm": "thigh_cm",
+    }
+    fallback = fallback_fields.get(field)
+    if fallback:
+        return _decimal_to_float(getattr(assessment, fallback, None))
+    return None
+
+
+def _coerce_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _calculate_bmi(height_cm: Decimal | None, weight_kg: Decimal | None) -> Decimal | None:

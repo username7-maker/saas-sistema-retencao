@@ -922,8 +922,15 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     ).strip()
     compact_lead_insight_message = _truncate_body_text(lead_insight_message, 180 if technical_scope else 150)
 
-    client_footer_note = (
-        "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
+    client_footer_note = str(
+        payload.parameters.get("client_footer_note")
+        if isinstance(payload.parameters, dict) and payload.parameters.get("client_footer_note")
+        else "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
+    )
+    composition_detail_subtitle = str(
+        payload.parameters.get("composition_detail_subtitle")
+        if isinstance(payload.parameters, dict) and payload.parameters.get("composition_detail_subtitle")
+        else "Valores separados por origem: bioimpedancia, medidas/protocolo e calculos derivados."
     )
     measurement_section_html = _render_body_measurement_pdf_section(measurement_rows, header.get("sex"))
     bmr_metric = _body_metric_by_key(primary_cards, "basal_metabolic_rate_kcal") or _body_metric_by_key(primary_cards, "bmr")
@@ -1018,7 +1025,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       </section>
       <section class="clinical-section clinical-detail-section">
         <h2>Composicao corporal detalhada</h2>
-        <p class="clinical-section-subtitle">Valores separados por origem: bioimpedancia, medidas/protocolo e calculos derivados.</p>
+        <p class="clinical-section-subtitle">{escape(composition_detail_subtitle)}</p>
         {_render_body_detail_grid(detail_metrics, body_fat_context)}
       </section>
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>

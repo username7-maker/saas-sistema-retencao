@@ -39,6 +39,14 @@ def _petroski_payload(**overrides):
             "skinfold_calf_mm": _measure([10.0, 10.0], "mm"),
             "waist_cm": _measure([80.0, 80.0], "cm"),
             "hip_cm": _measure([96.0, 96.0], "cm"),
+            "shoulders_cm": _measure([112.0, 112.0], "cm"),
+            "chest_cm": _measure([98.0, 98.0], "cm"),
+            "right_arm_relaxed_cm": _measure([32.0, 32.0], "cm"),
+            "left_arm_relaxed_cm": _measure([31.8, 31.8], "cm", side="left"),
+            "right_thigh_cm": _measure([58.0, 58.0], "cm"),
+            "left_thigh_cm": _measure([57.5, 57.5], "cm", side="left"),
+            "right_calf_cm": _measure([38.0, 38.0], "cm"),
+            "left_calf_cm": _measure([37.8, 37.8], "cm", side="left"),
         },
         "observations": "Avaliacao manual sem balanca de bioimpedancia.",
     }
@@ -62,6 +70,8 @@ def test_preview_computes_supported_protocol_without_bioimpedance() -> None:
     assert preview["results"]["muscle_mass_kg"] is None
     assert preview["indicator_origins"]["muscle_mass_kg"] == "unavailable"
     assert preview["indicator_origins"]["body_fat_pct"] == "anthropometry_calculated"
+    assert preview["snapshot"]["measurements"]["left_arm_relaxed_cm"]["side"] == "left"
+    assert preview["snapshot"]["measurements"]["shoulders_cm"]["consolidated_value"] == "112.0"
     assert len(preview["calculation_hash"]) == 64
 
 
@@ -178,6 +188,11 @@ def test_create_manual_anthropometry_is_idempotent_by_gym_and_key(monkeypatch) -
     assert assessment.age_used_for_formula == 22
     assert assessment.height_used_for_formula == Decimal("177.00")
     assert assessment.weight_used_for_formula == Decimal("73.60")
+    assert assessment.chest_cm == Decimal("98.00")
+    assert assessment.arm_cm == Decimal("32.00")
+    assert assessment.thigh_cm == Decimal("58.00")
+    assert assessment.extra_data["perimetry_evolution"]["shoulders_cm"] == "112.0"
+    assert assessment.extra_data["perimetry_evolution"]["left_arm_relaxed_cm"] == "31.8"
     assert len(created_tasks) == 1
     db.flush.assert_called()
 

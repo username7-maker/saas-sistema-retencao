@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 from app.core.cache import invalidate_dashboard_cache
 from app.models import Member, Task, TaskPriority, TaskStatus
 from app.models.assessment import Assessment
+from app.services.body_composition_anthropometry_service import (
+    ANTHROPOMETRY_CALCULATION_FIELDS,
+    ANTHROPOMETRY_EVOLUTION_FIELDS,
+)
 from app.services.body_composition_protocols import calculate_protocol_body_fat, get_protocol, protocol_catalog
 
 
@@ -32,12 +36,22 @@ _D100 = Decimal("100")
 _FIELD_LABELS = {
     "height_cm": "Altura",
     "weight_kg": "Peso",
+    "neck_cm": "Pescoco",
     "waist_cm": "Cintura",
     "hip_cm": "Quadril",
     "abdomen_cm": "Abdomen",
-    "chest_cm": "Peito",
+    "shoulders_cm": "Ombros",
+    "chest_cm": "Torax",
     "arm_cm": "Braco",
+    "right_arm_relaxed_cm": "Braco direito relaxado",
+    "left_arm_relaxed_cm": "Braco esquerdo relaxado",
+    "right_arm_flexed_cm": "Braco direito contraido",
+    "left_arm_flexed_cm": "Braco esquerdo contraido",
     "thigh_cm": "Coxa",
+    "right_thigh_cm": "Coxa direita",
+    "left_thigh_cm": "Coxa esquerda",
+    "right_calf_cm": "Panturrilha direita",
+    "left_calf_cm": "Panturrilha esquerda",
     "skinfold_chest_mm": "Dobra peitoral",
     "skinfold_midaxillary_mm": "Dobra axilar media",
     "skinfold_subscapular_mm": "Dobra subescapular",
@@ -58,6 +72,10 @@ _UNAVAILABLE_METRICS = {
     "total_energy_expenditure": "Gasto energetico total sem fator de atividade: indisponivel nesta modalidade",
     "target_weight_kg": "Peso-alvo sem meta definida: indisponivel nesta modalidade",
 }
+
+_PERIMETRY_EVOLUTION_FIELDS = tuple(
+    dict.fromkeys((*ANTHROPOMETRY_CALCULATION_FIELDS, *ANTHROPOMETRY_EVOLUTION_FIELDS))
+)
 
 
 def list_supported_anthropometry_protocols() -> list[dict[str, Any]]:
@@ -250,6 +268,7 @@ def create_anthropometric_assessment(
         for key, value in snapshot["measurements"].items()
         if value.get("consolidated_value") is not None
     }
+    perimetry_evolution = _extract_perimetry_evolution_values(measurement_values)
     assessment = Assessment(
         id=uuid.uuid4(),
         gym_id=gym_id,
@@ -269,13 +288,18 @@ def create_anthropometric_assessment(
         waist_cm=_round2(measurement_values.get("waist_cm")),
         hip_cm=_round2(measurement_values.get("hip_cm")),
         chest_cm=_round2(measurement_values.get("chest_cm")),
-        arm_cm=_round2(measurement_values.get("arm_cm")),
-        thigh_cm=_round2(measurement_values.get("thigh_cm")),
+        arm_cm=_round2(
+            measurement_values.get("arm_cm")
+            or measurement_values.get("right_arm_relaxed_cm")
+            or measurement_values.get("right_arm_flexed_cm")
+        ),
+        thigh_cm=_round2(measurement_values.get("thigh_cm") or measurement_values.get("right_thigh_cm")),
         observations=_as_dict(payload).get("observations"),
         extra_data={
             "assessment_method": ASSESSMENT_METHOD,
             "record_origin": RECORD_ORIGIN,
             "unavailable_metrics": _UNAVAILABLE_METRICS,
+            "perimetry_evolution": perimetry_evolution,
         },
         assessment_method=ASSESSMENT_METHOD,
         record_origin=RECORD_ORIGIN,
@@ -440,6 +464,26 @@ def get_anthropometric_assessment_or_404(
     return assessment
 
 
+def list_anthropometric_assessment_report_history(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+) -> list[Assessment]:
+    return list(
+        db.scalars(
+            select(Assessment)
+            .where(
+                Assessment.gym_id == gym_id,
+                Assessment.member_id == member_id,
+                Assessment.assessment_method == ASSESSMENT_METHOD,
+                Assessment.deleted_at.is_(None),
+            )
+            .order_by(Assessment.assessment_date.asc(), Assessment.created_at.asc())
+        ).all()
+    )
+
+
 def build_history_assessment_item(assessment: Assessment, *, comparison_warning: str | None = None) -> Any:
     method = getattr(assessment, "assessment_method", None)
     origin = getattr(assessment, "record_origin", None)
@@ -573,7 +617,8 @@ def _consolidate_measurements(raw: dict[str, Any], *, required_fields: set[str])
         side = str(measurement.get("side") or "right")
         reason = (measurement.get("side_exception_reason") or "").strip() or None
         if _requires_body_side(field):
-            if side != "right" and not reason:
+            expected_side = _expected_body_side(field)
+            if side != expected_side and not reason:
                 _raise_unprocessable("side_exception_reason_required", {"field": field, "side": side})
         else:
             side = "not_applicable"
@@ -636,6 +681,12 @@ def _requires_body_side(field: str) -> bool:
     return field.endswith("_mm") or field.endswith("_cm") and field != "height_cm"
 
 
+def _expected_body_side(field: str) -> str:
+    if field.startswith("left_"):
+        return "left"
+    return "right"
+
+
 def _tolerance_percent(field: str) -> Decimal:
     return Decimal("5") if field.endswith("_mm") else Decimal("1")
 
@@ -695,6 +746,15 @@ def _snapshot_results(results: dict[str, Any]) -> dict[str, Any]:
     for key, value in results.items():
         snapshot[key] = _decimal_str(value) if isinstance(value, Decimal) else value
     return snapshot
+
+
+def _extract_perimetry_evolution_values(measurement_values: dict[str, Decimal]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for field in _PERIMETRY_EVOLUTION_FIELDS:
+        value = measurement_values.get(field)
+        if value is not None:
+            values[field] = _decimal_str(value, one_decimal=True) or ""
+    return values
 
 
 def _round2(value: Any) -> Decimal | None:

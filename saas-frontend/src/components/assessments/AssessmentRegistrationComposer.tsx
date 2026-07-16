@@ -36,6 +36,17 @@ const FIELD_LABELS: Record<string, string> = {
   waist_cm: "Cintura",
   hip_cm: "Quadril",
   abdomen_cm: "Abdomen",
+  neck_cm: "Pescoco",
+  shoulders_cm: "Ombros",
+  chest_cm: "Torax",
+  right_arm_relaxed_cm: "Braco direito relaxado",
+  left_arm_relaxed_cm: "Braco esquerdo relaxado",
+  right_arm_flexed_cm: "Braco direito contraido",
+  left_arm_flexed_cm: "Braco esquerdo contraido",
+  right_thigh_cm: "Coxa direita",
+  left_thigh_cm: "Coxa esquerda",
+  right_calf_cm: "Panturrilha direita",
+  left_calf_cm: "Panturrilha esquerda",
   skinfold_chest_mm: "Dobra peitoral",
   skinfold_midaxillary_mm: "Dobra axilar media",
   skinfold_subscapular_mm: "Dobra subescapular",
@@ -48,6 +59,20 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SKIP_DYNAMIC_FIELDS = new Set(["height_cm", "weight_kg"]);
+const EVOLUTION_PERIMETRY_FIELDS = [
+  { key: "waist_cm", label: "Cintura (cm)", placeholder: "80.0" },
+  { key: "hip_cm", label: "Quadril (cm)", placeholder: "96.0" },
+  { key: "shoulders_cm", label: "Ombros (cm)", placeholder: "112.0" },
+  { key: "chest_cm", label: "Torax (cm)", placeholder: "98.0" },
+  { key: "right_arm_relaxed_cm", label: "Braco direito relaxado (cm)", placeholder: "32.0" },
+  { key: "left_arm_relaxed_cm", label: "Braco esquerdo relaxado (cm)", placeholder: "31.8" },
+  { key: "right_arm_flexed_cm", label: "Braco direito contraido (cm)", placeholder: "35.0" },
+  { key: "left_arm_flexed_cm", label: "Braco esquerdo contraido (cm)", placeholder: "34.8" },
+  { key: "right_thigh_cm", label: "Coxa direita (cm)", placeholder: "58.0" },
+  { key: "left_thigh_cm", label: "Coxa esquerda (cm)", placeholder: "57.5" },
+  { key: "right_calf_cm", label: "Panturrilha direita (cm)", placeholder: "38.0" },
+  { key: "left_calf_cm", label: "Panturrilha esquerda (cm)", placeholder: "37.8" },
+] as const;
 
 function defaultDateTimeLocal(): string {
   const now = new Date();
@@ -92,6 +117,7 @@ function unitForField(field: string): "mm" | "cm" | "kg" {
 
 function sideForField(field: string): "right" | "left" | "not_applicable" {
   if (field === "height_cm" || field === "weight_kg") return "not_applicable";
+  if (field.startsWith("left_")) return "left";
   return "right";
 }
 
@@ -198,8 +224,7 @@ function ManualAnthropometricAssessmentForm({
   const [weight, setWeight] = useState("");
   const [protocolKey, setProtocolKey] = useState("");
   const [attempts, setAttempts] = useState<Record<string, { first: string; second: string; third?: string }>>({});
-  const [waist, setWaist] = useState("");
-  const [hip, setHip] = useState("");
+  const [perimetry, setPerimetry] = useState<Record<string, string>>({});
   const [observations, setObservations] = useState("");
   const [preview, setPreview] = useState<AnthropometryPreview | null>(null);
 
@@ -235,6 +260,22 @@ function ManualAnthropometricAssessmentForm({
     }));
   }
 
+  function updatePerimetry(field: string, value: string) {
+    setPerimetry((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function openPdfPopupSafely(): Window | null {
+    if (navigator.userAgent.toLowerCase().includes("jsdom")) return null;
+    try {
+      return window.open("", "_blank");
+    } catch {
+      return null;
+    }
+  }
+
   function buildPayload(): AnthropometryAssessmentInput {
     const measurements: AnthropometryAssessmentInput["measurements"] = {};
     const heightValue = toNumber(height);
@@ -257,10 +298,13 @@ function ManualAnthropometricAssessmentForm({
       }
     }
 
-    const waistValue = toNumber(waist);
-    const hipValue = toNumber(hip);
-    if (waistValue != null) measurements.waist_cm = buildDuplicateMeasurement(waistValue, "waist_cm");
-    if (hipValue != null) measurements.hip_cm = buildDuplicateMeasurement(hipValue, "hip_cm");
+    for (const item of EVOLUTION_PERIMETRY_FIELDS) {
+      if (measurements[item.key]) continue;
+      const value = toNumber(perimetry[item.key] ?? "");
+      if (value != null) {
+        measurements[item.key] = buildDuplicateMeasurement(value, item.key);
+      }
+    }
 
     return {
       assessment_date: assessmentDate ? new Date(assessmentDate).toISOString() : undefined,
@@ -279,13 +323,23 @@ function ManualAnthropometricAssessmentForm({
   });
 
   const createMutation = useMutation({
-    mutationFn: () => assessmentService.createAnthropometry(memberId, buildPayload(), idempotencyKey),
-    onSuccess: async () => {
+    mutationFn: ({ popup }: { popup: Window | null }) =>
+      assessmentService.createAnthropometry(memberId, buildPayload(), idempotencyKey).then((assessment) => ({ assessment, popup })),
+    onSuccess: async ({ assessment, popup }) => {
       await invalidateAssessmentQueries(queryClient, memberId);
+      try {
+        await assessmentService.openAnthropometryPdf(memberId, assessment.id, popup);
+      } catch {
+        popup?.close();
+        toast.error("A avaliacao foi salva, mas nao foi possivel gerar o PDF agora.");
+      }
       toast.success("Avaliacao antropometrica salva.");
       onSaved?.();
     },
-    onError: () => toast.error("Nao foi possivel salvar a avaliacao antropometrica."),
+    onError: (_error, variables) => {
+      variables?.popup?.close();
+      toast.error("Nao foi possivel salvar a avaliacao antropometrica.");
+    },
   });
 
   return (
@@ -380,14 +434,23 @@ function ManualAnthropometricAssessmentForm({
       </section>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetros opcionais</h3>
-        <div className="grid gap-3 md:grid-cols-3">
-          <FormField label="Cintura (cm)">
-            <Input aria-label="Cintura" type="number" step="0.1" value={waist} onChange={(event) => setWaist(event.target.value)} />
-          </FormField>
-          <FormField label="Quadril (cm)">
-            <Input aria-label="Quadril" type="number" step="0.1" value={hip} onChange={(event) => setHip(event.target.value)} />
-          </FormField>
+        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetria para evolucao</h3>
+        <p className="mb-3 text-xs text-lovable-ink-muted">
+          Medidas usadas para acompanhar evolucao. Elas so entram no calculo de gordura corporal quando o protocolo exigir.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {EVOLUTION_PERIMETRY_FIELDS.filter((item) => !dynamicFields.includes(item.key)).map((item) => (
+            <FormField key={item.key} label={item.label}>
+              <Input
+                aria-label={item.label}
+                type="number"
+                step="0.1"
+                placeholder={item.placeholder}
+                value={perimetry[item.key] ?? ""}
+                onChange={(event) => updatePerimetry(item.key, event.target.value)}
+              />
+            </FormField>
+          ))}
         </div>
       </section>
 
@@ -411,6 +474,8 @@ function ManualAnthropometricAssessmentForm({
             <PreviewMetric label="IMC" value={preview.results.bmi != null ? String(preview.results.bmi) : "-"} />
             <PreviewMetric label="Massa de gordura" value={preview.results.fat_mass_kg != null ? `${preview.results.fat_mass_kg} kg` : "-"} />
             <PreviewMetric label="Massa livre" value={preview.results.lean_mass_kg != null ? `${preview.results.lean_mass_kg} kg` : "-"} />
+            <PreviewMetric label="RCQ" value={preview.results.waist_hip_ratio != null ? String(preview.results.waist_hip_ratio) : "-"} />
+            <PreviewMetric label="TMB estimada" value={preview.results.basal_metabolic_rate != null ? `${preview.results.basal_metabolic_rate} kcal` : "-"} />
           </div>
           <p className="mt-3 text-sm font-medium text-lovable-ink">Massa muscular: indisponivel nesta modalidade</p>
           <p className="mt-1 text-xs text-lovable-ink-muted">Hash do calculo: {preview.calculation_hash}</p>
@@ -421,7 +486,12 @@ function ManualAnthropometricAssessmentForm({
         <Button type="button" variant="secondary" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending || !protocolKey}>
           {previewMutation.isPending ? "Calculando..." : "Calcular previa"}
         </Button>
-        <Button type="button" variant="primary" onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !preview}>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={() => createMutation.mutate({ popup: openPdfPopupSafely() })}
+          disabled={createMutation.isPending || !preview}
+        >
           {createMutation.isPending ? "Salvando..." : "Confirmar avaliacao"}
         </Button>
       </div>

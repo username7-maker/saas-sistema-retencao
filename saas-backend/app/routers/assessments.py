@@ -66,6 +66,7 @@ from app.services.assessment_anthropometry_report_service import generate_anthro
 from app.services.assessment_anthropometry_service import (
     create_anthropometric_assessment,
     get_anthropometric_assessment_or_404,
+    list_anthropometric_assessment_report_history,
     list_supported_anthropometry_protocols,
     preview_anthropometric_assessment,
 )
@@ -399,9 +400,15 @@ def export_anthropometry_pdf_endpoint(
         member_id=member_id,
         assessment_id=assessment_id,
     )
+    history = list_anthropometric_assessment_report_history(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+    )
     pdf_bytes, filename = generate_anthropometric_assessment_pdf(
         member,
         assessment,
+        history=history,
         generated_by=getattr(current_user, "full_name", None),
     )
     context = get_request_context(request)

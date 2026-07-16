@@ -14,6 +14,7 @@ vi.mock("../services/assessmentService", async () => {
       anthropometryProtocols: vi.fn(),
       previewAnthropometry: vi.fn(),
       createAnthropometry: vi.fn(),
+      openAnthropometryPdf: vi.fn(),
     },
   };
 });
@@ -142,6 +143,8 @@ describe("AssessmentRegistrationComposer anthropometry mode", () => {
     expect(screen.queryByLabelText(/dobra peitoral/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/peso/i), { target: { value: "73.6" } });
+    fireEvent.change(screen.getByLabelText(/ombros/i), { target: { value: "112" } });
+    fireEvent.change(screen.getByLabelText(/braco direito relaxado/i), { target: { value: "32" } });
     fireEvent.change(screen.getByLabelText(/dobra tricipital - tentativa 1/i), { target: { value: "9" } });
     fireEvent.change(screen.getByLabelText(/dobra tricipital - tentativa 2/i), { target: { value: "9" } });
     fireEvent.click(screen.getByRole("button", { name: /calcular previa/i }));
@@ -154,9 +157,19 @@ describe("AssessmentRegistrationComposer anthropometry mode", () => {
     await waitFor(() => {
       expect(assessmentService.createAnthropometry).toHaveBeenCalledWith(
         "member-1",
-        expect.objectContaining({ measurement_protocol: "petroski_1995_male_18_66" }),
+        expect.objectContaining({
+          measurement_protocol: "petroski_1995_male_18_66",
+          measurements: expect.objectContaining({
+            shoulders_cm: expect.objectContaining({ attempts: [112, 112], unit: "cm", side: "right" }),
+            right_arm_relaxed_cm: expect.objectContaining({ attempts: [32, 32], unit: "cm", side: "right" }),
+          }),
+        }),
         expect.any(String),
       );
     });
+    await waitFor(() => {
+      expect(assessmentService.openAnthropometryPdf).toHaveBeenCalled();
+    });
+    expect(vi.mocked(assessmentService.openAnthropometryPdf).mock.calls[0]?.slice(0, 2)).toEqual(["member-1", "assessment-1"]);
   });
 });

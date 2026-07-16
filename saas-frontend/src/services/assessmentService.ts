@@ -1,6 +1,33 @@
 import { api } from "./api";
 import type { ActuarSyncQueueItem, AIAssistantPayload, RiskLevel } from "../types";
 
+function parseFilename(contentDisposition?: string, fallback = "avaliacao-antropometrica.pdf"): string {
+  const match = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
+  return decodeURIComponent(match?.[1] || match?.[2] || fallback);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+}
+
+function writePdfWindowMessage(targetWindow: Window | null | undefined, title: string, message: string): void {
+  if (!targetWindow) return;
+  try {
+    targetWindow.document.open();
+    targetWindow.document.write(`<!doctype html><title>${title}</title><body style="font-family:Inter,Arial,sans-serif;background:#0b0f17;color:#e5eefb;padding:32px"><h1>${title}</h1><p>${message}</p></body>`);
+    targetWindow.document.close();
+  } catch {
+    // noop
+  }
+}
+
 export interface Assessment {
   id: string;
   gym_id: string;
@@ -147,6 +174,7 @@ export interface EvolutionData {
   body_fat: Array<number | null>;
   lean_mass: Array<number | null>;
   bmi: Array<number | null>;
+  perimetry?: Record<string, Array<number | null>>;
   strength: Array<number | null>;
   flexibility: Array<number | null>;
   cardio: Array<number | null>;
@@ -898,8 +926,52 @@ export const assessmentService = {
     return data;
   },
 
-  openAnthropometryPdf(memberId: string, assessmentId: string): string {
-    return `/api/v1/assessments/members/${memberId}/${assessmentId}/pdf`;
+  async fetchAnthropometryPdf(memberId: string, assessmentId: string): Promise<{ blob: Blob; filename: string }> {
+    const response = await api.get<Blob>(`/api/v1/assessments/members/${memberId}/${assessmentId}/pdf`, {
+      headers: { Accept: "application/pdf" },
+      responseType: "blob",
+      params: { ts: Date.now() },
+      timeout: 90_000,
+    });
+
+    return {
+      blob: response.data,
+      filename: parseFilename(response.headers["content-disposition"], "avaliacao-antropometrica.pdf"),
+    };
+  },
+
+  async openAnthropometryPdf(memberId: string, assessmentId: string, popup?: Window | null): Promise<void> {
+    const targetWindow = popup ?? window.open("", "_blank");
+    if (targetWindow) {
+      try {
+        targetWindow.opener = null;
+      } catch {
+        // noop
+      }
+      writePdfWindowMessage(
+        targetWindow,
+        "Gerando PDF",
+        "Estamos montando o relatorio antropometrico completo. A primeira geracao pode levar alguns segundos.",
+      );
+    }
+
+    try {
+      const { blob, filename } = await this.fetchAnthropometryPdf(memberId, assessmentId);
+      const url = window.URL.createObjectURL(blob);
+      if (targetWindow) {
+        targetWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+      triggerBrowserDownload(blob, filename);
+    } catch (error) {
+      writePdfWindowMessage(
+        targetWindow,
+        "Nao foi possivel gerar o PDF",
+        "A avaliacao foi salva, mas o backend nao retornou o arquivo dentro do tempo esperado. Tente abrir o PDF novamente pelo historico.",
+      );
+      throw error;
+    }
   },
 
   async evolution(memberId: string): Promise<EvolutionData> {
