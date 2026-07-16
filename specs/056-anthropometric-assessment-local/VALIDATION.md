@@ -51,7 +51,39 @@ py -3.12 -m alembic heads
 20260716_0051 (head)
 ```
 
-`alembic current` was attempted and failed because no local PostgreSQL server was listening on `localhost:5432`. This is an environment limitation, not a migration graph failure.
+PostgreSQL migration smoke:
+
+```text
+docker run -d --name phase11_anthro_db -e POSTGRES_DB=aigymos -e POSTGRES_USER=aigymos -e POSTGRES_PASSWORD=aigymos_dev -p 55432:5432 postgres:16-alpine
+DATABASE_URL=postgresql+psycopg2://aigymos:aigymos_dev@localhost:55432/aigymos CPF_ENCRYPTION_KEY=<local-test-key> py -3.12 -m alembic upgrade head
+DATABASE_URL=postgresql+psycopg2://aigymos:aigymos_dev@localhost:55432/aigymos CPF_ENCRYPTION_KEY=<local-test-key> py -3.12 -m alembic current
+20260716_0051 (head)
+```
+
+Schema spot-check:
+
+```text
+alembic_version: 20260716_0051
+assessments: assessment_method, record_origin, anthropometry_snapshot_json, idempotency_key, calculation_hash
+members: height_cm, sex_for_clinical_calculation
+constraint: uq_assessments_gym_idempotency_key
+```
+
+API smoke against migrated PostgreSQL:
+
+```text
+register/login: PASS
+member create: PASS
+GET /api/v1/assessments/anthropometry/protocols: PASS
+POST /api/v1/assessments/members/{member_id}/anthropometry/preview: PASS body_fat_pct=12.49
+POST /api/v1/assessments/members/{member_id}/anthropometry: PASS
+idempotent repeat with same Idempotency-Key: PASS same assessment_id
+GET /api/v1/assessments/members/{member_id}: PASS history_badge=Antropometria
+GET /api/v1/assessments/members/{member_id}/{assessment_id}/pdf: PASS PDF bytes returned with X-Report-Scope=anthropometry
+DB tasks: PASS offsets=[8,14,75,90]
+snapshot_schema: anthropometry_snapshot_v1
+calculation_hash_len: 64
+```
 
 FastAPI import:
 
@@ -89,3 +121,4 @@ PASS
 - `npm.cmd ci` reported 12 existing dependency audit findings from the lockfile. They were not changed because dependency remediation is outside Spec 056.
 - The bioimpedance tab/component was covered by characterization tests and not edited.
 - `npm.cmd run build` reported the existing Browserslist/caniuse-lite freshness notice. It did not fail the build.
+- The existing Playwright E2E `tests/e2e/body-composition-anthropometry.spec.ts` was attempted as a non-gating characterization of the legacy report surface and failed on stale expected copy (`Fonte oficial da gordura corporal`). The page rendered the current documentary report layout; no file in that legacy report/E2E path was changed by Spec 056.

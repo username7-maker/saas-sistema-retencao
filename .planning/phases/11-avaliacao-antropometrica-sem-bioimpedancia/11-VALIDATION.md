@@ -34,7 +34,12 @@ py -3.12 -m alembic heads
 
 ```text
 py -3.12 -m alembic current
-FAILED - local PostgreSQL unavailable on localhost:5432
+PASS - 20260716_0051 (head), after running against isolated PostgreSQL on localhost:55432
+```
+
+```text
+PostgreSQL API smoke
+PASS - register/login, member create, protocols, preview, create, idempotent repeat, history, PDF, DB task offsets [8,14,75,90]
 ```
 
 ```text
@@ -57,4 +62,5 @@ PASS
 - Bioimpedancia foi tratada por caracterizacao e o componente `MemberBodyCompositionTab` nao foi alterado.
 - Spec 057 e Spec 058 permanecem documentadas como fases posteriores.
 - Warnings de lint existentes nao foram corrigidos por estarem fora do escopo.
-- `alembic current` depende de banco local ativo; o ambiente atual nao tinha Postgres escutando em `localhost:5432`.
+- Foi usado Postgres isolado em Docker (`phase11_anthro_db`, porta 55432) para fechar `alembic upgrade head`, `alembic current` e smoke de API/PDF/regua.
+- O E2E legado `body-composition-anthropometry.spec.ts` foi tentado como caracterizacao nao bloqueante e falhou por texto stale do layout antigo; ele nao cobre o novo formulario manual e nenhum arquivo desse caminho foi alterado pela Phase 11.
