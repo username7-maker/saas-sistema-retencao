@@ -30,6 +30,7 @@ import {
   getBodyCompositionProtocol,
 } from "./bodyCompositionProtocols";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
+import { assessmentService, type Assessment } from "../../services/assessmentService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import {
   calculateBodyWaterPercent,
@@ -70,6 +71,14 @@ import {
   resolveMemberSummary,
 } from "./bodyCompositionInterpretation";
 import { calculateAnthropometryPreview } from "./bodyCompositionAnthropometryPreview";
+import {
+  buildAnthropometryAssistantPayload,
+  buildAnthropometryCoachSummary,
+  buildAnthropometryMemberSummary,
+  buildAnthropometryPerimetryEvidence,
+  getAnthropometryProtocolDisplay,
+  isManualAnthropometryAssessment,
+} from "./anthropometryHistorySupport";
 import { invalidateAssessmentQueries } from "./queryUtils";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
@@ -446,6 +455,19 @@ const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvalua
   { label: "Health score", field: "health_score" },
 ];
 
+const ANTHROPOMETRY_HISTORY_METRICS: Array<{ label: string; field: keyof Assessment; unit?: string }> = [
+  { label: "Peso", field: "weight_kg", unit: " kg" },
+  { label: "Gordura kg", field: "fat_mass_kg", unit: " kg" },
+  { label: "Gordura estimada %", field: "body_fat_pct", unit: "%" },
+  { label: "Massa livre", field: "lean_mass_kg", unit: " kg" },
+  { label: "IMC", field: "bmi" },
+  { label: "TMB estimada", field: "basal_metabolic_rate", unit: " kcal" },
+];
+
+type BodyCompositionHistoryItem =
+  | { kind: "bioimpedance"; id: string; sortValue: number; evaluation: BodyCompositionEvaluation }
+  | { kind: "anthropometry"; id: string; sortValue: number; assessment: Assessment };
+
 const SUPPORTED_OCR_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const SUPPORTED_OCR_IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 
@@ -555,6 +577,13 @@ function fmtDate(value: string): string {
   } catch {
     return value;
   }
+}
+
+function historySortValue(value: string | null | undefined): number {
+  if (!value) return 0;
+  const normalized = value.includes("T") ? value : `${value}T12:00:00`;
+  const time = new Date(normalized).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function sourceLabel(source: EvaluationSource | string | null | undefined): string {
@@ -815,6 +844,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     staleTime: 60 * 1000,
   });
 
+  const { data: assessments, isLoading: assessmentsLoading } = useQuery({
+    queryKey: ["assessments", "list", memberId],
+    queryFn: () => assessmentService.list(memberId),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
   const actuarSettingsQuery = useQuery({
     queryKey: ["actuar-settings", "body-composition-workspace"],
     queryFn: () => actuarSettingsService.getSettings(),
@@ -824,6 +860,33 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const focusEvaluation = editingEvaluationId
     ? evaluations?.find((evaluation) => evaluation.id === editingEvaluationId) ?? null
     : evaluations?.[0] ?? null;
+
+  const anthropometryAssessments = useMemo(
+    () =>
+      (assessments ?? [])
+        .filter(isManualAnthropometryAssessment)
+        .sort((left, right) => historySortValue(right.assessment_date) - historySortValue(left.assessment_date)),
+    [assessments],
+  );
+  const focusAnthropometryAssessment = anthropometryAssessments[0] ?? null;
+  const compositionHistoryItems = useMemo<BodyCompositionHistoryItem[]>(
+    () =>
+      [
+        ...((evaluations ?? []).map((evaluation) => ({
+          kind: "bioimpedance" as const,
+          id: evaluation.id,
+          sortValue: historySortValue(evaluation.evaluation_date),
+          evaluation,
+        }))),
+        ...anthropometryAssessments.map((assessment) => ({
+          kind: "anthropometry" as const,
+          id: assessment.id,
+          sortValue: historySortValue(assessment.assessment_date),
+          assessment,
+        })),
+      ].sort((left, right) => right.sortValue - left.sortValue),
+    [anthropometryAssessments, evaluations],
+  );
 
   const { data: syncStatus, isFetching: syncLoading } = useQuery({
     queryKey: ["body-composition-sync", memberId, focusEvaluation?.id],
@@ -1230,6 +1293,26 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     } catch {
       popup?.close();
       toast.error(kind === "technical" ? "Nao foi possivel abrir o relatorio tecnico." : "Nao foi possivel abrir o resumo do aluno.");
+    }
+  }
+
+  async function handleOpenAnthropometryPdf(assessmentId: string) {
+    const popup = window.open("", "_blank");
+    try {
+      if (popup) popup.opener = null;
+      await assessmentService.openAnthropometryPdf(memberId, assessmentId, popup);
+    } catch {
+      popup?.close();
+      toast.error("Nao foi possivel abrir o PDF da avaliacao antropometrica.");
+    }
+  }
+
+  async function handleCopyAnthropometryMessage(assessment: Assessment) {
+    try {
+      await navigator.clipboard.writeText(buildAnthropometryMemberSummary(assessment, memberName));
+      toast.success("Mensagem da antropometria copiada.");
+    } catch {
+      toast.error("Nao foi possivel copiar a mensagem da antropometria.");
     }
   }
 
@@ -1937,120 +2020,134 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
               <CardTitle>Interpretacao de apoio</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!focusEvaluation ? (
+              {!focusEvaluation && !focusAnthropometryAssessment ? (
                 <p className="text-sm text-lovable-ink-muted">Salve a avaliacao para gerar a interpretacao de apoio ao professor.</p>
               ) : (
                 <>
-                  <AIAssistantPanel
-                    assistant={focusEvaluation.assistant}
-                    title="IA da bioimpedancia"
-                    subtitle="Achados principais, comparacao com o exame anterior e orientacao inicial para o coach."
-                  />
-                  {focusEvaluation.ai_training_focus_json?.prompt_metadata ? (
-                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/25 px-4 py-3 text-xs text-lovable-ink-muted">
-                      <StatusPill tone="neutral">Agente especialista</StatusPill>
-                      <StatusPill tone="neutral">
-                        Prompt v{focusEvaluation.ai_training_focus_json.prompt_metadata.prompt_version ?? "-"}
-                      </StatusPill>
-                      <StatusPill tone="neutral">
-                        Modelo: {focusEvaluation.ai_training_focus_json.prompt_metadata.model ?? "-"}
-                      </StatusPill>
-                    </div>
-                  ) : null}
-                  <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
-                    <p className="mt-2 text-sm text-lovable-ink">{resolveCoachSummary(focusEvaluation) || "Resumo ainda nao gerado."}</p>
-                  </div>
-                  <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
-                        <p className="mt-2 text-sm text-lovable-ink">{resolveMemberSummary(focusEvaluation) || "Resumo amigavel ainda nao gerado."}</p>
+                  {focusEvaluation ? (
+                    <>
+                      <AIAssistantPanel
+                        assistant={focusEvaluation.assistant}
+                        title="IA da bioimpedancia"
+                        subtitle="Achados principais, comparacao com o exame anterior e orientacao inicial para o coach."
+                      />
+                      {focusEvaluation.ai_training_focus_json?.prompt_metadata ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/25 px-4 py-3 text-xs text-lovable-ink-muted">
+                          <StatusPill tone="neutral">Agente especialista</StatusPill>
+                          <StatusPill tone="neutral">
+                            Prompt v{focusEvaluation.ai_training_focus_json.prompt_metadata.prompt_version ?? "-"}
+                          </StatusPill>
+                          <StatusPill tone="neutral">
+                            Modelo: {focusEvaluation.ai_training_focus_json.prompt_metadata.model ?? "-"}
+                          </StatusPill>
+                        </div>
+                      ) : null}
+                      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
+                        <p className="mt-2 text-sm text-lovable-ink">{resolveCoachSummary(focusEvaluation) || "Resumo ainda nao gerado."}</p>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={!focusEvaluation?.id || !canSendWhatsAppSummary || sendWhatsAppMutation.isPending}
-                        onClick={() => focusEvaluation?.id && sendWhatsAppMutation.mutate(focusEvaluation.id)}
-                      >
-                        <MessageCircle size={14} />
-                        {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar no WhatsApp"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canSendKommoHandoff || sendKommoMutation.isPending}
-                        onClick={() => focusEvaluation?.id && sendKommoMutation.mutate(focusEvaluation.id)}
-                      >
-                        <Link2 size={14} />
-                        {sendKommoMutation.isPending ? "Enviando..." : "Enviar PDF nativo via Kommo"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={!canSendKommoHandoff || prepareKommoMutation.isPending}
-                        onClick={() => focusEvaluation?.id && prepareKommoMutation.mutate(focusEvaluation.id)}
-                      >
-                        <Link2 size={14} />
-                        {prepareKommoMutation.isPending ? "Preparando..." : "Preparar na Kommo"}
-                      </Button>
-                    </div>
-                    <div className="mt-3 space-y-1 text-xs text-lovable-ink-muted">
-                      <p>
-                        {memberPhone
-                          ? `WhatsApp direto: envia este resumo e o PDF da bioimpedancia para o numero cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
-                          : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF pelo canal direto."}
-                      </p>
-                      <p>
-                        Kommo: anexa o PDF nativamente no lead e aciona o Salesbot no pipeline configurado. Se a rota ainda nao estiver pronta, use Preparar na Kommo como fallback.
-                      </p>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas principais</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(focusEvaluation.ai_risk_flags_json ?? ["Sem alertas estruturados"]).map((flag) => (
-                        <StatusPill key={flag} tone={flag.includes("acima") || flag.includes("abaixo") ? "warning" : "neutral"}>
-                          {flag}
-                        </StatusPill>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Classificacao por faixa</p>
-                    <div className="mt-2 space-y-2">
-                      {rangeClassifications.length === 0 ? (
-                        <p className="text-sm text-lovable-ink-muted">Sem faixas impressas suficientes para classificar este exame.</p>
-                      ) : (
-                        rangeClassifications.map((item) => (
-                          <div key={item.label} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
-                            <span className="text-lovable-ink">{item.label}</span>
-                            <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
+                      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
+                            <p className="mt-2 text-sm text-lovable-ink">{resolveMemberSummary(focusEvaluation) || "Resumo amigavel ainda nao gerado."}</p>
                           </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
-                    <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">
-                      <Sparkles size={14} />
-                      Direcao inicial sugerida
-                    </p>
-                    <p className="mt-2 text-sm text-lovable-ink">
-                      Objetivo principal: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.primary_goal) || "Acompanhamento geral"}
-                    </p>
-                    <p className="text-sm text-lovable-ink">
-                      Objetivo secundario: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.secondary_goal) || "Preservacao de massa magra"}
-                    </p>
-                    <ul className="mt-2 space-y-1 text-sm text-lovable-ink-muted">
-                      {(focusEvaluation.ai_training_focus_json?.suggested_focuses ?? []).map((focus) => (
-                        <li key={focus}>- {focus}</li>
-                      ))}
-                    </ul>
-                  </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={!focusEvaluation?.id || !canSendWhatsAppSummary || sendWhatsAppMutation.isPending}
+                            onClick={() => focusEvaluation?.id && sendWhatsAppMutation.mutate(focusEvaluation.id)}
+                          >
+                            <MessageCircle size={14} />
+                            {sendWhatsAppMutation.isPending ? "Enviando..." : "Enviar no WhatsApp"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={!canSendKommoHandoff || sendKommoMutation.isPending}
+                            onClick={() => focusEvaluation?.id && sendKommoMutation.mutate(focusEvaluation.id)}
+                          >
+                            <Link2 size={14} />
+                            {sendKommoMutation.isPending ? "Enviando..." : "Enviar PDF nativo via Kommo"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={!canSendKommoHandoff || prepareKommoMutation.isPending}
+                            onClick={() => focusEvaluation?.id && prepareKommoMutation.mutate(focusEvaluation.id)}
+                          >
+                            <Link2 size={14} />
+                            {prepareKommoMutation.isPending ? "Preparando..." : "Preparar na Kommo"}
+                          </Button>
+                        </div>
+                        <div className="mt-3 space-y-1 text-xs text-lovable-ink-muted">
+                          <p>
+                            {memberPhone
+                              ? `WhatsApp direto: envia este resumo e o PDF da bioimpedancia para o numero cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
+                              : "Cadastre o WhatsApp do aluno para enviar este resumo com PDF pelo canal direto."}
+                          </p>
+                          <p>
+                            Kommo: anexa o PDF nativamente no lead e aciona o Salesbot no pipeline configurado. Se a rota ainda nao estiver pronta, use Preparar na Kommo como fallback.
+                          </p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Alertas principais</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(focusEvaluation.ai_risk_flags_json ?? ["Sem alertas estruturados"]).map((flag) => (
+                            <StatusPill key={flag} tone={flag.includes("acima") || flag.includes("abaixo") ? "warning" : "neutral"}>
+                              {flag}
+                            </StatusPill>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Classificacao por faixa</p>
+                        <div className="mt-2 space-y-2">
+                          {rangeClassifications.length === 0 ? (
+                            <p className="text-sm text-lovable-ink-muted">Sem faixas impressas suficientes para classificar este exame.</p>
+                          ) : (
+                            rangeClassifications.map((item) => (
+                              <div key={item.label} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
+                                <span className="text-lovable-ink">{item.label}</span>
+                                <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">
+                          <Sparkles size={14} />
+                          Direcao inicial sugerida
+                        </p>
+                        <p className="mt-2 text-sm text-lovable-ink">
+                          Objetivo principal: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.primary_goal) || "Acompanhamento geral"}
+                        </p>
+                        <p className="text-sm text-lovable-ink">
+                          Objetivo secundario: {formatBodyCompositionGoal(focusEvaluation.ai_training_focus_json?.secondary_goal) || "Preservacao de massa magra"}
+                        </p>
+                        <ul className="mt-2 space-y-1 text-sm text-lovable-ink-muted">
+                          {(focusEvaluation.ai_training_focus_json?.suggested_focuses ?? []).map((focus) => (
+                            <li key={focus}>- {focus}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </>
+                  ) : null}
+                  {focusAnthropometryAssessment ? (
+                    <AnthropometrySupportPanel
+                      assessment={focusAnthropometryAssessment}
+                      memberId={memberId}
+                      memberName={memberName}
+                      memberPhone={memberPhone}
+                      onOpenPdf={() => void handleOpenAnthropometryPdf(focusAnthropometryAssessment.id)}
+                      onCopyMessage={() => void handleCopyAnthropometryMessage(focusAnthropometryAssessment)}
+                    />
+                  ) : null}
                 </>
               )}
             </CardContent>
@@ -2238,65 +2335,232 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
 
       <Card>
         <CardHeader>
-          <CardTitle>Historico de bioimpedancia</CardTitle>
+          <CardTitle>Historico de composicao corporal</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isLoading ? (
+          {isLoading || assessmentsLoading ? (
             <>
               <Skeleton className="h-28 w-full rounded-2xl" />
               <Skeleton className="h-28 w-full rounded-2xl" />
             </>
-          ) : !evaluations?.length ? (
-            <p className="text-sm text-lovable-ink-muted">Nenhuma bioimpedancia registrada ainda.</p>
+          ) : !compositionHistoryItems.length ? (
+            <p className="text-sm text-lovable-ink-muted">Nenhuma bioimpedancia ou antropometria registrada ainda.</p>
           ) : (
-            evaluations.map((evaluation) => (
-              <article key={evaluation.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-lovable-ink">{fmtDate(evaluation.evaluation_date)}</span>
-                      <StatusPill tone="neutral">{sourceLabel(evaluation.source)}</StatusPill>
-                      <StatusPill tone={evaluation.needs_review ? "warning" : "success"}>
-                        Revisao: {evaluation.needs_review ? "pendente" : "ok"}
-                      </StatusPill>
-                      <StatusPill tone={evaluation.reviewed_manually ? "success" : "neutral"}>
-                        Revisado manualmente: {evaluation.reviewed_manually ? "sim" : "nao"}
-                      </StatusPill>
-                      <StatusPill tone={statusPillToneForSync(evaluation.actuar_sync_status)}>
-                        Sync: {syncLabel(evaluation.actuar_sync_status)}
-                      </StatusPill>
-                    </div>
-                    <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
-                      {HISTORY_METRICS.map((metric) => (
-                        <Metric
-                          key={metric.label}
-                          label={metric.label}
-                          value={fmt((evaluation[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
-                        />
-                      ))}
-                    </div>
-                    {evaluation.ai_coach_summary ? (
-                      <p className="text-sm text-lovable-ink-muted">{evaluation.ai_coach_summary}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link to={`/assessments/members/${memberId}/body-composition/${evaluation.id}/report`}>
-                      <Button type="button" size="sm" variant="ghost">
-                        <ArrowUpRight size={14} />
-                        Relatorio
-                      </Button>
-                    </Link>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => handleEditEvaluation(evaluation)}>
-                      <Pencil size={14} />
-                      Editar
-                    </Button>
-                  </div>
-                </div>
-              </article>
-            ))
+            compositionHistoryItems.map((item) =>
+              item.kind === "bioimpedance" ? (
+                <BodyCompositionHistoryCard
+                  key={item.id}
+                  evaluation={item.evaluation}
+                  memberId={memberId}
+                  onEdit={() => handleEditEvaluation(item.evaluation)}
+                />
+              ) : (
+                <AnthropometryHistoryCard
+                  key={item.id}
+                  assessment={item.assessment}
+                  memberId={memberId}
+                  memberName={memberName}
+                  onOpenPdf={() => void handleOpenAnthropometryPdf(item.assessment.id)}
+                />
+              ),
+            )
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function BodyCompositionHistoryCard({
+  evaluation,
+  memberId,
+  onEdit,
+}: {
+  evaluation: BodyCompositionEvaluation;
+  memberId: string;
+  onEdit: () => void;
+}) {
+  return (
+    <article className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-lovable-ink">{fmtDate(evaluation.evaluation_date)}</span>
+            <StatusPill tone="neutral">Bioimpedancia</StatusPill>
+            <StatusPill tone="neutral">{sourceLabel(evaluation.source)}</StatusPill>
+            <StatusPill tone={evaluation.needs_review ? "warning" : "success"}>
+              Revisao: {evaluation.needs_review ? "pendente" : "ok"}
+            </StatusPill>
+            <StatusPill tone={evaluation.reviewed_manually ? "success" : "neutral"}>
+              Revisado manualmente: {evaluation.reviewed_manually ? "sim" : "nao"}
+            </StatusPill>
+            <StatusPill tone={statusPillToneForSync(evaluation.actuar_sync_status)}>
+              Sync: {syncLabel(evaluation.actuar_sync_status)}
+            </StatusPill>
+          </div>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+            {HISTORY_METRICS.map((metric) => (
+              <Metric
+                key={metric.label}
+                label={metric.label}
+                value={fmt((evaluation[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
+              />
+            ))}
+          </div>
+          {evaluation.ai_coach_summary ? (
+            <p className="text-sm text-lovable-ink-muted">{evaluation.ai_coach_summary}</p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link to={`/assessments/members/${memberId}/body-composition/${evaluation.id}/report`}>
+            <Button type="button" size="sm" variant="ghost">
+              <ArrowUpRight size={14} />
+              Relatorio
+            </Button>
+          </Link>
+          <Button type="button" size="sm" variant="secondary" onClick={onEdit}>
+            <Pencil size={14} />
+            Editar
+          </Button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AnthropometryHistoryCard({
+  assessment,
+  memberName,
+  onOpenPdf,
+}: {
+  assessment: Assessment;
+  memberId: string;
+  memberName?: string | null;
+  onOpenPdf: () => void;
+}) {
+  const perimetryEvidence = buildAnthropometryPerimetryEvidence(assessment);
+  return (
+    <article className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-lovable-ink">{fmtDate(assessment.assessment_date)}</span>
+            <StatusPill tone="neutral">Antropometria</StatusPill>
+            <StatusPill tone="success">Salvo no historico</StatusPill>
+            <StatusPill tone="neutral">{getAnthropometryProtocolDisplay(assessment)}</StatusPill>
+            {assessment.comparison_warning ? (
+              <StatusPill tone="warning">{assessment.comparison_warning}</StatusPill>
+            ) : null}
+          </div>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+            {ANTHROPOMETRY_HISTORY_METRICS.map((metric) => (
+              <Metric
+                key={metric.label}
+                label={metric.label}
+                value={fmt((assessment[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
+              />
+            ))}
+          </div>
+          <p className="text-sm text-lovable-ink-muted">{buildAnthropometryCoachSummary(assessment, memberName)}</p>
+          {perimetryEvidence.length > 0 ? (
+            <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetria para evolucao</p>
+              <p className="mt-1 text-xs text-lovable-ink-muted">{perimetryEvidence.slice(0, 6).join(" · ")}</p>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={onOpenPdf}>
+            <ArrowUpRight size={14} />
+            Relatorio
+          </Button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AnthropometrySupportPanel({
+  assessment,
+  memberId,
+  memberName,
+  memberPhone,
+  onOpenPdf,
+  onCopyMessage,
+}: {
+  assessment: Assessment;
+  memberId: string;
+  memberName?: string | null;
+  memberPhone?: string | null;
+  onOpenPdf: () => void;
+  onCopyMessage: () => void;
+}) {
+  const assistant = buildAnthropometryAssistantPayload(assessment, memberId, memberName);
+  const perimetryEvidence = buildAnthropometryPerimetryEvidence(assessment);
+  return (
+    <div className="space-y-4 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/10 p-3">
+      <AIAssistantPanel
+        assistant={assistant}
+        title="IA da antropometria"
+        subtitle="Achados principais, perimetria de acompanhamento e orientacao inicial para o coach."
+      />
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-lovable-primary/20 bg-lovable-primary-soft/25 px-4 py-3 text-xs text-lovable-ink-muted">
+        <StatusPill tone="neutral">Agente especialista</StatusPill>
+        <StatusPill tone="neutral">Prompt v1.0.0</StatusPill>
+        <StatusPill tone="neutral">Modelo: rules-anthropometry-v1</StatusPill>
+      </div>
+      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para professor</p>
+        <p className="mt-2 text-sm text-lovable-ink">{buildAnthropometryCoachSummary(assessment, memberName)}</p>
+      </div>
+      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Resumo para o aluno</p>
+            <p className="mt-2 text-sm text-lovable-ink">{buildAnthropometryMemberSummary(assessment, memberName)}</p>
+          </div>
+          <Button type="button" size="sm" variant="secondary" disabled>
+            <MessageCircle size={14} />
+            Enviar no WhatsApp
+          </Button>
+          <Button type="button" size="sm" variant="secondary" onClick={onOpenPdf}>
+            <Link2 size={14} />
+            Abrir PDF antropometrico
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCopyMessage}>
+            <Copy size={14} />
+            Copiar mensagem
+          </Button>
+        </div>
+        <div className="mt-3 space-y-1 text-xs text-lovable-ink-muted">
+          <p>
+            {memberPhone
+              ? `WhatsApp direto para antropometria ainda nao esta habilitado; copie a mensagem para o numero cadastrado${memberName ? ` de ${memberName}` : " do aluno"}.`
+              : "Cadastre o WhatsApp do aluno para uso quando o envio automatico de antropometria for habilitado."}
+          </p>
+          <p>Kommo/WhatsApp automaticos da antropometria ficam desativados nesta fase; o PDF local ja pode ser aberto pelo historico.</p>
+        </div>
+      </div>
+      {perimetryEvidence.length > 0 ? (
+        <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetria usada para evolucao</p>
+          <ul className="mt-2 grid gap-1 text-sm text-lovable-ink-muted sm:grid-cols-2">
+            {perimetryEvidence.map((item) => (
+              <li key={item}>- {item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">
+          <Sparkles size={14} />
+          Direcao inicial sugerida
+        </p>
+        <p className="mt-2 text-sm text-lovable-ink">{assistant.next_best_action}</p>
+        <p className="mt-2 text-xs text-lovable-ink-muted">
+          Massa livre de gordura continua separada de massa muscular; massa muscular fica indisponivel nesta modalidade.
+        </p>
+      </div>
     </div>
   );
 }

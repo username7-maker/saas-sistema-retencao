@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemberBodyCompositionTab } from "../components/assessments/MemberBodyCompositionTab";
 import { actuarSettingsService } from "../services/actuarSettingsService";
+import { assessmentService, type Assessment } from "../services/assessmentService";
 import { bodyCompositionService } from "../services/bodyCompositionService";
 import type { ActuarSettings, BodyCompositionActuarSyncStatus, BodyCompositionEvaluation } from "../types";
 
@@ -29,6 +30,13 @@ vi.mock("../services/bodyCompositionService", () => ({
     getManualSyncSummary: vi.fn(),
     readWithAssistedFallback: vi.fn(),
     openPdf: vi.fn(),
+  },
+}));
+
+vi.mock("../services/assessmentService", () => ({
+  assessmentService: {
+    list: vi.fn(),
+    openAnthropometryPdf: vi.fn(),
   },
 }));
 
@@ -189,6 +197,72 @@ function makeSettings(): ActuarSettings {
   };
 }
 
+function makeAnthropometryAssessment(): Assessment {
+  return {
+    id: "assessment-1",
+    gym_id: "gym-1",
+    member_id: "member-1",
+    evaluator_id: "user-1",
+    assessment_number: 2,
+    assessment_date: "2026-07-16",
+    next_assessment_due: "2026-10-14",
+    height_cm: 189,
+    weight_kg: 87,
+    bmi: 24.36,
+    body_fat_pct: 16.33,
+    lean_mass_kg: 72.79,
+    fat_mass_kg: 14.21,
+    waist_hip_ratio: 1.02,
+    basal_metabolic_rate: 1901,
+    assessment_method: "manual_anthropometry",
+    record_origin: "cordex",
+    sex_used_for_formula: "male",
+    age_used_for_formula: 38,
+    height_used_for_formula: 189,
+    weight_used_for_formula: 87,
+    measurement_protocol: "petroski_1995_male_18_66",
+    formula_version: "anthropometry-v1:petroski_1995_male_18_66",
+    calculation_hash: "hash-123",
+    anthropometry_snapshot_json: {
+      protocol: { label: "Petroski (1995), Homens, 18-66 anos" },
+      measurements: {
+        waist_cm: { consolidated_value: "88.9" },
+        hip_cm: { consolidated_value: "87.0" },
+        shoulders_cm: { consolidated_value: "112.0" },
+        chest_cm: { consolidated_value: "98.0" },
+      },
+    },
+    history_badge: "Antropometria",
+    comparison_warning: "Metodos diferentes; comparacao direta limitada",
+    waist_cm: 88.9,
+    hip_cm: 87,
+    chest_cm: 98,
+    arm_cm: 34,
+    thigh_cm: 56,
+    resting_hr: null,
+    blood_pressure_systolic: null,
+    blood_pressure_diastolic: null,
+    vo2_estimated: null,
+    strength_score: null,
+    flexibility_score: null,
+    cardio_score: null,
+    observations: "Sem intercorrencias.",
+    ai_analysis: null,
+    ai_recommendations: null,
+    ai_risk_flags: null,
+    extra_data: {
+      perimetry_evolution: {
+        waist_cm: "88.9",
+        hip_cm: "87.0",
+        shoulders_cm: "112.0",
+        chest_cm: "98.0",
+      },
+    },
+    created_at: "2026-07-16T20:00:00Z",
+    updated_at: "2026-07-16T20:00:00Z",
+  };
+}
+
 function renderTab() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -211,6 +285,8 @@ describe("MemberBodyCompositionTab", () => {
     vi.clearAllMocks();
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
+    vi.mocked(assessmentService.list).mockResolvedValue([]);
+    vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -315,6 +391,31 @@ describe("MemberBodyCompositionTab", () => {
 
     await waitFor(() => {
       expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "summary", expect.anything());
+    });
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("renders manual anthropometry in the same composition history with support interpretation", async () => {
+    vi.mocked(assessmentService.list).mockResolvedValue([makeAnthropometryAssessment()]);
+    const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);
+
+    renderTab();
+
+    expect(await screen.findByText("Historico de composicao corporal")).toBeInTheDocument();
+    expect(screen.getAllByText("Antropometria")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Petroski (1995), Homens, 18-66 anos").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Massa livre").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Massa muscular, agua corporal, gordura visceral/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/IA da antropometria/i)).toBeInTheDocument();
+    expect(screen.getByText("Perimetria usada para evolucao")).toBeInTheDocument();
+    expect(screen.getAllByText(/Cintura: 88.9 cm/).length).toBeGreaterThan(0);
+
+    const reportButtons = screen.getAllByRole("button", { name: "Relatorio" });
+    fireEvent.click(reportButtons[0]);
+
+    await waitFor(() => {
+      expect(assessmentService.openAnthropometryPdf).toHaveBeenCalledWith("member-1", "assessment-1", expect.anything());
     });
 
     windowOpenSpy.mockRestore();
