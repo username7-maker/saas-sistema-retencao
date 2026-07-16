@@ -8,7 +8,14 @@ Live Actuar execution was attempted after explicit operator authorization for th
 
 The corrected credentials passed login and reached `#/inicio`.
 
-The attempt did not open or save an assessment because the Actuar search returned two candidates named `Erick Bedin`. The spike stopped before selecting a candidate to avoid writing an assessment to the wrong person.
+The Actuar search returned two candidates named `Erick Bedin`; the active record was identified through Actuar OData status:
+
+- `2005-04-27`, `IdAtendimento=CA8400`, `Situacao=I`;
+- `2004-04-27`, `IdAtendimento=LR3583`, `Situacao=A`.
+
+A controlled save was executed only against the active record `LR3583`.
+
+The save succeeded with the minimal anthropometry payload we control (`weight`, `height_cm`, `body_fat_percent`) and without sending `muscle_mass_kg`. However, Actuar persisted `CurrentMuscleMass=0` and `CalculateMuscleMass=true`. This is not acceptable as an automatic sync result for V1.1 because zero would be presented as a real muscle-mass value.
 
 This is a controlled NO-GO for implementation, not a failure of the local anthropometric V1.
 
@@ -17,7 +24,9 @@ This is a controlled NO-GO for implementation, not a failure of the local anthro
 - No real `.env` was present in this worktree; only `.env.example` files exist.
 - Credentials were injected only into the transient shell process for the authorized test. They were not written to repository files.
 - Redacted local screenshot evidence was produced under `.planning/phases/11.1-anthropometry-actuar-core/evidence/` and is intentionally not required for source control.
-- Corrected credentials were validated live, but the test student requires disambiguation before any write.
+- Corrected credentials were validated live.
+- The active test student was identified via `Situacao=A`.
+- A controlled save was executed against the active test student.
 - Existing Actuar/bridge tests are green:
 
 ```text
@@ -34,16 +43,16 @@ py -3.12 -m pytest tests\test_actuar_settings_service.py tests\test_actuar_setti
 | Check | Status | Evidence |
 | --- | --- | --- |
 | Login with authorized spike credentials | PASS | Actuar reached `#/inicio` with corrected credentials. |
-| Test student uniquely identified | FAIL | API search returned two candidates named `Erick Bedin`: one with birthdate `2005-04-27`, one with birthdate `2004-04-27`. |
-| Required fields identified | PARTIAL | Static/historical evidence identifies fields used by the existing bioimpedance flow, but live requiredness for anthropometry was not verified because no candidate was selected. |
-| Muscle mass can be empty | BLOCKED | The spike stopped before opening the assessment form due ambiguous test student selection. Existing successful payloads filled `muscle_mass_kg`, while Spec 056 intentionally keeps muscle mass unavailable. |
-| Date, weight, height and body fat can save | BLOCKED | The minimum anthropometry payload was not tested because selecting either candidate without operator disambiguation would risk writing to the wrong Actuar record. |
+| Test student uniquely identified | PASS | `PessoasAgrupamentos` returned `Situacao=I` for the 2005-04-27 record and `Situacao=A` for the 2004-04-27 / `LR3583` record. |
+| Required fields identified | PARTIAL | Live form exposes editable `weight`, `height_cm`, `body_fat_percent` and `muscle_mass_kg`; no separate date input was visible on the body-composition tab. |
+| Muscle mass can be empty | FAIL | We did not send `muscle_mass_kg`, but Actuar saved `CurrentMuscleMass=0` with `CalculateMuscleMass=true`. This would create a misleading zero value. |
+| Date, weight, height and body fat can save | PASS/PARTIAL | Save confirmed with `weight=80`, `height_cm=180`, `body_fat_percent=18.5`; date appears controlled by the Actuar assessment record rather than a visible body-composition input. |
 | Actuar differentiates assessment types | PARTIAL | Existing flow opens `Nova avaliacao` and `Composicao corporal e perimetria`; no separate anthropometry/bioimpedance distinction was verified live. |
-| `external_assessment_id` capture method confirmed | FAIL/PARTIAL | Historical saved URLs expose an assessment-route id, and the extension can log an assessment id, but the backend currently persists/returns the Actuar person id as `actuar_external_id`. This does not satisfy the V1.1 contract. |
-| History/report appearance confirmed | BLOCKED | Requires disambiguated test student and live save. |
-| Duplicate detection confirmed | BLOCKED | Requires disambiguated test student and save/reopen behavior. |
-| Save/update/close behavior confirmed | BLOCKED | Requires disambiguated test student before opening and saving the form. |
-| Timeout-after-click behavior confirmed | BLOCKED | Requires controlled live timeout test after candidate disambiguation. |
+| `external_assessment_id` capture method confirmed | PASS/PARTIAL | Post-save route exposed an assessment-id candidate and the read-only history returned `AssessmentId` hash `c9b9ba001d73`; backend contract still needs to persist this as the assessment id, not the person id. |
+| History/report appearance confirmed | PARTIAL | `GetAssessmentsByPersonId` returned the saved July 2026 body-composition record with the same assessment-id hash. Full report appearance was not validated. |
+| Duplicate detection confirmed | BLOCKED | Requires save/reopen/timeout behavior and a local outbox/idempotency contract before automatic retry. |
+| Save/update/close behavior confirmed | PASS | Actuar showed `Alterações salvas com sucesso` and route changed to an edit route containing person id plus assessment id. |
+| Timeout-after-click behavior confirmed | BLOCKED | Requires a controlled timeout test; no retry policy may be implemented from this spike alone. |
 
 ## Decision
 
@@ -51,12 +60,10 @@ NO-GO for Actuar Core implementation.
 
 Do not implement `assessment_push`, anthropometric Actuar jobs, bridge payloads, retries, or automatic sync until:
 
-1. an operator disambiguates which `Erick Bedin` candidate is the test record;
-2. corrected Actuar credentials or an already-authenticated Actuar browser session remain available;
-3. a live save proves muscle mass can remain empty;
-4. date, weight, height and official body fat can save without dobras/perimetros;
-5. the created external assessment id is captured and persisted as an assessment id, not only as a person id;
-6. duplicate-detection behavior is proven after save/reopen/timeout.
+1. product/engineering decides how to prevent or handle Actuar's `CurrentMuscleMass=0` result for anthropometry;
+2. a follow-up spike proves a safe way to keep muscle mass unavailable in Actuar, or the integration is explicitly limited with a visible warning/manual-review state;
+3. the created external assessment id is captured and persisted as an assessment id, not only as a person id;
+4. duplicate-detection behavior is proven after save/reopen/timeout.
 
 Until then, the product state remains:
 

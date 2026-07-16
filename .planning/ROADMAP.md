@@ -51,7 +51,7 @@ Status:
 - [x] verify/validate
 
 Decision:
-- NO-GO para implementacao. A credencial corrigida passou login, mas a busca por Erick Bedin retornou dois candidatos; ainda faltam desambiguar o aluno teste, provar massa muscular vazia e capturar `external_assessment_id`.
+- NO-GO para implementacao. O live spike identificou o Erick Bedin ativo (`2004-04-27`, `Situacao=A`, `LR3583`) e salvou o payload minimo, mas o Actuar persistiu `CurrentMuscleMass=0`; antes de implementar sync automatico e preciso decidir/tratar esse zero artificial, persistir o `external_assessment_id` real e provar deduplicacao/retry.
 
 ### Phase 4: Import mapper e reconciliacao manual
 

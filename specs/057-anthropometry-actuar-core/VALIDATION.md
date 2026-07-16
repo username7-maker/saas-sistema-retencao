@@ -2,7 +2,7 @@
 
 ## Scope
 
-This validation covers the Phase 11.1 preflight and the authorized live login attempt. It does not claim a live Actuar save.
+This validation covers the Phase 11.1 preflight, authorized live login, active-candidate disambiguation and one controlled Actuar save against the active test record.
 
 ## Commands
 
@@ -27,10 +27,14 @@ student: Erick Bedin
 base URL: https://app.actuar.com
 login result: PASS
 Actuar route after login: #/inicio
-student lookup result: FAIL - ambiguous
-candidate 1 birthdate: 2005-04-27
-candidate 2 birthdate: 2004-04-27
-save attempted: no
+student lookup result: PASS via Actuar status
+inactive candidate: 2005-04-27 / Situacao=I / IdAtendimento=CA8400
+active candidate: 2004-04-27 / Situacao=A / IdAtendimento=LR3583
+save attempted: yes, active candidate only
+save result: PASS
+assessment id captured: yes, redacted hash c9b9ba001d73
+muscle mass sent by Cordex: no
+muscle mass persisted by Actuar: CurrentMuscleMass=0
 ```
 
 Redacted local screenshot evidence was created under:
@@ -45,6 +49,7 @@ Redacted local screenshot evidence was created under:
 - Historical GSD notes show prior successful bioimpedance Actuar smoke filled muscle mass and total energy.
 - The current server-side provider returns the resolved Actuar person/member id as `actuar_external_id`.
 - The extension can log a created assessment id after save, but this is not yet the persisted external assessment id contract required by Spec 057.
+- The controlled anthropometry save proved that Actuar can save without Cordex sending `muscle_mass_kg`, but Actuar persisted `CurrentMuscleMass=0`; therefore the "muscle mass can be empty" requirement failed.
 
 ## Result
 
@@ -52,8 +57,6 @@ NO-GO for implementation.
 
 The spike cannot advance to Actuar Core until a live, operator-approved Actuar test proves:
 
-- the designated `Erick Bedin` candidate is disambiguated by birthdate, email or external id;
-- muscle mass can be empty;
-- date, weight, height and official body fat are sufficient;
-- the created external assessment id can be captured and persisted;
+- a safe treatment for Actuar's `CurrentMuscleMass=0` behavior;
+- the created external assessment id can be captured and persisted by the backend as an assessment id;
 - duplicate handling is safe after save/reopen/timeout.
