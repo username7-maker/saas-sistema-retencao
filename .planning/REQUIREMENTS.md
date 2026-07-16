@@ -33,7 +33,7 @@
 - [x] **ANTHRO-03**: snapshot antropometrico preserva protocolo, versao, tentativas, entradas, politica de repeticao, origens por indicador e hash
 - [x] **ANTHRO-04**: historico e PDF identificam a modalidade antropometrica sem alterar registros antigos nem inventar metricas indisponiveis
 - [x] **ANTHRO-05**: confirmacao idempotente cria regua D+8, D+14, D+75 e D+90 sem alterar o helper da bioimpedancia
-- [ ] **ANTHRO-ACTUAR-01**: Actuar Core para antropometria so avanca depois de spike controlado com matriz PASS/FAIL e captura segura de `external_assessment_id` (Phase 11.1 preflight executado; live spike em NO-GO ate credenciais/sessao aprovadas e aluno de teste designado)
+- [ ] **ANTHRO-ACTUAR-01**: Actuar Core para antropometria so avanca depois de spike controlado com matriz PASS/FAIL e captura segura de `external_assessment_id` (Phase 11.1 preflight executado; tentativa live autorizada para Erick Bedin bloqueada por `Senha incorreta` no Actuar)
 
 ### Canais reais do piloto
 

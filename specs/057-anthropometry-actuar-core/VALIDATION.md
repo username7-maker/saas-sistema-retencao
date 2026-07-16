@@ -2,7 +2,7 @@
 
 ## Scope
 
-This validation covers the Phase 11.1 preflight only. It does not claim a live Actuar save.
+This validation covers the Phase 11.1 preflight and the authorized live login attempt. It does not claim a live Actuar save.
 
 ## Commands
 
@@ -14,11 +14,27 @@ py -3.12 -m pytest tests\test_actuar_settings_service.py tests\test_actuar_setti
 ## Environment check
 
 ```text
-ACTUAR_* env vars in current shell: none
 real .env in worktree: none
+credentials persisted in repository files: no
 ```
 
-Only `.env.example` files were present.
+Only `.env.example` files were present. Authorized credentials were injected only into the transient shell process for the spike.
+
+## Live login attempt
+
+```text
+student: Erick Bedin
+base URL: https://app.actuar.com
+result: FAIL
+Actuar route after attempt: #/common/login
+visible Actuar error: Senha incorreta
+```
+
+Redacted local screenshot evidence was created under:
+
+```text
+.planning/phases/11.1-anthropometry-actuar-core/evidence/
+```
 
 ## Static findings
 
@@ -33,6 +49,7 @@ NO-GO for implementation.
 
 The spike cannot advance to Actuar Core until a live, operator-approved Actuar test proves:
 
+- corrected credentials or an already-authenticated browser session allow login;
 - muscle mass can be empty;
 - date, weight, height and official body fat are sufficient;
 - the created external assessment id can be captured and persisted;
