@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Active implementation branch:** Phase 11 / Spec 056 - avaliacao antropometrica local sem bioimpedancia. Implementada em worktree isolada, sem alterar o fluxo de bioimpedancia e sem executar Actuar/IA/WhatsApp/Kommo.
 
-**Phase 11.1 status:** Spec 057 preflight executado. Tentativa live autorizada para Erick Bedin bloqueada no login do Actuar por `Senha incorreta`. Actuar Core permanece NO-GO ate credencial/sessao corrigida confirmar massa muscular vazia, payload minimo e captura segura de `external_assessment_id`.
+**Phase 11.1 status:** Spec 057 preflight executado. Credencial corrigida passou login no Actuar, mas a busca por Erick Bedin retornou dois candidatos e nenhum save foi executado. Actuar Core permanece NO-GO ate desambiguar o aluno teste, confirmar massa muscular vazia, payload minimo e captura segura de `external_assessment_id`.
 
 ## Progress Snapshot
 
@@ -71,14 +71,14 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 - Phase 7.0: lead-to-member intelligence graph - validada; payload canonico `lead-member-context-v1` segue read-only, tenant-scoped e consumido por Profile 360, AI Inbox, Tarefas, Retencao, CRM, Coach workspace e BI Foundation
 - Phase 7.2: assessment + coach workspace foundation - aberta; objetivo e criar fila tecnica do professor por turno com avaliacao, bioimpedancia, treino, feedback e reavaliacao sem app do aluno ou prescricao automatica
 - Phase 11: avaliacao antropometrica sem bioimpedancia - Spec 056 implementa V1 local com formulario manual, calculos backend, historico, PDF e regua D+8/D+14/D+75/D+90; Spec 057/058 ficam diferidas
-- Phase 11.1: Anthropometry Actuar Core - preflight executado; live spike autorizado para Erick Bedin, mas bloqueado por erro de senha no Actuar
+- Phase 11.1: Anthropometry Actuar Core - preflight executado; live spike autorizado para Erick Bedin, login aprovado, mas bloqueado por ambiguidade de aluno teste
 - Phase 5: bulk update dedicado de membros - pausada ate a saida do hardening
 - Phase 6: busca operacional por telefone/CPF - pausada ate a reabertura do roadmap depois do hardening
 
 ### Roadmap Evolution
 
 - 2026-07-16: Phase 11 registrada para avaliacao antropometrica sem bioimpedancia; V1 local usa `Assessment`, `anthropometry_snapshot_json`, idempotencia por chave, PDF premium e historico por leitura, mantendo bioimpedancia congelada.
-- 2026-07-16: Phase 11.1 registrou NO-GO controlado para Actuar Core antropometrico; testes Actuar/bridge existentes fecharam `69 passed`; tentativa live para Erick Bedin foi bloqueada no login por `Senha incorreta`, entao a implementacao segue bloqueada ate credencial/sessao corrigida e prova live de massa muscular vazia, payload minimo e `external_assessment_id`.
+- 2026-07-16: Phase 11.1 registrou NO-GO controlado para Actuar Core antropometrico; testes Actuar/bridge existentes fecharam `69 passed`; credencial corrigida passou login no Actuar, mas Erick Bedin retornou dois candidatos, entao nenhum save foi executado e a implementacao segue bloqueada ate desambiguacao do aluno teste e prova live de massa muscular vazia, payload minimo e `external_assessment_id`.
 - Phase 4.43 added: AI-first fase 1 - Inbox de triagem, posicionada como primeira aposta pos-freeze e bloqueada pelos gates de hardening, canais reais e transparencia de IA
 - 2026-04-02: gate operacional da 4.43 formalizado com `04.43-BASELINE.md` e `04.43-APPROVAL-POLICY.md`
 - 2026-04-02: 4.32 e 4.33 passaram a existir como fases GSD completas em documentacao, em vez de placeholders no roadmap

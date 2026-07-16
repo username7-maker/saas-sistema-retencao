@@ -25,9 +25,12 @@ Only `.env.example` files were present. Authorized credentials were injected onl
 ```text
 student: Erick Bedin
 base URL: https://app.actuar.com
-result: FAIL
-Actuar route after attempt: #/common/login
-visible Actuar error: Senha incorreta
+login result: PASS
+Actuar route after login: #/inicio
+student lookup result: FAIL - ambiguous
+candidate 1 birthdate: 2005-04-27
+candidate 2 birthdate: 2004-04-27
+save attempted: no
 ```
 
 Redacted local screenshot evidence was created under:
@@ -49,7 +52,7 @@ NO-GO for implementation.
 
 The spike cannot advance to Actuar Core until a live, operator-approved Actuar test proves:
 
-- corrected credentials or an already-authenticated browser session allow login;
+- the designated `Erick Bedin` candidate is disambiguated by birthdate, email or external id;
 - muscle mass can be empty;
 - date, weight, height and official body fat are sufficient;
 - the created external assessment id can be captured and persisted;

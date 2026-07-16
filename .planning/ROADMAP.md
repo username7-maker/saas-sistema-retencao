@@ -51,7 +51,7 @@ Status:
 - [x] verify/validate
 
 Decision:
-- NO-GO para implementacao. A tentativa live autorizada para Erick Bedin nao passou do login porque o Actuar retornou `Senha incorreta`; ainda faltam credencial/sessao corrigida, prova de massa muscular vazia e captura de `external_assessment_id`.
+- NO-GO para implementacao. A credencial corrigida passou login, mas a busca por Erick Bedin retornou dois candidatos; ainda faltam desambiguar o aluno teste, provar massa muscular vazia e capturar `external_assessment_id`.
 
 ### Phase 4: Import mapper e reconciliacao manual
 
