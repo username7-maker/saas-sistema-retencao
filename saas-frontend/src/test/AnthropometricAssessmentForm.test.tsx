@@ -1,9 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import toast from "react-hot-toast";
 
 import { AssessmentRegistrationComposer } from "../components/assessments/AssessmentRegistrationComposer";
 import { assessmentService } from "../services/assessmentService";
+
+vi.mock("react-hot-toast", () => ({
+  default: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 vi.mock("../services/assessmentService", async () => {
   const actual = await vi.importActual<typeof import("../services/assessmentService")>("../services/assessmentService");
@@ -171,5 +179,24 @@ describe("AssessmentRegistrationComposer anthropometry mode", () => {
       expect(assessmentService.openAnthropometryPdf).toHaveBeenCalled();
     });
     expect(vi.mocked(assessmentService.openAnthropometryPdf).mock.calls[0]?.slice(0, 2)).toEqual(["member-1", "assessment-1"]);
+  });
+
+  it("blocks implausible optional perimetry before calling preview", async () => {
+    renderComposer();
+
+    fireEvent.click(screen.getByRole("button", { name: /sem bioimpedancia/i }));
+
+    expect(await screen.findByLabelText(/protocolo/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/peso/i), { target: { value: "73.6" } });
+    fireEvent.change(screen.getByLabelText(/torax/i), { target: { value: "08" } });
+    fireEvent.change(screen.getByLabelText(/dobra tricipital - tentativa 1/i), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText(/dobra tricipital - tentativa 2/i), { target: { value: "9" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /calcular previa/i }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Torax precisa estar entre 10.0 e 300.0 cm/i));
+    });
+    expect(assessmentService.previewAnthropometry).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 import { Activity, Ruler, Scale } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -59,6 +60,10 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SKIP_DYNAMIC_FIELDS = new Set(["height_cm", "weight_kg"]);
+const FIELD_LIMITS: Record<string, { min: number; max: number; unit: string }> = {
+  height_cm: { min: 80, max: 250, unit: "cm" },
+  weight_kg: { min: 15, max: 400, unit: "kg" },
+};
 const EVOLUTION_PERIMETRY_FIELDS = [
   { key: "waist_cm", label: "Cintura (cm)", placeholder: "80.0" },
   { key: "hip_cm", label: "Quadril (cm)", placeholder: "96.0" },
@@ -73,6 +78,13 @@ const EVOLUTION_PERIMETRY_FIELDS = [
   { key: "right_calf_cm", label: "Panturrilha direita (cm)", placeholder: "38.0" },
   { key: "left_calf_cm", label: "Panturrilha esquerda (cm)", placeholder: "37.8" },
 ] as const;
+
+class AnthropometryClientValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnthropometryClientValidationError";
+  }
+}
 
 function defaultDateTimeLocal(): string {
   const now = new Date();
@@ -127,6 +139,71 @@ function buildDuplicateMeasurement(value: number, field: string) {
     unit: unitForField(field),
     side: sideForField(field),
   };
+}
+
+function limitsForField(field: string): { min: number; max: number; unit: string } {
+  if (FIELD_LIMITS[field]) return FIELD_LIMITS[field];
+  if (field.endsWith("_mm")) return { min: 1, max: 80, unit: "mm" };
+  return { min: 10, max: 300, unit: "cm" };
+}
+
+function fieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field.replace(/_/g, " ");
+}
+
+function validateAnthropometryPayload(payload: AnthropometryAssessmentInput): string | null {
+  for (const [field, measurement] of Object.entries(payload.measurements)) {
+    const limits = limitsForField(field);
+    for (const attempt of measurement.attempts) {
+      if (!Number.isFinite(attempt)) {
+        return `${fieldLabel(field)} tem valor invalido.`;
+      }
+      if (attempt < limits.min || attempt > limits.max) {
+        return `${fieldLabel(field)} precisa estar entre ${limits.min.toFixed(1)} e ${limits.max.toFixed(1)} ${limits.unit}. Confira o valor digitado.`;
+      }
+    }
+  }
+  return null;
+}
+
+function anthropometryErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof AnthropometryClientValidationError) {
+    return error.message;
+  }
+  if (error instanceof AxiosError) {
+    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+    if (detail && typeof detail === "object") {
+      const payload = detail as Record<string, unknown>;
+      const code = String(payload.code ?? "");
+      const field = typeof payload.field === "string" ? payload.field : "";
+      const label = field ? fieldLabel(field) : "Medida";
+      if (code === "implausible_measurement") {
+        const min = payload.minimum != null ? String(payload.minimum).replace(".", ",") : null;
+        const max = payload.maximum != null ? String(payload.maximum).replace(".", ",") : null;
+        if (min && max) return `${label} fora do intervalo permitido (${min} a ${max}). Confira o valor digitado.`;
+        return `${label} fora do intervalo permitido. Confira o valor digitado.`;
+      }
+      if (code === "third_attempt_required") {
+        return `${label}: a diferenca entre as tentativas passou da tolerancia. Preencha a 3a tentativa.`;
+      }
+      if (code === "measurement_attempt_count_invalid") {
+        return `${label}: informe duas tentativas ou a terceira quando necessario.`;
+      }
+      if (code === "measurement_unit_invalid") {
+        return `${label}: unidade invalida para esta medida.`;
+      }
+      if (code === "side_exception_reason_required") {
+        return `${label}: informe o motivo para medir fora do lado padrao.`;
+      }
+      if (code === "anthropometry_missing_required_measurement") {
+        return `${label}: medida obrigatoria ausente.`;
+      }
+    }
+  }
+  return fallback;
 }
 
 export function AssessmentRegistrationComposer({
@@ -316,15 +393,22 @@ function ManualAnthropometricAssessmentForm({
     };
   }
 
+  function buildValidatedPayload(): AnthropometryAssessmentInput {
+    const payload = buildPayload();
+    const validationError = validateAnthropometryPayload(payload);
+    if (validationError) throw new AnthropometryClientValidationError(validationError);
+    return payload;
+  }
+
   const previewMutation = useMutation({
-    mutationFn: () => assessmentService.previewAnthropometry(memberId, buildPayload()),
+    mutationFn: (payload: AnthropometryAssessmentInput) => assessmentService.previewAnthropometry(memberId, payload),
     onSuccess: (result) => setPreview(result),
-    onError: () => toast.error("Nao foi possivel calcular a previa antropometrica."),
+    onError: (error) => toast.error(anthropometryErrorMessage(error, "Nao foi possivel calcular a previa antropometrica.")),
   });
 
   const createMutation = useMutation({
-    mutationFn: ({ popup }: { popup: Window | null }) =>
-      assessmentService.createAnthropometry(memberId, buildPayload(), idempotencyKey).then((assessment) => ({ assessment, popup })),
+    mutationFn: ({ payload, popup }: { payload: AnthropometryAssessmentInput; popup: Window | null }) =>
+      assessmentService.createAnthropometry(memberId, payload, idempotencyKey).then((assessment) => ({ assessment, popup })),
     onSuccess: async ({ assessment, popup }) => {
       await invalidateAssessmentQueries(queryClient, memberId);
       try {
@@ -338,9 +422,25 @@ function ManualAnthropometricAssessmentForm({
     },
     onError: (_error, variables) => {
       variables?.popup?.close();
-      toast.error("Nao foi possivel salvar a avaliacao antropometrica.");
+      toast.error(anthropometryErrorMessage(_error, "Nao foi possivel salvar a avaliacao antropometrica."));
     },
   });
+
+  function handlePreview() {
+    try {
+      previewMutation.mutate(buildValidatedPayload());
+    } catch (error) {
+      toast.error(anthropometryErrorMessage(error, "Nao foi possivel calcular a previa antropometrica."));
+    }
+  }
+
+  function handleConfirm() {
+    try {
+      createMutation.mutate({ payload: buildValidatedPayload(), popup: openPdfPopupSafely() });
+    } catch (error) {
+      toast.error(anthropometryErrorMessage(error, "Nao foi possivel salvar a avaliacao antropometrica."));
+    }
+  }
 
   return (
     <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
@@ -483,13 +583,13 @@ function ManualAnthropometricAssessmentForm({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-3">
-        <Button type="button" variant="secondary" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending || !protocolKey}>
+        <Button type="button" variant="secondary" onClick={handlePreview} disabled={previewMutation.isPending || !protocolKey}>
           {previewMutation.isPending ? "Calculando..." : "Calcular previa"}
         </Button>
         <Button
           type="button"
           variant="primary"
-          onClick={() => createMutation.mutate({ popup: openPdfPopupSafely() })}
+          onClick={handleConfirm}
           disabled={createMutation.isPending || !preview}
         >
           {createMutation.isPending ? "Salvando..." : "Confirmar avaliacao"}
