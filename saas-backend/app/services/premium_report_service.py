@@ -1814,6 +1814,10 @@ def _render_body_band_row(metric: dict[str, Any]) -> str:
 
 def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[str, str]:
     key = str(metric.get("key") or "")
+    source_label = str(metric.get("source_label") or "").strip()
+    if source_label:
+        source_group = str(metric.get("source_group") or "measurements").strip() or "measurements"
+        return (source_group, source_label)
     used_source = str(_read_value(body_fat_context, "used_source") or "")
     if key in {"body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"}:
         if used_source == "bioimpedance":

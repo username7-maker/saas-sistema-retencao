@@ -4,6 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from app.services.assessment_anthropometry_report_service import build_anthropometric_report_payload
+from app.services.premium_report_service import render_premium_report_html
 
 
 def test_report_payload_identifies_anthropometry_and_omits_unavailable_cards() -> None:
@@ -65,3 +66,12 @@ def test_report_payload_identifies_anthropometry_and_omits_unavailable_cards() -
     metric_labels = [metric["label"] for metric in report["primary_cards"] + report["composition_metrics"] + report["muscle_fat_metrics"]]
     assert "Massa muscular" not in metric_labels
     assert payload.parameters["composition_detail_subtitle"].startswith("Valores separados por origem: medidas manuais")
+
+    muscle_fat_by_key = {metric["key"]: metric for metric in report["muscle_fat_metrics"]}
+    composition_by_key = {metric["key"]: metric for metric in report["composition_metrics"]}
+    assert muscle_fat_by_key["weight_kg"]["source_label"] == "Informado/manual"
+    assert composition_by_key["fat_free_mass_kg"]["source_label"] == "Calculo"
+
+    html = render_premium_report_html(payload)
+    assert '<span class="clinical-source-pill">Informado/manual</span>' in html
+    assert '<span class="clinical-source-pill">Calculo</span>' in html

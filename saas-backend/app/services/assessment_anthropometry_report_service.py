@@ -78,6 +78,7 @@ def build_anthropometric_report_payload(
     payload.footer_note = (
         "Massa livre de gordura nao e massa muscular. Nenhuma metrica exclusiva da bioimpedancia foi inferida."
     )
+    _apply_anthropometry_metric_source_labels(payload)
     return payload
 
 
@@ -192,6 +193,45 @@ def _omit_unavailable_report_metrics(report: Any) -> None:
         for series in report.history_series
         if getattr(series, "key", None) not in unavailable_keys and any(point.value is not None for point in series.points)
     ]
+
+
+def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> None:
+    report = payload.parameters.get("report")
+    if not isinstance(report, dict):
+        return
+    source_by_key = {
+        "weight_kg": ("measurements", "Informado/manual"),
+        "height_cm": ("measurements", "Informado/manual"),
+        "body_fat_used_percent": ("measurements", "Medidas/protocolo"),
+        "fat_mass_estimated_kg": ("measurements", "Medidas/protocolo"),
+        "lean_mass_estimated_kg": ("measurements", "Calculo"),
+        "fat_free_mass_kg": ("measurements", "Calculo"),
+        "waist_hip_ratio": ("measurements", "Medidas corporais"),
+        "waist_height_ratio": ("measurements", "Calculo"),
+        "ffmi": ("measurements", "Calculo"),
+        "bmi": ("measurements", "Calculo"),
+        "basal_metabolic_rate_kcal": ("measurements", "Calculo"),
+    }
+    metric_sections = (
+        "primary_cards",
+        "composition_metrics",
+        "muscle_fat_metrics",
+        "risk_metrics",
+        "goal_metrics",
+    )
+    for section in metric_sections:
+        metrics = report.get(section)
+        if not isinstance(metrics, list):
+            continue
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                continue
+            key = str(metric.get("key") or "")
+            source = source_by_key.get(key)
+            if not source:
+                continue
+            metric["source_group"] = source[0]
+            metric["source_label"] = source[1]
 
 
 def _assessment_datetime(assessment: Any) -> datetime:
