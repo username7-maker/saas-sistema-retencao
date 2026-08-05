@@ -44,7 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const refreshActiveSession = () => {
-      if (document.visibilityState !== "visible") return;
       // Refresh replaces only the in-memory access token. Do not eject an operator
       // from an unfinished form when a background refresh is temporarily unavailable.
       void authService.restoreSession({ clearOnFailure: false }).catch(() => undefined);
@@ -52,11 +51,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const intervalId = window.setInterval(refreshActiveSession, SESSION_REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refreshActiveSession);
+    window.addEventListener("online", refreshActiveSession);
+    window.addEventListener("pageshow", refreshActiveSession);
     document.addEventListener("visibilitychange", refreshActiveSession);
 
     return () => {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", refreshActiveSession);
+      window.removeEventListener("online", refreshActiveSession);
+      window.removeEventListener("pageshow", refreshActiveSession);
       document.removeEventListener("visibilitychange", refreshActiveSession);
     };
   }, [user]);

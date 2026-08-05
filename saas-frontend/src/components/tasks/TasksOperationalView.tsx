@@ -458,7 +458,7 @@ export function TasksOperationalView({
                   {group.emptyMessage}
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="divide-y divide-lovable-border/50">
                   {(expandedGroups[group.key] ? group.tasks : group.tasks.slice(0, 8)).map((task) => (
                     <TaskListItem
                       key={task.id}

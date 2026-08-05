@@ -156,10 +156,8 @@ export function FinancialDashboardPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Financeiro</p>
-            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
-                Dashboard Financeiro
-              </span>
+            <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">
+              Dashboard Financeiro
             </h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Receita mensal, inadimplência, caixa e projeção operacional.</p>
           </div>
@@ -186,27 +184,27 @@ export function FinancialDashboardPage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} subtitle="Alunos com cobrança em atraso" icon={AlertTriangle} tone="danger" className="stagger-1" />
+        <MetricCard label="Inadimplência" value={`${query.data.delinquency_rate.toFixed(1)}%`} subtitle="Alunos com cobrança em atraso" icon={AlertTriangle} tone={query.data.delinquency_rate > 5 ? "danger" : "success"} className="stagger-1" />
         <MetricCard label="Caixa líquido hoje" value={BRL(dailyNetCash)} subtitle="Resultado do dia" icon={CircleDollarSign} tone={dailyNetCash >= 0 ? "success" : "danger"} currency className="stagger-2" />
-        <MetricCard label="Recebíveis abertos" value={BRL(openReceivables)} subtitle="Entradas ainda pendentes" icon={Banknote} tone="warning" currency className="stagger-3" />
-        <MetricCard label="Receita em risco" value={BRL(revenueAtRisk)} subtitle="MRR sob atenção financeira" icon={TrendingUp} tone="danger" currency className="stagger-4" />
+        <MetricCard label="Recebíveis abertos" value={BRL(openReceivables)} subtitle="Entradas ainda pendentes" icon={Banknote} tone="neutral" currency className="stagger-3" />
+        <MetricCard label="Receita em risco" value={BRL(revenueAtRisk)} subtitle="MRR sob atenção financeira" icon={TrendingUp} tone={revenueAtRisk > 0 ? "danger" : "success"} currency className="stagger-4" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="DRE: Receita do mês" value={BRL(query.data.dre_basic?.revenue ?? 0)} subtitle="Receita reconhecida" icon={CircleDollarSign} tone="success" currency />
-        <MetricCard label="DRE: Despesas do mês" value={BRL(query.data.dre_basic?.expenses ?? 0)} subtitle="Saídas reconhecidas" icon={FileText} tone="warning" currency />
+        <MetricCard label="DRE: Receita do mês" value={BRL(query.data.dre_basic?.revenue ?? 0)} subtitle="Receita reconhecida" icon={CircleDollarSign} tone="neutral" currency />
+        <MetricCard label="DRE: Despesas do mês" value={BRL(query.data.dre_basic?.expenses ?? 0)} subtitle="Saídas reconhecidas" icon={FileText} tone="neutral" currency />
         <MetricCard label="DRE: Resultado" value={BRL(query.data.dre_basic?.net_result ?? 0)} subtitle="Resultado operacional" icon={TrendingUp} tone={(query.data.dre_basic?.net_result ?? 0) >= 0 ? "success" : "danger"} currency />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="A receber atrasado" value={BRL(overdueReceivables)} subtitle="Valor vencido" icon={AlertTriangle} tone="danger" currency />
-        <MetricCard label="A pagar aberto" value={BRL(openPayables)} subtitle="Compromissos pendentes" icon={Banknote} tone="warning" currency />
+        <MetricCard label="A receber atrasado" value={BRL(overdueReceivables)} subtitle="Valor vencido" icon={AlertTriangle} tone={overdueReceivables > 0 ? "danger" : "success"} currency />
+        <MetricCard label="A pagar aberto" value={BRL(openPayables)} subtitle="Compromissos pendentes" icon={Banknote} tone="neutral" currency />
         <MetricCard
           label="Projeção 12 meses"
           value={proj12 && hasFinancialBase ? BRL(proj12.projected_revenue) : "Sem base"}
           subtitle="Forecast financeiro"
           icon={TrendingUp}
-          tone="success"
+          tone="neutral"
           currency={proj12 != null && hasFinancialBase}
         />
       </div>
@@ -236,8 +234,8 @@ export function FinancialDashboardPage() {
           ) : delinquencySummaryQuery.data ? (
             <div className="mt-4 space-y-4">
               <div className="grid gap-3 md:grid-cols-4">
-                <MetricCard label="Valor vencido" value={BRL(delinquencySummaryQuery.data.overdue_amount)} icon={AlertTriangle} tone="danger" />
-                <MetricCard label="Alunos inadimplentes" value={String(delinquencySummaryQuery.data.delinquent_members_count)} icon={Banknote} tone="warning" />
+                <MetricCard label="Valor vencido" value={BRL(delinquencySummaryQuery.data.overdue_amount)} icon={AlertTriangle} tone={delinquencySummaryQuery.data.overdue_amount > 0 ? "danger" : "success"} />
+                <MetricCard label="Alunos inadimplentes" value={String(delinquencySummaryQuery.data.delinquent_members_count)} icon={Banknote} tone={delinquencySummaryQuery.data.delinquent_members_count > 0 ? "warning" : "success"} />
                 <MetricCard label="Tasks abertas" value={String(delinquencySummaryQuery.data.open_task_count)} icon={FileText} tone="neutral" />
                 <MetricCard label="Recuperado 30 dias" value={BRL(delinquencySummaryQuery.data.recovered_30d)} icon={TrendingUp} tone="success" />
               </div>

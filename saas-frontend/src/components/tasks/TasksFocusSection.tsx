@@ -44,7 +44,7 @@ export function TasksFocusSection({
           <AlertTriangle size={18} className="text-lovable-ink-muted/40" />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-lovable-border/50">
           {tasks.map((task) => (
             <TaskListItem
               key={task.id}

@@ -509,7 +509,7 @@ function GrowthOsPanel({
           </div>
         ) : null}
 
-        <div className="mt-5 space-y-2">
+        <div className="mt-5 divide-y divide-lovable-border/50">
           {visibleItems.length === 0 ? (
             <EmptyState
               icon={Megaphone}
@@ -524,7 +524,7 @@ function GrowthOsPanel({
               return (
                 <div
                   key={item.id}
-                  className="grid gap-3 rounded-xl border border-lovable-border bg-lovable-surface-soft/30 px-4 py-3 lg:grid-cols-[minmax(0,2fr)_1fr_auto]"
+                  className="grid gap-3 py-3 first:pt-0 last:pb-0 lg:grid-cols-[minmax(0,2fr)_1fr_auto]"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -887,9 +887,9 @@ function LeadFormDrawer({ open, onClose, lead, readOnly, onSaved }: LeadFormDraw
               {isEditing ? (
                 <>
                   {noteHistory.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="divide-y divide-lovable-border/50">
                       {noteHistory.map((note) => (
-                        <div key={note.id} className="rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3">
+                        <div key={note.id} className="py-3 first:pt-0 last:pb-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant={note.type === "contact_log" ? "info" : "neutral"}>{leadNoteTypeLabel(note)}</Badge>
                             <p className="text-xs text-lovable-ink-muted">{leadNoteMeta(note)}</p>
@@ -1245,7 +1245,7 @@ export function CrmPage() {
       <section className="space-y-6">
         <div className="relative overflow-hidden rounded-[18px] border border-[rgba(59,130,246,0.26)] bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
           <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
-          <h2 className="mt-1 font-heading text-3xl font-bold"><span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">CRM</span></h2>
+          <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink">CRM</h2>
           <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline de conversão e gestão de leads.</p>
         </div>
         <Card>
@@ -1267,7 +1267,7 @@ export function CrmPage() {
       <section className="space-y-6">
         <div className="relative overflow-hidden rounded-[18px] border border-[rgba(59,130,246,0.26)] bg-[linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
           <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
-          <h2 className="mt-1 font-heading text-3xl font-bold"><span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">CRM</span></h2>
+          <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink">CRM</h2>
           <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline de conversão e gestão de leads.</p>
         </div>
         <Card>
@@ -1289,9 +1289,7 @@ export function CrmPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
-            <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">CRM</span>
-            </h2>
+            <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">CRM</h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline de conversão e gestão de leads.</p>
           </div>
           {canMutate ? (

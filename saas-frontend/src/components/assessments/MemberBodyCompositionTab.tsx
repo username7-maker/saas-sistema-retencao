@@ -1979,9 +1979,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <p className="mt-1 text-xs text-lovable-ink-muted">
                       Confere os campos que entram no calculo. Braco, coxa, panturrilha, torax e ombro ficam so para evolucao.
                     </p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="mt-3 divide-y divide-lovable-border/50">
                       {anthropometryProtocolItems.map((item) => (
-                        <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                        <div key={item.label} className="py-2 first:pt-0 last:pb-0">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-lovable-ink">{item.label}</p>
                             <StatusPill tone={item.ready ? "success" : "warning"}>{item.ready ? "ok" : "pendente"}</StatusPill>
@@ -1996,23 +1996,25 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <p className="mt-1 text-xs text-lovable-ink-muted">
                       Acompanha assimetria de medidas de evolucao. Estes valores nao entram no calculo da gordura.
                     </p>
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3">
                       {perimetryBalanceItems.length === 0 ? (
                         <p className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
                           Preencha pares direito/esquerdo para comparar.
                         </p>
                       ) : (
-                        perimetryBalanceItems.map((item) => (
-                          <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-semibold text-lovable-ink">{item.label}</p>
-                              <StatusPill tone={item.delta > 2 ? "warning" : "success"}>{item.delta.toFixed(1)} cm</StatusPill>
+                        <div className="divide-y divide-lovable-border/50">
+                          {perimetryBalanceItems.map((item) => (
+                            <div key={item.label} className="py-2 text-xs first:pt-0 last:pb-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="font-semibold text-lovable-ink">{item.label}</p>
+                                <StatusPill tone={item.delta > 2 ? "warning" : "success"}>{item.delta.toFixed(1)} cm</StatusPill>
+                              </div>
+                              <p className="mt-1 text-lovable-ink-muted">
+                                Direita {item.right.toFixed(1)} cm - Esquerda {item.left.toFixed(1)} cm
+                              </p>
                             </div>
-                            <p className="mt-1 text-lovable-ink-muted">
-                              Direita {item.right.toFixed(1)} cm - Esquerda {item.left.toFixed(1)} cm
-                            </p>
-                          </div>
-                        ))
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2330,16 +2332,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Classificacao por faixa</p>
-                    <div className="mt-2 space-y-2">
+                    <div className="mt-2">
                       {rangeClassifications.length === 0 ? (
                         <p className="text-sm text-lovable-ink-muted">Sem faixas impressas suficientes para classificar este exame.</p>
                       ) : (
-                        rangeClassifications.map((item) => (
-                          <div key={item.label} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
-                            <span className="text-lovable-ink">{item.label}</span>
-                            <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
-                          </div>
-                        ))
+                        <div className="divide-y divide-lovable-border/50">
+                          {rangeClassifications.map((item) => (
+                            <div key={item.label} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
+                              <span className="text-lovable-ink">{item.label}</span>
+                              <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2460,9 +2464,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   {syncStatus?.critical_fields?.length ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Campos criticos para treino</p>
-                      <div className="space-y-2">
+                      <div className="divide-y divide-lovable-border/50">
                         {syncStatus.critical_fields.map((field) => (
-                          <div key={field.field} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
+                          <div key={field.field} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
                             <div>
                               <p className="font-semibold text-lovable-ink">{field.actuar_field ?? field.field}</p>
                               <p className="text-xs text-lovable-ink-muted">{field.classification}</p>
@@ -2525,17 +2529,19 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   {syncStatus?.attempts?.length ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Tentativas recentes</p>
-                      {syncStatus.attempts.slice(0, 3).map((attempt) => (
-                        <div key={attempt.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-semibold text-lovable-ink">{syncLabel(attempt.status)}</span>
-                            <span className="text-xs text-lovable-ink-muted">{new Date(attempt.started_at).toLocaleString("pt-BR")}</span>
+                      <div className="divide-y divide-lovable-border/50">
+                        {syncStatus.attempts.slice(0, 3).map((attempt) => (
+                          <div key={attempt.id} className="py-2 text-sm first:pt-0 last:pb-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-lovable-ink">{syncLabel(attempt.status)}</span>
+                              <span className="text-xs text-lovable-ink-muted">{new Date(attempt.started_at).toLocaleString("pt-BR")}</span>
+                            </div>
+                            <p className="text-xs text-lovable-ink-muted">
+                              {attempt.worker_id ?? "worker"}{attempt.error_code ? ` · ${attempt.error_code}` : ""}
+                            </p>
                           </div>
-                          <p className="text-xs text-lovable-ink-muted">
-                            {attempt.worker_id ?? "worker"}{attempt.error_code ? ` · ${attempt.error_code}` : ""}
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </>
@@ -2549,7 +2555,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         <CardHeader>
           <CardTitle>Historico de bioimpedancia</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className={isLoading || !evaluations?.length ? "space-y-3" : "divide-y divide-lovable-border/50"}>
           {isLoading ? (
             <>
               <Skeleton className="h-28 w-full rounded-2xl" />
@@ -2559,7 +2565,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <p className="text-sm text-lovable-ink-muted">Nenhuma bioimpedancia registrada ainda.</p>
           ) : (
             evaluations.map((evaluation) => (
-              <article key={evaluation.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+              <article key={evaluation.id} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">

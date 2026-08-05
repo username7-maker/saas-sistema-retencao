@@ -22,31 +22,31 @@ interface StatusPillProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const toneClasses: Record<StatusPillTone, string> = {
-  normal: "border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] text-[var(--pi-green)]",
-  alert: "border-[rgba(249,115,22,0.3)] bg-[rgba(249,115,22,0.1)] text-[var(--pi-orange)]",
-  critical: "border-[rgba(255,59,48,0.34)] bg-[rgba(255,59,48,0.12)] text-[var(--pi-red)]",
-  ai: "border-violet-400/24 bg-violet-400/12 text-violet-200",
-  /* Integration tone moved to violet (IA identity) — cyan removed from system */
-  integration: "border-violet-400/24 bg-violet-400/12 text-violet-200",
-  sync: "border-blue-400/22 bg-blue-400/10 text-blue-200",
-  retention: "border-sky-400/22 bg-sky-400/10 text-sky-200",
-  success: "border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] text-[var(--pi-green)]",
-  warning: "border-[rgba(249,115,22,0.3)] bg-[rgba(249,115,22,0.1)] text-[var(--pi-orange)]",
-  danger: "border-[rgba(255,59,48,0.34)] bg-[rgba(255,59,48,0.12)] text-[var(--pi-red)]",
+  normal: "border-[hsl(var(--lovable-success)/0.28)] bg-[hsl(var(--lovable-success)/0.1)] text-[hsl(var(--lovable-success))]",
+  alert: "border-[hsl(var(--lovable-warning)/0.3)] bg-[hsl(var(--lovable-warning)/0.1)] text-[hsl(var(--lovable-warning))]",
+  critical: "border-[hsl(var(--lovable-danger)/0.34)] bg-[hsl(var(--lovable-danger)/0.12)] text-[hsl(var(--lovable-danger))]",
+  ai: "border-[hsl(var(--lovable-ai)/0.24)] bg-[hsl(var(--lovable-ai)/0.12)] text-[hsl(var(--lovable-ai))]",
+  /* Integration tone shares the ai token (IA identity) — cyan removed from system */
+  integration: "border-[hsl(var(--lovable-ai)/0.24)] bg-[hsl(var(--lovable-ai)/0.12)] text-[hsl(var(--lovable-ai))]",
+  sync: "border-[hsl(var(--lovable-primary)/0.22)] bg-[hsl(var(--lovable-primary)/0.1)] text-[hsl(var(--lovable-primary))]",
+  retention: "border-[hsl(var(--lovable-primary)/0.22)] bg-[hsl(var(--lovable-primary)/0.1)] text-[hsl(var(--lovable-primary))]",
+  success: "border-[hsl(var(--lovable-success)/0.28)] bg-[hsl(var(--lovable-success)/0.1)] text-[hsl(var(--lovable-success))]",
+  warning: "border-[hsl(var(--lovable-warning)/0.3)] bg-[hsl(var(--lovable-warning)/0.1)] text-[hsl(var(--lovable-warning))]",
+  danger: "border-[hsl(var(--lovable-danger)/0.34)] bg-[hsl(var(--lovable-danger)/0.12)] text-[hsl(var(--lovable-danger))]",
   neutral: "border-lovable-border bg-lovable-surface-soft/75 text-lovable-ink-muted",
 };
 
 const dotClasses: Record<StatusPillTone, string> = {
-  normal: "bg-[var(--pi-green)]",
-  alert: "bg-[var(--pi-orange)]",
-  critical: "bg-[var(--pi-red)]",
-  ai: "bg-violet-300",
-  integration: "bg-violet-300",
-  sync: "bg-blue-300",
-  retention: "bg-sky-300",
-  success: "bg-[var(--pi-green)]",
-  warning: "bg-[var(--pi-orange)]",
-  danger: "bg-[var(--pi-red)]",
+  normal: "bg-[hsl(var(--lovable-success))]",
+  alert: "bg-[hsl(var(--lovable-warning))]",
+  critical: "bg-[hsl(var(--lovable-danger))]",
+  ai: "bg-[hsl(var(--lovable-ai))]",
+  integration: "bg-[hsl(var(--lovable-ai))]",
+  sync: "bg-[hsl(var(--lovable-primary))]",
+  retention: "bg-[hsl(var(--lovable-primary))]",
+  success: "bg-[hsl(var(--lovable-success))]",
+  warning: "bg-[hsl(var(--lovable-warning))]",
+  danger: "bg-[hsl(var(--lovable-danger))]",
   neutral: "bg-lovable-ink-muted",
 };
 
@@ -66,7 +66,6 @@ export function StatusPill({ tone = "neutral", dot = false, className, children,
             "h-1.5 w-1.5 rounded-full",
             dotClasses[tone],
             tone === "critical" || tone === "danger" ? "pi-pulse" : "",
-            tone === "normal" || tone === "success" || tone === "integration" ? "pi-pulse-green" : "",
           )}
         />
       ) : null}

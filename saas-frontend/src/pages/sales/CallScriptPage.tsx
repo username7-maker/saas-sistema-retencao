@@ -163,12 +163,14 @@ export function CallScriptPage() {
                   Nenhuma objeção registrada ate aqui.
                 </p>
               ) : (
-                script.objections.map((item, index) => (
-                  <div key={`${item.summary}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-4">
-                    <p className="text-sm font-semibold text-lovable-ink">{item.summary}</p>
-                    <p className="mt-2 text-sm text-lovable-ink-muted">{item.response_text}</p>
-                  </div>
-                ))
+                <div className="divide-y divide-lovable-border/50">
+                  {script.objections.map((item, index) => (
+                    <div key={`${item.summary}-${index}`} className="py-4 first:pt-0 last:pb-0">
+                      <p className="text-sm font-semibold text-lovable-ink">{item.summary}</p>
+                      <p className="mt-2 text-sm text-lovable-ink-muted">{item.response_text}</p>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>

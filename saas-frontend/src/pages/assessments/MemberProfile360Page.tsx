@@ -275,9 +275,9 @@ function ContextSupportPanel({ summary }: { summary: AssessmentSummary360 }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Fatores avaliados</p>
             {hasDiagnosisFactors ? (
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-3 divide-y divide-lovable-border/50">
                 {summary.diagnosis.factors.map((factor) => (
-                  <li key={factor.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+                  <li key={factor.key} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-lovable-ink">{factor.label}</p>
                       <Badge variant="neutral">{factor.score}</Badge>
@@ -303,9 +303,9 @@ function ContextSupportPanel({ summary }: { summary: AssessmentSummary360 }) {
             <Badge variant={statusBadgeVariant(summary.status)}>{statusLabel(summary.status)}</Badge>
           </div>
           {hasActions ? (
-            <ul className="space-y-3">
+            <ul className="divide-y divide-lovable-border/50">
               {summary.actions.map((action) => (
-                <li key={action.key} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+                <li key={action.key} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-lovable-ink">{action.title}</p>
@@ -789,11 +789,11 @@ function MovementVideoProfilePanel({ memberId, enabled }: { memberId: string; en
         ) : null}
 
         {recentReviews.length > 0 ? (
-          <ul className="space-y-3">
+          <ul className="divide-y divide-lovable-border/50">
             {recentReviews.map((review) => {
               const rejectionReason = getMovementVideoRejectionReason(review);
               return (
-                <li key={review.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+                <li key={review.id} className="py-4 first:pt-0 last:pb-0">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">

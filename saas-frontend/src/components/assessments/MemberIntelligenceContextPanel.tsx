@@ -185,9 +185,9 @@ export function MemberIntelligenceContextPanel({
           <div className="rounded-2xl border border-lovable-border bg-lovable-surface/80 px-4 py-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-lovable-ink-muted">Sinais principais</p>
             {context.signals.length > 0 ? (
-              <div className="mt-3 grid gap-2">
+              <div className="mt-3 divide-y divide-lovable-border/50">
                 {context.signals.slice(0, 5).map((signal) => (
-                  <div key={`${signal.key}-${signal.source}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
+                  <div key={`${signal.key}-${signal.source}`} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
                     <div>
                       <p className="text-sm font-semibold text-lovable-ink">{signal.label}</p>
                       <p className="text-xs text-lovable-ink-muted">

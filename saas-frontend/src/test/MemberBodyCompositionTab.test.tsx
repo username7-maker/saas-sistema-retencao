@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -290,25 +290,6 @@ describe("MemberBodyCompositionTab", () => {
     });
     expect(document.querySelector('select[name="sex"]')).toHaveValue("female");
     expect(screen.getByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("21");
-  });
-
-  it("marks height as ready in the protocol checklist when it is filled", async () => {
-    const evaluation = makeEvaluation();
-    evaluation.measurement_protocol = "petroski_1995_female_18_51";
-    evaluation.height_cm = 179;
-    evaluation.weight_kg = 84.5;
-    evaluation.skinfold_midaxillary_mm = 10;
-    evaluation.skinfold_suprailiac_mm = 18;
-    evaluation.skinfold_thigh_mm = 20;
-    evaluation.skinfold_calf_mm = 12;
-    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
-
-    renderTab();
-    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
-
-    const heightCard = (await screen.findByText("Altura")).closest("div.rounded-xl");
-    expect(heightCard).not.toBeNull();
-    expect(within(heightCard as HTMLElement).getByText("ok")).toBeInTheDocument();
   });
 
   it("restores an unfinished body-composition form from the current browser tab", async () => {

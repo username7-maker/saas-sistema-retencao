@@ -110,23 +110,25 @@ export function SalesBriefingPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">Historico de interacoes</p>
             <h3 className="mt-1 text-xl font-semibold text-lovable-ink">Linha do tempo consolidada</h3>
           </div>
-          <div className="space-y-3">
+          <div>
             {history.length === 0 ? (
               <p className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-4 text-sm text-lovable-ink-muted">
                 Ainda nao ha interacoes registradas para este lead.
               </p>
             ) : (
-              history.map((item, index) => (
-                <div key={`${item.kind}-${item.occurred_at}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-lovable-ink">{item.title}</p>
-                    <span className="text-xs text-lovable-ink-muted">
-                      {new Date(item.occurred_at).toLocaleString("pt-BR")}
-                    </span>
+              <div className="divide-y divide-lovable-border/50">
+                {history.map((item, index) => (
+                  <div key={`${item.kind}-${item.occurred_at}-${index}`} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-lovable-ink">{item.title}</p>
+                      <span className="text-xs text-lovable-ink-muted">
+                        {new Date(item.occurred_at).toLocaleString("pt-BR")}
+                      </span>
+                    </div>
+                    {item.detail ? <p className="mt-1 text-sm text-lovable-ink-muted">{item.detail}</p> : null}
                   </div>
-                  {item.detail ? <p className="mt-1 text-sm text-lovable-ink-muted">{item.detail}</p> : null}
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
         </CardContent>
@@ -139,9 +141,9 @@ export function SalesBriefingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">Argumentos recomendados pela IA</p>
               <h3 className="mt-1 text-xl font-semibold text-lovable-ink">Como conduzir a conversa</h3>
             </div>
-            <div className="space-y-3">
+            <div className="divide-y divide-lovable-border/50">
               {ai_arguments.map((argument, index) => (
-                <div key={`${argument.title}-${index}`} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-4">
+                <div key={`${argument.title}-${index}`} className="py-4 first:pt-0 last:pb-0">
                   <p className="text-sm font-semibold uppercase tracking-wide text-lovable-primary">
                     Argumento {index + 1}: {argument.title}
                   </p>

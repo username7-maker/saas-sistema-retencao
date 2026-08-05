@@ -705,8 +705,8 @@ export function RetentionDashboardPage() {
     const totalAlerts = Number(data.red.total ?? 0) + Number(data.yellow.total ?? 0);
     const hasFinancialBase = Number(data.mrr_at_risk ?? 0) > 0;
     return [
-      { label: "Alertas vermelhos", value: data.red.total, tone: "danger" as const },
-      { label: "Alertas amarelos", value: data.yellow.total, tone: "warning" as const },
+      { label: "Alertas vermelhos", value: data.red.total, tone: Number(data.red.total ?? 0) > 0 ? ("danger" as const) : ("success" as const) },
+      { label: "Alertas amarelos", value: data.yellow.total, tone: Number(data.yellow.total ?? 0) > 0 ? ("warning" as const) : ("success" as const) },
       {
         label: "MRR em risco",
         value: hasFinancialBase ? formatCurrency(Number(data.mrr_at_risk ?? 0)) : totalAlerts > 0 ? "Sem base" : formatCurrency(0),
@@ -715,7 +715,7 @@ export function RetentionDashboardPage() {
       {
         label: "Score médio crítico",
         value: data.red.total > 0 ? `${Math.round(Number(data.avg_red_score ?? 0))}` : "—",
-        tone: "danger" as const,
+        tone: data.red.total > 0 ? ("danger" as const) : ("neutral" as const),
       },
     ];
   }, [summaryQuery.data]);
@@ -800,9 +800,7 @@ export function RetentionDashboardPage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
-              <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
-                <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Dashboard de Retenção</span>
-              </h2>
+              <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">Dashboard de Retenção</h2>
             </div>
             <DashboardActions dashboard="retention" theme="dark" />
           </div>
@@ -823,10 +821,8 @@ export function RetentionDashboardPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Retenção</p>
-            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
-                Dashboard de Retenção
-              </span>
+            <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">
+              Dashboard de Retenção
             </h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Fila operacional de alunos com aviso ativo e playbooks sugeridos.</p>
           </div>

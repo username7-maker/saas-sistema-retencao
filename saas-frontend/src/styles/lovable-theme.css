@@ -21,14 +21,6 @@
   --lovable-chart-stroke: 201 48% 58%;
   --lovable-brand: #6fa7c7;
   --lovable-muted: #748993;
-  --pi-green: #22c55e;
-  --pi-red: #ff3b30;
-  --pi-cyan: #00c8ff;
-  --pi-orange: #f97316;
-  --pi-glow-green: 0 0 18px rgba(34, 197, 94, 0.45);
-  --pi-glow-red: 0 0 18px rgba(255, 59, 48, 0.5);
-  --pi-glow-cyan: 0 0 18px rgba(0, 200, 255, 0.4);
-  --pi-glow-orange: 0 0 18px rgba(249, 115, 22, 0.42);
   --cordex-carbon: #05090d;
   --cordex-carbon-raised: #0a1118;
   --cordex-orbit: #172632;
@@ -116,18 +108,6 @@
   }
 }
 
-@keyframes pi-pulse-green {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
-  }
-  50% {
-    opacity: 0.85;
-    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-  }
-}
-
 @keyframes pi-count-in {
   from {
     opacity: 0;
@@ -141,10 +121,6 @@
 
 .pi-pulse {
   animation: pi-pulse 2s ease-in-out infinite;
-}
-
-.pi-pulse-green {
-  animation: pi-pulse-green 2.5s ease-in-out infinite;
 }
 
 .pi-count-in {
@@ -186,8 +162,7 @@
   .stagger-3,
   .stagger-4,
   .pi-count-in,
-  .pi-pulse,
-  .pi-pulse-green {
+  .pi-pulse {
     animation: none;
   }
 }

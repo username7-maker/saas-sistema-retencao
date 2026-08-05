@@ -3,16 +3,17 @@ from uuid import UUID
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import RoleEnum
+from app.schemas.audit_email import AuditSafeEmail
 
 WorkShiftLiteral = Literal["overnight", "morning", "afternoon", "evening"]
 
 
 class UserRegister(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
+    email: AuditSafeEmail
     password: str = Field(min_length=8, max_length=72)
     role: RoleEnum = RoleEnum.RECEPTIONIST
     job_title: str | None = Field(default=None, max_length=120)
@@ -23,14 +24,14 @@ class UserRegister(BaseModel):
 
 class GymOwnerRegister(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
+    email: AuditSafeEmail
     password: str = Field(min_length=8, max_length=72)
     gym_name: str = Field(min_length=2, max_length=160)
     gym_slug: str = Field(min_length=3, max_length=80)
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: AuditSafeEmail
     password: str = Field(min_length=8, max_length=72)
     gym_slug: str = Field(min_length=3, max_length=80)
 
@@ -66,7 +67,7 @@ class RefreshTokenInput(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: AuditSafeEmail
     gym_slug: str = Field(min_length=3, max_length=80)
 
 

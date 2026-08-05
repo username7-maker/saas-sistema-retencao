@@ -13,22 +13,6 @@ export default {
           700: "#2f6f91",
           900: "#05080d",
         },
-        command: {
-          bg: "#000000",
-          surface: "#080808",
-          raised: "#101010",
-          ink: "#f5f5f5",
-          muted: "#a1a1aa",
-          cyan: "#00c8ff",
-          blue: "#3b82f6",
-          purple: "#8b5cf6",
-        },
-        pi: {
-          green: "#22c55e",
-          red: "#ff3b30",
-          cyan: "#00c8ff",
-          orange: "#f97316",
-        },
         /* Dark Intelligence — explicit depth layers */
         layer: {
           base: "#0A0B0F",

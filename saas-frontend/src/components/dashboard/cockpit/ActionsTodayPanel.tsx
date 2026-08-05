@@ -40,13 +40,13 @@ export function ActionsTodayPanel({ items, total, triagePendingCount }: ActionsT
       {items.length === 0 ? (
         <PremiumEmptyState icon={CheckSquare} title="Nenhuma ação pendente pra hoje" className="min-h-[140px] flex-1" />
       ) : (
-        <div className="flex flex-1 flex-col gap-2">
+        <div className="flex flex-1 flex-col divide-y divide-lovable-border/50">
           {items.map((item) => (
             <button
               key={item.task_id}
               type="button"
               onClick={() => navigate(item.href)}
-              className="flex w-full items-start justify-between gap-3 rounded-2xl border border-lovable-border/65 bg-lovable-surface/58 px-3 py-2.5 text-left transition hover:border-lovable-border-strong/70 hover:bg-lovable-surface-soft/62"
+              className="flex w-full items-start justify-between gap-3 py-2.5 text-left transition first:pt-0 last:pb-0 hover:bg-lovable-surface-soft/50"
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold text-lovable-ink">{item.title}</span>
