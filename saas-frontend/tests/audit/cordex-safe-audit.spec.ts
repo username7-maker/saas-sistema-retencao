@@ -217,7 +217,7 @@ async function baseObservation(
   return { observation, ledger };
 }
 
-test("manager desktop: auth, refresh and multiple tabs", async ({ page, context }, testInfo) => {
+test("manager desktop: auth, refresh and multiple tabs", async ({ page, context }, _testInfo) => {
   const viewport = { width: 1600, height: 1000 };
   const ledger: LedgerEntry[] = [];
   const consoleCounts: Record<string, number> = {};
