@@ -8,6 +8,10 @@ interface RetriableRequestConfig extends AxiosRequestConfig {
   _retry?: boolean;
 }
 
+interface AccessTokenRefreshOptions {
+  clearOnFailure?: boolean;
+}
+
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 20000,
@@ -16,7 +20,7 @@ export const api = axios.create({
 
 let refreshInFlight: Promise<string> | null = null;
 
-export async function requestAccessTokenRefresh(): Promise<string> {
+function startAccessTokenRefresh(): Promise<string> {
   if (!refreshInFlight) {
     refreshInFlight = axios
       .post<TokenPair>(`${API_BASE_URL}/api/v1/auth/refresh`, undefined, {
@@ -27,16 +31,23 @@ export async function requestAccessTokenRefresh(): Promise<string> {
         tokenStorage.setAccessToken(data.access_token);
         return data.access_token;
       })
-      .catch((error) => {
-        tokenStorage.clear();
-        throw error;
-      })
       .finally(() => {
         refreshInFlight = null;
       });
   }
 
   return refreshInFlight;
+}
+
+export async function requestAccessTokenRefresh(options: AccessTokenRefreshOptions = {}): Promise<string> {
+  try {
+    return await startAccessTokenRefresh();
+  } catch (error) {
+    if (options.clearOnFailure !== false) {
+      tokenStorage.clear();
+    }
+    throw error;
+  }
 }
 
 api.interceptors.request.use((config) => {

@@ -8,6 +8,10 @@ export interface LoginPayload {
   gym_slug: string;
 }
 
+interface RestoreSessionOptions {
+  clearOnFailure?: boolean;
+}
+
 export const authService = {
   async login(payload: LoginPayload): Promise<TokenPair> {
     const { data } = await api.post<TokenPair>("/api/v1/auth/login", payload);
@@ -15,8 +19,8 @@ export const authService = {
     return data;
   },
 
-  async restoreSession(): Promise<string> {
-    return requestAccessTokenRefresh();
+  async restoreSession(options?: RestoreSessionOptions): Promise<string> {
+    return requestAccessTokenRefresh(options);
   },
 
   async me(): Promise<User> {

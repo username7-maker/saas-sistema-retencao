@@ -483,13 +483,6 @@ export function getAssigneeLabel(task: Task, userNameById: Map<string, string>):
   return userNameById.get(task.assigned_to_user_id) ?? "Responsavel";
 }
 
-export function getPriorityAccentClass(priority: Task["priority"]): string {
-  if (priority === "urgent") return "border-l-rose-500";
-  if (priority === "high") return "border-l-amber-500";
-  if (priority === "medium") return "border-l-sky-500";
-  return "border-l-emerald-500";
-}
-
 export function getPriorityBadgeVariant(priority: Task["priority"]): "neutral" | "success" | "warning" | "danger" {
   if (priority === "urgent") return "danger";
   if (priority === "high") return "warning";

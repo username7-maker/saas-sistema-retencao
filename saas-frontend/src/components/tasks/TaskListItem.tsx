@@ -10,7 +10,6 @@ import {
   STATUS_LABELS,
   getTaskSlaMeta,
   getAssigneeLabel,
-  getPriorityAccentClass,
   getTaskSourceContext,
   getTaskContextLabel,
   isOverdue,
@@ -77,9 +76,7 @@ export function TaskListItem({
       onClick={handleOpenDetails}
       onKeyDown={handleKeyDown}
       className={clsx(
-        "rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2.5 text-left transition hover:border-lovable-border-strong hover:bg-lovable-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lovable-primary/30",
-        "border-l-4",
-        getPriorityAccentClass(task.priority),
+        "py-2.5 text-left transition hover:bg-lovable-surface-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lovable-primary/30 focus-visible:ring-inset",
         overdue && "bg-rose-500/5",
       )}
     >

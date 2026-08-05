@@ -51,6 +51,14 @@ outros negócios com atendimento, vendas, recorrência e retenção.
 > (justificativa mais forte que existe). O time trabalha na stack acima. Smoke do time:
 > ver `.ai-team.json`.
 
+## Design
+
+Contexto de produto e visual vive em `PRODUCT.md` e `DESIGN.md` (raiz do repo) —
+gerados pelo skill `/impeccable`. North Star: **"The Quiet Nucleus"** (navy quase-preto
++ um único acento azul `#3B82F6`, ancorado na logo da Cordex). Todo agente que mexer em
+UI deve ler `DESIGN.md` antes; ele já carrega os Don'ts que vêm dos invariantes acima
+(ação em vez de dashboard, sinal em vez de ruído).
+
 ## Como o time trabalha aqui
 
 - Método multi-agente: `specs/PARALLEL-PROTOCOL.md` (papéis, slots, zoning, worktrees).

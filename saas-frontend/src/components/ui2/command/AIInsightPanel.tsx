@@ -48,9 +48,9 @@ export function AIInsightPanel({
       </div>
 
       {alerts.length > 0 ? (
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 divide-y divide-lovable-border/50">
           {alerts.map((alert, index) => (
-            <div key={index} className="rounded-2xl border border-lovable-border/62 bg-lovable-surface/58 px-3 py-2 text-sm text-lovable-ink">
+            <div key={index} className="py-2 text-sm text-lovable-ink first:pt-0 last:pb-0">
               {alert}
             </div>
           ))}

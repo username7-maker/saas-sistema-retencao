@@ -169,9 +169,9 @@ function AttentionNowList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="divide-y divide-lovable-border/50">
       {items.map((member) => (
-        <li key={member.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+        <li key={member.id} className="py-3 first:pt-0 last:pb-0">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
@@ -286,9 +286,7 @@ export function AssessmentOperationsBoard({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Gestão</p>
-            <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Avaliações</span>
-            </h2>
+            <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">Avaliações</h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Priorize atrasos, primeiras leituras e próximas janelas sem perder a visão executiva da base ativa.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -363,9 +361,9 @@ export function AssessmentOperationsBoard({
               title="Resumo do dia"
               subtitle={`Pressao operacional atual: ${overduePressure}% da base ativa com atraso em avaliacao.`}
             />
-            <ul className="space-y-2 text-sm text-lovable-ink">
+            <ul className="divide-y divide-lovable-border/50 text-sm text-lovable-ink">
               {executiveRead.map((line) => (
-                <li key={line} className="rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3">
+                <li key={line} className="py-3 first:pt-0 last:pb-0">
                   {line}
                 </li>
               ))}

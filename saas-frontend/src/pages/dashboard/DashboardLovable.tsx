@@ -101,10 +101,8 @@ function DashboardHero({
       <div className="relative grid gap-6">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.34em] text-blue-400">Performance Intelligence</p>
-          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight md:text-6xl">
-            <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
-              IA de risco em tempo real
-            </span>
+          <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight text-lovable-ink md:text-6xl">
+            IA de risco em tempo real
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-lovable-ink-muted md:text-base">{insight}</p>
           <div className="mt-5 flex flex-wrap gap-2">
@@ -300,7 +298,7 @@ export function DashboardLovable() {
       trend: totalMembers > 0 ? "base importada" : "aguardando dados",
       trendDirection: "flat" as const,
       icon: Users,
-      tone: "info" as const,
+      tone: "neutral" as const,
     },
     {
       label: "Alunos ativos",
@@ -309,7 +307,7 @@ export function DashboardLovable() {
       trend: activeMembers > 0 ? `${percentOf(activeMembers, Math.max(totalMembers, 1)).toFixed(1)}% da base` : "sem base ativa",
       trendDirection: activeMembers > 0 ? "up" as const : "flat" as const,
       icon: Activity,
-      tone: "success" as const,
+      tone: "neutral" as const,
     },
     {
       label: "Churn médio",
@@ -327,7 +325,7 @@ export function DashboardLovable() {
       trend: mrr > 0 ? "financeiro conectado" : "sem dados financeiros",
       trendDirection: mrr > 0 ? "up" as const : "flat" as const,
       icon: DollarSign,
-      tone: mrr > 0 ? "success" as const : "neutral" as const,
+      tone: "neutral" as const,
       currency: mrr > 0,
     },
     {
@@ -340,7 +338,7 @@ export function DashboardLovable() {
           : "sem comparação",
       trendDirection: (weeklySummary.data?.checkins_delta_pct ?? 0) >= 0 ? "up" as const : "down" as const,
       icon: CalendarCheck,
-      tone: "info" as const,
+      tone: "neutral" as const,
     },
     {
       label: "Novos alunos",
@@ -349,7 +347,7 @@ export function DashboardLovable() {
       trend: "onboarding monitora ativação",
       trendDirection: "flat" as const,
       icon: UserPlus,
-      tone: "ai" as const,
+      tone: "neutral" as const,
     },
     {
       label: "Novos em risco",
@@ -575,10 +573,11 @@ export function DashboardLovable() {
                     labelStyle={{ color: "hsl(var(--lovable-ink-muted))", fontSize: "11px", marginBottom: "4px" }}
                     itemStyle={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "13px", fontWeight: 600 }}
                     cursor={{ stroke: "rgba(255,255,255,0.10)", strokeDasharray: "3 3" }}
-                    formatter={(value, key) => {
+                    formatter={(value, name, props) => {
                       const parsedValue = typeof value === "number" ? value : Number(value);
-                      if (!Number.isFinite(parsedValue)) return ["-", String(key)];
-                      if (key === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
+                      if (!Number.isFinite(parsedValue)) return ["-", String(name)];
+                      const dataKey = (props as { dataKey?: string } | undefined)?.dataKey;
+                      if (dataKey === "churn_rate") return [`${parsedValue.toFixed(2)}%`, "Churn"];
                       return [parsedValue.toFixed(2), "NPS médio"];
                     }}
                     labelFormatter={(label) => formatDateLabel(String(label))}

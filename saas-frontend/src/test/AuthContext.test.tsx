@@ -70,4 +70,97 @@ describe("AuthProvider", () => {
     expect(authServiceMock.restoreSession).toHaveBeenCalledOnce();
     expect(authServiceMock.me).toHaveBeenCalledOnce();
   });
+
+  it("refreshes an active session when the operator returns to the browser tab", async () => {
+    tokenStorageMock.getAccessToken.mockReturnValue(null);
+    authServiceMock.restoreSession.mockResolvedValue("new-access-token");
+    authServiceMock.me.mockResolvedValue({
+      id: "user-1",
+      gym_id: "gym-1",
+      full_name: "Owner Teste",
+      email: "owner@example.com",
+      role: "owner",
+      active: true,
+      created_at: "2026-03-27T00:00:00Z",
+    });
+
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    await screen.findByText("Owner Teste");
+    authServiceMock.restoreSession.mockClear();
+
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() => {
+      expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+    });
+  });
+
+  it("keeps refreshing when the browser moves the app to the background", async () => {
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    tokenStorageMock.getAccessToken.mockReturnValue("current-access-token");
+    authServiceMock.restoreSession.mockResolvedValue("new-access-token");
+    authServiceMock.me.mockResolvedValue({
+      id: "user-1",
+      gym_id: "gym-1",
+      full_name: "Owner Teste",
+      email: "owner@example.com",
+      role: "owner",
+      active: true,
+      created_at: "2026-03-27T00:00:00Z",
+    });
+
+    try {
+      render(
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>,
+      );
+
+      await screen.findByText("Owner Teste");
+      authServiceMock.restoreSession.mockClear();
+
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      await waitFor(() => {
+        expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+      });
+    } finally {
+      visibilitySpy.mockRestore();
+    }
+  });
+
+  it("does not clear the visible session when a background refresh fails", async () => {
+    tokenStorageMock.getAccessToken.mockReturnValue("current-access-token");
+    authServiceMock.me.mockResolvedValue({
+      id: "user-1",
+      gym_id: "gym-1",
+      full_name: "Owner Teste",
+      email: "owner@example.com",
+      role: "owner",
+      active: true,
+      created_at: "2026-03-27T00:00:00Z",
+    });
+
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    await screen.findByText("Owner Teste");
+    authServiceMock.restoreSession.mockRejectedValue(new Error("refresh failed"));
+
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() => {
+      expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+    });
+    expect(tokenStorageMock.clear).not.toHaveBeenCalled();
+    expect(screen.getByText("Owner Teste")).toBeInTheDocument();
+  });
 });

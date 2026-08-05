@@ -209,6 +209,7 @@ function renderTab() {
 describe("MemberBodyCompositionTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
@@ -255,6 +256,86 @@ describe("MemberBodyCompositionTab", () => {
     await screen.findByText("Interpretacao de apoio");
     expect(screen.queryByText("Leitura estrategica sem foto")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
+  });
+
+  it("shows the selected protocol requirements as immediate inputs", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    expect(await screen.findByText("O que medir neste protocolo")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" })).toHaveValue("14");
+    expect(screen.getByRole("textbox", { name: "Dobra tricipital (mm) para protocolo" })).toHaveValue("16");
+    expect(screen.getByRole("textbox", { name: "Dobra suprailiaca (mm) para protocolo" })).toHaveValue("18");
+    expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
+  });
+
+  it("locks Petroski women to the required sex and keeps the current age available to the protocol", async () => {
+    renderTab();
+
+    const protocolSelect = await screen.findByDisplayValue("Adicionar manualmente (Balanca de Bioimpedancia)");
+    fireEvent.change(protocolSelect, { target: { value: "petroski_1995_female_18_51" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
+    });
+    expect(document.querySelector('select[name="sex"]')).toHaveValue("female");
+    expect(screen.getByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("21");
+  });
+
+  it("restores an unfinished body-composition form from the current browser tab", async () => {
+    window.sessionStorage.setItem(
+      "cordex:body-composition-draft:v1:member-1",
+      JSON.stringify({
+        saved_at: Date.now(),
+        source: "manual",
+        reviewed_manually: true,
+        values: {
+          evaluation_date: "2026-04-14",
+          age_years: 31,
+          sex: "female",
+          weight_kg: 62.5,
+          measurement_protocol: "petroski_1995_female_18_51",
+        },
+      }),
+    );
+
+    renderTab();
+
+    expect(await screen.findByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("31");
+    expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
+    expect(screen.getAllByDisplayValue("62.5")).toHaveLength(2);
+  });
+
+  it("opens the device camera capture flow next to file upload", async () => {
+    const stop = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia },
+      configurable: true,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir camera para fotografar a bioimpedancia" }));
+
+    expect(screen.getByRole("dialog", { name: "Fotografar exame" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Fechar camera" }));
+    expect(stop).toHaveBeenCalled();
   });
 
   it("preserves anthropometry when a bioimpedance photo is read into the current evaluation", async () => {

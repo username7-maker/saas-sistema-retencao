@@ -1,0 +1,141 @@
+name: ${AUDIT_PROJECT_NAME}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: cordex_audit
+      POSTGRES_USER: cordex_audit
+      POSTGRES_PASSWORD: ${AUDIT_POSTGRES_PASSWORD:?runtime audit database password is required}
+    volumes:
+      - audit_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cordex_audit -d cordex_audit"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - audit_internal
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - audit_internal
+
+  backend:
+    build:
+      context: ../saas-backend
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_RUNTIME: api
+      PROCESS_TYPE: api
+      PORT: "8000"
+      WEB_CONCURRENCY: "1"
+      DATABASE_URL: postgresql+psycopg2://cordex_audit:${AUDIT_POSTGRES_PASSWORD}@db:5432/cordex_audit
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: audit
+      DEBUG: "false"
+      ENABLE_API_DOCS: "true"
+      ENABLE_SCHEDULER: "false"
+      ENABLE_SCHEDULER_IN_API: "false"
+      SCHEDULER_CRITICAL_LOCK_FAIL_OPEN: "false"
+      JWT_SECRET_KEY: ${AUDIT_JWT_SECRET:?runtime JWT secret is required}
+      CPF_ENCRYPTION_KEY: ${AUDIT_CPF_KEY:?runtime CPF key is required}
+      BCRYPT_ROUNDS: "12"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      REFRESH_TOKEN_EXPIRE_DAYS: "1"
+      REFRESH_COOKIE_SECURE: "false"
+      REFRESH_COOKIE_SAMESITE: lax
+      CORS_ORIGINS: ${AUDIT_CORS_ORIGINS}
+      FRONTEND_URL: ${AUDIT_FRONTEND_URL}
+      AUDIT_ALLOW_RESERVED_EMAILS: "true"
+      EMAIL_PROVIDER: resend
+      RESEND_API_KEY: ""
+      RESEND_SENDER: TESTE_AUDITORIA_NAO_ENVIAR@teste-auditoria.invalid
+      RESEND_REPLY_TO: ""
+      CLAUDE_API_KEY: ""
+      OPENAI_API_KEY: ""
+      BODY_COMPOSITION_IMAGE_AI_ENABLED: "false"
+      SENTRY_DSN: ""
+      WHATSAPP_API_URL: ""
+      WHATSAPP_API_TOKEN: ""
+      WHATSAPP_WEBHOOK_TOKEN: ""
+      WHATSAPP_INSTANCE: ""
+      WHATSAPP_ALLOW_GLOBAL_FALLBACK: "false"
+      WHATSAPP_AGENT_MODE: "off"
+      WHATSAPP_EXTERNAL_AUTO_REPLY_ENABLED: "false"
+      WHATSAPP_AGENT_FALLBACK_TO_LEGACY_NURTURING: "false"
+      N8N_WHATSAPP_AGENT_WEBHOOK_URL: ""
+      CORDEX_AGENT_SERVICE_TOKEN: ""
+      KOMMO_WEBHOOK_TOKEN: ""
+      PUBLIC_BACKEND_URL: ""
+      ACTUAR_ENABLED: "false"
+      ACTUAR_SYNC_ENABLED: "false"
+      ACTUAR_SYNC_MODE: disabled
+      ACTUAR_BASE_URL: ""
+      ACTUAR_API_KEY: ""
+      ACTUAR_USERNAME: ""
+      ACTUAR_PASSWORD: ""
+      ACTUAR_IGNORE_HTTPS_ERRORS: "false"
+      ACTUAR_SYNC_SCREENSHOT_ON_SUCCESS: "false"
+      ACTUAR_SYNC_SCREENSHOT_ON_FAILURE: "false"
+      ACTUAR_SYNC_REQUIRED_FOR_TRAINING: "false"
+      PUBLIC_DIAGNOSIS_ENABLED: "false"
+      PUBLIC_DIAG_GYM_ID: ""
+      ADMIN_GYM_ID: ""
+      PUBLIC_BOOKING_CONFIRM_ENABLED: "false"
+      PUBLIC_BOOKING_CONFIRM_TOKEN: ""
+      PUBLIC_OBJECTION_RESPONSE_ENABLED: "false"
+      PUBLIC_PROPOSAL_ENABLED: "false"
+      PUBLIC_PROPOSAL_EMAIL_ENABLED: "false"
+      MONTHLY_REPORTS_DISPATCH_ENABLED: "false"
+    volumes:
+      - ./backend:/audit:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${AUDIT_BACKEND_PORT}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)\""]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    networks:
+      - audit_internal
+
+  frontend:
+    build:
+      context: ../saas-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${AUDIT_BACKEND_URL}
+        VITE_WS_BASE_URL: ${AUDIT_WS_URL}
+        VITE_SENTRY_DSN: ""
+    restart: "no"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${AUDIT_FRONTEND_PORT}:80"
+    networks:
+      - audit_internal
+
+volumes:
+  audit_db:
+
+networks:
+  audit_internal:
+    internal: true

@@ -46,6 +46,13 @@ function makeReport(): BodyCompositionReport {
       manual_review_completed: true,
       quality_flags: ["body_fat_source_divergence"],
     },
+    score_total: 71,
+    score_breakdown: [
+      { key: "body_fat", label: "Gordura corporal", score: 22, max_score: 25, description: "Teste" },
+      { key: "muscle", label: "Massa muscular", score: 18, max_score: 25, description: "Teste" },
+      { key: "visceral_fat", label: "Gordura visceral", score: 18, max_score: 25, description: "Teste" },
+      { key: "waist", label: "Cintura / RCQ", score: 13, max_score: 25, description: "Teste" },
+    ],
     measurement_rows: [
       {
         key: "waist_cm",
@@ -83,6 +90,7 @@ function makeReport(): BodyCompositionReport {
     risk_metrics: [
       { key: "bmi", label: "IMC", value: 26.7, unit: null, formatted_value: "26.7", reference_min: 18.5, reference_max: 24.9, status: "high", hint: "Acompanhamento operacional" },
       { key: "waist_hip_ratio", label: "Relacao cintura-quadril", value: 0.88, unit: null, formatted_value: "0.88", reference_min: 0.75, reference_max: 0.9, status: "adequate", hint: null },
+      { key: "health_score", label: "Health score da bioimpedancia", value: 77, unit: null, formatted_value: "77", reference_min: 70, reference_max: 100, status: "adequate", hint: null },
     ],
     goal_metrics: [
       { key: "target_weight_kg", label: "Peso-alvo", value: 78, unit: "kg", formatted_value: "78 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
@@ -194,6 +202,7 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Leitura da avaliacao")).toBeInTheDocument();
+    expect(document.querySelector(".clinical-web-score-card strong")).toHaveTextContent("71");
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
     expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
@@ -209,6 +218,21 @@ describe("BodyCompositionReportPage", () => {
 
     await waitFor(() => {
       expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "technical", expect.anything());
+    });
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("closes the placeholder tab when the PDF service fails", async () => {
+    vi.mocked(bodyCompositionService.openPdf).mockRejectedValue(new Error("PDF unavailable"));
+    const close = vi.fn();
+    const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close } as unknown as Window);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
+
+    await waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
     });
 
     windowOpenSpy.mockRestore();

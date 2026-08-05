@@ -128,9 +128,7 @@ export function TasksPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Gestão</p>
-            <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">Tarefas</span>
-            </h2>
+            <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">Tarefas</h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Acompanhamento de ações e follow-ups pendentes.</p>
           </div>
           <Button variant="primary" onClick={() => { setWorkspaceTab("operations"); setCreateOpen(true); }}>

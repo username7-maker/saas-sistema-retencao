@@ -17,9 +17,9 @@ export function AssessmentTimeline({ assessments }: AssessmentTimelineProps) {
   return (
     <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
       <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Timeline de avaliações</h3>
-      <ol className="mt-3 space-y-3">
+      <ol className="mt-3 divide-y divide-lovable-border/50">
         {assessments.map((assessment) => (
-          <li key={assessment.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+          <li key={assessment.id} className="py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-lovable-ink">Avaliação #{assessment.assessment_number}</p>
               <time className="text-xs text-lovable-ink-muted">

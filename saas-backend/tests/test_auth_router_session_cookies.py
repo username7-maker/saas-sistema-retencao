@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models import RoleEnum
+from app.routers.auth import _email_delivery_failure_detail
 
 
 USER_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -256,6 +257,12 @@ def test_forgot_password_reports_resend_block_without_persisting_success(app, cl
         )
     finally:
         app.dependency_overrides.clear()
+
+
+def test_unverified_sender_has_actionable_password_reset_detail():
+    assert _email_delivery_failure_detail("sender_identity_unverified") == (
+        "Remetente ou dominio de e-mail nao verificado. Corrija o remetente ou solicite reset ao administrador."
+    )
 
 
 def test_logout_rejects_disallowed_origin(app, client):

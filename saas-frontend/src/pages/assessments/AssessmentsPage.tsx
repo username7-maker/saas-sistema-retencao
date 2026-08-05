@@ -468,9 +468,9 @@ export function AssessmentsPage() {
           ) : !actuarQueueQuery.data?.length ? (
             <p className="text-sm text-lovable-ink-muted">Sem pendencias Actuar no filtro atual.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="divide-y divide-lovable-border/50">
               {actuarQueueQuery.data.slice(0, 8).map((item) => (
-                <div key={item.evaluation_id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+                <div key={item.evaluation_id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <p className="font-semibold text-lovable-ink">{item.member_name}</p>

@@ -1455,7 +1455,10 @@ export interface BodyCompositionRecommendation {
 export interface BodyCompositionNextAssessment {
   due_date: string;
   formatted_due_date: string;
+  contact_date: string;
+  formatted_contact_date: string;
   cycle_days: number;
+  contact_offset_days: number;
   conditions: string[];
 }
 

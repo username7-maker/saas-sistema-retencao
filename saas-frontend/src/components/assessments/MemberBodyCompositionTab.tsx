@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
+  Camera,
   Copy,
   Download,
   FilePlus2,
@@ -17,7 +18,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -167,6 +168,50 @@ const schema = z.object({
 });
 
 type FormData = z.infer<typeof schema>;
+
+type BodyCompositionSessionDraft = {
+  saved_at: number;
+  values: FormData;
+  source: EvaluationSource;
+  reviewed_manually: boolean;
+};
+
+const BODY_COMPOSITION_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
+
+function bodyCompositionDraftKey(memberId: string): string {
+  return `cordex:body-composition-draft:v1:${memberId}`;
+}
+
+function readBodyCompositionDraft(memberId: string): BodyCompositionSessionDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(bodyCompositionDraftKey(memberId));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as BodyCompositionSessionDraft;
+    if (!draft.values || Date.now() - draft.saved_at > BODY_COMPOSITION_DRAFT_TTL_MS) {
+      window.sessionStorage.removeItem(bodyCompositionDraftKey(memberId));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function saveBodyCompositionDraft(memberId: string, draft: BodyCompositionSessionDraft): void {
+  try {
+    window.sessionStorage.setItem(bodyCompositionDraftKey(memberId), JSON.stringify(draft));
+  } catch {
+    // The form remains usable when browser storage is unavailable.
+  }
+}
+
+function clearBodyCompositionDraft(memberId: string): void {
+  try {
+    window.sessionStorage.removeItem(bodyCompositionDraftKey(memberId));
+  } catch {
+    // The draft is best-effort and scoped to the browser tab.
+  }
+}
 
 type NumericFieldKey =
   | "age_years"
@@ -389,6 +434,14 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
     ],
   },
 ];
+
+const FIELD_BY_KEY = new Map<NumericFieldKey, FieldDef>(
+  FORM_SECTIONS.flatMap((section) => section.fields.map((field) => [field.key, field] as const)),
+);
+
+function protocolFieldLabel(field: FieldDef): string {
+  return field.key.startsWith("skinfold_") ? `${SKINFOLD_FIELD_LABELS[field.key]} (mm)` : field.label;
+}
 
 const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "weight_kg",
@@ -807,6 +860,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [currentSource, setCurrentSource] = useState<EvaluationSource>("manual");
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const restoredDraftMemberRef = useRef<string | null>(null);
+  const recoveredDraftMemberRef = useRef<string | null>(null);
 
   const { data: evaluations, isLoading } = useQuery({
     queryKey: ["body-composition", memberId],
@@ -839,7 +898,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     reset,
     setValue,
     watch,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: buildDefaultValues(null),
@@ -875,6 +934,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       return bodyCompositionService.create(memberId, payload, { syncActuar });
     },
     onSuccess: async (savedEvaluation, variables) => {
+      clearBodyCompositionDraft(memberId);
       if (!variables.syncActuar) {
         toast.success(editingEvaluationId ? "Bioimpedancia atualizada apenas no sistema." : "Bioimpedancia salva apenas no sistema.");
       } else if (savedEvaluation.actuar_sync_status === "sync_pending") {
@@ -891,6 +951,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       resetEditor(savedEvaluation);
     },
     onError: (error) => {
+      if (error instanceof AxiosError && error.response?.status === 401) {
+        toast.error("Sua sessao expirou. O rascunho ficou preservado nesta aba; entre novamente e ele sera recuperado.");
+        return;
+      }
       if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
         toast.error(error.response.data.detail);
         return;
@@ -1100,7 +1164,59 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const watchedSkinfoldCalfMm = watch("skinfold_calf_mm");
   const watchedBodyFatReviewCompleted = watch("body_fat_manual_review_completed");
   const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
+  const watchedFormValues = watch();
   const selectedProtocol = getBodyCompositionProtocol(watchedMeasurementProtocol);
+
+  useEffect(() => {
+    if (!selectedProtocol?.sex || selectedSex === selectedProtocol.sex) return;
+    setValue("sex", selectedProtocol.sex, { shouldDirty: true, shouldValidate: true });
+  }, [selectedProtocol?.key, selectedProtocol?.sex, selectedSex, setValue]);
+
+  useEffect(() => {
+    if (restoredDraftMemberRef.current === memberId || isLoading) return;
+    restoredDraftMemberRef.current = memberId;
+    const draft = readBodyCompositionDraft(memberId);
+    if (!draft) return;
+
+    recoveredDraftMemberRef.current = memberId;
+    reset({ ...buildDefaultValues(null), ...draft.values });
+    setCurrentSource(draft.source);
+    setReviewedManually(draft.reviewed_manually);
+    toast.success("Rascunho desta avaliacao foi recuperado nesta aba. Revise e salve quando estiver pronto.");
+  }, [isLoading, memberId, reset]);
+
+  useEffect(() => {
+    const latestEvaluation = evaluations?.[0];
+    if (!latestEvaluation || isDirty || recoveredDraftMemberRef.current === memberId) return;
+
+    if (!hasNumericValue(watchedAgeYears) && hasNumericValue(latestEvaluation.age_years)) {
+      setValue("age_years", latestEvaluation.age_years, { shouldDirty: false, shouldValidate: true });
+    }
+    if (!selectedSex && latestEvaluation.sex) {
+      setValue("sex", latestEvaluation.sex, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [evaluations, isDirty, memberId, selectedSex, setValue, watchedAgeYears]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const timer = window.setTimeout(() => {
+      saveBodyCompositionDraft(memberId, {
+        saved_at: Date.now(),
+        values: watchedFormValues,
+        source: currentSource,
+        reviewed_manually: reviewedManually,
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [currentSource, isDirty, memberId, reviewedManually, watchedFormValues]);
+
+  const selectedProtocolRequiredFields = useMemo(
+    () => (selectedProtocol?.requiredFields ?? []).flatMap((field) => {
+      const definition = FIELD_BY_KEY.get(field as NumericFieldKey);
+      return definition ? [definition] : [];
+    }),
+    [selectedProtocol],
+  );
   const anthropometryProtocolItems = useMemo(
     () => buildAnthropometryProtocolItems({
       sex: selectedSex,
@@ -1220,6 +1336,77 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const reportHref = reportEvaluationId ? `/assessments/members/${memberId}/body-composition/${reportEvaluationId}/report` : null;
   const canSendReportWhatsApp = Boolean(reportEvaluationId && memberPhone?.trim());
   const canSendReportKommo = Boolean(reportEvaluationId);
+
+  useEffect(() => {
+    if (!cameraOpen) return;
+
+    let cancelled = false;
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("A camera nao esta disponivel neste navegador. Envie a foto como arquivo.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" } },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        cameraStreamRef.current = stream;
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+        }
+      } catch {
+        setCameraError("Nao foi possivel acessar a camera. Verifique a permissao do navegador ou envie a foto como arquivo.");
+      }
+    }
+
+    void startCamera();
+    return () => {
+      cancelled = true;
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    };
+  }, [cameraOpen]);
+
+  function closeCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+    setCameraError(null);
+  }
+
+  function captureCameraPhoto() {
+    const video = cameraVideoRef.current;
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      toast.error("Aguarde a imagem da camera carregar antes de fotografar.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      toast.error("Nao foi possivel preparar a foto da camera.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        toast.error("Nao foi possivel capturar a foto da camera.");
+        return;
+      }
+      const file = new File([blob], `bioimpedancia-camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+      setOcrFile(file);
+      closeCamera();
+      toast.success("Foto capturada. Clique em Ler foto para preencher os dados do exame.");
+    }, "image/jpeg", 0.92);
+  }
 
   async function handleOpenPdf(kind: "summary" | "technical") {
     if (!reportEvaluationId) return;
@@ -1341,6 +1528,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       toast.error("Preencha ao menos uma metrica da bioimpedancia antes de salvar.");
       return;
     }
+    saveBodyCompositionDraft(memberId, {
+      saved_at: Date.now(),
+      values: data,
+      source: currentSource,
+      reviewed_manually: reviewedManually,
+    });
     saveMutation.mutate({ payload: buildPayload(data), syncActuar });
   }
 
@@ -1390,12 +1583,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   }
 
   function handleNewEvaluation() {
+    clearBodyCompositionDraft(memberId);
     resetEditor(null);
     setCurrentSource("manual");
     setReviewedManually(true);
   }
 
   function handleEditEvaluation(evaluation: BodyCompositionEvaluation) {
+    clearBodyCompositionDraft(memberId);
     resetEditor(evaluation);
   }
 
@@ -1403,8 +1598,47 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const localOcrText = ocrReadSession.localResult?.raw_text ?? ocrResult?.raw_text ?? null;
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
+  function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
+    const normalized = normalizeNullableNumberInput(rawValue);
+    setValue(key, (typeof normalized === "number" ? normalized : null) as never, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }
+
   return (
     <div className="space-y-6">
+      {cameraOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="camera-capture-title"
+        >
+          <section className="w-full max-w-2xl rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="camera-capture-title" className="text-base font-semibold text-lovable-ink">Fotografar exame</h2>
+                <p className="mt-1 text-xs text-lovable-ink-muted">Posicione a folha inteira, com boa luz e sem reflexos.</p>
+              </div>
+              <Button type="button" size="sm" variant="ghost" onClick={closeCamera} aria-label="Fechar camera">
+                <X size={16} />
+              </Button>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl border border-lovable-border bg-black">
+              <video ref={cameraVideoRef} autoPlay muted playsInline className="aspect-video w-full object-contain" />
+            </div>
+            {cameraError ? <p className="mt-3 text-sm text-lovable-danger">{cameraError}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={closeCamera}>Cancelar</Button>
+              <Button type="button" variant="primary" onClick={captureCameraPhoto} disabled={Boolean(cameraError)}>
+                <Camera size={14} />
+                Capturar foto
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -1569,8 +1803,21 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <Input
                     type="file"
                     accept={SUPPORTED_OCR_IMAGE_ACCEPT}
+                    capture="environment"
                     onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)}
                   />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    aria-label="Abrir camera para fotografar a bioimpedancia"
+                    onClick={() => {
+                      setCameraError(null);
+                      setCameraOpen(true);
+                    }}
+                  >
+                    <Camera size={14} />
+                    Camera
+                  </Button>
                   <Button type="button" variant="ghost" onClick={() => void handleReadPhoto()} disabled={!ocrFile || ocrLoading}>
                     <ScanText size={14} />
                     {ocrLoading ? "Lendo..." : "Ler foto"}
@@ -1580,6 +1827,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     {ocrLoading ? "Processando..." : "Tentar leitura assistida (IA)"}
                   </Button>
                 </div>
+                {ocrFile ? <p className="mt-2 text-xs text-lovable-ink-muted">Imagem pronta para leitura: {ocrFile.name}</p> : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
                   <label className="inline-flex items-center gap-2">
                     <input
@@ -1730,9 +1978,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <p className="mt-1 text-xs text-lovable-ink-muted">
                       Confere os campos que entram no calculo. Braco, coxa, panturrilha, torax e ombro ficam so para evolucao.
                     </p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="mt-3 divide-y divide-lovable-border/50">
                       {anthropometryProtocolItems.map((item) => (
-                        <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+                        <div key={item.label} className="py-2 first:pt-0 last:pb-0">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-lovable-ink">{item.label}</p>
                             <StatusPill tone={item.ready ? "success" : "warning"}>{item.ready ? "ok" : "pendente"}</StatusPill>
@@ -1747,27 +1995,89 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <p className="mt-1 text-xs text-lovable-ink-muted">
                       Acompanha assimetria de medidas de evolucao. Estes valores nao entram no calculo da gordura.
                     </p>
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3">
                       {perimetryBalanceItems.length === 0 ? (
                         <p className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs text-lovable-ink-muted">
                           Preencha pares direito/esquerdo para comparar.
                         </p>
                       ) : (
-                        perimetryBalanceItems.map((item) => (
-                          <div key={item.label} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3 text-xs">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-semibold text-lovable-ink">{item.label}</p>
-                              <StatusPill tone={item.delta > 2 ? "warning" : "success"}>{item.delta.toFixed(1)} cm</StatusPill>
+                        <div className="divide-y divide-lovable-border/50">
+                          {perimetryBalanceItems.map((item) => (
+                            <div key={item.label} className="py-2 text-xs first:pt-0 last:pb-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="font-semibold text-lovable-ink">{item.label}</p>
+                                <StatusPill tone={item.delta > 2 ? "warning" : "success"}>{item.delta.toFixed(1)} cm</StatusPill>
+                              </div>
+                              <p className="mt-1 text-lovable-ink-muted">
+                                Direita {item.right.toFixed(1)} cm - Esquerda {item.left.toFixed(1)} cm
+                              </p>
                             </div>
-                            <p className="mt-1 text-lovable-ink-muted">
-                              Direita {item.right.toFixed(1)} cm - Esquerda {item.left.toFixed(1)} cm
-                            </p>
-                          </div>
-                        ))
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
                 </div>
+                {selectedProtocol && selectedProtocol.key !== "manual_bioimpedance" ? (
+                  <section className="rounded-2xl border border-lovable-primary/30 bg-lovable-primary/5 p-4" aria-labelledby="protocol-measurements-title">
+                    <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p id="protocol-measurements-title" className="text-xs font-semibold uppercase tracking-wider text-lovable-primary">
+                          O que medir neste protocolo
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-lovable-ink">{selectedProtocol.label}</p>
+                        <p className="mt-1 text-xs text-lovable-ink-muted">
+                          Preencha aqui os dados obrigatorios desta leitura. Os mesmos valores seguem salvos na avaliacao completa abaixo.
+                        </p>
+                      </div>
+                      <StatusPill tone={selectedProtocol.supported ? "success" : "warning"}>
+                        {selectedProtocol.supported ? "calculo disponivel" : "registro e revisao"}
+                      </StatusPill>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <FormField label="Sexo">
+                        <Select
+                          aria-label="Sexo para protocolo"
+                          value={selectedProtocol.sex ?? selectedSex ?? ""}
+                          disabled={Boolean(selectedProtocol.sex)}
+                          onChange={(event) => setValue("sex", (event.target.value || null) as FormData["sex"], { shouldDirty: true, shouldValidate: true })}
+                        >
+                          <option value="">Nao informado</option>
+                          <option value="male">Masculino</option>
+                          <option value="female">Feminino</option>
+                        </Select>
+                      </FormField>
+                      <FormField label="Idade (anos)">
+                        <Input
+                          aria-label="Idade para protocolo"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="29"
+                          value={watchedAgeYears ?? ""}
+                          onChange={(event) => {
+                            const normalized = normalizeNullableIntegerInput(event.target.value);
+                            setValue("age_years", (typeof normalized === "number" ? normalized : null) as FormData["age_years"], {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }}
+                        />
+                      </FormField>
+                      {selectedProtocolRequiredFields.map((field) => (
+                        <FormField key={field.key} label={protocolFieldLabel(field)}>
+                          <Input
+                            aria-label={`${protocolFieldLabel(field)} para protocolo`}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder={field.placeholder}
+                            value={String(watchedFormValues[field.key] ?? "")}
+                            onChange={(event) => setQuickProtocolNumber(field.key, event.target.value)}
+                          />
+                        </FormField>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 <div className="rounded-2xl border border-lovable-border bg-lovable-surface p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -2021,16 +2331,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Classificacao por faixa</p>
-                    <div className="mt-2 space-y-2">
+                    <div className="mt-2">
                       {rangeClassifications.length === 0 ? (
                         <p className="text-sm text-lovable-ink-muted">Sem faixas impressas suficientes para classificar este exame.</p>
                       ) : (
-                        rangeClassifications.map((item) => (
-                          <div key={item.label} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
-                            <span className="text-lovable-ink">{item.label}</span>
-                            <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
-                          </div>
-                        ))
+                        <div className="divide-y divide-lovable-border/50">
+                          {rangeClassifications.map((item) => (
+                            <div key={item.label} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
+                              <span className="text-lovable-ink">{item.label}</span>
+                              <StatusPill tone={item.status === "dentro" ? "success" : "warning"}>{item.status}</StatusPill>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2151,9 +2463,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   {syncStatus?.critical_fields?.length ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Campos criticos para treino</p>
-                      <div className="space-y-2">
+                      <div className="divide-y divide-lovable-border/50">
                         {syncStatus.critical_fields.map((field) => (
-                          <div key={field.field} className="flex items-center justify-between rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
+                          <div key={field.field} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
                             <div>
                               <p className="font-semibold text-lovable-ink">{field.actuar_field ?? field.field}</p>
                               <p className="text-xs text-lovable-ink-muted">{field.classification}</p>
@@ -2216,17 +2528,19 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   {syncStatus?.attempts?.length ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Tentativas recentes</p>
-                      {syncStatus.attempts.slice(0, 3).map((attempt) => (
-                        <div key={attempt.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-semibold text-lovable-ink">{syncLabel(attempt.status)}</span>
-                            <span className="text-xs text-lovable-ink-muted">{new Date(attempt.started_at).toLocaleString("pt-BR")}</span>
+                      <div className="divide-y divide-lovable-border/50">
+                        {syncStatus.attempts.slice(0, 3).map((attempt) => (
+                          <div key={attempt.id} className="py-2 text-sm first:pt-0 last:pb-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-lovable-ink">{syncLabel(attempt.status)}</span>
+                              <span className="text-xs text-lovable-ink-muted">{new Date(attempt.started_at).toLocaleString("pt-BR")}</span>
+                            </div>
+                            <p className="text-xs text-lovable-ink-muted">
+                              {attempt.worker_id ?? "worker"}{attempt.error_code ? ` · ${attempt.error_code}` : ""}
+                            </p>
                           </div>
-                          <p className="text-xs text-lovable-ink-muted">
-                            {attempt.worker_id ?? "worker"}{attempt.error_code ? ` · ${attempt.error_code}` : ""}
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </>
@@ -2240,7 +2554,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         <CardHeader>
           <CardTitle>Historico de bioimpedancia</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className={isLoading || !evaluations?.length ? "space-y-3" : "divide-y divide-lovable-border/50"}>
           {isLoading ? (
             <>
               <Skeleton className="h-28 w-full rounded-2xl" />
@@ -2250,7 +2564,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             <p className="text-sm text-lovable-ink-muted">Nenhuma bioimpedancia registrada ainda.</p>
           ) : (
             evaluations.map((evaluation) => (
-              <article key={evaluation.id} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+              <article key={evaluation.id} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">

@@ -245,9 +245,9 @@ function OnboardingScorePanel({
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Playbook sugerido</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3 pt-0">
+        <CardContent className="divide-y divide-lovable-border/50 pt-0">
           {PLAYBOOK_ACTIONS[playbookKey].map((action) => (
-            <div key={`${playbookKey}-${action.day}-${action.label}`} className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-3">
+            <div key={`${playbookKey}-${action.day}-${action.label}`} className="py-3 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={playbookKey === "critico" ? "danger" : playbookKey === "atencao" ? "warning" : "success"}>{action.day}</Badge>
                 <span className="text-sm font-semibold text-lovable-ink">{action.label}</span>

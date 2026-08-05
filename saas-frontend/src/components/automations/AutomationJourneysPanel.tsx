@@ -188,9 +188,9 @@ function PreviewBox({ preview }: { preview: AutomationJourneyPreview | null }) {
       {preview.sample.length === 0 ? (
         <p className="text-sm text-lovable-ink-muted">Nenhum aluno ou lead elegivel agora.</p>
       ) : (
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="divide-y divide-lovable-border/50">
           {preview.sample.map((item) => (
-            <div key={item.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-3 py-2">
+            <div key={item.id} className="py-2 first:pt-0 last:pb-0">
               <p className="text-sm font-semibold text-lovable-ink">{item.name}</p>
               <p className="text-xs text-lovable-ink-muted">
                 {item.kind} {item.preferred_shift ? `· turno ${item.preferred_shift}` : ""} {item.reason ? `· ${item.reason}` : ""}

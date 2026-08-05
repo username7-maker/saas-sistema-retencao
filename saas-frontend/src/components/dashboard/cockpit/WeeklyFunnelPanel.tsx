@@ -41,13 +41,13 @@ export function WeeklyFunnelPanel({ funnel }: WeeklyFunnelPanelProps) {
       {isEmpty ? (
         <PremiumEmptyState icon={BarChart3} title="Sem atividade registrada nesta semana" className="min-h-[140px] flex-1" />
       ) : (
-        <div className="flex flex-1 flex-col justify-center gap-3">
+        <div className="flex flex-1 flex-col justify-center divide-y divide-lovable-border/50">
           {stages.map((stage, index) => (
             <div
               key={stage.key}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-2xl border border-lovable-border/65 bg-lovable-surface/58 px-3 py-2.5",
-                index === 2 && "border-blue-400/25 bg-blue-400/[0.06]",
+                "flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0",
+                index === 2 && "bg-lovable-primary/[0.06]",
               )}
             >
               <span className="text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">

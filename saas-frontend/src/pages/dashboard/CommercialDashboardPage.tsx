@@ -93,10 +93,8 @@ export function CommercialDashboardPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Comercial</p>
-            <h2 className="mt-2 font-heading text-3xl font-bold md:text-4xl">
-              <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
-                Dashboard Comercial
-              </span>
+            <h2 className="mt-2 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">
+              Dashboard Comercial
             </h2>
             <p className="mt-1 text-sm text-lovable-ink-muted">Pipeline, conversão por origem, follow-up e oportunidades paradas.</p>
           </div>
@@ -120,7 +118,7 @@ export function CommercialDashboardPage() {
           value={hasCommercialBase ? `R$ ${query.data.cac.toFixed(2)}` : "Sem base"}
           subtitle="Custo de aquisição estimado"
           icon={Target}
-          tone={hasCommercialBase ? "warning" : "neutral"}
+          tone="neutral"
           currency={hasCommercialBase}
           className="stagger-1"
         />
@@ -129,7 +127,7 @@ export function CommercialDashboardPage() {
           value={String(query.data.pipeline.proposal ?? query.data.pipeline.proposal_sent ?? 0)}
           subtitle="Oportunidades em negociação"
           icon={Briefcase}
-          tone="info"
+          tone="neutral"
           className="stagger-2"
         />
         <MetricCard

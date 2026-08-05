@@ -639,10 +639,14 @@ def _build_body_composition_recommendations(
 def _build_next_assessment(evaluation: BodyCompositionEvaluation) -> BodyCompositionNextAssessmentRead:
     measured_date = _measured_at(evaluation).date()
     due_date = measured_date + timedelta(days=90)
+    contact_date = measured_date + timedelta(days=75)
     return BodyCompositionNextAssessmentRead(
         due_date=due_date,
         formatted_due_date=due_date.strftime("%d/%m/%Y"),
+        contact_date=contact_date,
+        formatted_contact_date=contact_date.strftime("%d/%m/%Y"),
         cycle_days=90,
+        contact_offset_days=75,
         conditions=[
             "mesmo horario sempre que possivel",
             "hidratacao semelhante",

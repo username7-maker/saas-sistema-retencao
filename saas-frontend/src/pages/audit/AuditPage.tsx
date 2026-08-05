@@ -115,10 +115,8 @@ export function AuditPage() {
       <CommandCard variant="elevated">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Sistema</p>
-          <h2 className="mt-1 font-heading text-3xl font-bold md:text-4xl">
-            <span className="bg-gradient-to-r from-white via-white to-blue-300 bg-clip-text text-transparent">
-              Auditoria
-            </span>
+          <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">
+            Auditoria
           </h2>
           <p className="mt-1 text-sm text-lovable-ink-muted">Registro completo de ações realizadas no sistema.</p>
         </div>

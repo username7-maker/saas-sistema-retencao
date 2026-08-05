@@ -1,0 +1,61 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const axiosPostMock = vi.hoisted(() => vi.fn());
+const requestInterceptorUseMock = vi.hoisted(() => vi.fn());
+const responseInterceptorUseMock = vi.hoisted(() => vi.fn());
+
+vi.mock("axios", () => ({
+  default: {
+    create: vi.fn(() => ({
+      interceptors: {
+        request: { use: requestInterceptorUseMock },
+        response: { use: responseInterceptorUseMock },
+      },
+    })),
+    post: axiosPostMock,
+  },
+}));
+
+import { requestAccessTokenRefresh } from "../services/api";
+import { tokenStorage } from "../services/storage";
+
+describe("requestAccessTokenRefresh", () => {
+  beforeEach(() => {
+    axiosPostMock.mockReset();
+    tokenStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("stores the new access token when refresh succeeds", async () => {
+    axiosPostMock.mockResolvedValueOnce({
+      data: {
+        access_token: "new-access-token",
+        refresh_token: null,
+        token_type: "bearer",
+        expires_in: 900,
+      },
+    });
+
+    await expect(requestAccessTokenRefresh()).resolves.toBe("new-access-token");
+
+    expect(tokenStorage.getAccessToken()).toBe("new-access-token");
+  });
+
+  it("clears the access token by default when refresh fails", async () => {
+    tokenStorage.setAccessToken("current-access-token");
+    axiosPostMock.mockRejectedValueOnce(new Error("refresh failed"));
+
+    await expect(requestAccessTokenRefresh()).rejects.toThrow("refresh failed");
+
+    expect(tokenStorage.getAccessToken()).toBeNull();
+  });
+
+  it("keeps the access token when refresh fails with clearOnFailure disabled", async () => {
+    tokenStorage.setAccessToken("current-access-token");
+    axiosPostMock.mockRejectedValueOnce(new Error("refresh failed"));
+
+    await expect(requestAccessTokenRefresh({ clearOnFailure: false })).rejects.toThrow("refresh failed");
+
+    expect(tokenStorage.getAccessToken()).toBe("current-access-token");
+  });
+});
