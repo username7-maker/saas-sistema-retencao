@@ -43,7 +43,9 @@ export async function requestAccessTokenRefresh(options: AccessTokenRefreshOptio
   try {
     return await startAccessTokenRefresh();
   } catch (error) {
-    if (options.clearOnFailure !== false) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+    const isAuthFailure = status === 401 || status === 403;
+    if (options.clearOnFailure !== false && isAuthFailure) {
       tokenStorage.clear();
     }
     throw error;
@@ -77,8 +79,11 @@ api.interceptors.response.use(
       originalRequest.headers = originalRequest.headers ?? {};
       originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
-    } catch {
-      tokenStorage.clear();
+    } catch (refreshError) {
+      const status = axios.isAxiosError(refreshError) ? refreshError.response?.status : undefined;
+      if (status === 401 || status === 403) {
+        tokenStorage.clear();
+      }
       return Promise.reject(error);
     }
   },

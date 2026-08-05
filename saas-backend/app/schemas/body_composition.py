@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.assistant import AIAssistantPayload
 
@@ -49,6 +49,75 @@ BodyCompositionDataQualityFlag = Literal[
     "anthropometry_protocol_mismatch",
     "anthropometry_protocol_age_outside_range",
 ]
+
+BODY_COMPOSITION_NUMERIC_INPUT_FIELDS = (
+    "age_years",
+    "height_cm",
+    "weight_kg",
+    "body_fat_kg",
+    "body_fat_percent",
+    "body_fat_bioimpedance_percent",
+    "body_fat_anthropometric_percent",
+    "body_fat_manual_override_percent",
+    "body_fat_used_percent",
+    "body_fat_range_min",
+    "body_fat_range_max",
+    "fat_mass_estimated_kg",
+    "lean_mass_estimated_kg",
+    "waist_hip_ratio",
+    "fat_free_mass_kg",
+    "inorganic_salt_kg",
+    "protein_kg",
+    "body_water_kg",
+    "lean_mass_kg",
+    "muscle_mass_kg",
+    "skeletal_muscle_kg",
+    "body_water_percent",
+    "visceral_fat_level",
+    "bmi",
+    "basal_metabolic_rate_kcal",
+    "neck_cm",
+    "shoulders_cm",
+    "chest_cm",
+    "waist_cm",
+    "abdomen_cm",
+    "hip_cm",
+    "right_arm_relaxed_cm",
+    "left_arm_relaxed_cm",
+    "right_arm_flexed_cm",
+    "left_arm_flexed_cm",
+    "right_thigh_cm",
+    "left_thigh_cm",
+    "right_calf_cm",
+    "left_calf_cm",
+    "skinfold_chest_mm",
+    "skinfold_midaxillary_mm",
+    "skinfold_subscapular_mm",
+    "skinfold_triceps_mm",
+    "skinfold_biceps_mm",
+    "skinfold_abdominal_mm",
+    "skinfold_suprailiac_mm",
+    "skinfold_thigh_mm",
+    "skinfold_calf_mm",
+    "target_weight_kg",
+    "weight_control_kg",
+    "muscle_control_kg",
+    "fat_control_kg",
+    "total_energy_kcal",
+    "physical_age",
+    "health_score",
+    "ocr_confidence",
+    "parsing_confidence",
+)
+
+
+def _normalize_decimal_input(value):
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().replace(" ", "").replace("%", "").replace(",", ".")
+    if not cleaned:
+        return None
+    return cleaned
 BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
 BodyCompositionRangeStatus = Literal["low", "adequate", "monitor", "high", "unknown"]
 BodyCompositionInsightTone = Literal["positive", "warning", "neutral"]
@@ -113,6 +182,11 @@ class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
 
 
 class BodyCompositionEvaluationBase(BaseModel):
+    @field_validator(*BODY_COMPOSITION_NUMERIC_INPUT_FIELDS, mode="before")
+    @classmethod
+    def accept_decimal_comma(cls, value):
+        return _normalize_decimal_input(value)
+
     evaluation_date: date
     measured_at: datetime | None = None
     age_years: int | None = Field(default=None, ge=1, le=119)

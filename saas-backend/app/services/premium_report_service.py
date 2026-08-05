@@ -798,6 +798,7 @@ def render_html_to_pdf(
     pdf_size: dict[str, str] | None = None,
     scale: float = 1.0,
 ) -> bytes:
+    html = _repair_pdf_text_encoding(html)
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:  # pragma: no cover - exercised in runtime environments
@@ -821,6 +822,44 @@ def render_html_to_pdf(
             return page.pdf(**pdf_options)
         finally:
             browser.close()
+
+
+def _repair_pdf_text_encoding(value: str) -> str:
+    markers = ("Ã", "Â", "â€™", "â€œ", "â€", "â€“")
+    if not any(marker in value for marker in markers):
+        return value
+    try:
+        return value.encode("latin1").decode("utf-8")
+    except UnicodeError:
+        replacements = {
+            "Â·": "·",
+            "Âº": "º",
+            "Ã¡": "á",
+            "\u00c3\u00a0": "à",
+            "Ã¢": "â",
+            "Ã£": "ã",
+            "Ã©": "é",
+            "Ãª": "ê",
+            "Ã­": "í",
+            "Ã³": "ó",
+            "Ã´": "ô",
+            "Ãµ": "õ",
+            "Ãº": "ú",
+            "Ã§": "ç",
+            "\u00c3\u0080": "À",
+            "\u00c3\u0081": "Á",
+            "Ã‰": "É",
+            "Ã‡": "Ç",
+            "â€“": "–",
+            "â€”": "—",
+            "â€œ": "“",
+            "â€�": "”",
+            "â€™": "’",
+        }
+        repaired = value
+        for broken, fixed in replacements.items():
+            repaired = repaired.replace(broken, fixed)
+        return repaired
 
 
 def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:

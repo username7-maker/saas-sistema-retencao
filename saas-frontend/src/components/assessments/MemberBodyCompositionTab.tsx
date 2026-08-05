@@ -709,7 +709,7 @@ function buildAnthropometryProtocolItems(input: {
         ready: hasNumericValue(input.ageYears),
         description:
           selectedProtocol.ageMin != null && selectedProtocol.ageMax != null
-            ? `Faixa do protocolo: ${selectedProtocol.ageMin}-${selectedProtocol.ageMax} anos. Fora da faixa gera alerta.`
+            ? `Faixa do protocolo: ${selectedProtocol.ageMin}-${selectedProtocol.ageMax} anos. Fora da faixa gera alerta, mas nao bloqueia a avaliacao.`
             : "Sem faixa etaria especifica.",
       },
     ];
@@ -852,6 +852,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [ocrPreviewUrl, setOcrPreviewUrl] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<BodyCompositionOcrResult | null>(null);
   const [ocrReadSession, setOcrReadSession] = useState<OcrReadSessionState>(EMPTY_OCR_READ_SESSION);
@@ -1337,6 +1338,21 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const reportHref = reportEvaluationId ? `/assessments/members/${memberId}/body-composition/${reportEvaluationId}/report` : null;
   const canSendReportWhatsApp = Boolean(reportEvaluationId && memberPhone?.trim());
   const canSendReportKommo = Boolean(reportEvaluationId);
+
+  useEffect(() => {
+    if (!ocrFile) {
+      setOcrPreviewUrl(null);
+      return;
+    }
+    if (typeof URL.createObjectURL !== "function") {
+      setOcrPreviewUrl(null);
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(ocrFile);
+    setOcrPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [ocrFile]);
 
   useEffect(() => {
     if (!cameraOpen) return;
@@ -1828,7 +1844,20 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     {ocrLoading ? "Processando..." : "Tentar leitura assistida (IA)"}
                   </Button>
                 </div>
-                {ocrFile ? <p className="mt-2 text-xs text-lovable-ink-muted">Imagem pronta para leitura: {ocrFile.name}</p> : null}
+                {ocrFile ? (
+                  <div className="mt-3 overflow-hidden rounded-xl border border-lovable-border bg-lovable-surface-soft">
+                    {ocrPreviewUrl ? (
+                      <img
+                        src={ocrPreviewUrl}
+                        alt={`Foto selecionada para leitura: ${ocrFile.name}`}
+                        className="max-h-72 w-full object-contain"
+                      />
+                    ) : null}
+                    <p className="border-t border-lovable-border px-3 py-2 text-xs text-lovable-ink-muted">
+                      Imagem pronta para leitura: {ocrFile.name}
+                    </p>
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
                   <label className="inline-flex items-center gap-2">
                     <input

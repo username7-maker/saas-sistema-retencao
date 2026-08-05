@@ -361,6 +361,18 @@ def refresh_member_risk_snapshot(
             db.add(member)
         if sync_alerts and result.score >= 40:
             current_alert = current_alerts_by_member.get(member.id)
+            if _retention_cooldown_active(member, now):
+                if _resolve_alert(
+                    db,
+                    member,
+                    current_alert,
+                    resolved_at=now,
+                    reason="retention_action_cooldown",
+                ):
+                    current_alerts_by_member.pop(member.id, None)
+                    alerts_synced += 1
+                refreshed += 1
+                continue
             synced_alert = _create_or_update_alert(
                 db,
                 member,
@@ -386,6 +398,7 @@ def _resolve_alert(
     current_alert: RiskAlert | None,
     *,
     resolved_at: datetime,
+    reason: str = "score_below_threshold",
     ws_events: list[dict] | None = None,
 ) -> bool:
     if current_alert is None or current_alert.resolved:
@@ -396,7 +409,7 @@ def _resolve_alert(
         {
             "type": "automatic_resolution",
             "timestamp": resolved_at.isoformat(),
-            "reason": "score_below_threshold",
+            "reason": reason,
         }
     )
     current_alert.action_history = history
@@ -414,6 +427,22 @@ def _resolve_alert(
         current_alert.level.value,
     )
     return True
+
+
+def _retention_cooldown_active(member: Member, now: datetime) -> bool:
+    extra_data = getattr(member, "extra_data", None)
+    if not isinstance(extra_data, dict):
+        return False
+    value = extra_data.get("retention_cooldown_until")
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed > now
 
 
 def _result_from_member_state(member: Member, result: RiskResult) -> RiskResult:

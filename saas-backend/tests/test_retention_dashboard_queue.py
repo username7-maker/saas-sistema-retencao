@@ -300,6 +300,8 @@ class TestRetentionQueueService:
         assert "members.email" in compiled
         assert "members.plan_name" in compiled
         assert "risk_alerts.gym_id" in compiled
+        assert "EXISTS" in compiled
+        assert "audit_logs" in compiled
         assert "members.churn_type" in compiled
         assert "members.preferred_shift" in compiled
         assert "annual" in params.values()

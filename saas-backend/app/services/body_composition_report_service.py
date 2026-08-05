@@ -178,6 +178,14 @@ def resolve_body_composition_persistence_fields(
         data["lean_mass_kg"] = fat_free_mass
 
     data = resolve_body_fat_fields(data, previous_values=previous_evaluation)
+    calculated_bmr = calculate_basal_metabolic_rate(
+        sex=data.get("sex"),
+        age_years=data.get("age_years"),
+        height_cm=data.get("height_cm"),
+        weight_kg=data.get("weight_kg"),
+    )
+    if data.get("basal_metabolic_rate_kcal") in (None, "") and calculated_bmr is not None:
+        data["basal_metabolic_rate_kcal"] = calculated_bmr
 
     measured_at = data.get("measured_at")
     evaluation_date = data.get("evaluation_date")
@@ -216,6 +224,18 @@ def calculate_body_water_percent(*, weight_kg: Any, body_water_kg: Any) -> float
     if weight is None or body_water is None or weight <= 0 or body_water < 0:
         return None
     return round((body_water / weight) * 100, 1)
+
+
+def calculate_basal_metabolic_rate(*, sex: Any, age_years: Any, height_cm: Any, weight_kg: Any) -> int | None:
+    age = _maybe_float(age_years)
+    height = _maybe_float(height_cm)
+    weight = _maybe_float(weight_kg)
+    if sex not in {"male", "female"} or age is None or height is None or weight is None:
+        return None
+    if age <= 0 or height <= 0 or weight <= 0:
+        return None
+    sex_offset = 5 if sex == "male" else -161
+    return round((10 * weight) + (6.25 * height) - (5 * age) + sex_offset)
 
 
 def build_body_composition_report_read(

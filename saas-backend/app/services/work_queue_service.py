@@ -17,6 +17,7 @@ from app.models import (
     Lead,
     Member,
     MemberStatus,
+    RiskAlert,
     RoleEnum,
     Task,
     TaskPriority,
@@ -111,6 +112,7 @@ FINAL_TASK_OUTCOMES = {
     "reassessment_scheduled",
     "completed",
 }
+RETENTION_ACTION_COOLDOWN_DAYS = 14
 NEUTRAL_AI_OUTCOMES = {
     "no_response",
     "postponed",
@@ -2092,6 +2094,76 @@ def _apply_task_outcome(task: Task, payload: WorkQueueOutcomeInput, current_user
     return scheduled_for
 
 
+def _latest_open_retention_alert(db: Session, task: Task) -> RiskAlert | None:
+    if task.member_id is None:
+        return None
+    return db.scalar(
+        select(RiskAlert)
+        .where(
+            RiskAlert.gym_id == task.gym_id,
+            RiskAlert.member_id == task.member_id,
+            RiskAlert.resolved.is_(False),
+        )
+        .order_by(RiskAlert.created_at.desc())
+    )
+
+
+def _persist_retention_action_state(
+    db: Session,
+    *,
+    task: Task,
+    payload: WorkQueueOutcomeInput,
+    current_user: User,
+    scheduled_for: datetime | None,
+) -> None:
+    if _task_domain(task) != "retention" or task.member is None:
+        return
+
+    now = _now()
+    cooldown_until = scheduled_for
+    if payload.outcome in FINAL_TASK_OUTCOMES and cooldown_until is None:
+        cooldown_until = now + timedelta(days=RETENTION_ACTION_COOLDOWN_DAYS)
+
+    member_extra = dict(getattr(task.member, "extra_data", None) or {})
+    task_extra = _task_extra(task)
+    member_extra.update(
+        {
+            "retention_last_action_at": now.isoformat(),
+            "retention_last_outcome": payload.outcome,
+            "retention_last_action_task_id": str(task.id),
+            "retention_last_action_user_id": str(current_user.id),
+            "retention_last_contact_channel": payload.contact_channel,
+            "retention_last_stage": task_extra.get("retention_stage"),
+        }
+    )
+    if cooldown_until is not None:
+        member_extra["retention_cooldown_until"] = cooldown_until.isoformat()
+    task.member.extra_data = member_extra
+    db.add(task.member)
+
+    if payload.outcome not in FINAL_TASK_OUTCOMES:
+        return
+
+    alert = _latest_open_retention_alert(db, task)
+    if alert is None:
+        return
+    history = list(alert.action_history or [])
+    history.append(
+        {
+            "type": "retention_action_completed",
+            "timestamp": now.isoformat(),
+            "task_id": str(task.id),
+            "outcome": payload.outcome,
+            "contact_channel": payload.contact_channel,
+        }
+    )
+    alert.action_history = history
+    alert.resolved = True
+    alert.resolved_by_user_id = current_user.id
+    alert.resolved_at = now
+    db.add(alert)
+
+
 def _ai_outcome_for_work_queue(outcome: WorkQueueOutcome) -> str:
     if outcome in POSITIVE_AI_OUTCOMES:
         return "positive"
@@ -2122,6 +2194,13 @@ def update_work_queue_outcome(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item nao encontrado")
         _ensure_task_access(task, current_user)
         scheduled_for = _apply_task_outcome(task, payload, current_user)
+        _persist_retention_action_state(
+            db,
+            task=task,
+            payload=payload,
+            current_user=current_user,
+            scheduled_for=scheduled_for,
+        )
         db.add(task)
         record_task_event(
             db,

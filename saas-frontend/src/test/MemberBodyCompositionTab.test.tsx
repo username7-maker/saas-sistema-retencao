@@ -217,6 +217,14 @@ describe("MemberBodyCompositionTab", () => {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
       configurable: true,
     });
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn(() => "blob:body-composition-preview"),
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: vi.fn(),
+      configurable: true,
+    });
   });
 
   it("shows the premium report CTA in the member workspace for an existing evaluation", async () => {
@@ -373,6 +381,12 @@ describe("MemberBodyCompositionTab", () => {
     fireEvent.change(fileInput, {
       target: { files: [new File(["fake-image"], "receipt.jpg", { type: "image/jpeg" })] },
     });
+
+    expect(await screen.findByRole("img", { name: "Foto selecionada para leitura: receipt.jpg" })).toHaveAttribute(
+      "src",
+      "blob:body-composition-preview",
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "Ler foto" }));
 
     await waitFor(() => {

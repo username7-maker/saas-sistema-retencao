@@ -11,10 +11,17 @@ from app.services.premium_report_service import (
     PremiumReportNarrative,
     PremiumReportPayload,
     PremiumReportSection,
+    _repair_pdf_text_encoding,
     build_dashboard_report_payload,
     render_premium_report_html,
 )
 from tests.conftest import make_mock_db
+
+
+def test_repair_pdf_text_encoding_fixes_mojibake_before_chromium_render():
+    repaired = _repair_pdf_text_encoding("AvaliaÃ§Ã£o nÂº 1 Â· frequÃªncia")
+
+    assert repaired == "Avaliação nº 1 · frequência"
 
 
 def test_build_dashboard_report_payload_accepts_serialized_executive_dashboard(monkeypatch):

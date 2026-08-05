@@ -4,7 +4,7 @@ import { authService, type LoginPayload } from "../services/authService";
 import { tokenStorage } from "../services/storage";
 import type { User } from "../types";
 
-const SESSION_REFRESH_INTERVAL_MS = 9 * 60 * 1000;
+const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 interface AuthContextValue {
   user: User | null;

@@ -460,6 +460,48 @@ class TestBodyCompositionDelivery:
 
 
 class TestBodyCompositionPremiumReportDomain:
+    def test_body_composition_schema_accepts_decimal_comma(self):
+        from app.schemas.body_composition import BodyCompositionEvaluationCreate
+
+        payload = BodyCompositionEvaluationCreate(
+            evaluation_date=date(2026, 6, 9),
+            source="manual",
+            sex="male",
+            age_years="41",
+            height_cm="178,5",
+            weight_kg="84,5",
+            body_fat_percent="23,4",
+            waist_cm="92,1",
+        )
+
+        assert payload.height_cm == 178.5
+        assert payload.weight_kg == 84.5
+        assert payload.body_fat_percent == 23.4
+        assert payload.waist_cm == 92.1
+
+    def test_resolve_persistence_fields_calculates_bmr_without_bioimpedance(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "manual",
+                "reviewed_manually": True,
+                "sex": "female",
+                "age_years": 32,
+                "height_cm": 165,
+                "weight_kg": 64,
+                "measurement_protocol": "petroski_1995_female_18_51",
+                "skinfold_midaxillary_mm": 12,
+                "skinfold_suprailiac_mm": 16,
+                "skinfold_thigh_mm": 22,
+                "skinfold_calf_mm": 14,
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["basal_metabolic_rate_kcal"] == 1350
+
     def test_resolve_persistence_fields_generates_quality_flags_and_reviewer(self):
         from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
 
@@ -517,6 +559,26 @@ class TestBodyCompositionPremiumReportDomain:
         )
 
         assert payload["body_water_percent"] == 51.2
+
+    def test_resolve_persistence_fields_calculates_bmr_for_manual_anthropometry(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "manual",
+                "reviewed_manually": True,
+                "sex": "female",
+                "age_years": 35,
+                "height_cm": 165.0,
+                "weight_kg": 62.5,
+                "body_fat_manual_override_percent": 24.0,
+                "preferred_body_fat_source": "manual_override",
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["basal_metabolic_rate_kcal"] == 1320
 
     def test_generate_body_composition_insights_detects_fat_loss_with_muscle_stability(self):
         from app.services.body_composition_report_service import generate_body_composition_insights

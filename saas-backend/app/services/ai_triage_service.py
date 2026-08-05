@@ -44,6 +44,7 @@ from app.services.task_service import create_task
 ACTIVE_TRIAGE_DOMAINS = ("retention", "onboarding")
 PREPARED_EXECUTION_STATES = {"prepared", "queued", "running", "completed"}
 FINAL_OUTCOME_STATES = {"positive", "neutral", "negative"}
+ACTIONED_OUTCOME_STATES = FINAL_OUTCOME_STATES | {"dismissed"}
 
 
 def _utcnow() -> datetime:
@@ -507,6 +508,13 @@ def _show_outcome_step(recommendation: AITriageRecommendation) -> bool:
     )
 
 
+def _has_recorded_operator_action(recommendation: AITriageRecommendation) -> bool:
+    return (
+        recommendation.execution_state in PREPARED_EXECUTION_STATES
+        or recommendation.outcome_state in ACTIONED_OUTCOME_STATES
+    )
+
+
 def _serialize_recommendation(recommendation: AITriageRecommendation) -> AITriageRecommendationRead:
     snapshot = dict(recommendation.payload_snapshot or {})
     owner_snapshot = snapshot.get("recommended_owner") or {}
@@ -714,6 +722,13 @@ def sync_ai_triage_recommendations(db: Session, *, gym_id: UUID, limit_per_domai
             db.add(recommendation)
             _log_recommendation_suggested(db, recommendation=recommendation, action="ai_triage_recommendation_suggested")
             existing[key] = recommendation
+            continue
+
+        if _has_recorded_operator_action(recommendation):
+            if recommendation.is_active:
+                recommendation.is_active = False
+                recommendation.last_refreshed_at = now
+                db.add(recommendation)
             continue
 
         changed = (

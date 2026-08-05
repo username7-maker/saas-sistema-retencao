@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import DateTime, and_, case, func, not_, or_, select
+from sqlalchemy import DateTime, and_, case, exists, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
@@ -75,6 +75,8 @@ from app.services.retention_stage_service import (
 )
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
+
+RETENTION_CONTACT_ACTIONS = ("whatsapp_sent_manually", "call_log_manual", "work_queue_task_outcome_updated")
 
 
 def _cache_dashboard_payload(cache_key: str, schema: Any, payload: object) -> None:
@@ -543,7 +545,7 @@ def _follow_up_impact(db: Session, *, since: datetime, gym_id=None) -> BIFollowU
     ]
     audit_filters = [
         AuditLog.created_at >= since,
-        AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+        AuditLog.action.in_(RETENTION_CONTACT_ACTIONS),
     ]
     if gym_id is not None:
         triage_filters.append(AITriageRecommendation.gym_id == gym_id)
@@ -1060,11 +1062,20 @@ def _retention_last_contact_map(db: Session, member_ids) -> dict[str, datetime]:
         select(AuditLog.member_id, func.max(AuditLog.created_at).label("last_at"))
         .where(
             AuditLog.member_id.in_(member_ids),
-            AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+            AuditLog.action.in_(RETENTION_CONTACT_ACTIONS),
         )
         .group_by(AuditLog.member_id)
     ).all()
     return {str(row.member_id): row.last_at for row in rows if row.last_at is not None}
+
+
+def _retention_not_already_contacted_condition():
+    contact_exists = exists().where(
+        AuditLog.member_id == Member.id,
+        AuditLog.action.in_(RETENTION_CONTACT_ACTIONS),
+        AuditLog.created_at >= RiskAlert.created_at,
+    )
+    return not_(contact_exists)
 
 
 def _retention_plan_cycle_filter(plan_cycle: str):
@@ -1154,7 +1165,7 @@ def get_retention_queue(
         else_=2,
     )
 
-    filters = [Member.deleted_at.is_(None)]
+    filters = [Member.deleted_at.is_(None), _retention_not_already_contacted_condition()]
     if resolved_gym_id is not None:
         filters.append(RiskAlert.gym_id == resolved_gym_id)
     if level in {"red", "yellow"}:
@@ -1362,7 +1373,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
             select(AuditLog.member_id, func.max(AuditLog.created_at).label("last_at"))
             .where(
                 AuditLog.member_id.in_(member_ids),
-                AuditLog.action.in_(["whatsapp_sent_manually", "call_log_manual"]),
+                AuditLog.action.in_(RETENTION_CONTACT_ACTIONS),
             )
             .group_by(AuditLog.member_id)
         ).all()

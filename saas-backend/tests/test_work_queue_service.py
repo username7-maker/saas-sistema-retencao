@@ -99,6 +99,49 @@ def test_task_outcome_completed_marks_done(monkeypatch):
     assert result.item.state == "done"
 
 
+def test_retention_task_final_outcome_resolves_alert_and_sets_member_cooldown(monkeypatch):
+    member_id = uuid.UUID("66666666-6666-6666-6666-666666666666")
+    member = SimpleNamespace(
+        id=member_id,
+        full_name="Aluno Retencao",
+        phone="11999990000",
+        preferred_shift=None,
+        extra_data={},
+    )
+    alert = SimpleNamespace(
+        id=uuid.UUID("77777777-7777-7777-7777-777777777777"),
+        action_history=[],
+        resolved=False,
+        resolved_by_user_id=None,
+        resolved_at=None,
+    )
+    task = _task(
+        status=TaskStatus.DOING,
+        kanban_column=TaskStatus.DOING.value,
+        member_id=member_id,
+        member=member,
+        extra_data={"domain": "retention", "source": "retention_intelligence", "retention_stage": "recovery"},
+    )
+    db = MagicMock()
+    db.scalar.side_effect = [task, alert]
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    update_work_queue_outcome(
+        db,
+        current_user=_user(),
+        source_type="task",
+        source_id=TASK_ID,
+        payload=WorkQueueOutcomeInput(outcome="responded", note="Aluno respondeu", contact_channel="call"),
+    )
+
+    assert member.extra_data["retention_last_outcome"] == "responded"
+    assert member.extra_data["retention_last_stage"] == "recovery"
+    assert member.extra_data["retention_cooldown_until"]
+    assert alert.resolved is True
+    assert alert.resolved_by_user_id == USER_ID
+    assert alert.action_history[-1]["type"] == "retention_action_completed"
+
+
 def test_task_outcome_no_response_snoozes_to_tomorrow(monkeypatch):
     task = _task(status=TaskStatus.DOING, kanban_column=TaskStatus.DOING.value)
     db = MagicMock()
