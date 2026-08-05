@@ -4,6 +4,7 @@ from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from html import escape
+import re
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -827,9 +828,9 @@ def render_html_to_pdf(
 def _repair_pdf_text_encoding(value: str) -> str:
     markers = ("Ã", "Â", "â€™", "â€œ", "â€", "â€“")
     if not any(marker in value for marker in markers):
-        return value
+        return _restore_pdf_portuguese_accents(value)
     try:
-        return value.encode("latin1").decode("utf-8")
+        return _restore_pdf_portuguese_accents(value.encode("latin1").decode("utf-8"))
     except UnicodeError:
         replacements = {
             "Â·": "·",
@@ -859,7 +860,97 @@ def _repair_pdf_text_encoding(value: str) -> str:
         repaired = value
         for broken, fixed in replacements.items():
             repaired = repaired.replace(broken, fixed)
-        return repaired
+        return _restore_pdf_portuguese_accents(repaired)
+
+
+_PDF_PORTUGUESE_ACCENT_REPLACEMENTS = (
+    ("Relatorio", "Relatório"),
+    ("relatorio", "relatório"),
+    ("Avaliacao", "Avaliação"),
+    ("avaliacao", "avaliação"),
+    ("Avaliacoes", "Avaliações"),
+    ("avaliacoes", "avaliações"),
+    ("Bioimpedancia", "Bioimpedância"),
+    ("bioimpedancia", "bioimpedância"),
+    ("Composicao", "Composição"),
+    ("composicao", "composição"),
+    ("Evolucao", "Evolução"),
+    ("evolucao", "evolução"),
+    ("Frequencia", "Frequência"),
+    ("frequencia", "frequência"),
+    ("Responsavel", "Responsável"),
+    ("responsavel", "responsável"),
+    ("Versao", "Versão"),
+    ("versao", "versão"),
+    ("Fisica", "Física"),
+    ("fisica", "física"),
+    ("Posicao", "Posição"),
+    ("posicao", "posição"),
+    ("Referencia", "Referência"),
+    ("referencia", "referência"),
+    ("Calculos", "Cálculos"),
+    ("calculos", "cálculos"),
+    ("Sintetica", "Sintética"),
+    ("sintetica", "sintética"),
+    ("Proxima", "Próxima"),
+    ("proxima", "próxima"),
+    ("Proximas", "Próximas"),
+    ("proximas", "próximas"),
+    ("Proximo", "Próximo"),
+    ("proximo", "próximo"),
+    ("Proximos", "Próximos"),
+    ("proximos", "próximos"),
+    ("Clinica", "Clínica"),
+    ("clinica", "clínica"),
+    ("Condicoes", "Condições"),
+    ("condicoes", "condições"),
+    ("Medicao", "Medição"),
+    ("medicao", "medição"),
+    ("Entrara", "Entrará"),
+    ("entrara", "entrará"),
+    ("Ate", "Até"),
+    ("ate", "até"),
+    ("Observacoes", "Observações"),
+    ("observacoes", "observações"),
+    ("Metodo", "Método"),
+    ("metodo", "método"),
+    ("Circunferencias", "Circunferências"),
+    ("circunferencias", "circunferências"),
+    ("Energetica", "Energética"),
+    ("energetica", "energética"),
+    ("Agua", "Água"),
+    ("agua", "água"),
+    ("Construcao", "Construção"),
+    ("construcao", "construção"),
+    ("Metrica", "Métrica"),
+    ("metrica", "métrica"),
+    ("Historico", "Histórico"),
+    ("historico", "histórico"),
+    ("Consolidacao", "Consolidação"),
+    ("consolidacao", "consolidação"),
+    ("Variacao", "Variação"),
+    ("variacao", "variação"),
+    ("Comparacao", "Comparação"),
+    ("comparacao", "comparação"),
+    ("Relacao", "Relação"),
+    ("relacao", "relação"),
+    ("Generico", "Genérico"),
+    ("generico", "genérico"),
+    ("Deterministicas", "Determinísticas"),
+    ("deterministicas", "determinísticas"),
+    ("Nao", "Não"),
+    ("nao", "não"),
+    ("Sera", "Será"),
+    ("sera", "será"),
+    ("Ha", "Há"),
+    ("ha", "há"),
+)
+
+
+def _restore_pdf_portuguese_accents(value: str) -> str:
+    for raw, fixed in _PDF_PORTUGUESE_ACCENT_REPLACEMENTS:
+        value = re.sub(rf"(?<![A-Za-zÀ-ÿ]){re.escape(raw)}(?![A-Za-zÀ-ÿ])", fixed, value)
+    return value
 
 
 def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:

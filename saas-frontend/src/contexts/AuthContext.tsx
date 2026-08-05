@@ -1,10 +1,17 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
 
 import { authService, type LoginPayload } from "../services/authService";
 import { tokenStorage } from "../services/storage";
 import type { User } from "../types";
 
 const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+function isAuthFailure(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  return status === 401 || status === 403;
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -28,8 +35,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const currentUser = await authService.me();
       setUser(currentUser);
-    } catch {
-      tokenStorage.clear();
+    } catch (error) {
+      if (isAuthFailure(error)) {
+        tokenStorage.clear();
+      }
       setUser(null);
     } finally {
       setLoading(false);
@@ -79,12 +88,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const currentUser = await authService.me();
       setUser(currentUser);
       return currentUser;
-    } catch {
-      tokenStorage.clear();
-      setUser(null);
+    } catch (error) {
+      if (isAuthFailure(error)) {
+        tokenStorage.clear();
+        setUser(null);
+        return null;
+      }
+      if (user) {
+        return user;
+      }
       return null;
     }
-  }, []);
+  }, [user]);
 
   const logout = useCallback(async () => {
     await authService.logout();

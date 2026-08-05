@@ -24,6 +24,14 @@ def test_repair_pdf_text_encoding_fixes_mojibake_before_chromium_render():
     assert repaired == "Avaliação nº 1 · frequência"
 
 
+def test_repair_pdf_text_encoding_restores_portuguese_accents_before_pdf_render():
+    repaired = _repair_pdf_text_encoding(
+        "Relatorio de avaliacao fisica: composicao, bioimpedancia, evolucao e proxima avaliacao ate 90 dias."
+    )
+
+    assert repaired == "Relatório de avaliação física: composição, bioimpedância, evolução e próxima avaliação até 90 dias."
+
+
 def test_build_dashboard_report_payload_accepts_serialized_executive_dashboard(monkeypatch):
     monkeypatch.setattr(
         "app.services.premium_report_service.get_executive_dashboard",

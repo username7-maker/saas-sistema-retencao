@@ -207,7 +207,7 @@ describe("calculateAnthropometryPreview", () => {
           skinfoldThighMm: 24,
           skinfoldCalfMm: 18,
         },
-        expected: 24.77,
+        expected: 26.29,
       },
       {
         protocol: "weltman_1988_female_obese_20_60",

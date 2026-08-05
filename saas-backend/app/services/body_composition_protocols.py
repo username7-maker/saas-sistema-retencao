@@ -630,12 +630,12 @@ def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None)
     if total is None or weight_kg is None or height_cm is None:
         return None
     density = (
-        1.03465850
-        - 0.00063129 * total
-        + 0.00000187 * total**2
-        - 0.00031165 * age_years
-        - 0.00048890 * weight_kg
-        + 0.00051345 * height_cm
+        1.02902361
+        - 0.00067159 * total
+        + 0.00000242 * total**2
+        - 0.00026073 * age_years
+        - 0.00056009 * weight_kg
+        + 0.00054649 * height_cm
     )
     return _siri(density)
 

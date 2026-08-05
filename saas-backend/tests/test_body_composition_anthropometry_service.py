@@ -273,7 +273,7 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
                 "skinfold_thigh_mm": 24,
                 "skinfold_calf_mm": 18,
             },
-            24.77,
+            26.29,
         ),
         (
             "weltman_1988_female_obese_20_60",
