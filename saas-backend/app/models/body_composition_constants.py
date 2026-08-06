@@ -83,6 +83,7 @@ ACTUAR_SYNC_ATTEMPT_STATUSES = (
 
 ACTUAR_SYNC_JOB_TYPES = (
     "body_composition_push",
+    "assessment_push",
 )
 
 ACTUAR_SYNC_JOB_STATUSES = (

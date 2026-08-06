@@ -21,7 +21,7 @@ ActuarSyncStatus = Literal[
 ]
 ActuarSyncAttemptStatus = Literal["pending", "processing", "exported", "synced", "failed", "skipped", "disabled"]
 ActuarSyncJobStatus = Literal["pending", "processing", "synced", "failed", "needs_review", "cancelled"]
-ActuarSyncJobType = Literal["body_composition_push"]
+ActuarSyncJobType = Literal["body_composition_push", "assessment_push"]
 ActuarSyncAttemptV2Status = Literal["started", "succeeded", "failed"]
 ActuarFieldClassification = Literal["critical_direct", "critical_derived", "non_critical_direct", "unsupported", "text_note_only"]
 OcrWarningSeverity = Literal["warning", "critical"]
@@ -537,7 +537,8 @@ class ActuarSyncJobRead(BaseModel):
     id: UUID
     gym_id: UUID
     member_id: UUID
-    body_composition_evaluation_id: UUID
+    body_composition_evaluation_id: UUID | None
+    assessment_id: UUID | None = None
     job_type: ActuarSyncJobType
     status: ActuarSyncJobStatus
     error_code: str | None

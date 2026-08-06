@@ -30,13 +30,30 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("weight_kg IS NULL OR weight_kg > 0", name="assessment_weight_positive"),
         CheckConstraint("bmi IS NULL OR bmi > 0", name="assessment_bmi_positive"),
         CheckConstraint("body_fat_pct IS NULL OR (body_fat_pct >= 0 AND body_fat_pct <= 100)", name="assessment_body_fat_range"),
+        CheckConstraint("fat_mass_kg IS NULL OR fat_mass_kg >= 0", name="assessment_fat_mass_non_negative"),
+        CheckConstraint("waist_hip_ratio IS NULL OR waist_hip_ratio > 0", name="assessment_whr_positive"),
+        CheckConstraint("basal_metabolic_rate IS NULL OR basal_metabolic_rate > 0", name="assessment_bmr_positive"),
+        CheckConstraint(
+            "assessment_method IS NULL OR assessment_method IN ('manual_anthropometry', 'bioimpedance', 'hybrid', 'imported')",
+            name="assessment_method_valid",
+        ),
+        CheckConstraint(
+            "record_origin IS NULL OR record_origin IN ('cordex', 'legacy', 'actuar')",
+            name="assessment_record_origin_valid",
+        ),
+        CheckConstraint(
+            "sex_used_for_formula IS NULL OR sex_used_for_formula IN ('male', 'female')",
+            name="assessment_formula_sex_valid",
+        ),
         CheckConstraint("strength_score IS NULL OR (strength_score >= 0 AND strength_score <= 100)", name="assessment_strength_range"),
         CheckConstraint("flexibility_score IS NULL OR (flexibility_score >= 0 AND flexibility_score <= 100)", name="assessment_flexibility_range"),
         CheckConstraint("cardio_score IS NULL OR (cardio_score >= 0 AND cardio_score <= 100)", name="assessment_cardio_range"),
         UniqueConstraint("member_id", "assessment_number", name="uq_assessment_member_number"),
+        UniqueConstraint("gym_id", "idempotency_key", name="uq_assessments_gym_idempotency_key"),
         Index("ix_assessments_gym_date", "gym_id", "assessment_date"),
         Index("ix_assessments_member_date_desc", "member_id", "assessment_date"),
         Index("ix_assessments_due_date", "next_assessment_due"),
+        Index("ix_assessments_method_member_date", "assessment_method", "member_id", "assessment_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,6 +70,21 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
     bmi: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     body_fat_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     lean_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    fat_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    waist_hip_ratio: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    basal_metabolic_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+
+    assessment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    record_origin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sex_used_for_formula: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    age_used_for_formula: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    height_used_for_formula: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    weight_used_for_formula: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    measurement_protocol: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    formula_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    calculation_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    anthropometry_snapshot_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     waist_cm: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     hip_cm: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)

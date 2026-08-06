@@ -1549,7 +1549,12 @@ export function MemberProfile360Page() {
 
         {visibleTabs.includes("registro") ? (
           <TabsContent value="registro">
-            <AssessmentRegistrationComposer memberId={memberId} onSaved={() => openTab("overview")} />
+            <AssessmentRegistrationComposer
+              memberId={memberId}
+              member={member}
+              onOpenBioimpedance={() => openTab("bioimpedancia")}
+              onSaved={() => openTab("overview")}
+            />
           </TabsContent>
         ) : null}
 

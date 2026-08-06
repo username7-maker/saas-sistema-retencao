@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     openai_vision_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: int = 20
     body_composition_image_ai_enabled: bool = False
+    anthropometric_assessment_v1: bool = True
     claude_vision_model: str = "claude-3-5-sonnet-latest"
     body_composition_image_ai_timeout_seconds: int = 20
 
@@ -164,6 +165,7 @@ class Settings(BaseSettings):
         "actuar_sync_enabled",
         "actuar_browser_headless",
         "body_composition_image_ai_enabled",
+        "anthropometric_assessment_v1",
         "actuar_sync_screenshot_on_success",
         "actuar_sync_screenshot_on_failure",
         "actuar_sync_required_for_training",

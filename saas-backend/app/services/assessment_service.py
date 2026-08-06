@@ -9,14 +9,20 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
-from app.models import Checkin, Member, RoleEnum, Task, TaskPriority, TaskStatus, User
+from app.models import BodyCompositionEvaluation, Checkin, Member, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.models.assessment import Assessment, MemberConstraints, MemberGoal, TrainingPlan
 from app.services.assessment_analytics_service import generate_ai_insights
 from app.services.assessment_intelligence_service import sync_assessment_intelligence_tasks
+from app.services.assessment_anthropometry_service import build_bioimpedance_history_item, build_history_assessment_item
+from app.services.body_composition_anthropometry_service import (
+    ANTHROPOMETRY_CALCULATION_FIELDS,
+    ANTHROPOMETRY_EVOLUTION_FIELDS,
+)
 from app.services.autopilot_event_service import record_event
 from app.services.autopilot_resolver_service import resolve_event
 from app.services.preferred_shift_service import normalize_preferred_shift, normalize_preferred_shift_scope
 from app.services.task_event_service import record_task_event
+from app.utils.localized_numbers import LocalizedNumberError, parse_localized_decimal
 
 
 logger = logging.getLogger(__name__)
@@ -633,14 +639,46 @@ def update_assessment_queue_resolution(
     return member
 
 
-def list_assessments(db: Session, member_id: UUID) -> list[Assessment]:
-    get_member_or_404(db, member_id)
-    return list(
+def list_assessments(db: Session, member_id: UUID, gym_id: UUID | None = None) -> list:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    assessment_filters = [Assessment.member_id == member_id, Assessment.deleted_at.is_(None)]
+    body_filters = [BodyCompositionEvaluation.member_id == member_id]
+    if gym_id is not None:
+        assessment_filters.append(Assessment.gym_id == gym_id)
+        body_filters.append(BodyCompositionEvaluation.gym_id == gym_id)
+    assessments = list(
         db.scalars(
             select(Assessment)
-            .where(Assessment.member_id == member_id, Assessment.deleted_at.is_(None))
+            .where(*assessment_filters)
             .order_by(desc(Assessment.assessment_date))
         ).all()
+    )
+    body_evaluations = list(
+        db.scalars(
+            select(BodyCompositionEvaluation)
+            .where(*body_filters)
+            .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        ).all()
+    )
+    method_keys = {
+        (getattr(item, "assessment_method", None) or getattr(item, "record_origin", None) or "legacy", getattr(item, "measurement_protocol", None))
+        for item in assessments
+    }
+    if body_evaluations:
+        method_keys.add(("bioimpedance", None))
+    comparison_warning = "Metodos diferentes; comparacao direta limitada" if len(method_keys) > 1 else None
+    history_items = [
+        build_history_assessment_item(item, comparison_warning=comparison_warning)
+        for item in assessments
+    ]
+    history_items.extend(
+        build_bioimpedance_history_item(item, comparison_warning=comparison_warning)
+        for item in body_evaluations
+    )
+    return sorted(
+        history_items,
+        key=lambda item: getattr(item, "assessment_date", datetime.now(tz=timezone.utc)) or datetime.now(tz=timezone.utc),
+        reverse=True,
     )
 
 
@@ -709,6 +747,11 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
     body_fat = [_decimal_to_float(item.body_fat_pct) for item in assessments]
     lean_mass = [_decimal_to_float(item.lean_mass_kg) for item in assessments]
     bmi = [_decimal_to_float(item.bmi) for item in assessments]
+    perimetry_fields = tuple(dict.fromkeys((*ANTHROPOMETRY_CALCULATION_FIELDS, *ANTHROPOMETRY_EVOLUTION_FIELDS)))
+    perimetry = {
+        field: [_assessment_perimetry_value(item, field) for item in assessments]
+        for field in perimetry_fields
+    }
     strength = [item.strength_score for item in assessments]
     flexibility = [item.flexibility_score for item in assessments]
     cardio = [item.cardio_score for item in assessments]
@@ -738,6 +781,7 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
         "body_fat": body_fat,
         "lean_mass": lean_mass,
         "bmi": bmi,
+        "perimetry": perimetry,
         "strength": strength,
         "flexibility": flexibility,
         "cardio": cardio,
@@ -750,6 +794,7 @@ def get_evolution_data(db: Session, member_id: UUID) -> dict:
             "body_fat": _calculate_delta(body_fat),
             "lean_mass": _calculate_delta(lean_mass),
             "bmi": _calculate_delta(bmi),
+            **{f"perimetry.{field}": _calculate_delta(values) for field, values in perimetry.items()},
             "strength": _calculate_delta(strength),
             "flexibility": _calculate_delta(flexibility),
             "cardio": _calculate_delta(cardio),
@@ -826,15 +871,58 @@ def _clear_assessment_queue_resolution(member: Member, *, extra_data: dict | Non
 
 
 def _to_decimal(value: float | int | str | Decimal | None) -> Decimal | None:
-    if value is None:
-        return None
-    return Decimal(str(value))
+    try:
+        return parse_localized_decimal(value)
+    except LocalizedNumberError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "measurement_value_invalid", "value": value},
+        ) from exc
 
 
 def _decimal_to_float(value: Decimal | None) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _assessment_perimetry_value(assessment: Assessment, field: str) -> float | None:
+    snapshot = assessment.anthropometry_snapshot_json if isinstance(assessment.anthropometry_snapshot_json, dict) else {}
+    measurements = snapshot.get("measurements", {}) if isinstance(snapshot, dict) else {}
+    if isinstance(measurements, dict):
+        item = measurements.get(field)
+        if isinstance(item, dict):
+            parsed = _coerce_float(item.get("consolidated_value"))
+            if parsed is not None:
+                return parsed
+
+    extra = assessment.extra_data if isinstance(assessment.extra_data, dict) else {}
+    perimetry = extra.get("perimetry_evolution", {}) if isinstance(extra, dict) else {}
+    if isinstance(perimetry, dict):
+        parsed = _coerce_float(perimetry.get(field))
+        if parsed is not None:
+            return parsed
+
+    fallback_fields = {
+        "waist_cm": "waist_cm",
+        "hip_cm": "hip_cm",
+        "chest_cm": "chest_cm",
+        "right_arm_relaxed_cm": "arm_cm",
+        "right_thigh_cm": "thigh_cm",
+    }
+    fallback = fallback_fields.get(field)
+    if fallback:
+        return _decimal_to_float(getattr(assessment, fallback, None))
+    return None
+
+
+def _coerce_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _calculate_bmi(height_cm: Decimal | None, weight_kg: Decimal | None) -> Decimal | None:
