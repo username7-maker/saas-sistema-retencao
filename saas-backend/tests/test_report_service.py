@@ -26,10 +26,18 @@ def test_repair_pdf_text_encoding_fixes_mojibake_before_chromium_render():
 
 def test_repair_pdf_text_encoding_restores_portuguese_accents_before_pdf_render():
     repaired = _repair_pdf_text_encoding(
-        "Relatorio de avaliacao fisica: composicao, bioimpedancia, evolucao e proxima avaliacao ate 90 dias."
+        "Relatorio de avaliacao fisica: composicao, bioimpedancia, evolucao e proxima avaliacao ate 90 dias. "
+        "Houve reducao de gordura com manutencao nas ultimas avaliacoes. "
+        "BIOIMPEDANCIA TERCO MEDIO DA FAIXA CALCULO. "
+        "Agua, Proteina, Musculo esqueletico, Relacao cintura-quadril, Razao cintura-altura e Indices."
     )
 
-    assert repaired == "Relatório de avaliação física: composição, bioimpedância, evolução e próxima avaliação até 90 dias."
+    assert repaired == (
+        "Relatório de avaliação física: composição, bioimpedância, evolução e próxima avaliação até 90 dias. "
+        "Houve redução de gordura com manutenção nas últimas avaliações. "
+        "BIOIMPEDÂNCIA TERÇO MÉDIO DA FAIXA CÁLCULO. "
+        "Água, Proteína, Músculo esquelético, Relação cintura-quadril, Razão cintura-altura e Índices."
+    )
 
 
 def test_build_dashboard_report_payload_accepts_serialized_executive_dashboard(monkeypatch):
