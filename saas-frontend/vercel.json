@@ -15,8 +15,8 @@
   ],
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://ai-gym-os-api-production.up.railway.app/api/:path*"
+      "source": "/api/(.*)",
+      "destination": "https://ai-gym-os-api-production.up.railway.app/api/$1"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
