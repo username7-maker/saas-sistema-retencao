@@ -12,6 +12,17 @@ interface AccessTokenRefreshOptions {
   clearOnFailure?: boolean;
 }
 
+interface RefreshLockRecord {
+  ownerId: string;
+  expiresAt: number;
+}
+
+const REFRESH_LOCK_KEY = "ai_gym_refresh_lock";
+const REFRESH_LOCK_TTL_MS = 25_000;
+const REFRESH_LOCK_WAIT_MS = 120;
+const REFRESH_LOCK_MAX_WAIT_MS = 20_000;
+const refreshOwnerId = `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 20000,
@@ -20,17 +31,98 @@ export const api = axios.create({
 
 let refreshInFlight: Promise<string> | null = null;
 
+function getRefreshLockStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readRefreshLock(storage: Storage): RefreshLockRecord | null {
+  try {
+    const raw = storage.getItem(REFRESH_LOCK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<RefreshLockRecord>;
+    if (typeof parsed.ownerId !== "string" || typeof parsed.expiresAt !== "number") {
+      return null;
+    }
+    return { ownerId: parsed.ownerId, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function writeRefreshLock(storage: Storage): boolean {
+  try {
+    storage.setItem(
+      REFRESH_LOCK_KEY,
+      JSON.stringify({
+        ownerId: refreshOwnerId,
+        expiresAt: Date.now() + REFRESH_LOCK_TTL_MS,
+      }),
+    );
+    return readRefreshLock(storage)?.ownerId === refreshOwnerId;
+  } catch {
+    return false;
+  }
+}
+
+function tryAcquireRefreshLock(storage: Storage): boolean {
+  const current = readRefreshLock(storage);
+  const now = Date.now();
+  if (current && current.ownerId !== refreshOwnerId && current.expiresAt > now) {
+    return false;
+  }
+  return writeRefreshLock(storage);
+}
+
+function releaseRefreshLock(storage: Storage): void {
+  try {
+    if (readRefreshLock(storage)?.ownerId === refreshOwnerId) {
+      storage.removeItem(REFRESH_LOCK_KEY);
+    }
+  } catch {
+    // Ignore storage failures. The lock is guarded by a short TTL.
+  }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function acquireRefreshLock(): Promise<() => void> {
+  const storage = getRefreshLockStorage();
+  if (!storage) return () => undefined;
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < REFRESH_LOCK_MAX_WAIT_MS) {
+    if (tryAcquireRefreshLock(storage)) {
+      return () => releaseRefreshLock(storage);
+    }
+    await wait(REFRESH_LOCK_WAIT_MS);
+  }
+
+  return () => undefined;
+}
+
 function startAccessTokenRefresh(): Promise<string> {
   if (!refreshInFlight) {
-    refreshInFlight = axios
-      .post<TokenPair>(`${API_BASE_URL}/api/v1/auth/refresh`, undefined, {
-        timeout: 20000,
-        withCredentials: true,
-      })
-      .then(({ data }) => {
+    refreshInFlight = (async () => {
+      const releaseLock = await acquireRefreshLock();
+      try {
+        const { data } = await axios.post<TokenPair>(`${API_BASE_URL}/api/v1/auth/refresh`, undefined, {
+          timeout: 20000,
+          withCredentials: true,
+        });
         tokenStorage.setAccessToken(data.access_token);
         return data.access_token;
-      })
+      } finally {
+        releaseLock();
+      }
+    })()
       .finally(() => {
         refreshInFlight = null;
       });
