@@ -21,6 +21,7 @@ const REFRESH_LOCK_KEY = "ai_gym_refresh_lock";
 const REFRESH_LOCK_TTL_MS = 25_000;
 const REFRESH_LOCK_WAIT_MS = 120;
 const REFRESH_LOCK_MAX_WAIT_MS = 20_000;
+const ACCESS_TOKEN_REFRESH_LEEWAY_MS = 2 * 60 * 1000;
 const refreshOwnerId = `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export const api = axios.create({
@@ -144,8 +145,49 @@ export async function requestAccessTokenRefresh(options: AccessTokenRefreshOptio
   }
 }
 
-api.interceptors.request.use((config) => {
-  const token = tokenStorage.getAccessToken();
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return window.atob(padded);
+}
+
+function getAccessTokenExpiresAtMs(accessToken: string | null): number | null {
+  if (!accessToken) return null;
+  const payloadSegment = accessToken.split(".")[1];
+  if (!payloadSegment) return null;
+
+  try {
+    const payload = JSON.parse(decodeBase64Url(payloadSegment)) as { exp?: unknown };
+    const exp = typeof payload.exp === "number" ? payload.exp : Number(payload.exp);
+    return Number.isFinite(exp) ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAccessTokenExpiringSoon(accessToken: string | null, nowMs = Date.now()): boolean {
+  const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
+  if (!expiresAtMs) return true;
+  return expiresAtMs - nowMs <= ACCESS_TOKEN_REFRESH_LEEWAY_MS;
+}
+
+function isAuthEndpointRequest(requestUrl: string): boolean {
+  return requestUrl.includes("/api/v1/auth/");
+}
+
+api.interceptors.request.use(async (config) => {
+  let token = tokenStorage.getAccessToken();
+  const requestUrl = config.url ?? "";
+  if (token && !isAuthEndpointRequest(requestUrl) && isAccessTokenExpiringSoon(token)) {
+    try {
+      token = await requestAccessTokenRefresh({ clearOnFailure: false });
+    } catch {
+      // Keep the current token on transient wake-up failures. If it is really
+      // expired, the response interceptor will attempt a normal refresh and
+      // clear the session only when the server rejects the refresh token.
+    }
+  }
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

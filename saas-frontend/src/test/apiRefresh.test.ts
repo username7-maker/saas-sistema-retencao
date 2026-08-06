@@ -18,8 +18,13 @@ vi.mock("axios", () => ({
   },
 }));
 
-import { requestAccessTokenRefresh } from "../services/api";
+import { isAccessTokenExpiringSoon, requestAccessTokenRefresh } from "../services/api";
 import { tokenStorage } from "../services/storage";
+
+function tokenWithExp(exp: number): string {
+  const payload = window.btoa(JSON.stringify({ exp })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `header.${payload}.signature`;
+}
 
 describe("requestAccessTokenRefresh", () => {
   beforeEach(() => {
@@ -73,5 +78,25 @@ describe("requestAccessTokenRefresh", () => {
     await expect(requestAccessTokenRefresh({ clearOnFailure: false })).rejects.toThrow("refresh failed");
 
     expect(tokenStorage.getAccessToken()).toBe("current-access-token");
+  });
+});
+
+describe("isAccessTokenExpiringSoon", () => {
+  it("requests proactive refresh when the access token is close to expiration", () => {
+    const nowMs = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const expiresInOneMinute = Math.floor((nowMs + 60_000) / 1000);
+
+    expect(isAccessTokenExpiringSoon(tokenWithExp(expiresInOneMinute), nowMs)).toBe(true);
+  });
+
+  it("keeps fresh access tokens without an unnecessary refresh", () => {
+    const nowMs = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const expiresInTenMinutes = Math.floor((nowMs + 10 * 60_000) / 1000);
+
+    expect(isAccessTokenExpiringSoon(tokenWithExp(expiresInTenMinutes), nowMs)).toBe(false);
+  });
+
+  it("treats malformed tokens as refresh candidates", () => {
+    expect(isAccessTokenExpiringSoon("not-a-jwt", Date.UTC(2026, 0, 1))).toBe(true);
   });
 });
