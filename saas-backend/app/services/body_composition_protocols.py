@@ -185,7 +185,7 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=18,
         age_max=51,
-        required_fields=("skinfold_midaxillary_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm", "weight_kg", "height_cm"),
+        required_fields=("skinfold_subscapular_mm", "skinfold_triceps_mm", "skinfold_suprailiac_mm", "skinfold_calf_mm", "weight_kg", "height_cm"),
         calculation="petroski_1995_female_4",
         supported=True,
         notes="Densidade corporal Petroski feminino 4 dobras; convertido por Siri.",
@@ -619,9 +619,9 @@ def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None)
     total = _sum_fields(
         values,
         (
-            "skinfold_midaxillary_mm",
+            "skinfold_subscapular_mm",
+            "skinfold_triceps_mm",
             "skinfold_suprailiac_mm",
-            "skinfold_thigh_mm",
             "skinfold_calf_mm",
         ),
     )

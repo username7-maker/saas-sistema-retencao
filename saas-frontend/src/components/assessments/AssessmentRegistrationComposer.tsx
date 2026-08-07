@@ -5,6 +5,7 @@ import { Activity, Ruler, Scale } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { invalidateAssessmentQueries } from "./queryUtils";
+import { BODY_COMPOSITION_PROTOCOLS } from "./bodyCompositionProtocols";
 import { Button, Card, CardContent, FormField, Input, Select, Textarea } from "../ui2";
 import {
   assessmentService,
@@ -79,6 +80,19 @@ const EVOLUTION_PERIMETRY_FIELDS = [
   { key: "right_calf_cm", label: "Panturrilha direita (cm)", placeholder: "38.0" },
   { key: "left_calf_cm", label: "Panturrilha esquerda (cm)", placeholder: "37.8" },
 ] as const;
+
+const FALLBACK_ANTHROPOMETRY_PROTOCOLS: AnthropometryProtocol[] = BODY_COMPOSITION_PROTOCOLS
+  .filter((protocol) => protocol.supported)
+  .map((protocol) => ({
+    key: protocol.key,
+    label: protocol.label,
+    sex: protocol.sex,
+    age_min: protocol.ageMin,
+    age_max: protocol.ageMax,
+    required_fields: protocol.requiredFields,
+    supported: protocol.supported,
+    notes: protocol.notes ?? null,
+  }));
 
 class AnthropometryClientValidationError extends Error {
   constructor(message: string) {
@@ -321,16 +335,20 @@ function ManualAnthropometricAssessmentForm({
     queryFn: () => assessmentService.anthropometryProtocols(),
   });
 
+  const protocolOptions = useMemo(() => {
+    return protocolsQuery.data?.length ? protocolsQuery.data : FALLBACK_ANTHROPOMETRY_PROTOCOLS;
+  }, [protocolsQuery.data]);
+
   useEffect(() => {
-    if (!protocolKey && protocolsQuery.data?.length) {
-      const preferred = protocolsQuery.data.find((protocol) => protocol.sex === sex) ?? protocolsQuery.data[0];
+    if (!protocolKey && protocolOptions.length) {
+      const preferred = protocolOptions.find((protocol) => protocol.sex === sex) ?? protocolOptions[0];
       setProtocolKey(preferred.key);
     }
-  }, [protocolKey, protocolsQuery.data, sex]);
+  }, [protocolKey, protocolOptions, sex]);
 
   const selectedProtocol = useMemo<AnthropometryProtocol | null>(() => {
-    return protocolsQuery.data?.find((protocol) => protocol.key === protocolKey) ?? null;
-  }, [protocolKey, protocolsQuery.data]);
+    return protocolOptions.find((protocol) => protocol.key === protocolKey) ?? null;
+  }, [protocolKey, protocolOptions]);
 
   const dynamicFields = useMemo(() => {
     return (selectedProtocol?.required_fields ?? []).filter((field) => !SKIP_DYNAMIC_FIELDS.has(field));
@@ -495,12 +513,15 @@ function ManualAnthropometricAssessmentForm({
           </FormField>
           <FormField label="Protocolo" required>
             <Select aria-label="Protocolo" value={protocolKey} onChange={(event) => setProtocolKey(event.target.value)}>
-              {(protocolsQuery.data ?? []).map((protocol) => (
+              {protocolOptions.map((protocol) => (
                 <option key={protocol.key} value={protocol.key}>
                   {protocol.label}
                 </option>
               ))}
             </Select>
+            {protocolsQuery.isError ? (
+              <p className="mt-1 text-xs text-yellow-300">Lista carregada pelo catalogo local. A API de protocolos nao respondeu agora.</p>
+            ) : null}
           </FormField>
         </div>
       </section>

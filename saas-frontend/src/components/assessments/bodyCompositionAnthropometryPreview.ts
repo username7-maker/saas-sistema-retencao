@@ -348,9 +348,9 @@ function calculatePetroski1995Male4(input: AnthropometryPreviewInput, sex: Sex, 
 function calculatePetroski1995Female4(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
   if (sex !== "female" || ageYears == null) return null;
   const total = sumProtocolFields(input, [
-    "skinfold_midaxillary_mm",
+    "skinfold_subscapular_mm",
+    "skinfold_triceps_mm",
     "skinfold_suprailiac_mm",
-    "skinfold_thigh_mm",
     "skinfold_calf_mm",
   ]);
   const weightKg = readProtocolValue(input, "weight_kg");
