@@ -202,14 +202,14 @@ describe("calculateAnthropometryPreview", () => {
           ageYears: 32,
           heightCm: 165,
           weightKg: 65,
-          skinfoldSubscapularMm: 12,
-          skinfoldTricepsMm: 24,
+          skinfoldMidaxillaryMm: 12,
           skinfoldSuprailiacMm: 16,
+          skinfoldThighMm: 24,
           skinfoldCalfMm: 18,
-          // Regression guard: Petroski female uses subscapular/triceps,
-          // not midaxillary/thigh.
-          skinfoldMidaxillaryMm: 90,
-          skinfoldThighMm: 80,
+          // Regression guard: this workflow matches Afig's selected
+          // Petroski female fields and does not use subscapular/triceps.
+          skinfoldSubscapularMm: 90,
+          skinfoldTricepsMm: 80,
         },
         expected: 26.29,
       },
