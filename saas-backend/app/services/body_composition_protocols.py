@@ -188,7 +188,7 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         required_fields=("skinfold_midaxillary_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm", "weight_kg", "height_cm"),
         calculation="petroski_1995_female_4",
         supported=True,
-        notes="Densidade corporal Petroski feminino 4 dobras; convertido por Siri.",
+        notes="Densidade corporal Petroski feminino 4 dobras; conversao operacional alinhada ao Actuar/Afig.",
     ),
     BodyCompositionProtocol(
         key="petroski_1995_male_18_66",
@@ -630,14 +630,14 @@ def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None)
     if total is None or weight_kg is None or height_cm is None:
         return None
     density = (
-        1.02902361
-        - 0.00067159 * total
-        + 0.00000242 * total**2
-        - 0.00026073 * age_years
-        - 0.00056009 * weight_kg
-        + 0.00054649 * height_cm
+        1.03465850
+        - 0.00063129 * total
+        + 0.00000187 * total**2
+        - 0.00031165 * age_years
+        - 0.00048890 * weight_kg
+        + 0.00051345 * height_cm
     )
-    return _siri(density)
+    return _actuar_female_density_percent(density)
 
 
 def _guedes_1985_3(values: Any, sex: str | None, age_years: int | None) -> float | None:
@@ -748,6 +748,12 @@ def _siri(density: float | None) -> float | None:
     if density is None or density <= 0:
         return None
     return 495 / density - 450
+
+
+def _actuar_female_density_percent(density: float | None) -> float | None:
+    if density is None or density <= 0:
+        return None
+    return 500 / density - 457
 
 
 def _estimated_range(value: float | None, confidence: str | None) -> tuple[float | None, float | None]:

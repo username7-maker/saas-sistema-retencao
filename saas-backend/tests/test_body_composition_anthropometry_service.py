@@ -277,7 +277,21 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
                 "skinfold_subscapular_mm": 90,
                 "skinfold_triceps_mm": 80,
             },
-            26.29,
+            22.57,
+        ),
+        (
+            "petroski_1995_female_18_51",
+            {
+                "sex": "female",
+                "age_years": 29,
+                "height_cm": 171,
+                "weight_kg": 56.7,
+                "skinfold_midaxillary_mm": 14,
+                "skinfold_suprailiac_mm": 11,
+                "skinfold_thigh_mm": 34,
+                "skinfold_calf_mm": 27,
+            },
+            21.36,
         ),
         (
             "weltman_1988_female_obese_20_60",

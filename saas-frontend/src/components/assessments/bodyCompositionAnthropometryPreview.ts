@@ -356,13 +356,13 @@ function calculatePetroski1995Female4(input: AnthropometryPreviewInput, sex: Sex
   const weightKg = readProtocolValue(input, "weight_kg");
   const heightCm = readProtocolValue(input, "height_cm");
   if (total == null || weightKg == null || heightCm == null) return null;
-  return siri(
-    1.02902361
-    - 0.00067159 * total
-    + 0.00000242 * total ** 2
-    - 0.00026073 * ageYears
-    - 0.00056009 * weightKg
-    + 0.00054649 * heightCm,
+  return actuarFemaleDensityPercent(
+    1.0346585
+    - 0.00063129 * total
+    + 0.00000187 * total ** 2
+    - 0.00031165 * ageYears
+    - 0.0004889 * weightKg
+    + 0.00051345 * heightCm,
   );
 }
 
@@ -473,6 +473,11 @@ function isPlausibleProtocolValue(field: string, value: number): boolean {
 function siri(density: number | null): number | null {
   if (density == null || density <= 0) return null;
   return 495 / density - 450;
+}
+
+function actuarFemaleDensityPercent(density: number | null): number | null {
+  if (density == null || density <= 0) return null;
+  return 500 / density - 457;
 }
 
 function estimatedRange(value: number | null, confidence: BodyFatConfidence | null): [number | null, number | null] {

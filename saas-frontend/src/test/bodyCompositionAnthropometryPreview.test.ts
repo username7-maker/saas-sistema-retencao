@@ -211,7 +211,21 @@ describe("calculateAnthropometryPreview", () => {
           skinfoldSubscapularMm: 90,
           skinfoldTricepsMm: 80,
         },
-        expected: 26.29,
+        expected: 22.57,
+      },
+      {
+        protocol: "petroski_1995_female_18_51",
+        input: {
+          sex: "female" as const,
+          ageYears: 29,
+          heightCm: 171,
+          weightKg: 56.7,
+          skinfoldMidaxillaryMm: 14,
+          skinfoldSuprailiacMm: 11,
+          skinfoldThighMm: 34,
+          skinfoldCalfMm: 27,
+        },
+        expected: 21.36,
       },
       {
         protocol: "weltman_1988_female_obese_20_60",
