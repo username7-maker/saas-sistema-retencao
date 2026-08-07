@@ -242,9 +242,10 @@ function calculateProtocolPreview(
   } else if (protocol.sex && !context.sex) {
     missingFields.push("sexo");
   }
-  if (context.ageYears == null) {
+  const ageRequired = protocolRequiresAge(protocol.key);
+  if (context.ageYears == null && ageRequired) {
     missingFields.push("idade");
-  } else if (protocol.ageMin != null && protocol.ageMax != null && (context.ageYears < protocol.ageMin || context.ageYears > protocol.ageMax)) {
+  } else if (context.ageYears != null && protocol.ageMin != null && protocol.ageMax != null && (context.ageYears < protocol.ageMin || context.ageYears > protocol.ageMax)) {
     flags.push("anthropometry_protocol_age_outside_range");
   }
 
@@ -274,6 +275,10 @@ function calculateProtocolPreview(
     flags: Array.from(new Set(flags)),
     missingFields,
   };
+}
+
+function protocolRequiresAge(protocolKey: string): boolean {
+  return protocolKey !== "petroski_1995_female_18_51";
 }
 
 function calculateSupportedProtocolPercent(
@@ -345,25 +350,16 @@ function calculatePetroski1995Male4(input: AnthropometryPreviewInput, sex: Sex, 
   return siri(1.10726863 - 0.00081201 * total + 0.00000212 * total ** 2 - 0.00041761 * ageYears);
 }
 
-function calculatePetroski1995Female4(input: AnthropometryPreviewInput, sex: Sex, ageYears: number | null): number | null {
-  if (sex !== "female" || ageYears == null) return null;
+function calculatePetroski1995Female4(input: AnthropometryPreviewInput, sex: Sex, _ageYears: number | null): number | null {
+  if (sex !== "female") return null;
   const total = sumProtocolFields(input, [
     "skinfold_midaxillary_mm",
     "skinfold_suprailiac_mm",
     "skinfold_thigh_mm",
     "skinfold_calf_mm",
   ]);
-  const weightKg = readProtocolValue(input, "weight_kg");
-  const heightCm = readProtocolValue(input, "height_cm");
-  if (total == null || weightKg == null || heightCm == null) return null;
-  return actuarFemaleDensityPercent(
-    1.0346585
-    - 0.00063129 * total
-    + 0.00000187 * total ** 2
-    - 0.00031165 * ageYears
-    - 0.0004889 * weightKg
-    + 0.00051345 * heightCm,
-  );
+  if (total == null || total <= 0) return null;
+  return siri(1.1954713 - 0.07513507 * Math.log10(total));
 }
 
 function calculateGuedes1985(input: AnthropometryPreviewInput, sex: Sex): number | null {
@@ -473,11 +469,6 @@ function isPlausibleProtocolValue(field: string, value: number): boolean {
 function siri(density: number | null): number | null {
   if (density == null || density <= 0) return null;
   return 495 / density - 450;
-}
-
-function actuarFemaleDensityPercent(density: number | null): number | null {
-  if (density == null || density <= 0) return null;
-  return 500 / density - 457;
 }
 
 function estimatedRange(value: number | null, confidence: BodyFatConfidence | null): [number | null, number | null] {

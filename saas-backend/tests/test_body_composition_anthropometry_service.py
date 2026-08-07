@@ -146,6 +146,32 @@ def test_petroski_male_protocol_matches_actuar_reference_case() -> None:
     assert resolved["lean_mass_estimated_kg"] == 64.41
 
 
+def test_petroski_female_protocol_matches_actuar_operational_case() -> None:
+    resolved = resolve_body_fat_fields(
+        {
+            "sex": "female",
+            "age_years": 33,
+            "height_cm": 173,
+            "weight_kg": 79.5,
+            "body_fat_percent": 31.2,
+            "preferred_body_fat_source": "geneos_composite",
+            "measurement_protocol": "petroski_1995_female_18_51",
+            "skinfold_midaxillary_mm": 35,
+            "skinfold_suprailiac_mm": 24,
+            "skinfold_thigh_mm": 43,
+            "skinfold_calf_mm": 27,
+            "skinfold_subscapular_mm": 90,
+            "skinfold_triceps_mm": 80,
+        }
+    )
+
+    assert resolved["body_fat_used_source"] == "anthropometry"
+    assert resolved["body_fat_method"] == "skinfold_protocol"
+    assert resolved["body_fat_used_percent"] == 27.39
+    assert resolved["fat_mass_estimated_kg"] == 21.78
+    assert resolved["lean_mass_estimated_kg"] == 57.72
+
+
 def test_legacy_bioimpedance_preference_does_not_override_selected_protocol() -> None:
     resolved = resolve_body_fat_fields(
         {
@@ -265,33 +291,32 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
             "petroski_1995_female_18_51",
             {
                 "sex": "female",
-                "age_years": 32,
-                "height_cm": 165,
-                "weight_kg": 65,
-                "skinfold_midaxillary_mm": 12,
-                "skinfold_suprailiac_mm": 16,
-                "skinfold_thigh_mm": 24,
-                "skinfold_calf_mm": 18,
-                # Regression guard: this workflow matches Afig's selected
-                # Petroski female fields and does not use subscapular/triceps.
+                "age_years": 33,
+                "height_cm": 173,
+                "weight_kg": 79.5,
+                "skinfold_midaxillary_mm": 35,
+                "skinfold_suprailiac_mm": 24,
+                "skinfold_thigh_mm": 43,
+                "skinfold_calf_mm": 27,
+                # Regression guard: Actuar/Afig marks these four fields as
+                # required for body fat. Triceps/subscapular do not enter.
                 "skinfold_subscapular_mm": 90,
                 "skinfold_triceps_mm": 80,
             },
-            22.57,
+            27.39,
         ),
         (
             "petroski_1995_female_18_51",
             {
                 "sex": "female",
-                "age_years": 29,
-                "height_cm": 171,
-                "weight_kg": 56.7,
-                "skinfold_midaxillary_mm": 14,
-                "skinfold_suprailiac_mm": 11,
-                "skinfold_thigh_mm": 34,
+                "height_cm": 173,
+                "weight_kg": 79.5,
+                "skinfold_midaxillary_mm": 35,
+                "skinfold_suprailiac_mm": 24,
+                "skinfold_thigh_mm": 43,
                 "skinfold_calf_mm": 27,
             },
-            21.36,
+            27.39,
         ),
         (
             "weltman_1988_female_obese_20_60",

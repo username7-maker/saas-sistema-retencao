@@ -106,6 +106,31 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.leanMassKg).toBe(64.41);
   });
 
+  it("matches the Actuar Petroski female operational case", () => {
+    const result = calculateAnthropometryPreview({
+      sex: "female",
+      ageYears: 33,
+      heightCm: 173,
+      weightKg: 79.5,
+      bioimpedancePercent: 31.2,
+      preferredSource: "geneos_composite",
+      measurementProtocol: "petroski_1995_female_18_51",
+      skinfoldMidaxillaryMm: 35,
+      skinfoldSuprailiacMm: 24,
+      skinfoldThighMm: 43,
+      skinfoldCalfMm: 27,
+      skinfoldSubscapularMm: 90,
+      skinfoldTricepsMm: 80,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.usedSource).toBe("anthropometry");
+    expect(result.method).toBe("skinfold_protocol");
+    expect(result.usedPercent).toBe(27.39);
+    expect(result.fatMassKg).toBe(21.78);
+    expect(result.leanMassKg).toBe(57.72);
+  });
+
   it("does not let legacy bioimpedance preference override a selected protocol preview", () => {
     const result = calculateAnthropometryPreview({
       sex: "male",
@@ -199,33 +224,32 @@ describe("calculateAnthropometryPreview", () => {
         protocol: "petroski_1995_female_18_51",
         input: {
           sex: "female" as const,
-          ageYears: 32,
-          heightCm: 165,
-          weightKg: 65,
-          skinfoldMidaxillaryMm: 12,
-          skinfoldSuprailiacMm: 16,
-          skinfoldThighMm: 24,
-          skinfoldCalfMm: 18,
-          // Regression guard: this workflow matches Afig's selected
-          // Petroski female fields and does not use subscapular/triceps.
+          ageYears: 33,
+          heightCm: 173,
+          weightKg: 79.5,
+          skinfoldMidaxillaryMm: 35,
+          skinfoldSuprailiacMm: 24,
+          skinfoldThighMm: 43,
+          skinfoldCalfMm: 27,
+          // Regression guard: Actuar/Afig marks these four fields as
+          // required for body fat. Triceps/subscapular do not enter.
           skinfoldSubscapularMm: 90,
           skinfoldTricepsMm: 80,
         },
-        expected: 22.57,
+        expected: 27.39,
       },
       {
         protocol: "petroski_1995_female_18_51",
         input: {
           sex: "female" as const,
-          ageYears: 29,
-          heightCm: 171,
-          weightKg: 56.7,
-          skinfoldMidaxillaryMm: 14,
-          skinfoldSuprailiacMm: 11,
-          skinfoldThighMm: 34,
+          heightCm: 173,
+          weightKg: 79.5,
+          skinfoldMidaxillaryMm: 35,
+          skinfoldSuprailiacMm: 24,
+          skinfoldThighMm: 43,
           skinfoldCalfMm: 27,
         },
-        expected: 21.36,
+        expected: 27.39,
       },
       {
         protocol: "weltman_1988_female_obese_20_60",

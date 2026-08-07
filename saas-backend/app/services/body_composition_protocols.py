@@ -185,10 +185,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=18,
         age_max=51,
-        required_fields=("skinfold_midaxillary_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm", "weight_kg", "height_cm"),
+        required_fields=("skinfold_midaxillary_mm", "skinfold_suprailiac_mm", "skinfold_thigh_mm", "skinfold_calf_mm"),
         calculation="petroski_1995_female_4",
         supported=True,
-        notes="Densidade corporal Petroski feminino 4 dobras; conversao operacional alinhada ao Actuar/Afig.",
+        notes="Petroski feminino operacional Actuar/Afig: log10(axilar media + suprailiaca + coxa + panturrilha), convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="petroski_1995_male_18_66",
@@ -472,9 +472,10 @@ def calculate_protocol_body_fat(values: Any) -> dict[str, Any]:
     elif protocol.sex and not sex:
         missing_fields.append("sexo")
 
-    if age_years is None:
+    age_required = _protocol_requires_age(protocol)
+    if age_years is None and age_required:
         missing_fields.append("idade")
-    elif protocol.age_min is not None and protocol.age_max is not None and not protocol.age_min <= age_years <= protocol.age_max:
+    elif age_years is not None and protocol.age_min is not None and protocol.age_max is not None and not protocol.age_min <= age_years <= protocol.age_max:
         flags.append("anthropometry_protocol_age_outside_range")
 
     for field in protocol.required_fields:
@@ -543,6 +544,10 @@ def _empty_result(
         "required_fields": list(protocol.required_fields) if protocol else [],
         "supported": bool(protocol and protocol.supported),
     }
+
+
+def _protocol_requires_age(protocol: BodyCompositionProtocol) -> bool:
+    return protocol.key != "petroski_1995_female_18_51"
 
 
 def _jackson_pollock_3(values: Any, sex: str | None, age_years: int | None) -> float | None:
@@ -614,7 +619,7 @@ def _petroski_1995_male_4(values: Any, sex: str | None, age_years: int | None) -
 
 
 def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None) -> float | None:
-    if sex != "female" or age_years is None:
+    if sex != "female":
         return None
     total = _sum_fields(
         values,
@@ -625,19 +630,10 @@ def _petroski_1995_female_4(values: Any, sex: str | None, age_years: int | None)
             "skinfold_calf_mm",
         ),
     )
-    weight_kg = _read_float(values, "weight_kg")
-    height_cm = _read_float(values, "height_cm")
-    if total is None or weight_kg is None or height_cm is None:
+    if total is None or total <= 0:
         return None
-    density = (
-        1.03465850
-        - 0.00063129 * total
-        + 0.00000187 * total**2
-        - 0.00031165 * age_years
-        - 0.00048890 * weight_kg
-        + 0.00051345 * height_cm
-    )
-    return _actuar_female_density_percent(density)
+    density = 1.19547130 - 0.07513507 * math.log10(total)
+    return _siri(density)
 
 
 def _guedes_1985_3(values: Any, sex: str | None, age_years: int | None) -> float | None:
@@ -748,12 +744,6 @@ def _siri(density: float | None) -> float | None:
     if density is None or density <= 0:
         return None
     return 495 / density - 450
-
-
-def _actuar_female_density_percent(density: float | None) -> float | None:
-    if density is None or density <= 0:
-        return None
-    return 500 / density - 457
 
 
 def _estimated_range(value: float | None, confidence: str | None) -> tuple[float | None, float | None]:
