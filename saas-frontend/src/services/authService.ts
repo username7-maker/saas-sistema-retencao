@@ -1,4 +1,4 @@
-import { api, requestAccessTokenRefresh } from "./api";
+import { api, ensureFreshAccessToken, requestAccessTokenRefresh } from "./api";
 import { tokenStorage } from "./storage";
 import type { TokenPair, User } from "../types";
 
@@ -21,6 +21,10 @@ export const authService = {
 
   async restoreSession(options?: RestoreSessionOptions): Promise<string> {
     return requestAccessTokenRefresh(options);
+  },
+
+  async ensureSession(options?: RestoreSessionOptions): Promise<string | null> {
+    return ensureFreshAccessToken(options);
   },
 
   async me(): Promise<User> {

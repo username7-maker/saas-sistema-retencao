@@ -1,5 +1,32 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 
+const CHUNK_RELOAD_FLAG = "ai_gym_chunk_reload_attempted";
+
+export function isRecoverableChunkLoadError(error: unknown): boolean {
+  const value = error instanceof Error ? `${error.name} ${error.message}` : String(error ?? "");
+  return /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|Importing a module script failed/i.test(value);
+}
+
+function getChunkReloadStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function hasAlreadyTriedChunkReload(): boolean {
+  return getChunkReloadStorage()?.getItem(CHUNK_RELOAD_FLAG) === "1";
+}
+
+function markChunkReloadAttempted(): void {
+  getChunkReloadStorage()?.setItem(CHUNK_RELOAD_FLAG, "1");
+}
+
+function clearChunkReloadAttempt(): void {
+  getChunkReloadStorage()?.removeItem(CHUNK_RELOAD_FLAG);
+}
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -20,8 +47,25 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidMount(): void {
+    if (!this.state.hasError) {
+      clearChunkReloadAttempt();
+    }
+  }
+
+  componentDidUpdate(): void {
+    if (!this.state.hasError) {
+      clearChunkReloadAttempt();
+    }
+  }
+
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[ErrorBoundary]", error, info.componentStack);
+    if (isRecoverableChunkLoadError(error) && getChunkReloadStorage() && !hasAlreadyTriedChunkReload()) {
+      markChunkReloadAttempted();
+      window.location.reload();
+      return;
+    }
   }
 
   private handleRetry = (): void => {

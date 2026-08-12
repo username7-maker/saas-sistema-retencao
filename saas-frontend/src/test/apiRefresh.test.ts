@@ -18,7 +18,7 @@ vi.mock("axios", () => ({
   },
 }));
 
-import { isAccessTokenExpiringSoon, requestAccessTokenRefresh } from "../services/api";
+import { ensureFreshAccessToken, isAccessTokenExpiringSoon, requestAccessTokenRefresh } from "../services/api";
 import { tokenStorage } from "../services/storage";
 
 function tokenWithExp(exp: number): string {
@@ -78,6 +78,42 @@ describe("requestAccessTokenRefresh", () => {
     await expect(requestAccessTokenRefresh({ clearOnFailure: false })).rejects.toThrow("refresh failed");
 
     expect(tokenStorage.getAccessToken()).toBe("current-access-token");
+  });
+});
+
+describe("ensureFreshAccessToken", () => {
+  beforeEach(() => {
+    axiosPostMock.mockReset();
+    isAxiosErrorMock.mockReset();
+    tokenStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("keeps a comfortably valid access token without rotating the refresh cookie", async () => {
+    const expiresInTenMinutes = Math.floor((Date.now() + 10 * 60_000) / 1000);
+    const token = tokenWithExp(expiresInTenMinutes);
+    tokenStorage.setAccessToken(token);
+
+    await expect(ensureFreshAccessToken()).resolves.toBe(token);
+
+    expect(axiosPostMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes when the access token is inside the keepalive window", async () => {
+    const expiresInFiveMinutes = Math.floor((Date.now() + 5 * 60_000) / 1000);
+    tokenStorage.setAccessToken(tokenWithExp(expiresInFiveMinutes));
+    axiosPostMock.mockResolvedValueOnce({
+      data: {
+        access_token: "fresh-access-token",
+        refresh_token: null,
+        token_type: "bearer",
+        expires_in: 900,
+      },
+    });
+
+    await expect(ensureFreshAccessToken({ clearOnFailure: false })).resolves.toBe("fresh-access-token");
+
+    expect(tokenStorage.getAccessToken()).toBe("fresh-access-token");
   });
 });
 

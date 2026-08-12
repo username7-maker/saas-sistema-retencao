@@ -43,16 +43,6 @@ _CORDEX_REPORT_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "co
 if _CORDEX_REPORT_LOGO_ASSET.exists():
     CORDEX_REPORT_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_CORDEX_REPORT_LOGO_ASSET.read_bytes()).decode("ascii")
 
-BODY_MAP_DATA_URIS: dict[str, str] = {}
-for _body_map_key, _body_map_file in {
-    "male": "body-map-front-male.png",
-    "female": "body-map-front-female.png",
-}.items():
-    _body_map_asset = Path(__file__).resolve().parents[1] / "assets" / _body_map_file
-    if _body_map_asset.exists():
-        BODY_MAP_DATA_URIS[_body_map_key] = "data:image/png;base64," + b64encode(_body_map_asset.read_bytes()).decode("ascii")
-
-
 @dataclass(slots=True)
 class PremiumReportBranding:
     gym_name: str | None = None
@@ -1841,7 +1831,7 @@ def _render_body_measurement_pdf_section(rows: Sequence[dict[str, Any]], sex: An
         <div class="clinical-measurement-bubbles clinical-measurement-bubbles-left">
           {"".join(_render_body_measurement_bubble(row, side="left") for row in left_rows)}
         </div>
-        <img src="{escape(_body_map_asset_url(sex))}" alt="Mapa corporal de medidas" />
+        {_render_body_map_svg(sex)}
         <div class="clinical-measurement-bubbles clinical-measurement-bubbles-right">
           {"".join(_render_body_measurement_bubble(row, side="right") for row in right_rows)}
         </div>
@@ -1872,16 +1862,50 @@ def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
     """
 
 
-def _body_map_asset_url(sex: Any) -> str:
-    key = "female" if sex == "female" else "male"
-    data_uri = BODY_MAP_DATA_URIS.get(key)
-    if data_uri:
-        return data_uri
-    base_url = str(settings.frontend_url or "").rstrip("/")
-    if not base_url or base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
-        base_url = "https://saas-frontend-pearl.vercel.app"
-    filename = "body-map-front-female.png" if key == "female" else "body-map-front-male.png"
-    return f"{base_url}/body-maps/{filename}"
+def _render_body_map_svg(sex: Any) -> str:
+    """Render a lightweight inline SVG body map for Chromium PDF output.
+
+    The previous PNG body map was embedded as a very large data URI. Chromium can
+    render those in normal HTML, but PDF generation is less tolerant and showed
+    the broken-image fallback in production. Keeping the figure inline avoids
+    network fetches, oversized base64 payloads and deployment asset drift.
+    """
+
+    is_female = sex == "female"
+    hip_width = 74 if is_female else 62
+    waist_width = 44 if is_female else 58
+    shoulder_width = 92 if is_female else 106
+    label = "Mapa corporal frontal feminino de medidas" if is_female else "Mapa corporal frontal masculino de medidas"
+    return f"""
+        <svg class="clinical-body-map-figure" viewBox="0 0 260 520" role="img" aria-label="{escape(label)}" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bodyMapCore" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#f8fafc" />
+              <stop offset="55%" stop-color="#dbeafe" />
+              <stop offset="100%" stop-color="#a5f3fc" />
+            </linearGradient>
+            <filter id="bodyMapShadow" x="-20%" y="-10%" width="140%" height="130%">
+              <feDropShadow dx="0" dy="9" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.16" />
+            </filter>
+          </defs>
+          <g filter="url(#bodyMapShadow)">
+            <circle cx="130" cy="52" r="30" fill="#f8fafc" stroke="#0f172a" stroke-width="5" />
+            <path d="M84 94 C103 84 157 84 176 94 L{130 + shoulder_width / 2:.1f} 146 L{130 + waist_width / 2:.1f} 248 L{130 + hip_width / 2:.1f} 304 C153 326 107 326 {130 - hip_width / 2:.1f} 304 L{130 - waist_width / 2:.1f} 248 L{130 - shoulder_width / 2:.1f} 146 Z" fill="url(#bodyMapCore)" stroke="#0f172a" stroke-width="5" stroke-linejoin="round" />
+            <path d="M{130 - shoulder_width / 2:.1f} 142 C49 174 37 253 41 330" fill="none" stroke="#0f172a" stroke-width="17" stroke-linecap="round" />
+            <path d="M{130 + shoulder_width / 2:.1f} 142 C211 174 223 253 219 330" fill="none" stroke="#0f172a" stroke-width="17" stroke-linecap="round" />
+            <path d="M105 314 C88 366 83 430 73 486" fill="none" stroke="#0f172a" stroke-width="19" stroke-linecap="round" />
+            <path d="M155 314 C172 366 177 430 187 486" fill="none" stroke="#0f172a" stroke-width="19" stroke-linecap="round" />
+            <path d="M92 121 C110 132 150 132 168 121" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M101 217 C119 225 141 225 159 217" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M93 284 C112 296 148 296 167 284" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M69 316 C78 321 87 321 95 316" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M165 316 C173 321 182 321 191 316" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M70 410 C82 416 94 416 104 410" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+            <path d="M156 410 C166 416 178 416 190 410" fill="none" stroke="#1185a6" stroke-width="4" stroke-linecap="round" />
+          </g>
+          <text x="130" y="512" text-anchor="middle" fill="#64748b" font-family="Arial, sans-serif" font-size="14" font-weight="700">mapa genérico de perimetria</text>
+        </svg>
+    """
 
 
 def _render_section(section: PremiumReportSection) -> str:
@@ -2920,7 +2944,8 @@ def _body_composition_report_css() -> str:
         padding: 18px;
       }
       .clinical-measurement-page .clinical-section h2 { font-size: 22px; }
-      .clinical-measurement-map img {
+      .clinical-measurement-map img,
+      .clinical-body-map-figure {
         display: block;
         width: 100%;
         max-height: 760px;
@@ -3685,7 +3710,8 @@ def _body_composition_report_css() -> str:
         padding: 18px 18px 16px;
         background: #fbfcfe;
       }
-      .clinical-measurement-map img {
+      .clinical-measurement-map img,
+      .clinical-body-map-figure {
         width: 100%;
         max-height: 360px;
         object-fit: contain;
@@ -4177,7 +4203,8 @@ def _body_composition_report_css() -> str:
         border: 0;
         background: #ffffff;
       }
-      .clinical-measurement-map img {
+      .clinical-measurement-map img,
+      .clinical-body-map-figure {
         width: 100%;
         max-height: 334px;
         object-fit: contain;

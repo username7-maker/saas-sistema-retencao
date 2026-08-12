@@ -21,7 +21,7 @@ const REFRESH_LOCK_KEY = "ai_gym_refresh_lock";
 const REFRESH_LOCK_TTL_MS = 25_000;
 const REFRESH_LOCK_WAIT_MS = 120;
 const REFRESH_LOCK_MAX_WAIT_MS = 20_000;
-const ACCESS_TOKEN_REFRESH_LEEWAY_MS = 2 * 60 * 1000;
+const ACCESS_TOKEN_REFRESH_LEEWAY_MS = 6 * 60 * 1000;
 const refreshOwnerId = `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export const api = axios.create({
@@ -143,6 +143,14 @@ export async function requestAccessTokenRefresh(options: AccessTokenRefreshOptio
     }
     throw error;
   }
+}
+
+export async function ensureFreshAccessToken(options: AccessTokenRefreshOptions = {}): Promise<string | null> {
+  const token = tokenStorage.getAccessToken();
+  if (token && !isAccessTokenExpiringSoon(token)) {
+    return token;
+  }
+  return requestAccessTokenRefresh(options);
 }
 
 function decodeBase64Url(value: string): string {

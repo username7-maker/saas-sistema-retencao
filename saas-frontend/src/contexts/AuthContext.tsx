@@ -53,9 +53,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const refreshActiveSession = () => {
-      // Refresh replaces only the in-memory access token. Do not eject an operator
-      // from an unfinished form when a background refresh is temporarily unavailable.
-      void authService.restoreSession({ clearOnFailure: false }).catch(() => undefined);
+      // Keep the operator's session warm, but avoid rotating the HttpOnly
+      // refresh cookie every few minutes while the access token is still fresh.
+      // Fewer rotations reduce race windows across tabs and flaky network edges.
+      void authService.ensureSession({ clearOnFailure: false }).catch(() => undefined);
     };
 
     const intervalId = window.setInterval(refreshActiveSession, SESSION_REFRESH_INTERVAL_MS);

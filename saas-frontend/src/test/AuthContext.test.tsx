@@ -9,6 +9,7 @@ const authServiceMock = vi.hoisted(() => ({
   logout: vi.fn(),
   me: vi.fn(),
   restoreSession: vi.fn(),
+  ensureSession: vi.fn(),
 }));
 
 const tokenStorageMock = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ describe("AuthProvider", () => {
     authServiceMock.logout.mockReset();
     authServiceMock.me.mockReset();
     authServiceMock.restoreSession.mockReset();
+    authServiceMock.ensureSession.mockReset();
     tokenStorageMock.getAccessToken.mockReset();
     tokenStorageMock.clear.mockReset();
   });
@@ -92,11 +94,12 @@ describe("AuthProvider", () => {
 
     await screen.findByText("Owner Teste");
     authServiceMock.restoreSession.mockClear();
+    authServiceMock.ensureSession.mockResolvedValue("current-access-token");
 
     window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => {
-      expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+      expect(authServiceMock.ensureSession).toHaveBeenCalledWith({ clearOnFailure: false });
     });
   });
 
@@ -123,11 +126,12 @@ describe("AuthProvider", () => {
 
       await screen.findByText("Owner Teste");
       authServiceMock.restoreSession.mockClear();
+      authServiceMock.ensureSession.mockResolvedValue("current-access-token");
 
       document.dispatchEvent(new Event("visibilitychange"));
 
       await waitFor(() => {
-        expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+        expect(authServiceMock.ensureSession).toHaveBeenCalledWith({ clearOnFailure: false });
       });
     } finally {
       visibilitySpy.mockRestore();
@@ -153,12 +157,12 @@ describe("AuthProvider", () => {
     );
 
     await screen.findByText("Owner Teste");
-    authServiceMock.restoreSession.mockRejectedValue(new Error("refresh failed"));
+    authServiceMock.ensureSession.mockRejectedValue(new Error("refresh failed"));
 
     window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => {
-      expect(authServiceMock.restoreSession).toHaveBeenCalledWith({ clearOnFailure: false });
+      expect(authServiceMock.ensureSession).toHaveBeenCalledWith({ clearOnFailure: false });
     });
     expect(tokenStorageMock.clear).not.toHaveBeenCalled();
     expect(screen.getByText("Owner Teste")).toBeInTheDocument();

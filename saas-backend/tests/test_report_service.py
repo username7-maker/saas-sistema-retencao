@@ -242,7 +242,9 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Medidas/protocolo" in html
     assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
-    assert "Mapa corporal de medidas" in html
+    assert "Mapa corporal frontal masculino de medidas" in html
+    assert "clinical-body-map-figure" in html
+    assert "body-map-front-male.png" not in html
     assert "Score da avaliacao" in html
     assert "<strong>71</strong>" in html
     assert "Nova avaliacao em 90 dias" in html
@@ -267,7 +269,6 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert ">ID<" not in html
     assert "clinical-cordex-logo" in html
     assert "clinical-progym-logo" in html
-    assert "data:image/png;base64" in html
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
