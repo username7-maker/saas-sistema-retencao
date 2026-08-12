@@ -134,6 +134,7 @@ const schema = z.object({
   waist_cm: nullableNumberField,
   abdomen_cm: nullableNumberField,
   hip_cm: nullableNumberField,
+  iliac_cm: nullableNumberField,
   right_arm_relaxed_cm: nullableNumberField,
   left_arm_relaxed_cm: nullableNumberField,
   right_arm_flexed_cm: nullableNumberField,
@@ -155,6 +156,8 @@ const schema = z.object({
   body_fat_manual_review_completed: z.boolean().optional(),
   anthropometry_review_completed: z.boolean().optional(),
   measurement_protocol: z.string().optional().nullable(),
+  anthropometry_ethnicity: z.enum(["white", "black"]).optional().nullable(),
+  anthropometry_maturity: z.enum(["prepubertal", "pubertal", "postpubertal"]).optional().nullable(),
   target_weight_kg: nullableNumberField,
   weight_control_kg: nullableNumberField,
   muscle_control_kg: nullableNumberField,
@@ -238,6 +241,7 @@ type NumericFieldKey =
   | "waist_cm"
   | "abdomen_cm"
   | "hip_cm"
+  | "iliac_cm"
   | "right_arm_relaxed_cm"
   | "left_arm_relaxed_cm"
   | "right_arm_flexed_cm"
@@ -377,6 +381,13 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
         description: "Preferencialmente medido na linha do umbigo. Em homens, e a fonte primaria do calculo Navy.",
       },
       { key: "hip_cm", label: "Quadril (cm)", placeholder: "96.0", step: "0.1" },
+      {
+        key: "iliac_cm",
+        label: "Circunferencia iliaca (cm)",
+        placeholder: "94.0",
+        step: "0.1",
+        description: "Medida ao nivel da crista iliaca, usada exclusivamente pelo protocolo Weltman masculino.",
+      },
       { key: "body_fat_manual_override_percent", label: "Override manual de gordura (%)", placeholder: "23.8", step: "0.1" },
     ],
   },
@@ -452,6 +463,7 @@ const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "waist_cm",
   "abdomen_cm",
   "hip_cm",
+  "iliac_cm",
   "shoulders_cm",
   "chest_cm",
   "right_arm_relaxed_cm",
@@ -548,6 +560,7 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     waist_cm: evaluation?.waist_cm ?? null,
     abdomen_cm: evaluation?.abdomen_cm ?? null,
     hip_cm: evaluation?.hip_cm ?? null,
+    iliac_cm: evaluation?.iliac_cm ?? null,
     right_arm_relaxed_cm: evaluation?.right_arm_relaxed_cm ?? null,
     left_arm_relaxed_cm: evaluation?.left_arm_relaxed_cm ?? null,
     right_arm_flexed_cm: evaluation?.right_arm_flexed_cm ?? null,
@@ -569,6 +582,8 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     body_fat_manual_review_completed: evaluation?.body_fat_manual_review_completed ?? false,
     anthropometry_review_completed: evaluation?.anthropometry_review_completed ?? false,
     measurement_protocol: evaluation?.measurement_protocol ?? "manual_bioimpedance",
+    anthropometry_ethnicity: evaluation?.anthropometry_ethnicity ?? null,
+    anthropometry_maturity: evaluation?.anthropometry_maturity ?? null,
     target_weight_kg: evaluation?.target_weight_kg ?? null,
     weight_control_kg: evaluation?.weight_control_kg ?? null,
     muscle_control_kg: evaluation?.muscle_control_kg ?? null,
@@ -686,6 +701,9 @@ function buildAnthropometryProtocolItems(input: {
   waistCm: unknown;
   abdomenCm: unknown;
   hipCm: unknown;
+  iliacCm: unknown;
+  anthropometryEthnicity: FormData["anthropometry_ethnicity"];
+  anthropometryMaturity: FormData["anthropometry_maturity"];
   measurementProtocol?: string | null;
   values?: Partial<Record<NumericFieldKey, unknown>>;
 }): ProtocolItem[] {
@@ -718,6 +736,14 @@ function buildAnthropometryProtocolItems(input: {
         label: SKINFOLD_FIELD_LABELS[field] ?? field,
         ready: hasNumericValue(input.values?.[field as NumericFieldKey]),
         description: field.startsWith("skinfold_") ? "Dobra cutanea em milimetros." : "Campo operacional requerido por este protocolo.",
+      });
+    }
+    for (const field of selectedProtocol.requiredChoiceFields ?? []) {
+      const value = field === "anthropometry_ethnicity" ? input.anthropometryEthnicity : input.anthropometryMaturity;
+      protocolItems.push({
+        label: field === "anthropometry_ethnicity" ? "Grupo etnico" : "Estagio maturacional",
+        ready: Boolean(value),
+        description: "Escolha obrigatoria para aplicar a ramificacao correta da formula.",
       });
     }
     return protocolItems;
@@ -1147,6 +1173,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const watchedWaistCm = watch("waist_cm");
   const watchedAbdomenCm = watch("abdomen_cm");
   const watchedHipCm = watch("hip_cm");
+  const watchedIliacCm = watch("iliac_cm");
+  const watchedAnthropometryEthnicity = watch("anthropometry_ethnicity");
+  const watchedAnthropometryMaturity = watch("anthropometry_maturity");
   const watchedRightArmFlexedCm = watch("right_arm_flexed_cm");
   const watchedLeftArmFlexedCm = watch("left_arm_flexed_cm");
   const watchedRightThighCm = watch("right_thigh_cm");
@@ -1227,12 +1256,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       neckCm: watchedNeckCm,
       waistCm: watchedWaistCm,
       abdomenCm: watchedAbdomenCm,
-      hipCm: watchedHipCm,
+        hipCm: watchedHipCm,
+        iliacCm: watchedIliacCm,
+        anthropometryEthnicity: watchedAnthropometryEthnicity,
+        anthropometryMaturity: watchedAnthropometryMaturity,
       measurementProtocol: watchedMeasurementProtocol,
       values: {
         height_cm: watchedHeightCm,
         weight_kg: watchedWeightForAnthropometry,
         waist_cm: watchedWaistCm,
+        abdomen_cm: watchedAbdomenCm,
+        hip_cm: watchedHipCm,
+        iliac_cm: watchedIliacCm,
         skinfold_chest_mm: watchedSkinfoldChestMm,
         skinfold_midaxillary_mm: watchedSkinfoldMidaxillaryMm,
         skinfold_subscapular_mm: watchedSkinfoldSubscapularMm,
@@ -1250,6 +1285,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       watchedAbdomenCm,
       watchedHeightCm,
       watchedHipCm,
+      watchedIliacCm,
+      watchedAnthropometryEthnicity,
+      watchedAnthropometryMaturity,
       watchedMeasurementProtocol,
       watchedNeckCm,
       watchedSkinfoldAbdominalMm,
@@ -1296,6 +1334,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       waistCm: watchedWaistCm,
       abdomenCm: watchedAbdomenCm,
       hipCm: watchedHipCm,
+      iliacCm: watchedIliacCm,
+      anthropometryEthnicity: watchedAnthropometryEthnicity,
+      anthropometryMaturity: watchedAnthropometryMaturity,
       measurementProtocol: watchedMeasurementProtocol,
       skinfoldChestMm: watchedSkinfoldChestMm,
       skinfoldMidaxillaryMm: watchedSkinfoldMidaxillaryMm,
@@ -1317,6 +1358,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
       watchedBodyFatReviewCompleted,
       watchedHeightCm,
       watchedHipCm,
+      watchedIliacCm,
+      watchedAnthropometryEthnicity,
+      watchedAnthropometryMaturity,
       watchedManualOverridePercent,
       watchedMeasurementProtocol,
       watchedNeckCm,
@@ -2105,6 +2149,25 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                           />
                         </FormField>
                       ))}
+                      {(selectedProtocol.requiredChoiceFields ?? []).includes("anthropometry_ethnicity") ? (
+                        <FormField label="Grupo etnico usado na formula" error={errors.anthropometry_ethnicity?.message}>
+                          <Select aria-label="Grupo etnico para protocolo" defaultValue="" {...register("anthropometry_ethnicity")}>
+                            <option value="">Selecione</option>
+                            <option value="white">Branco</option>
+                            <option value="black">Negro</option>
+                          </Select>
+                        </FormField>
+                      ) : null}
+                      {(selectedProtocol.requiredChoiceFields ?? []).includes("anthropometry_maturity") ? (
+                        <FormField label="Estagio maturacional" error={errors.anthropometry_maturity?.message}>
+                          <Select aria-label="Estagio maturacional para protocolo" defaultValue="" {...register("anthropometry_maturity")}>
+                            <option value="">Selecione</option>
+                            <option value="prepubertal">Pre-pubere</option>
+                            <option value="pubertal">Pubere</option>
+                            <option value="postpubertal">Pos-pubere</option>
+                          </Select>
+                        </FormField>
+                      ) : null}
                     </div>
                   </section>
                 ) : null}

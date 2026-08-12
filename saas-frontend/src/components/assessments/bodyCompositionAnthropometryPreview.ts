@@ -16,6 +16,9 @@ export interface AnthropometryPreviewInput {
   waistCm?: unknown;
   abdomenCm?: unknown;
   hipCm?: unknown;
+  iliacCm?: unknown;
+  anthropometryEthnicity?: "white" | "black" | null;
+  anthropometryMaturity?: "prepubertal" | "pubertal" | "postpubertal" | null;
   skinfoldChestMm?: unknown;
   skinfoldMidaxillaryMm?: unknown;
   skinfoldSubscapularMm?: unknown;
@@ -258,6 +261,11 @@ function calculateProtocolPreview(
     }
   }
 
+  for (const field of protocol.requiredChoiceFields ?? []) {
+    const value = readProtocolChoice(input, field);
+    if (!value) missingFields.push(field);
+  }
+
   if (flags.includes("anthropometry_protocol_mismatch") || flags.includes("impossible_measurement_value") || missingFields.length > 0) {
     if (missingFields.length > 0) flags.push("anthropometry_incomplete");
     return { protocolSelected: true, percent: null, confidence: null, flags: Array.from(new Set(flags)), missingFields };
@@ -296,7 +304,20 @@ function calculateSupportedProtocolPercent(
   if (key === "mcardle_1992_4_male_18_34") return calculateYmca4(input, sex, ageYears);
   if (key === "mcardle_1992_3_female_18_48") return calculateYmca3(input, sex, ageYears);
   if (key === "weltman_1988_female_obese_20_60") return calculateWeltmanFemale(input, sex);
+  if (key === "weltman_1988_male_obese_20_60") return calculateWeltmanMale(input, sex);
+  if (key === "slaughter_1988_boys_black_white_6_17" || key === "slaughter_1988_girls_black_white_6_17") return calculateSlaughterPopulation(input, sex);
+  if (key === "guedes_1985_boys_white_prepuberal_6_11") return calculateSlaughterFixedBoy(input, sex, 1.7);
+  if (key === "guedes_1985_boys_white_puberal_12_16") return calculateSlaughterFixedBoy(input, sex, 3.4);
+  if (key === "guedes_1985_boys_white_postpuberal_17_18") return calculateSlaughterFixedBoy(input, sex, 5.5);
+  if (key === "guedes_1985_boys_black_prepuberal_6_11") return calculateSlaughterFixedBoy(input, sex, 3.5);
+  if (key === "guedes_1985_boys_black_puberal_12_16") return calculateSlaughterFixedBoy(input, sex, 5.2);
+  if (key === "guedes_1985_boys_black_postpuberal_17_18") return calculateSlaughterFixedBoy(input, sex, 6.8);
+  if (key === "guedes_1985_girls_sum_under_35") return calculateSlaughterGirlsTricepsSubscapular(input, sex);
   if (key === "slaughter_1988_boys" || key === "slaughter_1988_girls") return calculateSlaughterSimple(input, sex);
+  if (key === "mcardle_1992_female_9_12") return calculateMcardleChild(input, sex, "9_12");
+  if (key === "mcardle_1992_female_13_16") return calculateMcardleChild(input, sex, "13_16");
+  if (key === "mcardle_1992_male_9_12") return calculateMcardleChild(input, sex, "9_12");
+  if (key === "mcardle_1992_male_13_16") return calculateMcardleChild(input, sex, "13_16");
   if (key === "faulkner_1968_male_20_30") return calculateFaulkner1968(input);
   return null;
 }
@@ -401,6 +422,67 @@ function calculateWeltmanFemale(input: AnthropometryPreviewInput, sex: Sex): num
   return 0.11077 * abdomenCm - 0.17666 * heightCm + 0.14354 * weightKg + 51.03301;
 }
 
+function calculateWeltmanMale(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  if (sex !== "male") return null;
+  const abdomenCm = readProtocolValue(input, "abdomen_cm");
+  const hipCm = readProtocolValue(input, "hip_cm");
+  const iliacCm = readProtocolValue(input, "iliac_cm");
+  const weightKg = readProtocolValue(input, "weight_kg");
+  if (abdomenCm == null || hipCm == null || iliacCm == null || weightKg == null) return null;
+  return -47.371817 + 0.57914807 * abdomenCm + 0.25189114 * hipCm + 0.21366088 * iliacCm - 0.35595404 * weightKg;
+}
+
+function calculateSlaughterPopulation(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_subscapular_mm"]);
+  if (total == null) return null;
+  if (sex === "female") return slaughterGirlsPercent(total);
+  if (sex !== "male") return null;
+  const intercepts: Record<string, number> = {
+    white_prepubertal: 1.7,
+    white_pubertal: 3.4,
+    white_postpubertal: 5.5,
+    black_prepubertal: 3.2,
+    black_pubertal: 5.2,
+    black_postpubertal: 6.8,
+  };
+  const intercept = intercepts[`${input.anthropometryEthnicity ?? ""}_${input.anthropometryMaturity ?? ""}`];
+  return intercept == null ? null : slaughterBoysPercent(total, intercept);
+}
+
+function calculateSlaughterFixedBoy(input: AnthropometryPreviewInput, sex: Sex, intercept: number): number | null {
+  if (sex !== "male") return null;
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_subscapular_mm"]);
+  return total == null ? null : slaughterBoysPercent(total, intercept);
+}
+
+function calculateSlaughterGirlsTricepsSubscapular(input: AnthropometryPreviewInput, sex: Sex): number | null {
+  if (sex !== "female") return null;
+  const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_subscapular_mm"]);
+  return total == null ? null : slaughterGirlsPercent(total);
+}
+
+function slaughterBoysPercent(total: number, intercept: number): number {
+  return total > 35 ? 0.783 * total + 1.6 : 1.21 * total - 0.008 * total ** 2 - intercept;
+}
+
+function slaughterGirlsPercent(total: number): number {
+  return total > 35 ? 0.546 * total + 9.7 : 1.33 * total - 0.013 * total ** 2 - 2.5;
+}
+
+function calculateMcardleChild(input: AnthropometryPreviewInput, sex: Sex, ageGroup: "9_12" | "13_16"): number | null {
+  const triceps = readProtocolValue(input, "skinfold_triceps_mm");
+  const subscapular = readProtocolValue(input, "skinfold_subscapular_mm");
+  if (!sex || triceps == null || subscapular == null || triceps <= 0 || subscapular <= 0) return null;
+  const coefficients: Record<string, [number, number, number]> = {
+    female_9_12: [1.088, 0.014, 0.036],
+    female_13_16: [1.114, 0.031, 0.041],
+    male_9_12: [1.108, 0.027, 0.038],
+    male_13_16: [1.130, 0.055, 0.026],
+  };
+  const [constant, tricepsCoefficient, subscapularCoefficient] = coefficients[`${sex}_${ageGroup}`];
+  return siri(constant - tricepsCoefficient * Math.log10(triceps) - subscapularCoefficient * Math.log10(subscapular));
+}
+
 function calculateSlaughterSimple(input: AnthropometryPreviewInput, sex: Sex): number | null {
   const total = sumProtocolFields(input, ["skinfold_triceps_mm", "skinfold_calf_mm"]);
   if (total == null) return null;
@@ -449,9 +531,16 @@ function readProtocolValue(input: AnthropometryPreviewInput, field: string): num
     abdomen_cm: input.abdomenCm,
     height_cm: input.heightCm,
     hip_cm: input.hipCm,
+    iliac_cm: input.iliacCm,
     weight_kg: input.weightKg,
   };
   return parseNumber(map[field]);
+}
+
+function readProtocolChoice(input: AnthropometryPreviewInput, field: string): string | null {
+  if (field === "anthropometry_ethnicity") return input.anthropometryEthnicity ?? null;
+  if (field === "anthropometry_maturity") return input.anthropometryMaturity ?? null;
+  return null;
 }
 
 function isPlausibleProtocolValue(field: string, value: number): boolean {
@@ -461,6 +550,7 @@ function isPlausibleProtocolValue(field: string, value: number): boolean {
     abdomen_cm: [30, 250],
     waist_cm: [30, 250],
     hip_cm: [35, 260],
+    iliac_cm: [30, 250],
   };
   const [min, max] = ranges[field] ?? [2, 120];
   return value >= min && value <= max;

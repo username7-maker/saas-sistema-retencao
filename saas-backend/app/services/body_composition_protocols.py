@@ -28,6 +28,7 @@ class BodyCompositionProtocol:
     required_fields: tuple[str, ...]
     calculation: str | None
     supported: bool
+    required_choice_fields: tuple[str, ...] = ()
     notes: str = ""
 
 
@@ -238,10 +239,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="male",
         age_min=20,
         age_max=60,
-        required_fields=("waist_cm", "weight_kg"),
-        calculation=None,
-        supported=False,
-        notes="Manual-only: a equacao masculina publicada usa circunferencia iliaca, campo ainda nao capturado pelo Cordex.",
+        required_fields=("abdomen_cm", "hip_cm", "iliac_cm", "weight_kg"),
+        calculation="weltman_1988_male",
+        supported=True,
+        notes="Weltman masculino usa abdomen, quadril, circunferencia iliaca e peso; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_boys_black_white_6_17",
@@ -250,9 +251,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=6,
         age_max=17,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Requires maturity/race branch not captured in V1.",
+        required_choice_fields=("anthropometry_ethnicity", "anthropometry_maturity"),
+        calculation="slaughter_1988_population",
+        supported=True,
+        notes="Slaughter tricipital + subescapular com ramificacao explicita por etnia e maturacao quando a soma nao excede 35 mm.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_girls_black_white_6_17",
@@ -261,9 +263,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=6,
         age_max=17,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Requires maturity/race branch not captured in V1.",
+        calculation="slaughter_1988_population",
+        supported=True,
+        notes="Slaughter feminino tricipital + subescapular; a equacao nao varia por etnia ou maturacao.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_white_prepuberal_6_11",
@@ -272,9 +274,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=6,
         age_max=11,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_white_prepubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo branco pre-pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_white_puberal_12_16",
@@ -283,9 +285,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=12,
         age_max=16,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_white_pubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo branco pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_white_postpuberal_17_18",
@@ -294,9 +296,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=17,
         age_max=18,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_white_postpubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo branco pos-pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_black_prepuberal_6_11",
@@ -305,9 +307,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=6,
         age_max=11,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_black_prepubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo negro pre-pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_black_puberal_12_16",
@@ -316,9 +318,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=12,
         age_max=16,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_black_pubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo negro pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_boys_black_postpuberal_17_18",
@@ -327,9 +329,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=17,
         age_max=18,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_black_postpubertal",
+        supported=True,
+        notes="Slaughter/Guedes juvenil: tricipital + subescapular, ramo negro pos-pubere.",
     ),
     BodyCompositionProtocol(
         key="guedes_1985_girls_sum_under_35",
@@ -338,9 +340,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=6,
         age_max=18,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="slaughter_girls_triceps_subscapular",
+        supported=True,
+        notes="Slaughter/Guedes juvenil feminino: tricipital + subescapular.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_boys",
@@ -371,9 +373,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=9,
         age_max=12,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="mcardle_1992_female_9_12",
+        supported=True,
+        notes="Densidade McArdle infantil por log10 das dobras tricipital e subescapular; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="mcardle_1992_female_13_16",
@@ -382,9 +384,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=13,
         age_max=16,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="mcardle_1992_female_13_16",
+        supported=True,
+        notes="Densidade McArdle adolescente por log10 das dobras tricipital e subescapular; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="mcardle_1992_male_9_12",
@@ -393,9 +395,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=9,
         age_max=12,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="mcardle_1992_male_9_12",
+        supported=True,
+        notes="Densidade McArdle infantil por log10 das dobras tricipital e subescapular; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="mcardle_1992_male_13_16",
@@ -404,9 +406,9 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         age_min=13,
         age_max=16,
         required_fields=("skinfold_triceps_mm", "skinfold_subscapular_mm"),
-        calculation=None,
-        supported=False,
-        notes="Listed for operational parity; formula not implemented in V1.",
+        calculation="mcardle_1992_male_13_16",
+        supported=True,
+        notes="Densidade McArdle adolescente por log10 das dobras tricipital e subescapular; convertido por Siri.",
     ),
     BodyCompositionProtocol(
         key="faulkner_1968_male_20_30",
@@ -440,6 +442,7 @@ def protocol_catalog() -> list[dict[str, Any]]:
             "age_min": protocol.age_min,
             "age_max": protocol.age_max,
             "required_fields": list(protocol.required_fields),
+            "required_choice_fields": list(protocol.required_choice_fields),
             "supported": protocol.supported,
             "notes": protocol.notes,
         }
@@ -485,6 +488,11 @@ def calculate_protocol_body_fat(values: Any) -> dict[str, Any]:
         elif not _is_plausible_field_value(field, value):
             flags.append("impossible_measurement_value")
 
+    for field in protocol.required_choice_fields:
+        value = _read(values, field)
+        if value is None or not str(value).strip():
+            missing_fields.append(_field_label(field))
+
     if "impossible_measurement_value" in flags or "anthropometry_protocol_mismatch" in flags or missing_fields:
         if missing_fields:
             flags.append("anthropometry_incomplete")
@@ -519,6 +527,7 @@ def calculate_protocol_body_fat(values: Any) -> dict[str, Any]:
         "flags": list(dict.fromkeys(flags)),
         "missing_fields": missing_fields,
         "required_fields": list(protocol.required_fields),
+        "required_choice_fields": list(protocol.required_choice_fields),
         "supported": True,
     }
 
@@ -542,6 +551,7 @@ def _empty_result(
         "flags": list(dict.fromkeys(flags)),
         "missing_fields": missing_fields,
         "required_fields": list(protocol.required_fields) if protocol else [],
+        "required_choice_fields": list(protocol.required_choice_fields) if protocol else [],
         "supported": bool(protocol and protocol.supported),
     }
 
@@ -683,6 +693,125 @@ def _weltman_1988_female(values: Any, sex: str | None, age_years: int | None) ->
     return 0.11077 * abdomen_cm - 0.17666 * height_cm + 0.14354 * weight_kg + 51.03301
 
 
+def _weltman_1988_male(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    if sex != "male":
+        return None
+    abdomen_cm = _read_float(values, "abdomen_cm")
+    hip_cm = _read_float(values, "hip_cm")
+    iliac_cm = _read_float(values, "iliac_cm")
+    weight_kg = _read_float(values, "weight_kg")
+    if abdomen_cm is None or hip_cm is None or iliac_cm is None or weight_kg is None:
+        return None
+    return -47.371817 + 0.57914807 * abdomen_cm + 0.25189114 * hip_cm + 0.21366088 * iliac_cm - 0.35595404 * weight_kg
+
+
+def _slaughter_triceps_subscapular_total(values: Any) -> float | None:
+    return _sum_fields(values, ("skinfold_triceps_mm", "skinfold_subscapular_mm"))
+
+
+def _slaughter_boys_percent(total: float, intercept: float) -> float:
+    if total > 35:
+        return 0.783 * total + 1.6
+    return 1.21 * total - 0.008 * total**2 - intercept
+
+
+def _slaughter_girls_percent(total: float) -> float:
+    if total > 35:
+        return 0.546 * total + 9.7
+    return 1.33 * total - 0.013 * total**2 - 2.5
+
+
+def _slaughter_1988_population(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _slaughter_triceps_subscapular_total(values)
+    if total is None:
+        return None
+    if sex == "female":
+        return _slaughter_girls_percent(total)
+    if sex != "male":
+        return None
+    ethnicity = str(_read(values, "anthropometry_ethnicity") or "").strip().lower()
+    maturity = str(_read(values, "anthropometry_maturity") or "").strip().lower()
+    intercepts = {
+        ("white", "prepubertal"): 1.7,
+        ("white", "pubertal"): 3.4,
+        ("white", "postpubertal"): 5.5,
+        ("black", "prepubertal"): 3.2,
+        ("black", "pubertal"): 5.2,
+        ("black", "postpubertal"): 6.8,
+    }
+    intercept = intercepts.get((ethnicity, maturity))
+    return _slaughter_boys_percent(total, intercept) if intercept is not None else None
+
+
+def _slaughter_fixed_boys(values: Any, intercept: float) -> float | None:
+    total = _slaughter_triceps_subscapular_total(values)
+    return _slaughter_boys_percent(total, intercept) if total is not None else None
+
+
+def _slaughter_white_prepubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 1.7) if sex == "male" else None
+
+
+def _slaughter_white_pubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 3.4) if sex == "male" else None
+
+
+def _slaughter_white_postpubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 5.5) if sex == "male" else None
+
+
+def _slaughter_black_prepubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 3.5) if sex == "male" else None
+
+
+def _slaughter_black_pubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 5.2) if sex == "male" else None
+
+
+def _slaughter_black_postpubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _slaughter_fixed_boys(values, 6.8) if sex == "male" else None
+
+
+def _slaughter_girls_triceps_subscapular(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    total = _slaughter_triceps_subscapular_total(values)
+    return _slaughter_girls_percent(total) if sex == "female" and total is not None else None
+
+
+def _mcardle_1992_child(values: Any, sex: str | None, age_group: str) -> float | None:
+    triceps = _read_float(values, "skinfold_triceps_mm")
+    subscapular = _read_float(values, "skinfold_subscapular_mm")
+    if triceps is None or subscapular is None or triceps <= 0 or subscapular <= 0:
+        return None
+    coefficients = {
+        ("female", "9_12"): (1.088, 0.014, 0.036),
+        ("female", "13_16"): (1.114, 0.031, 0.041),
+        ("male", "9_12"): (1.108, 0.027, 0.038),
+        ("male", "13_16"): (1.130, 0.055, 0.026),
+    }
+    coefficients_for_group = coefficients.get((sex, age_group))
+    if coefficients_for_group is None:
+        return None
+    constant, triceps_coefficient, subscapular_coefficient = coefficients_for_group
+    density = constant - triceps_coefficient * math.log10(triceps) - subscapular_coefficient * math.log10(subscapular)
+    return _siri(density)
+
+
+def _mcardle_female_9_12(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _mcardle_1992_child(values, sex, "9_12")
+
+
+def _mcardle_female_13_16(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _mcardle_1992_child(values, sex, "13_16")
+
+
+def _mcardle_male_9_12(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _mcardle_1992_child(values, sex, "9_12")
+
+
+def _mcardle_male_13_16(values: Any, sex: str | None, age_years: int | None) -> float | None:
+    return _mcardle_1992_child(values, sex, "13_16")
+
+
 def _slaughter_2sites_simple(values: Any, sex: str | None, age_years: int | None) -> float | None:
     total = _sum_fields(values, ("skinfold_triceps_mm", "skinfold_calf_mm"))
     if total is None:
@@ -711,7 +840,20 @@ _CALCULATORS: dict[str, Callable[[Any, str | None, int | None], float | None]] =
     "ymca_4": _ymca_4,
     "ymca_3": _ymca_3,
     "weltman_1988_female": _weltman_1988_female,
+    "weltman_1988_male": _weltman_1988_male,
+    "slaughter_1988_population": _slaughter_1988_population,
+    "slaughter_white_prepubertal": _slaughter_white_prepubertal,
+    "slaughter_white_pubertal": _slaughter_white_pubertal,
+    "slaughter_white_postpubertal": _slaughter_white_postpubertal,
+    "slaughter_black_prepubertal": _slaughter_black_prepubertal,
+    "slaughter_black_pubertal": _slaughter_black_pubertal,
+    "slaughter_black_postpubertal": _slaughter_black_postpubertal,
+    "slaughter_girls_triceps_subscapular": _slaughter_girls_triceps_subscapular,
     "slaughter_2sites_simple": _slaughter_2sites_simple,
+    "mcardle_1992_female_9_12": _mcardle_female_9_12,
+    "mcardle_1992_female_13_16": _mcardle_female_13_16,
+    "mcardle_1992_male_9_12": _mcardle_male_9_12,
+    "mcardle_1992_male_13_16": _mcardle_male_13_16,
     "faulkner_1968_4": _faulkner_1968_4,
 }
 
@@ -767,8 +909,11 @@ def _field_label(field: str) -> str:
         "abdomen_cm": "abdomen",
         "height_cm": "altura",
         "hip_cm": "quadril",
+        "iliac_cm": "circunferencia iliaca",
         "waist_cm": "cintura",
         "weight_kg": "peso",
+        "anthropometry_ethnicity": "grupo etnico",
+        "anthropometry_maturity": "estagio maturacional",
     }.get(field, field)
 
 
@@ -779,6 +924,7 @@ def _is_plausible_field_value(field: str, value: float) -> bool:
         "abdomen_cm": (30.0, 250.0),
         "waist_cm": (30.0, 250.0),
         "hip_cm": (35.0, 260.0),
+        "iliac_cm": (30.0, 250.0),
     }
     minimum, maximum = ranges.get(field, (2.0, 120.0))
     return minimum <= value <= maximum

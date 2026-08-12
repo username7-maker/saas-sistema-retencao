@@ -28,6 +28,8 @@ OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 BodyCompositionSex = Literal["male", "female"]
+AnthropometryEthnicity = Literal["white", "black"]
+AnthropometryMaturity = Literal["prepubertal", "pubertal", "postpubertal"]
 BodyFatMeasurementSource = Literal["bioimpedance", "manual_anthropometry", "composite_geneos", "manual_override"]
 PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]
 BodyFatUsedSource = Literal["bioimpedance", "anthropometry", "manual_override"]
@@ -82,6 +84,7 @@ BODY_COMPOSITION_NUMERIC_INPUT_FIELDS = (
     "waist_cm",
     "abdomen_cm",
     "hip_cm",
+    "iliac_cm",
     "right_arm_relaxed_cm",
     "left_arm_relaxed_cm",
     "right_arm_flexed_cm",
@@ -228,6 +231,7 @@ class BodyCompositionEvaluationBase(BaseModel):
     waist_cm: float | None = Field(default=None, gt=0)
     abdomen_cm: float | None = Field(default=None, gt=0)
     hip_cm: float | None = Field(default=None, gt=0)
+    iliac_cm: float | None = Field(default=None, gt=0)
     right_arm_relaxed_cm: float | None = Field(default=None, gt=0)
     left_arm_relaxed_cm: float | None = Field(default=None, gt=0)
     right_arm_flexed_cm: float | None = Field(default=None, gt=0)
@@ -250,6 +254,8 @@ class BodyCompositionEvaluationBase(BaseModel):
     body_fat_manual_review_completed: bool = False
     anthropometry_review_completed: bool = False
     measurement_protocol: str | None = None
+    anthropometry_ethnicity: AnthropometryEthnicity | None = None
+    anthropometry_maturity: AnthropometryMaturity | None = None
     evaluated_by_user_id: UUID | None = None
     target_weight_kg: float | None = Field(default=None)
     weight_control_kg: float | None = Field(default=None)

@@ -239,6 +239,8 @@ def _preserve_existing_anthropometry_for_ocr_update(
         *ANTHROPOMETRY_FIELDS,
         "anthropometry_notes",
         "measurement_protocol",
+        "anthropometry_ethnicity",
+        "anthropometry_maturity",
         "preferred_body_fat_source",
         "body_fat_manual_override_percent",
         "body_fat_manual_review_completed",

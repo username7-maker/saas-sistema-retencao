@@ -381,7 +381,7 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
         assert resolved["body_fat_used_percent"] == expected_percent
 
 
-def test_protocol_with_missing_business_fields_stays_manual_only() -> None:
+def test_weltman_male_reports_new_required_measurements() -> None:
     resolved = resolve_body_fat_fields(
         {
             "sex": "male",
@@ -400,5 +400,59 @@ def test_protocol_with_missing_business_fields_stays_manual_only() -> None:
     assert resolved["body_fat_used_percent"] is None
     assert resolved["body_fat_method"] is None
     assert resolved["body_fat_manual_review_required"] is True
-    assert "anthropometry_protocol_manual_only" in resolved["data_quality_flags_json"]
+    assert "anthropometry_protocol_manual_only" not in resolved["data_quality_flags_json"]
+    assert "anthropometry_incomplete" in resolved["data_quality_flags_json"]
     assert "anthropometry_needs_review" in resolved["data_quality_flags_json"]
+
+
+def test_newly_effective_protocols_match_reference_cases() -> None:
+    base = {
+        "preferred_body_fat_source": "anthropometry",
+        "weight_kg": 60,
+        "skinfold_triceps_mm": 12,
+        "skinfold_subscapular_mm": 14,
+    }
+    cases = [
+        ("mcardle_1992_female_9_12", {"sex": "female", "age_years": 10}, 29.82),
+        ("mcardle_1992_female_13_16", {"sex": "female", "age_years": 14}, 28.93),
+        ("mcardle_1992_male_9_12", {"sex": "male", "age_years": 10}, 28.12),
+        ("mcardle_1992_male_13_16", {"sex": "male", "age_years": 14}, 25.57),
+        ("guedes_1985_boys_white_prepuberal_6_11", {"sex": "male", "age_years": 10}, 24.35),
+        ("guedes_1985_boys_white_puberal_12_16", {"sex": "male", "age_years": 14}, 22.65),
+        ("guedes_1985_boys_white_postpuberal_17_18", {"sex": "male", "age_years": 17}, 20.55),
+        ("guedes_1985_boys_black_prepuberal_6_11", {"sex": "male", "age_years": 10}, 22.55),
+        ("guedes_1985_boys_black_puberal_12_16", {"sex": "male", "age_years": 14}, 20.85),
+        ("guedes_1985_boys_black_postpuberal_17_18", {"sex": "male", "age_years": 17}, 19.25),
+        ("guedes_1985_girls_sum_under_35", {"sex": "female", "age_years": 14}, 23.29),
+        (
+            "slaughter_1988_boys_black_white_6_17",
+            {
+                "sex": "male",
+                "age_years": 10,
+                "anthropometry_ethnicity": "black",
+                "anthropometry_maturity": "prepubertal",
+            },
+            22.85,
+        ),
+        ("slaughter_1988_girls_black_white_6_17", {"sex": "female", "age_years": 14}, 23.29),
+    ]
+
+    for protocol, extra, expected in cases:
+        resolved = resolve_body_fat_fields({**base, **extra, "measurement_protocol": protocol})
+        assert resolved["body_fat_used_source"] == "anthropometry", protocol
+        assert resolved["body_fat_method"] == "skinfold_protocol", protocol
+        assert resolved["body_fat_used_percent"] == expected, protocol
+
+    weltman = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 40,
+            "weight_kg": 100,
+            "abdomen_cm": 110,
+            "hip_cm": 108,
+            "iliac_cm": 105,
+            "preferred_body_fat_source": "anthropometry",
+            "measurement_protocol": "weltman_1988_male_obese_20_60",
+        }
+    )
+    assert weltman["body_fat_used_percent"] == 30.38

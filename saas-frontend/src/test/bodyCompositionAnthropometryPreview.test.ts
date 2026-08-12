@@ -314,7 +314,7 @@ describe("calculateAnthropometryPreview", () => {
     }
   });
 
-  it("does not calculate protocols that still require uncaptured business fields", () => {
+  it("reports the measurements missing from the now-effective male Weltman protocol", () => {
     const result = calculateAnthropometryPreview({
       sex: "male",
       ageYears: 25,
@@ -329,6 +329,53 @@ describe("calculateAnthropometryPreview", () => {
     expect(result.usedSource).toBeNull();
     expect(result.usedPercent).toBeNull();
     expect(result.method).toBeNull();
-    expect(result.flags).toContain("anthropometry_protocol_manual_only");
+    expect(result.flags).not.toContain("anthropometry_protocol_manual_only");
+    expect(result.flags).toContain("anthropometry_incomplete");
+  });
+
+  it("matches newly enabled Afig-compatible protocol reference cases", () => {
+    const common = {
+      weightKg: 60,
+      preferredSource: "anthropometry" as const,
+      skinfoldTricepsMm: 12,
+      skinfoldSubscapularMm: 14,
+    };
+    const cases = [
+      ["mcardle_1992_female_9_12", "female", 10, 29.82],
+      ["mcardle_1992_female_13_16", "female", 14, 28.93],
+      ["mcardle_1992_male_9_12", "male", 10, 28.12],
+      ["mcardle_1992_male_13_16", "male", 14, 25.57],
+      ["guedes_1985_boys_white_prepuberal_6_11", "male", 10, 24.35],
+      ["guedes_1985_boys_black_postpuberal_17_18", "male", 17, 19.25],
+      ["guedes_1985_girls_sum_under_35", "female", 14, 23.29],
+    ] as const;
+
+    for (const [measurementProtocol, sex, ageYears, expected] of cases) {
+      const result = calculateAnthropometryPreview({ ...common, measurementProtocol, sex, ageYears });
+      expect(result.usedPercent, measurementProtocol).toBe(expected);
+      expect(result.method, measurementProtocol).toBe("skinfold_protocol");
+    }
+
+    const slaughterPopulation = calculateAnthropometryPreview({
+      ...common,
+      sex: "male",
+      ageYears: 10,
+      measurementProtocol: "slaughter_1988_boys_black_white_6_17",
+      anthropometryEthnicity: "black",
+      anthropometryMaturity: "prepubertal",
+    });
+    expect(slaughterPopulation.usedPercent).toBe(22.85);
+
+    const weltman = calculateAnthropometryPreview({
+      sex: "male",
+      ageYears: 40,
+      weightKg: 100,
+      abdomenCm: 110,
+      hipCm: 108,
+      iliacCm: 105,
+      preferredSource: "anthropometry",
+      measurementProtocol: "weltman_1988_male_obese_20_60",
+    });
+    expect(weltman.usedPercent).toBe(30.38);
   });
 });

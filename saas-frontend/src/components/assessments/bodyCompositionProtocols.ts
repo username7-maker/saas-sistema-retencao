@@ -5,6 +5,7 @@ export type BodyCompositionProtocol = {
   ageMin: number | null;
   ageMax: number | null;
   requiredFields: string[];
+  requiredChoiceFields?: string[];
   supported: boolean;
   notes?: string;
 };
@@ -22,6 +23,7 @@ export const SKINFOLD_FIELD_LABELS: Record<string, string> = {
   abdomen_cm: "Abdomen",
   height_cm: "Altura",
   hip_cm: "Quadril",
+  iliac_cm: "Circunferencia iliaca",
   waist_cm: "Cintura",
   weight_kg: "Peso",
 };
@@ -43,22 +45,22 @@ export const BODY_COMPOSITION_PROTOCOLS: BodyCompositionProtocol[] = [
   { key: "durnin_womersley_1974_female_18_68", label: "Durnin & Womersley (1974), Mulheres, 18-68 anos. Generalizada", sex: "female", ageMin: 18, ageMax: 68, requiredFields: ["skinfold_triceps_mm", "skinfold_biceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm"], supported: true },
   { key: "durnin_womersley_1974_male_17_72", label: "Durnin & Womersley (1974), Homens, 17-72 anos. Generalizada", sex: "male", ageMin: 17, ageMax: 72, requiredFields: ["skinfold_triceps_mm", "skinfold_biceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm"], supported: true },
   { key: "weltman_1988_female_obese_20_60", label: "Weltman et col. (1988), Mulheres obesas, 20-60 anos", sex: "female", ageMin: 20, ageMax: 60, requiredFields: ["abdomen_cm", "weight_kg", "height_cm"], supported: true, notes: "Weltman feminino usa abdomen, peso e altura; resultado direto em percentual." },
-  { key: "weltman_1988_male_obese_20_60", label: "Weltman et col. (1988), Homens obesos, 20-60 anos", sex: "male", ageMin: 20, ageMax: 60, requiredFields: ["waist_cm", "weight_kg"], supported: false, notes: "Manual-only: a equacao masculina publicada usa circunferencia iliaca, campo ainda nao capturado pelo Cordex." },
-  { key: "slaughter_1988_boys_black_white_6_17", label: "Slaughter et al. (1988), Meninos negros ou brancos, 6-17 anos", sex: "male", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false, notes: "Requer maturacao/ramificacao populacional; manual review em V1." },
-  { key: "slaughter_1988_girls_black_white_6_17", label: "Slaughter et al. (1988), Meninas negras ou brancas, 6-17 anos", sex: "female", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false, notes: "Requer maturacao/ramificacao populacional; manual review em V1." },
-  { key: "guedes_1985_boys_white_prepuberal_6_11", label: "Guedes (1985), Rapazes brancos pre-pubere, 6-11 anos", sex: "male", ageMin: 6, ageMax: 11, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_boys_white_puberal_12_16", label: "Guedes (1985), Rapazes brancos pubere, 12-16 anos", sex: "male", ageMin: 12, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_boys_white_postpuberal_17_18", label: "Guedes (1985), Rapazes brancos pos-pubere, 17-18 anos", sex: "male", ageMin: 17, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_boys_black_prepuberal_6_11", label: "Guedes (1985), Rapazes negros pre-pubere, 6-11 anos", sex: "male", ageMin: 6, ageMax: 11, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_boys_black_puberal_12_16", label: "Guedes (1985), Rapazes negros pubere, 12-16 anos", sex: "male", ageMin: 12, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_boys_black_postpuberal_17_18", label: "Guedes (1985), Rapazes negros pos-pubere, 17-18 anos", sex: "male", ageMin: 17, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "guedes_1985_girls_sum_under_35", label: "Guedes (1985), Mocas (Soma das dobras < 35mm)", sex: "female", ageMin: 6, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
+  { key: "weltman_1988_male_obese_20_60", label: "Weltman et col. (1988), Homens obesos, 20-60 anos", sex: "male", ageMin: 20, ageMax: 60, requiredFields: ["abdomen_cm", "hip_cm", "iliac_cm", "weight_kg"], supported: true, notes: "Weltman masculino usa abdomen, quadril, circunferencia iliaca e peso." },
+  { key: "slaughter_1988_boys_black_white_6_17", label: "Slaughter et al. (1988), Meninos negros ou brancos, 6-17 anos", sex: "male", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], requiredChoiceFields: ["anthropometry_ethnicity", "anthropometry_maturity"], supported: true, notes: "Requer grupo etnico e estagio maturacional quando a soma nao excede 35 mm." },
+  { key: "slaughter_1988_girls_black_white_6_17", label: "Slaughter et al. (1988), Meninas negras ou brancas, 6-17 anos", sex: "female", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true, notes: "Slaughter feminino por tricipital e subescapular." },
+  { key: "guedes_1985_boys_white_prepuberal_6_11", label: "Guedes (1985), Rapazes brancos pre-pubere, 6-11 anos", sex: "male", ageMin: 6, ageMax: 11, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_boys_white_puberal_12_16", label: "Guedes (1985), Rapazes brancos pubere, 12-16 anos", sex: "male", ageMin: 12, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_boys_white_postpuberal_17_18", label: "Guedes (1985), Rapazes brancos pos-pubere, 17-18 anos", sex: "male", ageMin: 17, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_boys_black_prepuberal_6_11", label: "Guedes (1985), Rapazes negros pre-pubere, 6-11 anos", sex: "male", ageMin: 6, ageMax: 11, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_boys_black_puberal_12_16", label: "Guedes (1985), Rapazes negros pubere, 12-16 anos", sex: "male", ageMin: 12, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_boys_black_postpuberal_17_18", label: "Guedes (1985), Rapazes negros pos-pubere, 17-18 anos", sex: "male", ageMin: 17, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "guedes_1985_girls_sum_under_35", label: "Guedes (1985), Mocas (Soma das dobras < 35mm)", sex: "female", ageMin: 6, ageMax: 18, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
   { key: "slaughter_1988_boys", label: "Slaughter et al. (1988), Meninos", sex: "male", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_calf_mm"], supported: true, notes: "Slaughter simples 2 dobras com triceps e panturrilha; variantes por raca/maturacao permanecem manual-only." },
   { key: "slaughter_1988_girls", label: "Slaughter et al. (1988), Meninas", sex: "female", ageMin: 6, ageMax: 17, requiredFields: ["skinfold_triceps_mm", "skinfold_calf_mm"], supported: true, notes: "Slaughter simples 2 dobras com triceps e panturrilha; variantes por raca/maturacao permanecem manual-only." },
-  { key: "mcardle_1992_female_9_12", label: "Macardle (1992), Mulheres, 9-12 anos", sex: "female", ageMin: 9, ageMax: 12, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "mcardle_1992_female_13_16", label: "Macardle (1992), Mulheres, 13-16 anos", sex: "female", ageMin: 13, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "mcardle_1992_male_9_12", label: "Macardle (1992), Homens, 9-12 anos", sex: "male", ageMin: 9, ageMax: 12, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
-  { key: "mcardle_1992_male_13_16", label: "Macardle (1992), Homens, 13-16 anos", sex: "male", ageMin: 13, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: false },
+  { key: "mcardle_1992_female_9_12", label: "Macardle (1992), Mulheres, 9-12 anos", sex: "female", ageMin: 9, ageMax: 12, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "mcardle_1992_female_13_16", label: "Macardle (1992), Mulheres, 13-16 anos", sex: "female", ageMin: 13, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "mcardle_1992_male_9_12", label: "Macardle (1992), Homens, 9-12 anos", sex: "male", ageMin: 9, ageMax: 12, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
+  { key: "mcardle_1992_male_13_16", label: "Macardle (1992), Homens, 13-16 anos", sex: "male", ageMin: 13, ageMax: 16, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm"], supported: true },
   { key: "faulkner_1968_male_20_30", label: "Faulkner (1968), Homens, 20-30 anos", sex: "male", ageMin: 20, ageMax: 30, requiredFields: ["skinfold_triceps_mm", "skinfold_subscapular_mm", "skinfold_suprailiac_mm", "skinfold_abdominal_mm"], supported: true, notes: "Faulkner/Yuhasz modificado 4 dobras; resultado direto em percentual." },
 ];
 

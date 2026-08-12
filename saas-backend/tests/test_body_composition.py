@@ -274,6 +274,8 @@ class TestUpdateBodyComposition:
             skinfold_suprailiac_mm=18.0,
             skinfold_calf_mm=20.0,
             measurement_protocol="petroski_1995_male_18_66",
+            anthropometry_ethnicity="black",
+            anthropometry_maturity="pubertal",
             preferred_body_fat_source="geneos_composite",
             body_fat_manual_override_percent=None,
             body_fat_manual_review_completed=True,
@@ -317,6 +319,8 @@ class TestUpdateBodyComposition:
         assert updated.skinfold_subscapular_mm == 14.0
         assert updated.skinfold_triceps_mm == 16.0
         assert updated.measurement_protocol == "petroski_1995_male_18_66"
+        assert updated.anthropometry_ethnicity == "black"
+        assert updated.anthropometry_maturity == "pubertal"
         assert updated.body_fat_anthropometric_percent is not None
         assert attempt is None
 

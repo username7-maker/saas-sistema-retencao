@@ -15,6 +15,7 @@ ANTHROPOMETRY_CALCULATION_FIELDS = (
     "waist_cm",
     "abdomen_cm",
     "hip_cm",
+    "iliac_cm",
 )
 
 ANTHROPOMETRY_EVOLUTION_FIELDS = (
@@ -53,6 +54,7 @@ _MEASUREMENT_RANGES = {
     "waist_cm": (30.0, 250.0),
     "abdomen_cm": (30.0, 250.0),
     "hip_cm": (35.0, 260.0),
+    "iliac_cm": (30.0, 250.0),
     "shoulders_cm": (40.0, 260.0),
     "chest_cm": (35.0, 250.0),
     "right_arm_relaxed_cm": (10.0, 90.0),

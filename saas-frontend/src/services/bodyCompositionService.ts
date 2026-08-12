@@ -51,6 +51,7 @@ const NUMERIC_FIELDS = [
   "waist_cm",
   "abdomen_cm",
   "hip_cm",
+  "iliac_cm",
   "right_arm_relaxed_cm",
   "left_arm_relaxed_cm",
   "right_arm_flexed_cm",

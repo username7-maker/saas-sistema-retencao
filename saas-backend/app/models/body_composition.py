@@ -124,6 +124,7 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     waist_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     abdomen_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     hip_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    iliac_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     right_arm_relaxed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     left_arm_relaxed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     right_arm_flexed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
@@ -146,6 +147,8 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     skinfold_thigh_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     skinfold_calf_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     measurement_protocol: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    anthropometry_ethnicity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    anthropometry_maturity: Mapped[str | None] = mapped_column(String(20), nullable=True)
     evaluated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

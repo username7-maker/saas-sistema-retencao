@@ -1367,6 +1367,8 @@ export type ActuarSyncJobStatus = "pending" | "processing" | "synced" | "failed"
 export type ActuarSyncAttemptStatus = "started" | "succeeded" | "failed";
 export type OcrWarningSeverity = "warning" | "critical";
 export type BodyCompositionSex = "male" | "female";
+export type AnthropometryEthnicity = "white" | "black";
+export type AnthropometryMaturity = "prepubertal" | "pubertal" | "postpubertal";
 export type BodyFatMeasurementSource = "bioimpedance" | "manual_anthropometry" | "composite_geneos" | "manual_override";
 export type PreferredBodyFatSource = "bioimpedance" | "anthropometry" | "geneos_composite" | "manual_override";
 export type BodyFatUsedSource = "bioimpedance" | "anthropometry" | "manual_override";
@@ -1849,6 +1851,7 @@ export interface BodyCompositionEvaluation {
   waist_cm?: number | null;
   abdomen_cm?: number | null;
   hip_cm?: number | null;
+  iliac_cm?: number | null;
   right_arm_relaxed_cm?: number | null;
   left_arm_relaxed_cm?: number | null;
   right_arm_flexed_cm?: number | null;
@@ -1871,6 +1874,8 @@ export interface BodyCompositionEvaluation {
   body_fat_manual_review_completed?: boolean;
   anthropometry_review_completed?: boolean;
   measurement_protocol?: string | null;
+  anthropometry_ethnicity?: AnthropometryEthnicity | null;
+  anthropometry_maturity?: AnthropometryMaturity | null;
   evaluated_by_user_id?: string | null;
   target_weight_kg: number | null;
   weight_control_kg: number | null;
@@ -1987,6 +1992,7 @@ export interface BodyCompositionEvaluationCreate {
   waist_cm?: number | null;
   abdomen_cm?: number | null;
   hip_cm?: number | null;
+  iliac_cm?: number | null;
   right_arm_relaxed_cm?: number | null;
   left_arm_relaxed_cm?: number | null;
   right_arm_flexed_cm?: number | null;
@@ -2009,6 +2015,8 @@ export interface BodyCompositionEvaluationCreate {
   body_fat_manual_review_completed?: boolean;
   anthropometry_review_completed?: boolean;
   measurement_protocol?: string | null;
+  anthropometry_ethnicity?: AnthropometryEthnicity | null;
+  anthropometry_maturity?: AnthropometryMaturity | null;
   evaluated_by_user_id?: string | null;
   target_weight_kg?: number | null;
   weight_control_kg?: number | null;
