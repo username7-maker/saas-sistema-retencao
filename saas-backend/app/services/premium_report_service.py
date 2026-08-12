@@ -43,6 +43,13 @@ _CORDEX_REPORT_LOGO_ASSET = Path(__file__).resolve().parents[1] / "assets" / "co
 if _CORDEX_REPORT_LOGO_ASSET.exists():
     CORDEX_REPORT_LOGO_DATA_URI = "data:image/png;base64," + b64encode(_CORDEX_REPORT_LOGO_ASSET.read_bytes()).decode("ascii")
 
+_REPORT_ASSET_URL_PREFIX = "https://report-assets.local/"
+_REPORT_ASSET_ROOT = Path(__file__).resolve().parents[1] / "assets"
+_BODY_MAP_ASSETS = {
+    "body-map-front-male.png": _REPORT_ASSET_ROOT / "body-map-front-male.png",
+    "body-map-front-female.png": _REPORT_ASSET_ROOT / "body-map-front-female.png",
+}
+
 @dataclass(slots=True)
 class PremiumReportBranding:
     gym_name: str | None = None
@@ -799,7 +806,14 @@ def render_html_to_pdf(
         browser = playwright.chromium.launch(headless=True)
         try:
             page = browser.new_page(viewport=viewport or {"width": 1240, "height": 1754})
+            page.route(f"{_REPORT_ASSET_URL_PREFIX}**", _serve_report_asset)
             page.set_content(html, wait_until="networkidle")
+            if page.locator('img[data-report-asset="body-map"]').count():
+                page.wait_for_function(
+                    """() => Array.from(document.querySelectorAll('img[data-report-asset="body-map"]'))
+                      .every((image) => image.complete && image.naturalWidth > 0)""",
+                    timeout=10_000,
+                )
             page.emulate_media(media=media)
             pdf_options: dict[str, Any] = {
                 "print_background": True,
@@ -813,6 +827,19 @@ def render_html_to_pdf(
             return page.pdf(**pdf_options)
         finally:
             browser.close()
+
+
+def _serve_report_asset(route: Any) -> None:
+    filename = route.request.url.removeprefix(_REPORT_ASSET_URL_PREFIX)
+    asset_path = _BODY_MAP_ASSETS.get(filename)
+    if asset_path is None or not asset_path.is_file():
+        route.abort()
+        return
+    route.fulfill(
+        status=200,
+        body=asset_path.read_bytes(),
+        headers={"content-type": "image/png", "cache-control": "no-store"},
+    )
 
 
 def _repair_pdf_text_encoding(value: str) -> str:
@@ -1831,7 +1858,7 @@ def _render_body_measurement_pdf_section(rows: Sequence[dict[str, Any]], sex: An
         <div class="clinical-measurement-bubbles clinical-measurement-bubbles-left">
           {"".join(_render_body_measurement_bubble(row, side="left") for row in left_rows)}
         </div>
-        {_render_body_map_svg(sex)}
+        {_render_anatomical_body_map_figure(sex)}
         <div class="clinical-measurement-bubbles clinical-measurement-bubbles-right">
           {"".join(_render_body_measurement_bubble(row, side="right") for row in right_rows)}
         </div>
@@ -1860,6 +1887,20 @@ def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
       {f'<small>{escape(detail)}</small>' if detail else ''}
     </article>
     """
+
+
+def _render_anatomical_body_map_figure(sex: Any) -> str:
+    is_female = sex == "female"
+    filename = "body-map-front-female.png" if is_female else "body-map-front-male.png"
+    asset_path = _BODY_MAP_ASSETS[filename]
+    if not asset_path.is_file():
+        return _render_body_map_svg(sex)
+    label = "Mapa corporal frontal feminino de medidas" if is_female else "Mapa corporal frontal masculino de medidas"
+    return (
+        f'<img data-report-asset="body-map" '
+        f'src="{_REPORT_ASSET_URL_PREFIX}{filename}" '
+        f'alt="{escape(label)}" />'
+    )
 
 
 def _render_body_map_svg(sex: Any) -> str:

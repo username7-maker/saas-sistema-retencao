@@ -243,8 +243,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
     assert "Mapa corporal frontal masculino de medidas" in html
-    assert "clinical-body-map-figure" in html
-    assert "body-map-front-male.png" not in html
+    assert 'data-report-asset="body-map"' in html
+    assert "https://report-assets.local/body-map-front-male.png" in html
     assert "Score da avaliacao" in html
     assert "<strong>71</strong>" in html
     assert "Nova avaliacao em 90 dias" in html
