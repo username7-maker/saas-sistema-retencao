@@ -230,7 +230,7 @@ describe("RetentionDashboardPage", () => {
   it("renders executive summary, queue and opens playbook drawer on demand", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Retenção" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard de Retenção" })).toBeInTheDocument();
     expect(screen.getByText("Insight automático")).toBeInTheDocument();
     expect(screen.getByText("Fila operacional")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Ana Silva/i })).toBeInTheDocument();
@@ -289,6 +289,16 @@ describe("RetentionDashboardPage", () => {
     await waitFor(() => {
       expect(dashboardService.retentionQueue).toHaveBeenLastCalledWith(
         expect.objectContaining({ plan_cycle: "monthly", page: 1 }),
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Status do aluno"), {
+      target: { value: "inactive" },
+    });
+
+    await waitFor(() => {
+      expect(dashboardService.retentionQueue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ member_status: "inactive", page: 1 }),
       );
     });
   }, 10000);

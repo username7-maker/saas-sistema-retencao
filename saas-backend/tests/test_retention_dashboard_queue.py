@@ -5,7 +5,7 @@ from uuid import UUID
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
-from app.models import Member, RiskLevel
+from app.models import Member, MemberStatus, RiskLevel
 from app.schemas import PaginatedResponse
 from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
 
@@ -291,6 +291,7 @@ class TestRetentionQueueService:
             churn_type="voluntary_dissatisfaction",
             plan_cycle="annual",
             preferred_shift="morning",
+            member_status="inactive",
         )
 
         stmt = db.execute.call_args.args[0]
@@ -304,6 +305,11 @@ class TestRetentionQueueService:
         assert "audit_logs" in compiled
         assert "members.churn_type" in compiled
         assert "members.preferred_shift" in compiled
+        assert "members.status" in compiled
+        assert any(
+            isinstance(value, list) and set(value) == {MemberStatus.PAUSED, MemberStatus.CANCELLED}
+            for value in params.values()
+        )
         assert "annual" in params.values()
         assert "%anual%" in params.values()
         assert any(value == "morning" or (isinstance(value, list) and "morning" in value) for value in params.values())

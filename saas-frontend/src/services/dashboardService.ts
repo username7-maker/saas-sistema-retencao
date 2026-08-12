@@ -141,6 +141,7 @@ export const dashboardService = {
     page_size?: number;
     search?: string;
     level?: "all" | "red" | "yellow";
+    member_status?: "all" | "active" | "inactive";
     churn_type?: string;
     plan_cycle?: "monthly" | "semiannual" | "annual";
     preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";

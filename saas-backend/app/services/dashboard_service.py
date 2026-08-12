@@ -1151,6 +1151,7 @@ def get_retention_queue(
     page_size: int = 50,
     search: str | None = None,
     level: str = "all",
+    member_status: str = "all",
     churn_type: str | None = None,
     plan_cycle: str | None = None,
     preferred_shift: str | None = None,
@@ -1170,6 +1171,10 @@ def get_retention_queue(
         filters.append(RiskAlert.gym_id == resolved_gym_id)
     if level in {"red", "yellow"}:
         filters.append(RiskAlert.level == RiskLevel(level))
+    if member_status == "active":
+        filters.append(Member.status == MemberStatus.ACTIVE)
+    elif member_status == "inactive":
+        filters.append(Member.status.in_([MemberStatus.PAUSED, MemberStatus.CANCELLED]))
     if churn_type:
         filters.append(Member.churn_type == churn_type)
     if plan_cycle:

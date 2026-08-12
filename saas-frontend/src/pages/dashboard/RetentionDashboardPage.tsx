@@ -37,6 +37,7 @@ import { canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
+type QueueMemberStatus = "all" | "active" | "inactive";
 type QueuePreferredShift = "all" | "overnight" | "morning" | "afternoon" | "evening";
 type QueueRetentionStage = "all" | "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
 
@@ -612,6 +613,7 @@ export function RetentionDashboardPage() {
   const [searchInput, setSearchInput] = useState(searchParamValue);
   const [search, setSearch] = useState(searchParamValue.trim());
   const [level, setLevel] = useState<QueueLevel>("all");
+  const [memberStatus, setMemberStatus] = useState<QueueMemberStatus>("all");
   const [churnType, setChurnType] = useState("all");
   const [planCycle, setPlanCycle] = useState("all");
   const [preferredShift, setPreferredShift] = useState<QueuePreferredShift>("all");
@@ -645,16 +647,17 @@ export function RetentionDashboardPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, level, churnType, planCycle, effectivePreferredShift, retentionStage]);
+  }, [search, level, memberStatus, churnType, planCycle, effectivePreferredShift, retentionStage]);
 
   const queueQuery = useQuery({
-    queryKey: ["dashboard", "retention", "queue", { page, search, level, churnType, planCycle, effectivePreferredShift, retentionStage }],
+    queryKey: ["dashboard", "retention", "queue", { page, search, level, memberStatus, churnType, planCycle, effectivePreferredShift, retentionStage }],
     queryFn: () =>
       dashboardService.retentionQueue({
         page,
         page_size: 50,
         search: search || undefined,
         level,
+        member_status: memberStatus,
         churn_type: churnType === "all" ? undefined : churnType,
         plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
         preferred_shift: effectivePreferredShift,
@@ -663,12 +666,13 @@ export function RetentionDashboardPage() {
     staleTime: 60_000,
     placeholderData: (previous, previousQuery) => {
       const previousParams = previousQuery?.queryKey?.[3] as
-        | { page?: number; search?: string; level?: string; churnType?: string; planCycle?: string; effectivePreferredShift?: string; retentionStage?: string }
+        | { page?: number; search?: string; level?: string; memberStatus?: string; churnType?: string; planCycle?: string; effectivePreferredShift?: string; retentionStage?: string }
         | undefined;
       if (!previousParams) return previous;
       const filtersChanged =
         previousParams.search !== search ||
         previousParams.level !== level ||
+        previousParams.memberStatus !== memberStatus ||
         previousParams.churnType !== churnType ||
         previousParams.planCycle !== planCycle ||
         previousParams.effectivePreferredShift !== effectivePreferredShift ||
@@ -692,6 +696,7 @@ export function RetentionDashboardPage() {
   const activeFilterCount = [
     searchInput.trim().length > 0,
     level !== "all",
+    memberStatus !== "all",
     churnType !== "all",
     planCycle !== "all",
     preferredShift !== "all",
@@ -784,6 +789,7 @@ export function RetentionDashboardPage() {
   const handleClearFilters = () => {
     handleSearchChange("");
     setLevel("all");
+    setMemberStatus("all");
     setChurnType("all");
     setPlanCycle("all");
     setRetentionStage("all");
@@ -905,6 +911,17 @@ export function RetentionDashboardPage() {
                 { value: "all", label: "Todos os níveis" },
                 { value: "red", label: "Somente vermelho" },
                 { value: "yellow", label: "Somente amarelo" },
+              ],
+            },
+            {
+              key: "member_status",
+              label: "Status do aluno",
+              value: memberStatus,
+              onChange: (value) => setMemberStatus((value || "all") as QueueMemberStatus),
+              options: [
+                { value: "all", label: "Todos os status" },
+                { value: "active", label: "Alunos ativos" },
+                { value: "inactive", label: "Alunos inativos" },
               ],
             },
             {
