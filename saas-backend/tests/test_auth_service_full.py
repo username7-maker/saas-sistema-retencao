@@ -203,6 +203,23 @@ class TestAuthenticateUser:
         db.commit.assert_not_called()
         db.flush.assert_called_once()
 
+    def test_success_locks_user_row_before_session_issuance(self):
+        gym = SimpleNamespace(id=GYM_ID, slug="my-gym", is_active=True)
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, email="t@t.com",
+            hashed_password="hash", is_active=True, deleted_at=None,
+            last_login_at=None,
+        )
+        db = MagicMock()
+        db.scalar.side_effect = [gym, user]
+        payload = UserLogin(email="t@t.com", password="correct123", gym_slug="my-gym")
+
+        with patch("app.services.auth_service.verify_password", return_value=True):
+            authenticate_user(db, payload, commit=False)
+
+        user_statement = db.scalar.call_args_list[1].args[0]
+        assert user_statement._for_update_arg is not None
+
 
 # ---------------------------------------------------------------------------
 # issue_tokens
@@ -231,6 +248,49 @@ class TestIssueTokens:
 
         db.commit.assert_not_called()
         db.flush.assert_called_once()
+
+    def test_second_login_keeps_first_browser_refresh_token_valid(self):
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, role=RoleEnum.OWNER,
+            deleted_at=None, is_active=True,
+            refresh_token_hash=None, refresh_token_expires_at=None,
+        )
+        db = MagicMock()
+
+        with patch("app.services.auth_service.create_refresh_token", side_effect=["browser-a", "browser-b"]):
+            issue_tokens(db, user, commit=False)
+            issue_tokens(db, user, commit=False)
+
+        with patch(
+            "app.services.auth_service.decode_token",
+            return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)},
+        ):
+            db.scalar.return_value = user
+            with patch("app.services.auth_service.create_refresh_token", return_value="browser-a-rotated"):
+                result = refresh_access_token(db, "browser-a", commit=False)
+
+        assert result.refresh_token == "browser-a-rotated"
+
+    def test_refresh_locks_user_row_before_rotating_token(self):
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, role=RoleEnum.OWNER,
+            deleted_at=None, is_active=True,
+            refresh_token_hash="hash", refresh_token_expires_at=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        )
+        db = MagicMock()
+        db.scalar.return_value = user
+
+        with patch(
+            "app.services.auth_service.decode_token",
+            return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)},
+        ), patch("app.services.auth_service.verify_refresh_token", return_value=True), patch(
+            "app.services.auth_service.issue_tokens",
+            return_value=SimpleNamespace(access_token="new-access", refresh_token="new-refresh"),
+        ):
+            refresh_access_token(db, "browser-a", commit=False)
+
+        statement = db.scalar.call_args.args[0]
+        assert statement._for_update_arg is not None
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +437,30 @@ class TestLogout:
         assert user.refresh_token_expires_at is None
         db.commit.assert_not_called()
         db.flush.assert_called_once()
+
+    def test_logout_revokes_only_the_current_browser_refresh_token(self):
+        user = SimpleNamespace(
+            id=USER_ID, gym_id=GYM_ID, role=RoleEnum.OWNER,
+            refresh_token_hash=None, refresh_token_expires_at=None,
+        )
+        db = MagicMock()
+        with patch("app.services.auth_service.create_refresh_token", side_effect=["browser-a", "browser-b"]):
+            issue_tokens(db, user, commit=False)
+            issue_tokens(db, user, commit=False)
+
+        logout(db, user, refresh_token="browser-a", commit=False)
+
+        with patch(
+            "app.services.auth_service.decode_token",
+            return_value={"type": "refresh", "sub": str(USER_ID), "gym_id": str(GYM_ID)},
+        ):
+            user.deleted_at = None
+            user.is_active = True
+            db.scalar.return_value = user
+            with patch("app.services.auth_service.create_refresh_token", return_value="browser-b-rotated"):
+                result = refresh_access_token(db, "browser-b", commit=False)
+
+        assert result.refresh_token == "browser-b-rotated"
 
 
 # ---------------------------------------------------------------------------

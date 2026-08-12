@@ -233,7 +233,8 @@ def logout_session(
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
-    logout(db, current_user, commit=False)
+    refresh_token = request.cookies.get(settings.refresh_cookie_name, "").strip() or None
+    logout(db, current_user, refresh_token=refresh_token, commit=False)
     db.commit()
     _clear_refresh_cookie(response)
     return APIMessage(message="Sessao encerrada")

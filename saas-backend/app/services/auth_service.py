@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 import re
 import secrets
 from uuid import UUID
@@ -28,6 +29,7 @@ from app.utils.email import EmailSendResult, send_email_result
 
 _PASSWORD_RESET_EXPIRY_HOURS = 1
 _TEMPORARY_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+_MAX_ACTIVE_REFRESH_SESSIONS = 12
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,42 @@ def _already_exists_exception() -> HTTPException:
 
 def _auth_exception() -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+
+
+def _stored_refresh_hashes(value: str | None) -> list[str]:
+    if not value:
+        return []
+    if not value.startswith("["):
+        return [value]
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return [value]
+    if not isinstance(parsed, list):
+        return [value]
+    return [item for item in parsed if isinstance(item, str) and item]
+
+
+def _serialize_refresh_hashes(hashes: list[str]) -> str | None:
+    unique_hashes = list(dict.fromkeys(hashes))[-_MAX_ACTIVE_REFRESH_SESSIONS:]
+    if not unique_hashes:
+        return None
+    if len(unique_hashes) == 1:
+        return unique_hashes[0]
+    return json.dumps(unique_hashes, separators=(",", ":"))
+
+
+def _has_refresh_token(stored_hashes: str | None, refresh_token: str) -> bool:
+    return any(verify_refresh_token(refresh_token, token_hash) for token_hash in _stored_refresh_hashes(stored_hashes))
+
+
+def _remove_refresh_token(stored_hashes: str | None, refresh_token: str) -> str | None:
+    remaining = [
+        token_hash
+        for token_hash in _stored_refresh_hashes(stored_hashes)
+        if not verify_refresh_token(refresh_token, token_hash)
+    ]
+    return _serialize_refresh_hashes(remaining)
 
 
 def _normalize_gym_slug(raw_slug: str) -> str:
@@ -137,7 +175,7 @@ def authenticate_user(db: Session, payload: UserLogin, *, commit: bool = True) -
                 User.email == payload.email,
                 User.gym_id == gym.id,
                 User.deleted_at.is_(None),
-            ),
+            ).with_for_update(),
             reason="auth.authenticate_user_lookup",
         )
     )
@@ -157,7 +195,9 @@ def authenticate_user(db: Session, payload: UserLogin, *, commit: bool = True) -
 def issue_tokens(db: Session, user: User, *, commit: bool = True) -> TokenPair:
     access = create_access_token(user.id, user.role.value, user.gym_id)
     refresh = create_refresh_token(user.id, user.gym_id)
-    user.refresh_token_hash = hash_refresh_token(refresh)
+    active_hashes = _stored_refresh_hashes(getattr(user, "refresh_token_hash", None))
+    active_hashes.append(hash_refresh_token(refresh))
+    user.refresh_token_hash = _serialize_refresh_hashes(active_hashes)
     user.refresh_token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     db.add(user)
     if commit:
@@ -177,26 +217,36 @@ def refresh_access_token(db: Session, refresh_token: str, *, commit: bool = True
     except (KeyError, ValueError):
         raise _auth_exception()
 
-    user = db.scalar(_include_all_tenants(select(User).where(User.id == user_id), reason="auth.refresh_access_token"))
+    user = db.scalar(
+        _include_all_tenants(
+            select(User).where(User.id == user_id).with_for_update(),
+            reason="auth.refresh_access_token",
+        )
+    )
     if (
         not user
         or not user.is_active
         or user.deleted_at is not None
         or user.gym_id != token_gym_id
         or not user.refresh_token_hash
-        or not verify_refresh_token(refresh_token, user.refresh_token_hash)
+        or not _has_refresh_token(user.refresh_token_hash, refresh_token)
     ):
         raise _auth_exception()
 
     if not user.refresh_token_expires_at or user.refresh_token_expires_at < datetime.now(tz=timezone.utc):
         raise _auth_exception()
 
+    user.refresh_token_hash = _remove_refresh_token(user.refresh_token_hash, refresh_token)
     return issue_tokens(db, user, commit=commit)
 
 
-def logout(db: Session, user: User, *, commit: bool = True) -> None:
-    user.refresh_token_hash = None
-    user.refresh_token_expires_at = None
+def logout(db: Session, user: User, *, refresh_token: str | None = None, commit: bool = True) -> None:
+    if refresh_token:
+        user.refresh_token_hash = _remove_refresh_token(user.refresh_token_hash, refresh_token)
+    else:
+        user.refresh_token_hash = None
+    if not user.refresh_token_hash:
+        user.refresh_token_expires_at = None
     db.add(user)
     if commit:
         db.commit()

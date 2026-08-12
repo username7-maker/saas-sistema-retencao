@@ -1,6 +1,7 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 
 const CHUNK_RELOAD_FLAG = "ai_gym_chunk_reload_attempted";
+const CHUNK_RELOAD_GUARD_MS = 60_000;
 
 export function isRecoverableChunkLoadError(error: unknown): boolean {
   const value = error instanceof Error ? `${error.name} ${error.message}` : String(error ?? "");
@@ -16,15 +17,21 @@ function getChunkReloadStorage(): Storage | null {
 }
 
 function hasAlreadyTriedChunkReload(): boolean {
-  return getChunkReloadStorage()?.getItem(CHUNK_RELOAD_FLAG) === "1";
+  const storage = getChunkReloadStorage();
+  const rawAttemptedAt = storage?.getItem(CHUNK_RELOAD_FLAG);
+  if (!storage || !rawAttemptedAt) return false;
+
+  const attemptedAt = Number(rawAttemptedAt);
+  if (Number.isFinite(attemptedAt) && attemptedAt > 1 && Date.now() - attemptedAt <= CHUNK_RELOAD_GUARD_MS) {
+    return true;
+  }
+
+  storage.removeItem(CHUNK_RELOAD_FLAG);
+  return false;
 }
 
 function markChunkReloadAttempted(): void {
-  getChunkReloadStorage()?.setItem(CHUNK_RELOAD_FLAG, "1");
-}
-
-function clearChunkReloadAttempt(): void {
-  getChunkReloadStorage()?.removeItem(CHUNK_RELOAD_FLAG);
+  getChunkReloadStorage()?.setItem(CHUNK_RELOAD_FLAG, String(Date.now()));
 }
 
 interface Props {
@@ -45,18 +52,6 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
-  }
-
-  componentDidMount(): void {
-    if (!this.state.hasError) {
-      clearChunkReloadAttempt();
-    }
-  }
-
-  componentDidUpdate(): void {
-    if (!this.state.hasError) {
-      clearChunkReloadAttempt();
-    }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {

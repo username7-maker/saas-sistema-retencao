@@ -49,6 +49,23 @@ describe("requestAccessTokenRefresh", () => {
     expect(tokenStorage.getAccessToken()).toBe("new-access-token");
   });
 
+  it("coalesces concurrent refresh requests into one cookie rotation", async () => {
+    axiosPostMock.mockResolvedValueOnce({
+      data: {
+        access_token: "shared-access-token",
+        refresh_token: null,
+        token_type: "bearer",
+        expires_in: 900,
+      },
+    });
+
+    await expect(
+      Promise.all([requestAccessTokenRefresh(), requestAccessTokenRefresh(), requestAccessTokenRefresh()]),
+    ).resolves.toEqual(["shared-access-token", "shared-access-token", "shared-access-token"]);
+
+    expect(axiosPostMock).toHaveBeenCalledOnce();
+  });
+
   it("keeps the access token when refresh fails transiently", async () => {
     tokenStorage.setAccessToken("current-access-token");
     const error = Object.assign(new Error("refresh failed"), { response: { status: 500 } });
@@ -114,6 +131,36 @@ describe("ensureFreshAccessToken", () => {
     await expect(ensureFreshAccessToken({ clearOnFailure: false })).resolves.toBe("fresh-access-token");
 
     expect(tokenStorage.getAccessToken()).toBe("fresh-access-token");
+  });
+
+  it("crosses the 5-to-10-minute boundary without rotating early, then refreshes before expiry", async () => {
+    const startedAt = Date.UTC(2026, 0, 1, 12, 0, 0);
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+    tokenStorage.setAccessToken(tokenWithExp(Math.floor((startedAt + 15 * 60_000) / 1000)));
+    axiosPostMock.mockResolvedValueOnce({
+      data: {
+        access_token: "fresh-after-ten-minutes",
+        refresh_token: null,
+        token_type: "bearer",
+        expires_in: 900,
+      },
+    });
+
+    try {
+      await expect(ensureFreshAccessToken()).resolves.not.toBeNull();
+      expect(axiosPostMock).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5 * 60_000);
+      await expect(ensureFreshAccessToken()).resolves.not.toBeNull();
+      expect(axiosPostMock).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5 * 60_000);
+      await expect(ensureFreshAccessToken()).resolves.toBe("fresh-after-ten-minutes");
+      expect(axiosPostMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

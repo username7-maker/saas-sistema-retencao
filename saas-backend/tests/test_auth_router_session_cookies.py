@@ -120,8 +120,9 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
 
     called = {"logout": False}
 
-    def _logout(_db, _user, *, commit=True):
+    def _logout(_db, _user, *, refresh_token=None, commit=True):
         called["logout"] = True
+        assert refresh_token == "cookie-refresh-token"
         assert commit is False
 
     monkeypatch.setattr("app.routers.auth.logout", _logout)

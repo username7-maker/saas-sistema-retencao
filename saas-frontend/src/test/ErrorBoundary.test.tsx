@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary, isRecoverableChunkLoadError } from "../components/common/ErrorBoundary";
 
@@ -8,6 +8,10 @@ function Boom(): never {
 }
 
 describe("ErrorBoundary", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
   it("renders children normally when there is no error", () => {
     render(
       <ErrorBoundary>
@@ -37,6 +41,18 @@ describe("ErrorBoundary", () => {
     );
     expect(screen.getByText("Custom fallback")).toBeInTheDocument();
     consoleSpy.mockRestore();
+  });
+
+  it("preserves the automatic chunk reload guard across the post-reload mount", () => {
+    window.sessionStorage.setItem("ai_gym_chunk_reload_attempted", String(Date.now()));
+
+    render(
+      <ErrorBoundary>
+        <div>Reloaded application shell</div>
+      </ErrorBoundary>,
+    );
+
+    expect(window.sessionStorage.getItem("ai_gym_chunk_reload_attempted")).not.toBeNull();
   });
 });
 
