@@ -1,5 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { authService, type LoginPayload } from "../services/authService";
 import { tokenStorage } from "../services/storage";
@@ -25,6 +26,7 @@ interface AuthContextValue {
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,27 +54,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const refreshActiveSession = () => {
+    const keepSessionWarm = () => {
       // Keep the operator's session warm, but avoid rotating the HttpOnly
       // refresh cookie every few minutes while the access token is still fresh.
       // Fewer rotations reduce race windows across tabs and flaky network edges.
       void authService.ensureSession({ clearOnFailure: false }).catch(() => undefined);
     };
 
-    const intervalId = window.setInterval(refreshActiveSession, SESSION_REFRESH_INTERVAL_MS);
-    window.addEventListener("focus", refreshActiveSession);
-    window.addEventListener("online", refreshActiveSession);
-    window.addEventListener("pageshow", refreshActiveSession);
-    document.addEventListener("visibilitychange", refreshActiveSession);
+    const recoverVisibleSession = () => {
+      if (document.visibilityState === "hidden") return;
+      void authService.ensureSession({ clearOnFailure: false })
+        .then(() => queryClient.invalidateQueries({ refetchType: "active" }))
+        .catch(() => undefined);
+    };
+
+    const intervalId = window.setInterval(keepSessionWarm, SESSION_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", recoverVisibleSession);
+    window.addEventListener("online", recoverVisibleSession);
+    window.addEventListener("pageshow", recoverVisibleSession);
+    document.addEventListener("visibilitychange", recoverVisibleSession);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshActiveSession);
-      window.removeEventListener("online", refreshActiveSession);
-      window.removeEventListener("pageshow", refreshActiveSession);
-      document.removeEventListener("visibilitychange", refreshActiveSession);
+      window.removeEventListener("focus", recoverVisibleSession);
+      window.removeEventListener("online", recoverVisibleSession);
+      window.removeEventListener("pageshow", recoverVisibleSession);
+      document.removeEventListener("visibilitychange", recoverVisibleSession);
     };
-  }, [user]);
+  }, [queryClient, user]);
 
   const login = useCallback(async (payload: LoginPayload) => {
     await authService.login(payload);

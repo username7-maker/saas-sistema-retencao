@@ -4,13 +4,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_request_context
 from app.core.limiter import limiter
 from app.core.security import decode_token
-from app.database import get_db
+from app.database import get_db, include_all_tenants
 from app.models import RoleEnum, User
 from app.schemas import APIMessage, GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
@@ -196,7 +197,14 @@ def refresh(
     context = get_request_context(request)
     try:
         decoded = decode_token(refresh_token)
-        user = db.get(User, UUID(decoded["sub"]))
+        user_id = UUID(decoded["sub"])
+        token_gym_id = UUID(decoded["gym_id"])
+        user = db.scalar(
+            include_all_tenants(
+                select(User).where(User.id == user_id, User.gym_id == token_gym_id),
+                reason="auth.refresh_audit_lookup",
+            )
+        )
         if user:
             log_audit_event(
                 db,

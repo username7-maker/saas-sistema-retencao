@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { AuthProvider } from "../contexts/AuthContext";
@@ -35,6 +36,17 @@ function AuthProbe() {
   return <div>{user ? user.full_name : "anonymous"}</div>;
 }
 
+function renderAuthProvider(queryClient = new QueryClient()) {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+  return queryClient;
+}
+
 describe("AuthProvider", () => {
   beforeEach(() => {
     authServiceMock.login.mockReset();
@@ -59,11 +71,7 @@ describe("AuthProvider", () => {
       created_at: "2026-03-27T00:00:00Z",
     });
 
-    render(
-      <AuthProvider>
-        <AuthProbe />
-      </AuthProvider>,
-    );
+    renderAuthProvider();
 
     await waitFor(() => {
       expect(screen.getByText("Owner Teste")).toBeInTheDocument();
@@ -86,11 +94,9 @@ describe("AuthProvider", () => {
       created_at: "2026-03-27T00:00:00Z",
     });
 
-    render(
-      <AuthProvider>
-        <AuthProbe />
-      </AuthProvider>,
-    );
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    renderAuthProvider(queryClient);
 
     await screen.findByText("Owner Teste");
     authServiceMock.restoreSession.mockClear();
@@ -101,9 +107,10 @@ describe("AuthProvider", () => {
     await waitFor(() => {
       expect(authServiceMock.ensureSession).toHaveBeenCalledWith({ clearOnFailure: false });
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({ refetchType: "active" });
   });
 
-  it("keeps refreshing when the browser moves the app to the background", async () => {
+  it("waits until a background tab is visible before recovering it", async () => {
     const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     tokenStorageMock.getAccessToken.mockReturnValue("current-access-token");
     authServiceMock.restoreSession.mockResolvedValue("new-access-token");
@@ -118,16 +125,16 @@ describe("AuthProvider", () => {
     });
 
     try {
-      render(
-        <AuthProvider>
-          <AuthProbe />
-        </AuthProvider>,
-      );
+      renderAuthProvider();
 
       await screen.findByText("Owner Teste");
       authServiceMock.restoreSession.mockClear();
       authServiceMock.ensureSession.mockResolvedValue("current-access-token");
 
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(authServiceMock.ensureSession).not.toHaveBeenCalled();
+
+      visibilitySpy.mockReturnValue("visible");
       document.dispatchEvent(new Event("visibilitychange"));
 
       await waitFor(() => {
@@ -150,11 +157,7 @@ describe("AuthProvider", () => {
       created_at: "2026-03-27T00:00:00Z",
     });
 
-    render(
-      <AuthProvider>
-        <AuthProbe />
-      </AuthProvider>,
-    );
+    renderAuthProvider();
 
     await screen.findByText("Owner Teste");
     authServiceMock.ensureSession.mockRejectedValue(new Error("refresh failed"));

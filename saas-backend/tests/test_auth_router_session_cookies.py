@@ -70,7 +70,7 @@ def test_login_sets_refresh_cookie_and_hides_refresh_token(app, client, monkeypa
 
 def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
     mock_db = MagicMock()
-    mock_db.get.return_value = _current_user()
+    mock_db.scalar.return_value = _current_user()
     app.dependency_overrides[get_db] = lambda: mock_db
 
     observed = {}
@@ -108,6 +108,7 @@ def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
         assert response.headers["Cache-Control"] == "no-store"
         assert response.headers["Pragma"] == "no-cache"
         assert response.headers["Expires"] == "0"
+        assert mock_db.scalar.call_count == 1
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
@@ -151,7 +152,7 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
 
 def test_refresh_accepts_allowed_referer_when_origin_missing(app, client, monkeypatch):
     mock_db = MagicMock()
-    mock_db.get.return_value = _current_user()
+    mock_db.scalar.return_value = _current_user()
     app.dependency_overrides[get_db] = lambda: mock_db
 
     tokens = SimpleNamespace(

@@ -287,6 +287,42 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
   });
 
+  it("keeps a pt-BR comma while typing a Petroski fold and persists its decimal value", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+    vi.mocked(bodyCompositionService.update).mockResolvedValue({
+      ...evaluation,
+      skinfold_subscapular_mm: 10.5,
+    });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    const fold = await screen.findByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" });
+    fireEvent.change(fold, { target: { value: "10," } });
+    expect(fold).toHaveValue("10,");
+    fireEvent.change(fold, { target: { value: "10,5" } });
+    expect(fold).toHaveValue("10,5");
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.update).toHaveBeenCalledWith(
+        "member-1",
+        "eval-1",
+        expect.objectContaining({ skinfold_subscapular_mm: 10.5 }),
+        { syncActuar: true },
+      );
+    });
+  });
+
   it("locks Petroski women to the required sex and keeps the current age available to the protocol", async () => {
     renderTab();
 

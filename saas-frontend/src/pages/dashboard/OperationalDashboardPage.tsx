@@ -39,6 +39,9 @@ const RISK_TONE: Record<RiskLevel, "danger" | "warning" | "success"> = {
   green: "success",
 };
 
+const REALTIME_RECONNECT_DELAY_MS = 1_000;
+const REALTIME_RECONNECT_MAX_DELAY_MS = 30_000;
+
 export function OperationalDashboardPage() {
   const queryClient = useQueryClient();
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
@@ -50,35 +53,77 @@ export function OperationalDashboardPage() {
   };
 
   useEffect(() => {
-    const token = tokenStorage.getAccessToken();
-    if (!token) return;
-
     const wsUrl = `${WS_BASE_URL.replace(/\/$/, "")}/ws/updates`;
-    const socket = new WebSocket(wsUrl);
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let reconnectAttempts = 0;
+    let disposed = false;
 
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ type: "auth", token }));
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== null) return;
+      const delay = Math.min(
+        REALTIME_RECONNECT_DELAY_MS * (2 ** reconnectAttempts),
+        REALTIME_RECONNECT_MAX_DELAY_MS,
+      );
+      reconnectAttempts += 1;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     };
-    socket.onclose = () => setIsRealtimeConnected(false);
-    socket.onerror = () => setIsRealtimeConnected(false);
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as { event?: string };
-        if (message.event === "connected") {
-          setIsRealtimeConnected(true);
-          return;
+
+    const connect = () => {
+      if (disposed || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+      const token = tokenStorage.getAccessToken();
+      if (!token) return;
+
+      const nextSocket = new WebSocket(wsUrl);
+      socket = nextSocket;
+      nextSocket.onopen = () => {
+        nextSocket.send(JSON.stringify({ type: "auth", token }));
+      };
+      nextSocket.onclose = () => {
+        if (socket === nextSocket) socket = null;
+        setIsRealtimeConnected(false);
+        scheduleReconnect();
+      };
+      nextSocket.onerror = () => {
+        setIsRealtimeConnected(false);
+        nextSocket.close();
+      };
+      nextSocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as { event?: string };
+          if (message.event === "connected") {
+            reconnectAttempts = 0;
+            setIsRealtimeConnected(true);
+            return;
+          }
+          if (message.event === "checkin_created" || message.event === "risk_alert_created" || message.event === "risk_alert_updated") {
+            setRealtimeEvents((current) => current + 1);
+            void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });
+          }
+        } catch {
+          // Ignore malformed websocket messages.
         }
-        if (message.event === "checkin_created" || message.event === "risk_alert_created" || message.event === "risk_alert_updated") {
-          setRealtimeEvents((current) => current + 1);
-          void queryClient.invalidateQueries({ queryKey: ["dashboard", "operational"] });
-        }
-      } catch {
-        // Ignore malformed websocket messages.
-      }
+      };
     };
+
+    const reconnectWhenAvailable = () => {
+      if (document.visibilityState === "hidden") return;
+      if (!socket) connect();
+    };
+
+    connect();
+    window.addEventListener("online", reconnectWhenAvailable);
+    document.addEventListener("visibilitychange", reconnectWhenAvailable);
 
     return () => {
-      socket.close();
+      disposed = true;
+      window.removeEventListener("online", reconnectWhenAvailable);
+      document.removeEventListener("visibilitychange", reconnectWhenAvailable);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
     };
   }, [queryClient]);
 

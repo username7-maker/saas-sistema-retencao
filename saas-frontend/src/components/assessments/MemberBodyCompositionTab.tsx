@@ -1660,8 +1660,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
   function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
-    const normalized = normalizeNullableNumberInput(rawValue);
-    setValue(key, (typeof normalized === "number" ? normalized : null) as never, {
+    setValue(key, rawValue as never, {
       shouldDirty: true,
       shouldValidate: true,
     });
