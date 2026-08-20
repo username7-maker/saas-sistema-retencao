@@ -69,6 +69,45 @@ class KommoDomainRoute(Base, TimestampMixin):
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
 
+class KommoTrainerRoute(Base, TimestampMixin):
+    __tablename__ = "kommo_trainer_routes"
+    __table_args__ = (
+        UniqueConstraint("gym_id", "trainer_user_id", name="uq_kommo_trainer_routes_gym_trainer"),
+        Index("ix_kommo_trainer_routes_gym_trainer", "gym_id", "trainer_user_id"),
+        Index("ix_kommo_trainer_routes_gym_enabled", "gym_id", "is_enabled"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gyms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    trainer_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    pipeline_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    stage_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    salesbot_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    channel_source_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    responsible_user_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    message_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pdf_url_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pdf_delivery_mode: Mapped[str] = mapped_column(String(40), nullable=False, default="native_file_required", server_default="native_file_required")
+    file_uuid_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    file_name_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    file_attachment_note_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_type_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_id_field_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+
+
 class KommoFileAttachment(Base, TimestampMixin):
     __tablename__ = "kommo_file_attachments"
     __table_args__ = (

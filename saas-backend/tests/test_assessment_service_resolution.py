@@ -11,6 +11,7 @@ def test_create_assessment_clears_queue_resolution_flags():
     evaluator_id = UUID("44444444-4444-4444-4444-444444444444")
     member = SimpleNamespace(
         id=member_id,
+        gym_id=UUID("11111111-1111-1111-1111-111111111111"),
         extra_data={
             "assessment_queue_resolution": "scheduled",
             "assessment_queue_resolution_note": "Ja foi marcada",
@@ -25,6 +26,8 @@ def test_create_assessment_clears_queue_resolution_flags():
         patch("app.services.assessment_service.get_member_or_404", return_value=member),
         patch("app.services.assessment_service._calculate_next_assessment_due", return_value=datetime(2026, 6, 25, tzinfo=timezone.utc).date()),
         patch("app.services.assessment_service.generate_ai_insights"),
+        patch("app.services.assessment_service.record_event", return_value=SimpleNamespace(id=UUID("55555555-5555-5555-5555-555555555555"))),
+        patch("app.services.assessment_service.resolve_event"),
         patch("app.services.assessment_service.sync_assessment_intelligence_tasks"),
     ):
         create_assessment(

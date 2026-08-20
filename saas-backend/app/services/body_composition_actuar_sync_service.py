@@ -23,6 +23,7 @@ from app.models import (
     ActuarMemberLink,
     ActuarSyncAttempt,
     ActuarSyncJob,
+    Assessment,
     BodyCompositionEvaluation,
     Gym,
     Member,
@@ -53,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_JOB_STATUSES = {"pending", "processing"}
 LOCAL_BRIDGE_OFFLINE_DETAIL = "Nenhuma estacao Actuar Bridge esta online para esta academia."
+ASSESSMENT_SYNC_EXTRA_KEY = "actuar_sync"
 
 
 @dataclass(slots=True)
@@ -158,6 +160,81 @@ def prepare_body_composition_sync_attempt(
         },
     )
     return job
+
+
+def prepare_anthropometric_assessment_sync_attempt(
+    db: Session,
+    *,
+    member: Member,
+    assessment: Assessment,
+    force_retry: bool = False,
+    require_online_bridge: bool = False,
+) -> ActuarSyncJob | None:
+    gym = _get_gym(db, assessment.gym_id)
+    sync_mode = resolve_actuar_sync_mode(gym)
+    _set_assessment_sync_state(
+        assessment,
+        sync_required_for_training=bool(settings.actuar_sync_required_for_training),
+        sync_mode=sync_mode,
+        clear_errors=True,
+    )
+
+    if not _should_auto_sync(gym):
+        _set_assessment_sync_state(assessment, sync_status="saved", sync_job_id=None)
+        logger.info(
+            "Actuar sync not auto-enabled for anthropometric assessment; keeping local save only.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_assessment_sync_disabled",
+                    "status": "saved",
+                    "assessment_id": str(assessment.id),
+                    "gym_id": str(assessment.gym_id),
+                }
+            },
+        )
+        return None
+
+    if not _ensure_local_bridge_ready(
+        db,
+        gym_id=assessment.gym_id,
+        sync_mode=sync_mode,
+        raise_on_unavailable=require_online_bridge,
+    ):
+        _set_assessment_sync_state(assessment, sync_status="saved", sync_job_id=None)
+        logger.info(
+            "Actuar local bridge offline; keeping anthropometric assessment saved only.",
+            extra={
+                "extra_fields": {
+                    "event": "actuar_assessment_local_bridge_offline",
+                    "status": "saved",
+                    "assessment_id": str(assessment.id),
+                    "gym_id": str(assessment.gym_id),
+                }
+            },
+        )
+        return None
+
+    _set_assessment_sync_state(
+        assessment,
+        sync_status="manual_sync_required",
+        sync_job_id=None,
+        last_error_code="manual_anthropometry_sync_not_enabled",
+        last_error_message="Sync automatico Actuar para avaliacao sem bioimpedancia nao esta habilitado nesta versao.",
+        last_success_at=None if force_retry else None,
+    )
+    logger.info(
+        "Actuar automatic queue for anthropometric assessment is disabled in this build.",
+        extra={
+            "extra_fields": {
+                "event": "actuar_assessment_sync_manual_required",
+                "status": "manual_sync_required",
+                "assessment_id": str(assessment.id),
+                "member_id": str(member.id),
+                "gym_id": str(assessment.gym_id),
+            }
+        },
+    )
+    return None
 
 
 def create_body_composition_sync_job(
@@ -710,6 +787,49 @@ def _cancel_superseded_jobs(db: Session, evaluation_id: UUID) -> None:
         job.status = "cancelled"
         job.error_code = "superseded"
         job.error_message = "Job substituido por uma avaliacao ou reprocessamento mais recente."
+
+
+def _assessment_sync_state(assessment: Assessment) -> dict[str, object]:
+    extra = dict(assessment.extra_data or {})
+    state = extra.get(ASSESSMENT_SYNC_EXTRA_KEY)
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def _set_assessment_sync_state(
+    assessment: Assessment,
+    *,
+    sync_status: str | None = None,
+    sync_required_for_training: bool | None = None,
+    sync_mode: str | None = None,
+    sync_job_id: str | None = None,
+    last_success_at: datetime | None = None,
+    last_error_code: str | None = None,
+    last_error_message: str | None = None,
+    clear_errors: bool = False,
+) -> None:
+    extra = dict(assessment.extra_data or {})
+    state = _assessment_sync_state(assessment)
+    if sync_status is not None:
+        state["sync_status"] = sync_status
+    if sync_required_for_training is not None:
+        state["sync_required_for_training"] = sync_required_for_training
+    if sync_mode is not None:
+        state["sync_mode"] = sync_mode
+    if sync_job_id is not None:
+        state["sync_job_id"] = sync_job_id
+    elif sync_status in {"saved", "manual_sync_required"}:
+        state.pop("sync_job_id", None)
+    if last_success_at is not None:
+        state["last_success_at"] = last_success_at.isoformat()
+    if clear_errors:
+        state.pop("last_error_code", None)
+        state.pop("last_error_message", None)
+    if last_error_code is not None:
+        state["last_error_code"] = last_error_code
+    if last_error_message is not None:
+        state["last_error_message"] = last_error_message
+    extra[ASSESSMENT_SYNC_EXTRA_KEY] = state
+    assessment.extra_data = extra
 
 
 def _start_attempt(db: Session, *, job: ActuarSyncJob, evaluation: BodyCompositionEvaluation, worker_id: str) -> ActuarSyncAttempt:

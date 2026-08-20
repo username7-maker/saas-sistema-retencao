@@ -51,6 +51,18 @@ function makeEvaluation(): BodyCompositionEvaluation {
     weight_kg: 64.2,
     body_fat_kg: 17.1,
     body_fat_percent: 26.6,
+    body_fat_bioimpedance_percent: 26.6,
+    body_fat_anthropometric_percent: 24.2,
+    body_fat_used_percent: 24.2,
+    body_fat_used_source: "anthropometry",
+    body_fat_method: "geneos_composite",
+    body_fat_confidence: "medium_high",
+    body_fat_range_min: 22.2,
+    body_fat_range_max: 26.2,
+    body_fat_manual_override_percent: null,
+    preferred_body_fat_source: "geneos_composite",
+    fat_mass_estimated_kg: 15.54,
+    lean_mass_estimated_kg: 48.66,
     waist_hip_ratio: 0.82,
     fat_free_mass_kg: 47.1,
     inorganic_salt_kg: 2.9,
@@ -63,6 +75,26 @@ function makeEvaluation(): BodyCompositionEvaluation {
     visceral_fat_level: 7.2,
     bmi: 22.8,
     basal_metabolic_rate_kcal: 1420,
+    measurement_source: "composite_geneos",
+    measurement_protocol: "geneos_composite",
+    neck_cm: 33,
+    shoulders_cm: 102,
+    chest_cm: 90,
+    waist_cm: 74,
+    abdomen_cm: 78,
+    hip_cm: 94,
+    right_arm_relaxed_cm: 28,
+    left_arm_relaxed_cm: 27.8,
+    right_arm_flexed_cm: 31,
+    left_arm_flexed_cm: 30.5,
+    right_thigh_cm: 54,
+    left_thigh_cm: 53.5,
+    right_calf_cm: 35,
+    left_calf_cm: 34.7,
+    anthropometry_notes: "Medidas revisadas.",
+    body_fat_manual_review_required: false,
+    body_fat_manual_review_completed: true,
+    anthropometry_review_completed: true,
     target_weight_kg: 61.5,
     weight_control_kg: -2.7,
     muscle_control_kg: 0.4,
@@ -177,21 +209,265 @@ function renderTab() {
 describe("MemberBodyCompositionTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn(() => "blob:body-composition-preview"),
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: vi.fn(),
+      configurable: true,
+    });
   });
 
   it("shows the premium report CTA in the member workspace for an existing evaluation", async () => {
     renderTab();
 
     expect(await screen.findByText("Relatorio premium pronto")).toBeInTheDocument();
+    expect(screen.getByText("Agua corporal calculada (%)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Calculada por agua corporal (kg) / peso (kg) x 100. Este percentual nao vem impresso na folha."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Abrir relatorio" })).toHaveAttribute(
       "href",
       "/assessments/members/member-1/body-composition/eval-1/report",
     );
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Sexo: Feminino")).toBeInTheDocument();
+    expect(screen.getByText("Composicao corporal por medidas")).toBeInTheDocument();
+    expect(screen.getByText("Protocolo antropometrico")).toBeInTheDocument();
+    expect(screen.getByText("Checklist do protocolo")).toBeInTheDocument();
+    expect(screen.getByText("Comparativo bilateral")).toBeInTheDocument();
+    expect(screen.getByText("Dobras cutaneas")).toBeInTheDocument();
+    expect(screen.getByText("Jackson e Pollock (1978), 3 dobras - Homens brancos, 18-61 anos")).toBeInTheDocument();
+    expect(screen.getByText("Preencha pares direito/esquerdo para comparar.")).toBeInTheDocument();
+    expect(screen.getByText("Previa antes de salvar")).toBeInTheDocument();
+    expect(screen.getByText("Revisao manual do percentual concluida")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar atual" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Braco contraido")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render the removed no-photo strategy surface", async () => {
+    renderTab();
+
+    await screen.findByText("Interpretacao de apoio");
+    expect(screen.queryByText("Leitura estrategica sem foto")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
+  });
+
+  it("shows the selected protocol requirements as immediate inputs", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    expect(await screen.findByText("O que medir neste protocolo")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" })).toHaveValue("14");
+    expect(screen.getByRole("textbox", { name: "Dobra tricipital (mm) para protocolo" })).toHaveValue("16");
+    expect(screen.getByRole("textbox", { name: "Dobra suprailiaca (mm) para protocolo" })).toHaveValue("18");
+    expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
+  });
+
+  it("does not show fake numeric examples in empty measurement inputs", async () => {
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
+    renderTab();
+
+    await screen.findByText("Registrar bioimpedancia");
+    expect(document.querySelector('input[name="weight_kg"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="body_fat_kg"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="waist_cm"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="skinfold_triceps_mm"]')).toHaveAttribute("placeholder", "");
+  });
+
+  it("submits the Weltman protocol that is currently selected", async () => {
+    const evaluation = makeEvaluation();
+    vi.mocked(bodyCompositionService.update).mockResolvedValue({
+      ...evaluation,
+      measurement_protocol: "weltman_1988_female_obese_20_60",
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    const protocolSelect = document.querySelector('select[name="measurement_protocol"]') as HTMLSelectElement;
+    fireEvent.change(protocolSelect, { target: { value: "weltman_1988_female_obese_20_60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.update).toHaveBeenCalledWith(
+        "member-1",
+        "eval-1",
+        expect.objectContaining({ measurement_protocol: "weltman_1988_female_obese_20_60" }),
+        { syncActuar: true },
+      );
+    });
+  });
+
+  it("keeps a pt-BR comma while typing a Petroski fold and persists its decimal value", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.sex = "male";
+    evaluation.age_years = 30;
+    evaluation.measurement_protocol = "petroski_1995_male_18_66";
+    evaluation.skinfold_subscapular_mm = 14;
+    evaluation.skinfold_triceps_mm = 16;
+    evaluation.skinfold_suprailiac_mm = 18;
+    evaluation.skinfold_calf_mm = 12;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+    vi.mocked(bodyCompositionService.update).mockResolvedValue({
+      ...evaluation,
+      skinfold_subscapular_mm: 10.5,
+    });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    const fold = await screen.findByRole("textbox", { name: "Dobra subescapular (mm) para protocolo" });
+    fireEvent.change(fold, { target: { value: "10," } });
+    expect(fold).toHaveValue("10,");
+    fireEvent.change(fold, { target: { value: "10,5" } });
+    expect(fold).toHaveValue("10,5");
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.update).toHaveBeenCalledWith(
+        "member-1",
+        "eval-1",
+        expect.objectContaining({ skinfold_subscapular_mm: 10.5 }),
+        { syncActuar: true },
+      );
+    });
+  });
+
+  it("locks Petroski women to the required sex and keeps the current age available to the protocol", async () => {
+    renderTab();
+
+    const protocolSelect = await screen.findByDisplayValue("Adicionar manualmente (Balanca de Bioimpedancia)");
+    fireEvent.change(protocolSelect, { target: { value: "petroski_1995_female_18_51" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
+    });
+    expect(document.querySelector('select[name="sex"]')).toHaveValue("female");
+    expect(screen.getByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("21");
+  });
+
+  it("restores an unfinished body-composition form from the current browser tab", async () => {
+    window.sessionStorage.setItem(
+      "cordex:body-composition-draft:v1:member-1",
+      JSON.stringify({
+        saved_at: Date.now(),
+        source: "manual",
+        reviewed_manually: true,
+        values: {
+          evaluation_date: "2026-04-14",
+          age_years: 31,
+          sex: "female",
+          weight_kg: 62.5,
+          measurement_protocol: "petroski_1995_female_18_51",
+        },
+      }),
+    );
+
+    renderTab();
+
+    expect(await screen.findByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("31");
+    expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
+    expect(screen.getAllByDisplayValue("62.5")).toHaveLength(1);
+  });
+
+  it("opens the device camera capture flow next to file upload", async () => {
+    const stop = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia },
+      configurable: true,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir camera para fotografar a bioimpedancia" }));
+
+    expect(screen.getByRole("dialog", { name: "Fotografar exame" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Fechar camera" }));
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it("preserves anthropometry when a bioimpedance photo is read into the current evaluation", async () => {
+    vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
+      localResult: null,
+      result: {
+        device_profile: "tezewa_receipt_v1",
+        device_model: "Tezewa",
+        values: {
+          weight_kg: 84.5,
+          body_fat_kg: 19.46,
+          body_fat_percent: 23,
+        },
+        ranges: {},
+        warnings: [],
+        confidence: 0.95,
+        raw_text: "Weight 84.5",
+        needs_review: false,
+        engine: "local",
+        fallback_used: false,
+      },
+      fallbackReasons: [],
+      assistedAttempted: false,
+      assistedUsed: false,
+      assistedError: null,
+    });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    expect(screen.getByDisplayValue("33")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("54")).toBeInTheDocument();
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["fake-image"], "receipt.jpg", { type: "image/jpeg" })] },
+    });
+
+    expect(await screen.findByRole("img", { name: "Foto selecionada para leitura: receipt.jpg" })).toHaveAttribute(
+      "src",
+      "blob:body-composition-preview",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ler foto" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.readWithAssistedFallback).toHaveBeenCalledWith("member-1", expect.any(File), {
+        deviceProfile: "tezewa_receipt_v1",
+        forceAssisted: false,
+      });
+    });
+    expect(screen.getByDisplayValue("33")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("54")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("84.5")).toBeInTheDocument();
   });
 
   it("opens the summary pdf through the authenticated service instead of navigating to /api directly", async () => {

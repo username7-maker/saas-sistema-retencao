@@ -174,12 +174,115 @@ export interface MemberNoteCreatePayload {
   extra_data?: Record<string, unknown>;
 }
 
+const MEMBER_STATUSES = new Set<Member["status"]>(["active", "paused", "cancelled"]);
+const RISK_LEVELS = new Set<RiskLevel>(["green", "yellow", "red"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function asString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
+
+function asNullableString(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(",", ".");
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function asInteger(value: unknown, fallback = 0): number {
+  return Math.trunc(asNumber(value, fallback));
+}
+
+function asStatus(value: unknown): Member["status"] {
+  return typeof value === "string" && MEMBER_STATUSES.has(value as Member["status"])
+    ? (value as Member["status"])
+    : "active";
+}
+
+function asRiskLevel(value: unknown): RiskLevel {
+  return typeof value === "string" && RISK_LEVELS.has(value as RiskLevel) ? (value as RiskLevel) : "green";
+}
+
+function normalizeMember(value: unknown, index: number): Member {
+  const source = asRecord(value);
+  const createdAt = asString(source.created_at, "");
+  const updatedAt = asString(source.updated_at, createdAt);
+
+  return {
+    id: asString(source.id, `member-${index + 1}`),
+    full_name: asString(source.full_name, "Sem nome"),
+    email: asNullableString(source.email),
+    phone: asNullableString(source.phone),
+    birthdate: asNullableString(source.birthdate),
+    status: asStatus(source.status),
+    plan_name: asString(source.plan_name, "Plano nao informado"),
+    monthly_fee: asNumber(source.monthly_fee, 0),
+    join_date: asString(source.join_date, ""),
+    preferred_shift: asNullableString(source.preferred_shift),
+    nps_last_score: asInteger(source.nps_last_score, 0),
+    loyalty_months: asInteger(source.loyalty_months, 0),
+    risk_score: asInteger(source.risk_score, 0),
+    risk_level: asRiskLevel(source.risk_level),
+    last_checkin_at: asNullableString(source.last_checkin_at),
+    extra_data: asRecord(source.extra_data),
+    suggested_action: asNullableString(source.suggested_action),
+    onboarding_status: asNullableString(source.onboarding_status) as Member["onboarding_status"],
+    onboarding_score: asInteger(source.onboarding_score, 0),
+    lifecycle_stage: asNullableString(source.lifecycle_stage),
+    lifecycle_label: asNullableString(source.lifecycle_label),
+    operational_lane: asNullableString(source.operational_lane),
+    recommended_owner_role: asNullableString(source.recommended_owner_role),
+    lifecycle_priority: asInteger(source.lifecycle_priority, 0),
+    lifecycle_reason: asNullableString(source.lifecycle_reason),
+    lifecycle_next_focus: asNullableString(source.lifecycle_next_focus),
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
+function normalizeMembersResponse(data: unknown, filters: MemberFilters): PaginatedResponse<Member> {
+  if (typeof data === "string") {
+    throw new Error("Resposta invalida ao carregar membros.");
+  }
+
+  const source = asRecord(data);
+  const rawItems = Array.isArray(data) ? data : Array.isArray(source.items) ? source.items : [];
+  const items = rawItems.map(normalizeMember);
+  const page = asInteger(source.page, filters.page ?? 1);
+  const pageSize = asInteger(source.page_size, filters.page_size ?? (items.length || 20));
+
+  return {
+    items,
+    total: asInteger(source.total, items.length),
+    page,
+    page_size: pageSize,
+  };
+}
+
 export const memberService = {
   async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
-    const { data } = await api.get<PaginatedResponse<Member>>("/api/v1/members/", {
+    const { data } = await api.get<unknown>("/api/v1/members/", {
       params: { page_size: 20, ...filters },
     });
-    return data;
+    return normalizeMembersResponse(data, filters);
   },
 
   async listMemberIndex(filters: Omit<MemberFilters, "page" | "page_size"> = {}): Promise<Member[]> {

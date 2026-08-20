@@ -183,10 +183,12 @@ class TestMemberTimeline:
         ]
 
         db = MagicMock()
-        # Order matches member_timeline_service: assessments, goals, training_plans,
-        # checkins, risk_alerts, nps_responses, tasks, audit_events, body_composition
+        # Order matches member_timeline_service: assessments, appointments, goals,
+        # training_plans, checkins, risk_alerts, nps_responses, tasks, audit_events,
+        # body_composition.
         scalars_results = [
             MagicMock(all=MagicMock(return_value=assessments)),
+            MagicMock(all=MagicMock(return_value=[])),   # appointments
             MagicMock(all=MagicMock(return_value=[])),   # goals
             MagicMock(all=MagicMock(return_value=[])),   # training_plans
             MagicMock(all=MagicMock(return_value=checkins)),
@@ -209,7 +211,7 @@ class TestMemberTimeline:
     def test_empty_timeline(self):
         db = MagicMock()
         empty = MagicMock(all=MagicMock(return_value=[]))
-        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty, empty, empty, empty]
+        db.scalars.side_effect = [empty, empty, empty, empty, empty, empty, empty, empty, empty, empty]
         db.scalar.return_value = None  # constraints
 
         from app.services.member_timeline_service import get_member_timeline

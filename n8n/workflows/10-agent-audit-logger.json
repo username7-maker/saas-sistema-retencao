@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Audit Logger",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "audit-input",
+      "name": "Audit Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nconst event = { timestamp: new Date().toISOString(), user_id: payload.user_id ?? 'unknown', workspace_id: payload.workspace_id ?? 'unknown', session_id: payload.session_id ?? null, tool_name: payload.tool_name ?? 'unknown', input_payload: payload.input_payload ?? {}, output_payload: payload.output_payload ?? {}, status: payload.status ?? 'success', error_message: payload.error_message ?? null, approval_required: Boolean(payload.approval_required), approved_by: payload.approved_by ?? null };\nreturn [{ json: { status: 'success', event, note: 'Connect Postgres insert for durable audit logging in production.' } }];"
+      },
+      "id": "prepare-audit-event",
+      "name": "Prepare Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Audit Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

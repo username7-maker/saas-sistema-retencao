@@ -10,6 +10,7 @@ import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard
 import { useAuth } from "../../hooks/useAuth";
 import {
   workQueueService,
+  type WorkQueueBucketFilter,
   type WorkQueueDomainFilter,
   type WorkQueueListState,
   type WorkQueueShiftFilter,
@@ -46,6 +47,28 @@ const outcomeOptions: Array<{ value: WorkQueueOutcome; label: string; icon: type
   { value: "completed", label: "Concluido", icon: ClipboardCheck },
 ];
 
+const bucketOptionsByDomain: Partial<Record<WorkQueueDomainFilter, Array<{ value: WorkQueueBucketFilter; label: string }>>> = {
+  onboarding: [
+    { value: "onboarding_d0", label: "Dia 0" },
+    { value: "onboarding_d1", label: "Dia 1" },
+    { value: "onboarding_d2_d6", label: "Dia 2-6" },
+    { value: "onboarding_d7_plus", label: "Dia 7+" },
+  ],
+  retention: [
+    { value: "retention_monitoring", label: "Monitoramento" },
+    { value: "retention_attention", label: "Atencao" },
+    { value: "retention_recovery", label: "Recuperacao" },
+    { value: "retention_reactivation", label: "Reativacao" },
+    { value: "retention_manager_escalation", label: "Escalar gerente" },
+    { value: "retention_cold_base", label: "Base fria" },
+  ],
+  trainer: [
+    { value: "trainer_training_delivery_check_d8", label: "D+8 treino" },
+    { value: "trainer_training_feedback_d14", label: "D+14 feedback" },
+    { value: "trainer_reassessment_due", label: "Reavaliacao" },
+  ],
+};
+
 function itemKey(item: WorkQueueItem): string {
   return `${item.source_type}:${item.source_id}`;
 }
@@ -78,6 +101,13 @@ function formatTechnicalStep(item: WorkQueueItem): string | null {
   return item.technical_ladder_step_label || null;
 }
 
+function formatExecutionBucket(item: WorkQueueItem): string | null {
+  const label = item.execution_bucket_label || null;
+  if (!label) return null;
+  if (label === item.retention_stage_label || label === item.technical_ladder_step_label) return null;
+  return label;
+}
+
 function formatDueAt(value: string | null): string {
   if (!value) return "Sem prazo";
   const date = new Date(value);
@@ -88,6 +118,12 @@ function formatDueAt(value: string | null): string {
 function getShiftLabel(shift: string | null): string {
   if (!shift || shift === "unassigned") return "Sem turno";
   return getPreferredShiftLabel(shift) || shift;
+}
+
+function getPreferredShiftDiagnostic(item: WorkQueueItem): string | null {
+  if (item.preferred_shift && item.preferred_shift !== "unassigned") return null;
+  const reason = item.preferred_shift_reason?.trim();
+  return reason || null;
 }
 
 function normalizePhoneForAction(phone: string | null): string | null {
@@ -134,6 +170,23 @@ function formatSourceLabel(item: WorkQueueItem): string {
   return "Task";
 }
 
+function messageBadge(item: WorkQueueItem): { label: string; variant: "info" | "success" | "warning" | "neutral" } | null {
+  if ((item.message_blocked_reasons ?? []).length > 0 || item.message_source === "blocked_by_safety") {
+    return { label: "Bloqueado por seguranca", variant: "warning" };
+  }
+  if (item.message_source === "ai_specialist" || (item.prompt_key && !item.message_fallback_used)) {
+    return { label: "Mensagem por IA", variant: "success" };
+  }
+  if (item.suggested_message) {
+    return { label: "Template seguro", variant: "neutral" };
+  }
+  return null;
+}
+
+function requiresPreparationBeforeOutcome(item: WorkQueueItem): boolean {
+  return item.source_type === "ai_triage" && item.state !== "awaiting_outcome";
+}
+
 function getHttpDetail(error: unknown): string {
   if (typeof error === "object" && error !== null && "response" in error) {
     const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
@@ -153,6 +206,8 @@ function filterItems(items: WorkQueueItem[], search: string): WorkQueueItem[] {
       item.primary_action_label,
       item.domain,
       item.severity,
+      item.execution_bucket_label ?? "",
+      item.preferred_shift_reason ?? "",
       item.suggested_message ?? "",
       getShiftLabel(item.preferred_shift),
     ]
@@ -163,6 +218,8 @@ function filterItems(items: WorkQueueItem[], search: string): WorkQueueItem[] {
 }
 
 function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected: boolean; onSelect: () => void }) {
+  const shiftDiagnostic = getPreferredShiftDiagnostic(item);
+
   return (
     <button
       type="button"
@@ -194,6 +251,11 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
             {formatTechnicalStep(item)}
           </Badge>
         ) : null}
+        {formatExecutionBucket(item) ? (
+          <Badge variant="info" size="sm">
+            {formatExecutionBucket(item)}
+          </Badge>
+        ) : null}
         {item.execution_channel ? (
           <Badge variant={item.execution_channel === "kommo" ? "success" : "neutral"} size="sm">
             {item.execution_channel === "kommo" ? "Kommo" : item.execution_channel}
@@ -209,6 +271,11 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
             Fallback WhatsApp
           </Badge>
         ) : null}
+        {messageBadge(item) ? (
+          <Badge variant={messageBadge(item)?.variant ?? "neutral"} size="sm">
+            {messageBadge(item)?.label}
+          </Badge>
+        ) : null}
         {(item.autopilot_badges ?? []).slice(0, 2).map((badge) => (
           <Badge key={badge} variant="info" size="sm">
             {badge}
@@ -220,6 +287,9 @@ function QueueCard({ item, selected, onSelect }: { item: WorkQueueItem; selected
         <p className="truncate text-base font-semibold text-lovable-ink">{item.subject_name}</p>
         <p className="text-sm font-semibold text-lovable-ink">Fazer agora: {item.primary_action_label}</p>
         <p className="line-clamp-2 text-sm text-lovable-ink-muted">{item.reason}</p>
+        {shiftDiagnostic ? (
+          <p className="text-xs font-medium text-lovable-warning">Sem turno: {shiftDiagnostic}</p>
+        ) : null}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-lovable-ink-muted">
@@ -242,6 +312,7 @@ export function WorkExecutionView({
   const { user } = useAuth();
   const [mode, setMode] = useState<QueueMode>("do_now");
   const [domainFilter, setDomainFilter] = useState<WorkQueueDomainFilter>(defaultDomain);
+  const [bucketFilter, setBucketFilter] = useState<WorkQueueBucketFilter>("all");
   const [shiftFilter, setShiftFilter] = useState<WorkQueueShiftFilter>("my_shift");
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -268,25 +339,26 @@ export function WorkExecutionView({
     assignee: "all" as const,
     domain: domainFilter,
     source,
+    bucket: bucketFilter,
     page: 1,
     page_size: 25,
   };
 
   const doNowQuery = useQuery({
-    queryKey: ["work-queue", "items", "do_now", source, domainFilter, shiftFilter],
+    queryKey: ["work-queue", "items", "do_now", source, domainFilter, bucketFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "do_now" }),
     staleTime: 60 * 1000,
   });
 
   const awaitingQuery = useQuery({
-    queryKey: ["work-queue", "items", "awaiting_outcome", source, domainFilter, shiftFilter],
+    queryKey: ["work-queue", "items", "awaiting_outcome", source, domainFilter, bucketFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "awaiting_outcome" }),
     enabled: mode === "awaiting_outcome",
     staleTime: 60 * 1000,
   });
 
   const allQuery = useQuery({
-    queryKey: ["work-queue", "items", "all", source, domainFilter, shiftFilter],
+    queryKey: ["work-queue", "items", "all", source, domainFilter, bucketFilter, shiftFilter],
     queryFn: () => workQueueService.listItems({ ...sharedParams, state: "all" as WorkQueueListState }),
     enabled: mode === "all",
     staleTime: 60 * 1000,
@@ -394,6 +466,18 @@ export function WorkExecutionView({
     onError: (error) => toast.error(getHttpDetail(error)),
   });
 
+  const regenerateMessageMutation = useMutation({
+    mutationFn: ({ item }: { item: WorkQueueItem }) => workQueueService.regenerateMessage(item.source_type, item.source_id),
+    onSuccess: (result) => {
+      setSelectedKey(itemKey(result.item));
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
+      toast.success(result.detail || "Rascunho regenerado.");
+    },
+    onError: (error) => toast.error(getHttpDetail(error)),
+  });
+
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
     setConfirmingKey(null);
@@ -412,12 +496,28 @@ export function WorkExecutionView({
 
   const isLoading = activeQuery.isLoading;
   const isError = activeQuery.isError;
-  const isMutating = executeMutation.isPending || outcomeMutation.isPending || commentMutation.isPending || sendAndWaitMutation.isPending;
+  const isMutating =
+    executeMutation.isPending ||
+    outcomeMutation.isPending ||
+    commentMutation.isPending ||
+    sendAndWaitMutation.isPending ||
+    regenerateMessageMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
   const isFinanceItem = selectedItem?.domain === "finance";
   const isTechnicalTrainerItem = selectedItem?.domain === "trainer" && Boolean(selectedItem.technical_ladder_step);
+  const canRegenerateMessage = userRole === "owner" || userRole === "manager" || userRole === "receptionist";
+  const selectedOutcomeRequiresPreparation = selectedItem ? requiresPreparationBeforeOutcome(selectedItem) : false;
+  const outcomeButtonDisabled = isMutating || selectedOutcomeRequiresPreparation;
+  const selectedShiftDiagnostic = selectedItem ? getPreferredShiftDiagnostic(selectedItem) : null;
+  const bucketOptions = bucketOptionsByDomain[domainFilter] ?? [];
+
+  function updateDomainFilter(nextDomain: WorkQueueDomainFilter) {
+    setDomainFilter(nextDomain);
+    setBucketFilter("all");
+    setSelectedKey(null);
+  }
 
   function markExecutionStartedForAction(item: WorkQueueItem) {
     if (item.state !== "do_now") return;
@@ -462,6 +562,10 @@ export function WorkExecutionView({
     },
   ) {
     if (!selectedItem) return;
+    if (requiresPreparationBeforeOutcome(selectedItem)) {
+      toast.error("Clique em Comecar execucao antes de registrar o resultado.");
+      return;
+    }
     outcomeMutation.mutate({ item: selectedItem, outcome, ...options });
   }
 
@@ -493,25 +597,32 @@ export function WorkExecutionView({
             <Button
               size="sm"
               variant={domainFilter === "operations" ? "primary" : "secondary"}
-              onClick={() => setDomainFilter("operations")}
+              onClick={() => updateDomainFilter("operations")}
             >
               Operacao
             </Button>
             <Button
               size="sm"
+              variant={domainFilter === "onboarding" ? "primary" : "secondary"}
+              onClick={() => updateDomainFilter("onboarding")}
+            >
+              Onboarding
+            </Button>
+            <Button
+              size="sm"
               variant={domainFilter === "retention" ? "primary" : "secondary"}
-              onClick={() => setDomainFilter("retention")}
+              onClick={() => updateDomainFilter("retention")}
             >
               Retencao
             </Button>
             <Button
               size="sm"
               variant={domainFilter === "trainer" ? "primary" : "secondary"}
-              onClick={() => setDomainFilter("trainer")}
+              onClick={() => updateDomainFilter("trainer")}
             >
               Professor
             </Button>
-            <Button size="sm" variant={domainFilter === "all" ? "primary" : "secondary"} onClick={() => setDomainFilter("all")}>
+            <Button size="sm" variant={domainFilter === "all" ? "primary" : "secondary"} onClick={() => updateDomainFilter("all")}>
               Todas
             </Button>
             <Button size="sm" variant={mode === "do_now" ? "primary" : "secondary"} onClick={() => setMode("do_now")}>
@@ -562,6 +673,28 @@ export function WorkExecutionView({
             className="border-0 bg-transparent px-0 shadow-none focus:ring-0"
           />
         </div>
+
+        {bucketOptions.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.28em] text-lovable-ink-muted">Categoria</span>
+            <Button size="sm" variant={bucketFilter === "all" ? "secondary" : "ghost"} onClick={() => setBucketFilter("all")}>
+              Todas
+            </Button>
+            {bucketOptions.map((option) => (
+              <Button
+                key={option.value}
+                size="sm"
+                variant={bucketFilter === option.value ? "secondary" : "ghost"}
+                onClick={() => {
+                  setBucketFilter(option.value);
+                  setSelectedKey(null);
+                }}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {isLoading ? (
@@ -619,6 +752,11 @@ export function WorkExecutionView({
                         {formatTechnicalStep(selectedItem)}
                       </Badge>
                     ) : null}
+                    {formatExecutionBucket(selectedItem) ? (
+                      <Badge variant="info">
+                        {formatExecutionBucket(selectedItem)}
+                      </Badge>
+                    ) : null}
                     {selectedItem.requires_confirmation ? <Badge variant="warning">Confirmacao</Badge> : null}
                     {(selectedItem.autopilot_badges ?? []).map((badge) => (
                       <Badge key={badge} variant="info">
@@ -630,6 +768,9 @@ export function WorkExecutionView({
                   <p className="mt-1 text-sm text-lovable-ink-muted">
                     Turno {getShiftLabel(selectedItem.preferred_shift)} · {formatDueAt(selectedItem.due_at)}
                   </p>
+                  {selectedShiftDiagnostic ? (
+                    <p className="mt-2 text-xs font-semibold text-lovable-warning">Sem turno: {selectedShiftDiagnostic}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -650,10 +791,39 @@ export function WorkExecutionView({
                 </div>
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Mensagem pronta</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Mensagem pronta</p>
+                    {messageBadge(selectedItem) ? (
+                      <Badge variant={messageBadge(selectedItem)?.variant ?? "neutral"} size="sm">
+                        {messageBadge(selectedItem)?.label}
+                      </Badge>
+                    ) : null}
+                  </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm font-medium text-lovable-ink">
                     {selectedItem.suggested_message || "Sem mensagem automatica. Use o contexto e registre o resultado da acao."}
                   </p>
+                  {selectedItem.prompt_key ? (
+                    <p className="mt-2 text-xs text-lovable-ink-muted">
+                      {selectedItem.prompt_key}
+                      {selectedItem.model ? ` - ${selectedItem.model}` : ""}
+                    </p>
+                  ) : null}
+                  {(selectedItem.message_blocked_reasons ?? []).length > 0 ? (
+                    <p className="mt-2 text-xs font-semibold text-lovable-warning">
+                      Bloqueios: {selectedItem.message_blocked_reasons?.join(", ")}
+                    </p>
+                  ) : null}
+                  {canRegenerateMessage && ["task", "ai_triage"].includes(selectedItem.source_type) ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-3"
+                      onClick={() => regenerateMessageMutation.mutate({ item: selectedItem })}
+                      disabled={isMutating}
+                    >
+                      Regenerar rascunho
+                    </Button>
+                  ) : null}
                 </div>
 
                 <div className="rounded-2xl border border-lovable-border bg-lovable-bg-muted/70 p-4">
@@ -743,13 +913,19 @@ export function WorkExecutionView({
                     className="mt-4"
                   />
 
+                  {selectedOutcomeRequiresPreparation ? (
+                    <p className="mt-3 rounded-2xl border border-lovable-border bg-lovable-surface-soft px-3 py-2 text-xs font-medium text-lovable-ink-muted">
+                      Para registrar resultado, comece a execucao desta recomendacao primeiro.
+                    </p>
+                  ) : null}
+
                   <div className="mt-4 grid gap-2 sm:grid-cols-3">
                     <Button
                       size="sm"
                       variant="secondary"
                       className="justify-start"
                       onClick={() => recordOutcome("completed")}
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       <CheckCircle2 className="h-4 w-4" />
                       Concluir
@@ -759,7 +935,7 @@ export function WorkExecutionView({
                       variant="secondary"
                       className="justify-start"
                       onClick={() => recordOutcome("no_response", { contact_channel: "call", snooze_preset: "tomorrow" })}
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       <Clock3 className="h-4 w-4" />
                       Nao atendeu
@@ -786,7 +962,7 @@ export function WorkExecutionView({
                         variant="secondary"
                         className="justify-start"
                         onClick={() => selectedItem && recordOutcome("payment_promised", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <CalendarClock className="h-4 w-4" />
                         Prometeu pagar
@@ -796,7 +972,7 @@ export function WorkExecutionView({
                         variant="secondary"
                         className="justify-start"
                         onClick={() => recordOutcome("payment_confirmed", { noteOverride: "Pagamento confirmado pela operacao." })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         Pagamento confirmado
@@ -806,7 +982,7 @@ export function WorkExecutionView({
                         variant="secondary"
                         className="justify-start"
                         onClick={() => selectedItem && recordOutcome("payment_link_sent", { contact_channel: outcomeChannel(selectedItem), noteOverride: "Link ou instrucao de pagamento enviada." })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <MessageCircle className="h-4 w-4" />
                         Link enviado
@@ -816,7 +992,7 @@ export function WorkExecutionView({
                         variant="secondary"
                         className="justify-start"
                         onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <Clock3 className="h-4 w-4" />
                         Sem resposta
@@ -826,7 +1002,7 @@ export function WorkExecutionView({
                         variant="danger"
                         className="justify-start"
                         onClick={() => recordOutcome("charge_disputed", { noteOverride: operatorNote.trim() || "Aluno contestou a cobranca." })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <XCircle className="h-4 w-4" />
                         Contestou cobranca
@@ -836,7 +1012,7 @@ export function WorkExecutionView({
                         variant="secondary"
                         className="justify-start"
                         onClick={() => recordOutcome("forwarded_to_manager", { noteOverride: operatorNote.trim() || "Encaminhado para gerente acompanhar inadimplencia." })}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         <Forward className="h-4 w-4" />
                         Encaminhar gerente
@@ -851,7 +1027,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => recordOutcome("training_delivered", { noteOverride: "Treino entregue e entendido pelo aluno." })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <CheckCircle2 className="h-4 w-4" />
                             Treino entregue
@@ -861,7 +1037,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => recordOutcome("training_adjusted", { noteOverride: "Treino revisado ou ajustado pelo professor." })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <ClipboardCheck className="h-4 w-4" />
                             Treino ajustado
@@ -876,7 +1052,7 @@ export function WorkExecutionView({
                                 noteOverride: operatorNote.trim() || "Treino ainda nao foi entregue; precisa de acao tecnica.",
                               })
                             }
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <XCircle className="h-4 w-4" />
                             Treino pendente
@@ -890,7 +1066,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => recordOutcome("feedback_positive", { noteOverride: "Feedback positivo registrado pelo professor." })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <CheckCircle2 className="h-4 w-4" />
                             Feedback positivo
@@ -904,7 +1080,7 @@ export function WorkExecutionView({
                                 noteOverride: operatorNote.trim() || "Aluno precisa de ajuste no treino.",
                               })
                             }
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <ClipboardCheck className="h-4 w-4" />
                             Precisa ajuste
@@ -914,7 +1090,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <Clock3 className="h-4 w-4" />
                             Sem resposta
@@ -928,7 +1104,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => recordOutcome("reassessment_scheduled", { noteOverride: "Reavaliacao agendada." })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <CalendarClock className="h-4 w-4" />
                             Reavaliacao agendada
@@ -938,7 +1114,7 @@ export function WorkExecutionView({
                             variant="secondary"
                             className="justify-start"
                             onClick={() => selectedItem && recordOutcome("no_response", { contact_channel: outcomeChannel(selectedItem), snooze_preset: "tomorrow" })}
-                            disabled={isMutating}
+                            disabled={outcomeButtonDisabled}
                           >
                             <Clock3 className="h-4 w-4" />
                             Sem resposta
@@ -968,7 +1144,7 @@ export function WorkExecutionView({
                           noteOverride: itemUsesKommo(selectedItem) ? "Handoff preparado na Kommo." : "WhatsApp enviado.",
                         })
                       }
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       <MessageCircle className="h-4 w-4" />
                       {itemUsesKommo(selectedItem) ? "Kommo preparado" : "WhatsApp enviado"}
@@ -978,16 +1154,16 @@ export function WorkExecutionView({
                       variant="secondary"
                       className="justify-start"
                       onClick={() => recordOutcome("completed", { contact_channel: "call", noteOverride: "Ligacao feita." })}
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       <MessageCircle className="h-4 w-4" />
                       Ligacao feita
                     </Button>
-                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("responded")} disabled={isMutating}>
+                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("responded")} disabled={outcomeButtonDisabled}>
                       <MessageCircle className="h-4 w-4" />
                       Respondeu
                     </Button>
-                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("forwarded_to_trainer")} disabled={isMutating}>
+                    <Button size="sm" variant="secondary" className="justify-start" onClick={() => recordOutcome("forwarded_to_trainer")} disabled={outcomeButtonDisabled}>
                       <Forward className="h-4 w-4" />
                       Encaminhar
                     </Button>
@@ -1000,7 +1176,7 @@ export function WorkExecutionView({
                           variant={["not_interested", "invalid_number"].includes(option.value) ? "danger" : "secondary"}
                           className="justify-start"
                           onClick={() => recordOutcome(option.value)}
-                          disabled={isMutating}
+                          disabled={outcomeButtonDisabled}
                         >
                           <Icon className="h-4 w-4" />
                           {option.label}
@@ -1018,7 +1194,7 @@ export function WorkExecutionView({
                       size="sm"
                       variant="secondary"
                       onClick={() => recordOutcome("postponed", { snooze_preset: "tomorrow" })}
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       Amanha
                     </Button>
@@ -1026,7 +1202,7 @@ export function WorkExecutionView({
                       size="sm"
                       variant="secondary"
                       onClick={() => recordOutcome("postponed", { snooze_preset: "next_week" })}
-                      disabled={isMutating}
+                      disabled={outcomeButtonDisabled}
                     >
                       Proxima semana
                     </Button>
@@ -1050,7 +1226,7 @@ export function WorkExecutionView({
                             scheduled_for: `${customSnoozeDate}T09:00:00Z`,
                           });
                         }}
-                        disabled={isMutating}
+                        disabled={outcomeButtonDisabled}
                       >
                         Escolher data
                       </Button>

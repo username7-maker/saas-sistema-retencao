@@ -39,6 +39,7 @@ class RiskAlert(Base):
     reasons: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     action_history: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     automation_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    episode_key: Mapped[str | None] = mapped_column(String(96), nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     resolved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import re
 import unicodedata
 import zipfile
@@ -35,6 +36,8 @@ from app.services.preferred_shift_service import normalize_preferred_shift, sync
 from app.services.risk import refresh_member_risk_snapshot
 from app.utils.encryption import decrypt_cpf, encrypt_cpf
 
+
+logger = logging.getLogger(__name__)
 
 NAME_KEYS = ("full_name", "name", "nome", "aluno", "member_name", "cliente")
 FIRST_NAME_KEYS = ("first_name", "primeiro_nome", "nome_1", "nome1")
@@ -2043,6 +2046,8 @@ def _iter_rows_xlsx_fallback(content: bytes):
             worksheet_path = _xlsx_first_sheet_path(archive)
             shared_strings = _xlsx_shared_strings(archive)
             worksheet_xml = archive.read(worksheet_path)
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError("Arquivo XLSX invalido ou corrompido.") from exc
 
@@ -2441,6 +2446,7 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
     by_email: dict[str, Member] = {}
     by_external_id: dict[str, Member] = {}
     by_cpf: dict[str, Member] = {}
+    by_phone: dict[str, list[Member]] = {}
     by_name: dict[str, list[Member]] = {}
     by_name_compact: dict[str, list[Member]] = {}
     by_name_core: dict[str, list[Member]] = {}
@@ -2461,7 +2467,11 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
                 if cpf_digits and cpf_digits not in by_cpf:
                     by_cpf[cpf_digits] = member
             except Exception:
-                pass
+                logger.debug("CPF decrypt falhou no lookup de membro; ignorando", exc_info=True)
+
+        phone_key = _normalize_phone(member.phone)
+        if phone_key:
+            by_phone.setdefault(phone_key, []).append(member)
 
         name_key = _normalize_text(member.full_name)
         by_name.setdefault(name_key, []).append(member)
@@ -2477,6 +2487,7 @@ def _build_member_lookups(members: list[Member]) -> dict[str, dict]:
         "by_email": by_email,
         "by_external_id": by_external_id,
         "by_cpf": by_cpf,
+        "by_phone": by_phone,
         "by_name": by_name,
         "by_name_compact": by_name_compact,
         "by_name_core": by_name_core,
@@ -2499,7 +2510,11 @@ def _add_member_to_lookups(member: Member, lookup: dict[str, dict]) -> None:
             if cpf_digits and cpf_digits not in lookup["by_cpf"]:
                 lookup["by_cpf"][cpf_digits] = member
         except Exception:
-            pass
+            logger.debug("CPF decrypt falhou no lookup de membro; ignorando", exc_info=True)
+
+    phone_key = _normalize_phone(member.phone)
+    if phone_key:
+        _append_lookup_member(lookup["by_phone"], phone_key, member)
 
     name_key = _normalize_text(member.full_name)
     _append_lookup_member(lookup["by_name"], name_key, member)
@@ -2558,11 +2573,23 @@ def _refresh_existing_member_from_import_row(
 ) -> bool:
     changed = False
     extra_data = dict(member.extra_data or {})
+    phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
+    imported_name = _extract_member_name(row)
+
+    if _should_update_member_name_from_import(
+        member,
+        imported_name,
+        email=email,
+        external_id=external_id,
+        cpf_digits=cpf_digits,
+        phone=phone,
+    ):
+        member.full_name = imported_name
+        changed = True
 
     if email and member.email != email:
         member.email = email
         changed = True
-    phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
     if phone and member.phone != phone:
         member.phone = phone
         changed = True
@@ -2642,6 +2669,13 @@ def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Me
         member = lookup["by_cpf"].get(cpf_digits)
         if member:
             return member
+
+    phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
+    if phone:
+        candidates = lookup["by_phone"].get(phone, [])
+        best_candidate = _select_best_member_candidate(candidates, row)
+        if best_candidate:
+            return best_candidate
 
     name = _extract_member_name(row)
     if name:
@@ -2856,6 +2890,23 @@ def _compose_plan_name(base_label: str, cycle: str) -> str:
     return _truncate(f"{base} {cycle_label}", _MAX_MEMBER_PLAN) or base
 
 
+def _candidate_name_score(member: Member, row: dict[str, str]) -> int:
+    imported_name = _extract_member_name(row)
+    if not imported_name:
+        return 0
+
+    member_name = member.full_name or ""
+    if _normalize_text(member_name) == _normalize_text(imported_name):
+        return 4
+    if _compact_name(member_name) == _compact_name(imported_name):
+        return 3
+    if _core_name_key(member_name) == _core_name_key(imported_name):
+        return 2
+    if _names_are_compatible_for_refresh(member_name, imported_name):
+        return 1
+    return 0
+
+
 def _candidate_plan_match(member: Member, row: dict[str, str]) -> bool:
     raw_plan = _pick_first(row, PLAN_KEYS)
     if not raw_plan:
@@ -2879,6 +2930,7 @@ def _member_candidate_rank(member: Member, row: dict[str, str]) -> tuple:
         MemberStatus.CANCELLED: 1,
     }.get(member.status, 0)
     return (
+        _candidate_name_score(member, row),
         status_rank,
         1 if _candidate_plan_match(member, row) else 0,
         1 if member.email else 0,
@@ -2897,6 +2949,87 @@ def _select_best_member_candidate(candidates: list[Member], row: dict[str, str])
     if len(candidates) == 1:
         return candidates[0]
     return max(candidates, key=lambda member: _member_candidate_rank(member, row))
+
+
+def _should_update_member_name_from_import(
+    member: Member,
+    imported_name: str | None,
+    *,
+    email: str | None,
+    external_id: str | None,
+    cpf_digits: str | None,
+    phone: str | None,
+) -> bool:
+    if not _is_viable_member_name(imported_name):
+        return False
+
+    current_name = member.full_name or ""
+    if _normalize_text(current_name) == _normalize_text(imported_name):
+        return False
+
+    imported_compact = _compact_name(imported_name)
+    current_compact = _compact_name(current_name)
+    if not imported_compact or not current_compact:
+        return False
+    if len(imported_compact) < len(current_compact):
+        return False
+
+    email_match = False
+    if email and member.email and member.email.lower() == email:
+        email_match = True
+    external_id_match = False
+    if external_id:
+        incoming_ids = set(_external_id_candidates(external_id))
+        current_ids = set(_external_id_candidates(str((member.extra_data or {}).get("external_id") or "")))
+        if incoming_ids & current_ids:
+            external_id_match = True
+    cpf_match = False
+    if cpf_digits and member.cpf_encrypted:
+        try:
+            cpf_match = _digits(decrypt_cpf(member.cpf_encrypted)) == cpf_digits
+        except Exception:
+            logger.debug("CPF decrypt falhou ao validar atualizacao de nome; ignorando", exc_info=True)
+    phone_match = False
+    if phone and _normalize_phone(member.phone) == phone:
+        phone_match = True
+
+    if not (email_match or external_id_match or cpf_match or phone_match):
+        return False
+
+    if _names_are_compatible_for_refresh(current_name, imported_name):
+        return True
+
+    # CPF, e-mail e ID externo sao identificadores fortes o bastante para aceitar
+    # uma correcao de nome que nao preserve os mesmos tokens.
+    if email_match or cpf_match or external_id_match:
+        return True
+
+    return False
+
+
+def _names_are_compatible_for_refresh(current_name: str | None, imported_name: str | None) -> bool:
+    current_compact = _compact_name(current_name)
+    imported_compact = _compact_name(imported_name)
+    if not current_compact or not imported_compact:
+        return False
+    if (
+        len(current_compact) >= 8
+        and len(imported_compact) >= 8
+        and (current_compact in imported_compact or imported_compact in current_compact)
+    ):
+        return True
+
+    current_tokens = _name_identity_tokens(current_name)
+    imported_tokens = _name_identity_tokens(imported_name)
+    return len(current_tokens & imported_tokens) >= 2
+
+
+def _name_identity_tokens(value: str | None) -> set[str]:
+    return {
+        token
+        for token in _normalize_text(value or "").split(" ")
+        if len(token) > 2 and token not in _NAME_PARTICLES
+    }
 
 
 def _extract_preferred_shift(row: dict[str, str]) -> str | None:

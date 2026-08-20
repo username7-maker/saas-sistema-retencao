@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.actuar_bridge import ActuarBridgeDeviceRead
@@ -46,6 +48,11 @@ class ActuarSettingsResponse(BaseModel):
 class KommoDomainRouteRead(BaseModel):
     domain: str
     is_enabled: bool = True
+    route_status: str = "missing"
+    missing_fields: list[str] = Field(default_factory=list)
+    ready_for_messages: bool = False
+    ready_for_native_pdf: bool = False
+    ready_for_link_pdf: bool = False
     pipeline_id: str | None = None
     stage_id: str | None = None
     salesbot_id: str | None = None
@@ -81,6 +88,50 @@ class KommoDomainRouteUpdate(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class KommoTrainerRouteRead(BaseModel):
+    trainer_user_id: UUID
+    trainer_name: str | None = None
+    is_enabled: bool = True
+    route_status: str = "missing"
+    missing_fields: list[str] = Field(default_factory=list)
+    ready_for_messages: bool = False
+    ready_for_native_pdf: bool = False
+    ready_for_link_pdf: bool = False
+    pipeline_id: str | None = None
+    stage_id: str | None = None
+    salesbot_id: str | None = None
+    channel_source_id: str | None = None
+    responsible_user_id: str | None = None
+    message_field_id: str | None = None
+    pdf_url_field_id: str | None = None
+    pdf_delivery_mode: str = "native_file_required"
+    file_uuid_field_id: str | None = None
+    file_name_field_id: str | None = None
+    file_attachment_note_field_id: str | None = None
+    source_type_field_id: str | None = None
+    source_id_field_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class KommoTrainerRouteUpdate(BaseModel):
+    trainer_user_id: UUID
+    is_enabled: bool = True
+    pipeline_id: str | None = Field(default=None, max_length=40)
+    stage_id: str | None = Field(default=None, max_length=40)
+    salesbot_id: str | None = Field(default=None, max_length=40)
+    channel_source_id: str | None = Field(default=None, max_length=80)
+    responsible_user_id: str | None = Field(default=None, max_length=40)
+    message_field_id: str | None = Field(default=None, max_length=40)
+    pdf_url_field_id: str | None = Field(default=None, max_length=40)
+    pdf_delivery_mode: str | None = Field(default=None, pattern="^(native_file_required|native_file_preferred|link_only)$")
+    file_uuid_field_id: str | None = Field(default=None, max_length=40)
+    file_name_field_id: str | None = Field(default=None, max_length=40)
+    file_attachment_note_field_id: str | None = Field(default=None, max_length=40)
+    source_type_field_id: str | None = Field(default=None, max_length=40)
+    source_id_field_id: str | None = Field(default=None, max_length=40)
+    tags: list[str] = Field(default_factory=list)
+
+
 class KommoSettingsRead(BaseModel):
     kommo_enabled: bool
     kommo_base_url: str | None = None
@@ -94,6 +145,7 @@ class KommoSettingsRead(BaseModel):
     kommo_auto_close_enabled: bool = True
     kommo_fallback_channel: str = "whatsapp"
     domain_routes: list[KommoDomainRouteRead] = Field(default_factory=list)
+    trainer_routes: list[KommoTrainerRouteRead] = Field(default_factory=list)
 
 
 class KommoSettingsUpdate(BaseModel):
@@ -109,6 +161,7 @@ class KommoSettingsUpdate(BaseModel):
     kommo_auto_close_enabled: bool | None = None
     kommo_fallback_channel: str | None = Field(default=None, pattern="^(whatsapp|manual)$")
     domain_routes: list[KommoDomainRouteUpdate] | None = None
+    trainer_routes: list[KommoTrainerRouteUpdate] | None = None
 
 
 class KommoConnectionTestResult(BaseModel):

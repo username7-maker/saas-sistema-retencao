@@ -12,8 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.core.branding import PRODUCT_NAME
 from app.database import include_all_tenants
-from app.models import Gym, KommoDomainRoute, KommoMemberDomainLink, KommoMemberLink, Lead, Member, MessageLog
+from app.models import Gym, KommoDomainRoute, KommoMemberDomainLink, KommoMemberLink, KommoTrainerRoute, Lead, Member, MessageLog
 from app.services.autopilot_event_service import record_event
+
+KommoRoute = KommoDomainRoute | KommoTrainerRoute
+TECHNICAL_MEMBER_DOMAINS = {"assessment", "body_composition", "student_ai"}
 
 
 @dataclass
@@ -40,6 +43,17 @@ class KommoSalesbotOutboundResult:
     detail: str | None = None
     delivery_mode: str = "salesbot_outbound"
     fallback_available: bool = True
+    route_kind: str | None = None
+    trainer_user_id: UUID | None = None
+    route_fallback_reason: str | None = None
+
+
+@dataclass
+class ResolvedKommoRoute:
+    route: KommoRoute | None
+    route_kind: str
+    trainer_user_id: UUID | None = None
+    fallback_reason: str | None = None
 
 
 class KommoServiceError(RuntimeError):
@@ -181,13 +195,20 @@ def send_member_message_via_kommo_salesbot(
     title: str | None = None,
 ) -> KommoSalesbotOutboundResult:
     gym = get_kommo_gym(db, gym_id)
-    normalized_domain = _normalize_domain(domain)
+    normalized_domain = _normalize_member_salesbot_domain(domain)
     if not is_kommo_ready(gym):
         raise KommoServiceError("Kommo nao configurada para esta academia.")
     if not member.phone:
         raise KommoServiceError("Aluno sem telefone cadastrado para envio pela Kommo.")
 
-    route = _get_domain_route(db, gym_id=gym.id, domain=normalized_domain)
+    resolved_route = _resolve_member_salesbot_route(
+        db,
+        gym_id=gym.id,
+        member=member,
+        domain=normalized_domain,
+        pdf_url=pdf_url,
+    )
+    route = resolved_route.route
     selected_pdf_mode = _resolve_pdf_delivery_mode(route, override=pdf_delivery_mode, has_pdf=bool(pdf_bytes or pdf_url))
     _validate_salesbot_route(route, requires_pdf=bool(pdf_url and selected_pdf_mode == "link_only"))
 
@@ -290,6 +311,9 @@ def send_member_message_via_kommo_salesbot(
                     member=member,
                     route=route,
                     normalized_domain=normalized_domain,
+                    route_kind=resolved_route.route_kind,
+                    trainer_user_id=resolved_route.trainer_user_id,
+                    route_fallback_reason=resolved_route.fallback_reason,
                     source_type=source_type,
                     source_id_text=source_id_text,
                     message_text=message_text,
@@ -314,6 +338,9 @@ def send_member_message_via_kommo_salesbot(
             member=member,
             route=route,
             normalized_domain=normalized_domain,
+            route_kind=resolved_route.route_kind,
+            trainer_user_id=resolved_route.trainer_user_id,
+            route_fallback_reason=resolved_route.fallback_reason,
             source_type=source_type,
             source_id_text=source_id_text,
             message_text=message_text,
@@ -357,6 +384,9 @@ def send_member_message_via_kommo_salesbot(
             "pipeline_id": route.pipeline_id,
             "stage_id": route.stage_id,
             "channel_source_id": route.channel_source_id,
+            "kommo_route_kind": resolved_route.route_kind,
+            "kommo_trainer_user_id": str(resolved_route.trainer_user_id) if resolved_route.trainer_user_id else None,
+            "kommo_route_fallback_reason": resolved_route.fallback_reason,
         },
     )
     db.add(log)
@@ -381,6 +411,9 @@ def send_member_message_via_kommo_salesbot(
             "file_upload_status": file_upload_status,
             "file_attach_status": file_attach_status,
             "pdf_delivery_mode": selected_pdf_mode,
+            "kommo_route_kind": resolved_route.route_kind,
+            "kommo_trainer_user_id": str(resolved_route.trainer_user_id) if resolved_route.trainer_user_id else None,
+            "kommo_route_fallback_reason": resolved_route.fallback_reason,
         },
         deduplication_key=f"kommo:salesbot:{log.id}",
         flush=False,
@@ -399,6 +432,9 @@ def send_member_message_via_kommo_salesbot(
         pdf_delivery_mode=selected_pdf_mode,
         detail=_salesbot_success_detail(effective_delivery_mode),
         delivery_mode=effective_delivery_mode,
+        route_kind=resolved_route.route_kind,
+        trainer_user_id=resolved_route.trainer_user_id,
+        route_fallback_reason=resolved_route.fallback_reason,
     )
 
 
@@ -463,6 +499,7 @@ def send_lead_message_via_kommo_salesbot(
                 "salesbot_id": route.salesbot_id if route else None,
                 "pipeline_id": route.pipeline_id if route else None,
                 "stage_id": route.stage_id if route else None,
+                "kommo_route_kind": "domain_route",
             },
         )
         db.add(failed_log)
@@ -475,6 +512,7 @@ def send_lead_message_via_kommo_salesbot(
             salesbot_id=route.salesbot_id if route else None,
             detail=str(exc),
             delivery_mode="salesbot_outbound",
+            route_kind="domain_route",
         )
         record_event(
             db,
@@ -491,6 +529,7 @@ def send_lead_message_via_kommo_salesbot(
                 "kommo_lead_id": kommo_lead_id,
                 "salesbot_id": route.salesbot_id if route else None,
                 "error": str(exc),
+                "kommo_route_kind": "domain_route",
             },
             deduplication_key=f"kommo:salesbot:lead:failed:{failed_log.id}",
             flush=False,
@@ -520,6 +559,7 @@ def send_lead_message_via_kommo_salesbot(
             "pipeline_id": route.pipeline_id,
             "stage_id": route.stage_id,
             "channel_source_id": route.channel_source_id,
+            "kommo_route_kind": "domain_route",
         },
     )
     db.add(log)
@@ -538,6 +578,7 @@ def send_lead_message_via_kommo_salesbot(
             "kommo_contact_id": kommo_contact_id,
             "kommo_lead_id": kommo_lead_id,
             "salesbot_id": route.salesbot_id,
+            "kommo_route_kind": "domain_route",
         },
         deduplication_key=f"kommo:salesbot:lead:{log.id}",
         flush=False,
@@ -550,6 +591,7 @@ def send_lead_message_via_kommo_salesbot(
         salesbot_id=route.salesbot_id,
         detail=_salesbot_success_detail("salesbot_outbound"),
         delivery_mode="salesbot_outbound",
+        route_kind="domain_route",
     )
 
 
@@ -651,6 +693,48 @@ def _get_domain_route(db: Session, *, gym_id: UUID, domain: str) -> KommoDomainR
     )
 
 
+def _get_trainer_route(db: Session, *, gym_id: UUID, trainer_user_id: UUID) -> KommoTrainerRoute | None:
+    return db.scalar(
+        select(KommoTrainerRoute).where(
+            KommoTrainerRoute.gym_id == gym_id,
+            KommoTrainerRoute.trainer_user_id == trainer_user_id,
+        )
+    )
+
+
+def _resolve_member_salesbot_route(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member: Member,
+    domain: str,
+    pdf_url: str | None,
+) -> ResolvedKommoRoute:
+    domain_route = _get_domain_route(db, gym_id=gym_id, domain=domain)
+    if domain not in TECHNICAL_MEMBER_DOMAINS:
+        return ResolvedKommoRoute(route=domain_route, route_kind="domain_route")
+
+    trainer_user_id = getattr(member, "assigned_user_id", None)
+    if trainer_user_id:
+        trainer_route = _get_trainer_route(db, gym_id=gym_id, trainer_user_id=trainer_user_id)
+        if _is_salesbot_route_ready(trainer_route, requires_pdf=_route_requires_link_pdf(trainer_route, pdf_url=pdf_url)):
+            return ResolvedKommoRoute(
+                route=trainer_route,
+                route_kind="trainer_route",
+                trainer_user_id=trainer_user_id,
+            )
+        fallback_reason = _trainer_route_fallback_reason(trainer_route, pdf_url=pdf_url)
+    else:
+        fallback_reason = "no_assigned_trainer"
+
+    return ResolvedKommoRoute(
+        route=domain_route,
+        route_kind="coordination_fallback",
+        trainer_user_id=trainer_user_id,
+        fallback_reason=fallback_reason,
+    )
+
+
 def _get_member_domain_link(
     db: Session,
     *,
@@ -667,7 +751,7 @@ def _get_member_domain_link(
     )
 
 
-def _validate_salesbot_route(route: KommoDomainRoute | None, *, requires_pdf: bool) -> None:
+def _validate_salesbot_route(route: KommoRoute | None, *, requires_pdf: bool) -> None:
     if route is None or not route.is_enabled:
         raise KommoServiceError("Rota Kommo deste dominio nao configurada ou desativada.")
     if not _safe_int(route.pipeline_id):
@@ -682,8 +766,37 @@ def _validate_salesbot_route(route: KommoDomainRoute | None, *, requires_pdf: bo
         raise KommoServiceError("Rota Kommo sem campo customizado de PDF.")
 
 
+def _is_salesbot_route_ready(route: KommoRoute | None, *, requires_pdf: bool = False) -> bool:
+    if route is None or not route.is_enabled:
+        return False
+    return bool(
+        _safe_int(route.pipeline_id)
+        and _safe_int(route.stage_id)
+        and _safe_int(route.salesbot_id)
+        and _safe_int(route.message_field_id)
+        and (not requires_pdf or _safe_int(route.pdf_url_field_id))
+    )
+
+
+def _route_requires_link_pdf(route: KommoRoute | None, *, pdf_url: str | None) -> bool:
+    if not pdf_url:
+        return False
+    mode = str(getattr(route, "pdf_delivery_mode", None) or "native_file_required").strip().lower()
+    return mode == "link_only"
+
+
+def _trainer_route_fallback_reason(route: KommoRoute | None, *, pdf_url: str | None) -> str:
+    if route is None:
+        return "trainer_route_missing"
+    if not route.is_enabled:
+        return "trainer_route_disabled"
+    if not _is_salesbot_route_ready(route, requires_pdf=_route_requires_link_pdf(route, pdf_url=pdf_url)):
+        return "trainer_route_incomplete"
+    return "trainer_route_unavailable"
+
+
 def _resolve_pdf_delivery_mode(
-    route: KommoDomainRoute | None,
+    route: KommoRoute | None,
     *,
     override: str | None,
     has_pdf: bool,
@@ -699,7 +812,7 @@ def _resolve_pdf_delivery_mode(
 
 def _build_salesbot_lead_payload(
     *,
-    route: KommoDomainRoute,
+    route: KommoRoute,
     member: Member,
     title: str,
     message_text: str,
@@ -731,7 +844,7 @@ def _build_salesbot_lead_payload(
 
 def _build_salesbot_lead_payload_for_lead(
     *,
-    route: KommoDomainRoute,
+    route: KommoRoute,
     lead: Lead,
     title: str,
     message_text: str,
@@ -762,7 +875,7 @@ def _build_salesbot_lead_payload_for_lead(
 
 def _build_salesbot_lead_update_payload(
     *,
-    route: KommoDomainRoute,
+    route: KommoRoute,
     title: str,
     message_text: str,
     pdf_url: str | None,
@@ -794,7 +907,7 @@ def _build_salesbot_lead_update_payload(
 def _patch_salesbot_file_fields(
     *,
     gym: Gym,
-    route: KommoDomainRoute | None,
+    route: KommoRoute | None,
     lead_id: str,
     file_uuid: str,
     file_name: str,
@@ -825,7 +938,7 @@ def _custom_field_by_id(field_id: str | None, value: str | None) -> dict[str, An
     return {"field_id": normalized_field_id, "values": [{"value": str(value)}]}
 
 
-def _run_salesbot(*, gym: Gym, route: KommoDomainRoute, lead_id: str) -> None:
+def _run_salesbot(*, gym: Gym, route: KommoRoute, lead_id: str) -> None:
     salesbot_id = _safe_int(route.salesbot_id)
     if salesbot_id is None:
         raise KommoServiceError("Salesbot invalido para esta rota Kommo.")
@@ -842,8 +955,11 @@ def _record_salesbot_failure(
     *,
     gym: Gym,
     member: Member,
-    route: KommoDomainRoute | None,
+    route: KommoRoute | None,
     normalized_domain: str,
+    route_kind: str | None,
+    trainer_user_id: UUID | None,
+    route_fallback_reason: str | None,
     source_type: str,
     source_id_text: str,
     message_text: str,
@@ -886,6 +1002,9 @@ def _record_salesbot_failure(
             "pipeline_id": route.pipeline_id if route else None,
             "stage_id": route.stage_id if route else None,
             "channel_source_id": route.channel_source_id if route else None,
+            "kommo_route_kind": route_kind,
+            "kommo_trainer_user_id": str(trainer_user_id) if trainer_user_id else None,
+            "kommo_route_fallback_reason": route_fallback_reason,
         },
     )
     db.add(failed_log)
@@ -910,6 +1029,9 @@ def _record_salesbot_failure(
             "file_attach_status": file_attach_status,
             "pdf_delivery_mode": pdf_delivery_mode,
             "error": salesbot_error,
+            "kommo_route_kind": route_kind,
+            "kommo_trainer_user_id": str(trainer_user_id) if trainer_user_id else None,
+            "kommo_route_fallback_reason": route_fallback_reason,
         },
         deduplication_key=f"kommo:salesbot_failed:{failed_log.id}",
         flush=False,
@@ -927,6 +1049,9 @@ def _record_salesbot_failure(
         pdf_delivery_mode=pdf_delivery_mode,
         detail=salesbot_error,
         delivery_mode=delivery_mode,
+        route_kind=route_kind,
+        trainer_user_id=trainer_user_id,
+        route_fallback_reason=route_fallback_reason,
     )
 
 
@@ -944,6 +1069,13 @@ def _normalize_domain(value: str) -> str:
     if normalized not in allowed:
         raise KommoServiceError(f"Dominio Kommo invalido: {value}")
     return normalized
+
+
+def _normalize_member_salesbot_domain(value: str) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_")
+    if normalized in {"trainer", "coach", "training"}:
+        return "assessment"
+    return _normalize_domain(normalized)
 
 
 def _build_complex_lead_payload(*, gym: Gym, member: Member, title: str, summary: str) -> dict[str, Any]:

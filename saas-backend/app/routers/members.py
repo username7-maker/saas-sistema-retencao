@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_request_context, require_roles
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_db
-from app.models import BodyCompositionEvaluation, MemberStatus, RiskLevel, RoleEnum, User
+from app.models import BodyCompositionEvaluation, Member, MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import (
     APIMessage,
     MemberCreate,
@@ -224,31 +224,27 @@ def list_onboarding_scoreboard_endpoint(
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    members = list_member_index(
-        db,
-        gym_id=current_user.gym_id,
-        status=MemberStatus.ACTIVE,
-    )
-    payload: list[OnboardingScoreSnapshotOut] = []
-    for member in members:
-        join_date = getattr(member, "join_date", None)
-        onboarding_status = getattr(member, "onboarding_status", None)
-        if join_date is None:
-            continue
-        days_since_join = (datetime.now().date() - join_date).days
-        if days_since_join < 0 or days_since_join > 30:
-            continue
-        if onboarding_status not in {"active", "at_risk"}:
-            continue
-        score_payload = calculate_onboarding_score(db, member)
-        payload.append(
-            OnboardingScoreSnapshotOut(
-                member_id=member.id,
-                score=int(score_payload["score"]),
-                status=str(score_payload["status"]),
-            )
+    today = datetime.now().date()
+    rows = db.execute(
+        select(Member.id, Member.onboarding_score, Member.onboarding_status)
+        .where(
+            Member.gym_id == current_user.gym_id,
+            Member.deleted_at.is_(None),
+            Member.status == MemberStatus.ACTIVE,
+            Member.join_date >= today - timedelta(days=30),
+            Member.join_date <= today,
+            Member.onboarding_status.in_(("active", "at_risk")),
         )
-    return payload
+        .order_by(Member.onboarding_score.asc(), Member.join_date.asc())
+    ).all()
+    return [
+        OnboardingScoreSnapshotOut(
+            member_id=member_id,
+            score=int(onboarding_score or 0),
+            status=str(onboarding_status or "active"),
+        )
+        for member_id, onboarding_score, onboarding_status in rows
+    ]
 
 
 @router.get("/{member_id}", response_model=MemberOut)
@@ -924,6 +920,9 @@ def send_body_composition_kommo_endpoint(
             "file_upload_status": outbound.file_upload_status,
             "file_attach_status": outbound.file_attach_status,
             "pdf_delivery_mode": outbound.pdf_delivery_mode,
+            "route_kind": getattr(outbound, "route_kind", None),
+            "trainer_user_id": str(outbound.trainer_user_id) if getattr(outbound, "trainer_user_id", None) else None,
+            "route_fallback_reason": getattr(outbound, "route_fallback_reason", None),
         },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
@@ -947,6 +946,9 @@ def send_body_composition_kommo_endpoint(
         file_attach_status=outbound.file_attach_status,
         pdf_delivery_mode=outbound.pdf_delivery_mode,
         fallback_available=outbound.fallback_available,
+        route_kind=getattr(outbound, "route_kind", None),
+        trainer_user_id=getattr(outbound, "trainer_user_id", None),
+        route_fallback_reason=getattr(outbound, "route_fallback_reason", None),
     )
 
 

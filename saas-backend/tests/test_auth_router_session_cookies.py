@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models import RoleEnum
+from app.routers.auth import _email_delivery_failure_detail
 
 
 USER_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -69,7 +70,7 @@ def test_login_sets_refresh_cookie_and_hides_refresh_token(app, client, monkeypa
 
 def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
     mock_db = MagicMock()
-    mock_db.get.return_value = _current_user()
+    mock_db.scalar.return_value = _current_user()
     app.dependency_overrides[get_db] = lambda: mock_db
 
     observed = {}
@@ -107,6 +108,7 @@ def test_refresh_accepts_cookie_when_body_missing(app, client, monkeypatch):
         assert response.headers["Cache-Control"] == "no-store"
         assert response.headers["Pragma"] == "no-cache"
         assert response.headers["Expires"] == "0"
+        assert mock_db.scalar.call_count == 1
         mock_db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()
@@ -119,8 +121,9 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
 
     called = {"logout": False}
 
-    def _logout(_db, _user, *, commit=True):
+    def _logout(_db, _user, *, refresh_token=None, commit=True):
         called["logout"] = True
+        assert refresh_token == "cookie-refresh-token"
         assert commit is False
 
     monkeypatch.setattr("app.routers.auth.logout", _logout)
@@ -149,7 +152,7 @@ def test_logout_clears_refresh_cookie(app, client, monkeypatch):
 
 def test_refresh_accepts_allowed_referer_when_origin_missing(app, client, monkeypatch):
     mock_db = MagicMock()
-    mock_db.get.return_value = _current_user()
+    mock_db.scalar.return_value = _current_user()
     app.dependency_overrides[get_db] = lambda: mock_db
 
     tokens = SimpleNamespace(
@@ -191,6 +194,77 @@ def test_refresh_rejects_disallowed_origin(app, client):
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     assert response.headers["Expires"] == "0"
+
+
+def test_forgot_password_reports_global_email_unavailable(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "")
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Servico de e-mail indisponivel. Solicite reset ao administrador."
+        mock_db.commit.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forgot_password_preserves_generic_response_for_unknown_user(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    monkeypatch.setattr(
+        "app.routers.auth.request_password_reset",
+        lambda *_args, **_kwargs: SimpleNamespace(requested=False, email_result=None),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "missing@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"].startswith("Se o e-mail estiver cadastrado")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forgot_password_reports_resend_block_without_persisting_success(app, client, monkeypatch):
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    monkeypatch.setattr(
+        "app.routers.auth.request_password_reset",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            requested=True,
+            email_result=SimpleNamespace(sent=False, blocked=True, reason="resend_permission_denied"),
+        ),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@teste.com", "gym_slug": "academia-teste"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == (
+            "Servico de e-mail sem permissao de envio no Resend. Corrija a chave ou solicite reset ao administrador."
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_unverified_sender_has_actionable_password_reset_detail():
+    assert _email_delivery_failure_detail("sender_identity_unverified") == (
+        "Remetente ou dominio de e-mail nao verificado. Corrija o remetente ou solicite reset ao administrador."
+    )
 
 
 def test_logout_rejects_disallowed_origin(app, client):

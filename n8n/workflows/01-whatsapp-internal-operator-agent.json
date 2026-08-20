@@ -1,0 +1,63 @@
+{
+  "name": "Cordex WhatsApp AI Agent - Internal Operator Agent",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "agent-input",
+      "name": "Internal WhatsApp Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input;\nconst text = String(payload.message ?? '').toLowerCase();\nconst highRisk = ['enviar', 'apagar', 'excluir', 'ativar workflow', 'desativar workflow', 'producao'].some((word) => text.includes(word));\nif (highRisk) {\n  return [{ json: { event_id: payload.event_id, status: 'pending_approval', action: 'no_reply', recipient_phone: payload.sender_phone, message: 'Acao sensivel preparada e aguardando aprovacao.', risk: 'high', approval_required: true, metadata: { audience: 'internal' } } }];\n}\nreturn [{ json: { event_id: payload.event_id, status: 'success', action: 'send_reply', recipient_phone: payload.sender_phone, message: 'Recebi o comando interno. Vou operar em modo seguro e registrar a execucao.', risk: 'low', approval_required: false, metadata: { audience: 'internal', tool_policy: 'operator_safe' } } }];"
+      },
+      "id": "internal-policy-agent",
+      "name": "Internal Policy Agent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Internal WhatsApp Input": {
+      "main": [
+        [
+          {
+            "node": "Internal Policy Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

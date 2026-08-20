@@ -18,6 +18,7 @@ const OperationalDashboardPage = lazy(() => import("./pages/dashboard/Operationa
 const CommercialDashboardPage = lazy(() => import("./pages/dashboard/CommercialDashboardPage").then((m) => ({ default: m.CommercialDashboardPage })));
 const FinancialDashboardPage = lazy(() => import("./pages/dashboard/FinancialDashboardPage").then((m) => ({ default: m.FinancialDashboardPage })));
 const RetentionDashboardPage = lazy(() => import("./pages/dashboard/RetentionDashboardPage").then((m) => ({ default: m.RetentionDashboardPage })));
+const MethodOsPage = lazy(() => import("./pages/method/MethodOsPage").then((m) => ({ default: m.MethodOsPage })));
 const CrmPage = lazy(() => import("./pages/crm/CrmPage").then((m) => ({ default: m.CrmPage })));
 const AITriageInboxPage = lazy(() => import("./pages/ai/AITriageInboxPage"));
 const AiReviewCenterPage = lazy(() => import("./pages/ai/AiReviewCenterPage"));
@@ -124,6 +125,14 @@ export default function App() {
           element={
             <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.dashboardRetention]}>
               <RetentionDashboardPage />
+            </GuardedLazyRoute>
+          }
+        />
+        <Route
+          path="/method-os"
+          element={
+            <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.methodOs]}>
+              <MethodOsPage />
             </GuardedLazyRoute>
           }
         />

@@ -50,6 +50,8 @@ export interface AIAssistantPayload {
   prompt_version?: string | null;
   model?: string | null;
   safety_profile?: string | null;
+  message_source?: string | null;
+  blocked_reasons?: string[];
 }
 
 export type AITriageSourceDomain = "retention" | "onboarding";
@@ -182,10 +184,20 @@ export interface WorkQueueItem {
   domain: "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual" | string;
   severity: "critical" | "high" | "medium" | "low" | "info" | string;
   preferred_shift: "overnight" | "morning" | "afternoon" | "evening" | "unassigned" | string | null;
+  preferred_shift_status?: "resolved_from_checkins" | "manual_or_cached" | "tie" | "no_recent_checkins" | string | null;
+  preferred_shift_reason?: string | null;
+  preferred_shift_counts?: Record<string, number>;
   reason: string;
   primary_action_label: string;
   primary_action_type: string;
   suggested_message: string | null;
+  message_source?: string | null;
+  prompt_key?: string | null;
+  prompt_version?: string | null;
+  model?: string | null;
+  safety_profile?: string | null;
+  message_fallback_used?: boolean;
+  message_blocked_reasons?: string[];
   requires_confirmation: boolean;
   state: WorkQueueState;
   due_at: string | null;
@@ -198,6 +210,8 @@ export interface WorkQueueItem {
   retention_stage_priority?: number;
   technical_ladder_step?: string | null;
   technical_ladder_step_label?: string | null;
+  execution_bucket?: string | null;
+  execution_bucket_label?: string | null;
   autopilot_state?: string | null;
   autopilot_badges?: string[];
   execution_channel?: "kommo" | "whatsapp" | "manual" | string | null;
@@ -1353,14 +1367,30 @@ export type ActuarSyncJobStatus = "pending" | "processing" | "synced" | "failed"
 export type ActuarSyncAttemptStatus = "started" | "succeeded" | "failed";
 export type OcrWarningSeverity = "warning" | "critical";
 export type BodyCompositionSex = "male" | "female";
+export type AnthropometryEthnicity = "white" | "black";
+export type AnthropometryMaturity = "prepubertal" | "pubertal" | "postpubertal";
+export type BodyFatMeasurementSource = "bioimpedance" | "manual_anthropometry" | "composite_geneos" | "manual_override";
+export type PreferredBodyFatSource = "bioimpedance" | "anthropometry" | "geneos_composite" | "manual_override";
+export type BodyFatUsedSource = "bioimpedance" | "anthropometry" | "manual_override";
+export type BodyFatMethod = "legacy_bioimpedance" | "navy_circumference" | "rfm" | "geneos_composite" | "skinfold_protocol" | "manual_override";
+export type BodyFatConfidence = "high" | "medium_high" | "medium" | "low" | "inconsistent";
 export type BodyCompositionDataQualityFlag =
   | "missing_body_fat_percent"
   | "missing_muscle_mass"
   | "suspect_bmi"
   | "ocr_low_confidence"
-  | "manually_review_required";
+  | "manually_review_required"
+  | "anthropometry_incomplete"
+  | "body_fat_source_divergence"
+  | "anthropometry_needs_review"
+  | "anthropometry_inconsistent"
+  | "impossible_measurement_value"
+  | "abnormal_measurement_variation"
+  | "anthropometry_protocol_manual_only"
+  | "anthropometry_protocol_mismatch"
+  | "anthropometry_protocol_age_outside_range";
 export type BodyCompositionTrend = "up" | "down" | "stable" | "insufficient";
-export type BodyCompositionRangeStatus = "low" | "adequate" | "high" | "unknown";
+export type BodyCompositionRangeStatus = "low" | "adequate" | "monitor" | "high" | "unknown";
 export type BodyCompositionInsightTone = "positive" | "warning" | "neutral";
 
 export interface BodyCompositionRangeValue {
@@ -1406,6 +1436,61 @@ export interface BodyCompositionReferenceMetric {
   reference_max: number | null;
   status: BodyCompositionRangeStatus;
   hint: string | null;
+  position_label?: string | null;
+}
+
+export interface BodyCompositionScoreBreakdownItem {
+  key: string;
+  label: string;
+  score: number;
+  max_score: number;
+  description: string;
+}
+
+export interface BodyCompositionRecommendation {
+  key: string;
+  title: string;
+  detail: string;
+  tone: BodyCompositionInsightTone;
+}
+
+export interface BodyCompositionNextAssessment {
+  due_date: string;
+  formatted_due_date: string;
+  contact_date: string;
+  formatted_contact_date: string;
+  cycle_days: number;
+  contact_offset_days: number;
+  conditions: string[];
+}
+
+export interface BodyCompositionBodyFatContext {
+  bioimpedance_raw_percent: number | null;
+  anthropometric_percent: number | null;
+  used_percent: number | null;
+  used_source: BodyFatUsedSource | null;
+  preferred_source: PreferredBodyFatSource | null;
+  method: BodyFatMethod | null;
+  confidence: BodyFatConfidence | null;
+  range_min: number | null;
+  range_max: number | null;
+  difference_between_sources: number | null;
+  manual_review_required: boolean;
+  manual_review_completed: boolean;
+  quality_flags: BodyCompositionDataQualityFlag[];
+}
+
+export interface BodyCompositionMeasurementRow {
+  key: string;
+  label: string;
+  current_value: number | null;
+  previous_value: number | null;
+  delta: number | null;
+  unit: string;
+  used_for_body_fat_calculation: boolean;
+  formatted_current: string;
+  formatted_previous: string;
+  formatted_delta: string;
 }
 
 export interface BodyCompositionComparisonRow {
@@ -1450,6 +1535,12 @@ export interface BodyCompositionReport {
   reviewed_manually: boolean;
   parsing_confidence: number | null;
   data_quality_flags: BodyCompositionDataQualityFlag[];
+  body_fat_context?: BodyCompositionBodyFatContext | null;
+  score_total?: number | null;
+  score_breakdown?: BodyCompositionScoreBreakdownItem[];
+  recommendations?: BodyCompositionRecommendation[];
+  next_assessment?: BodyCompositionNextAssessment | null;
+  measurement_rows?: BodyCompositionMeasurementRow[];
   primary_cards: BodyCompositionMetricCard[];
   composition_metrics: BodyCompositionReferenceMetric[];
   muscle_fat_metrics: BodyCompositionReferenceMetric[];
@@ -1652,11 +1743,17 @@ export interface KommoSettings {
   kommo_auto_close_enabled: boolean;
   kommo_fallback_channel: "whatsapp" | "manual" | string;
   domain_routes: KommoDomainRoute[];
+  trainer_routes: KommoTrainerRoute[];
 }
 
 export interface KommoDomainRoute {
   domain: string;
   is_enabled: boolean;
+  route_status?: "ready" | "incomplete" | "missing" | "disabled" | string;
+  missing_fields?: string[];
+  ready_for_messages?: boolean;
+  ready_for_native_pdf?: boolean;
+  ready_for_link_pdf?: boolean;
   pipeline_id: string | null;
   stage_id: string | null;
   salesbot_id: string | null;
@@ -1671,6 +1768,11 @@ export interface KommoDomainRoute {
   source_type_field_id: string | null;
   source_id_field_id: string | null;
   tags: string[];
+}
+
+export interface KommoTrainerRoute extends Omit<KommoDomainRoute, "domain"> {
+  trainer_user_id: string;
+  trainer_name: string | null;
 }
 
 export interface KommoConnectionTestResult {
@@ -1703,6 +1805,7 @@ export interface KommoSettingsUpdateInput {
   kommo_auto_close_enabled?: boolean | null;
   kommo_fallback_channel?: "whatsapp" | "manual" | string | null;
   domain_routes?: KommoDomainRoute[];
+  trainer_routes?: KommoTrainerRoute[];
 }
 
 export interface BodyCompositionEvaluation {
@@ -1716,6 +1819,19 @@ export interface BodyCompositionEvaluation {
   height_cm: number | null;
   weight_kg: number | null;
   body_fat_kg: number | null;
+  body_fat_bioimpedance_percent?: number | null;
+  body_fat_anthropometric_percent?: number | null;
+  body_fat_manual_override_percent?: number | null;
+  body_fat_used_percent?: number | null;
+  body_fat_used_source?: BodyFatUsedSource | null;
+  body_fat_method?: BodyFatMethod | null;
+  body_fat_confidence?: BodyFatConfidence | null;
+  body_fat_range_min?: number | null;
+  body_fat_range_max?: number | null;
+  preferred_body_fat_source?: PreferredBodyFatSource | null;
+  measurement_source?: BodyFatMeasurementSource | null;
+  fat_mass_estimated_kg?: number | null;
+  lean_mass_estimated_kg?: number | null;
   body_fat_percent: number | null;
   waist_hip_ratio: number | null;
   fat_free_mass_kg: number | null;
@@ -1729,6 +1845,38 @@ export interface BodyCompositionEvaluation {
   visceral_fat_level: number | null;
   bmi: number | null;
   basal_metabolic_rate_kcal: number | null;
+  neck_cm?: number | null;
+  shoulders_cm?: number | null;
+  chest_cm?: number | null;
+  waist_cm?: number | null;
+  abdomen_cm?: number | null;
+  hip_cm?: number | null;
+  iliac_cm?: number | null;
+  right_arm_relaxed_cm?: number | null;
+  left_arm_relaxed_cm?: number | null;
+  right_arm_flexed_cm?: number | null;
+  left_arm_flexed_cm?: number | null;
+  right_thigh_cm?: number | null;
+  left_thigh_cm?: number | null;
+  right_calf_cm?: number | null;
+  left_calf_cm?: number | null;
+  skinfold_chest_mm?: number | null;
+  skinfold_midaxillary_mm?: number | null;
+  skinfold_subscapular_mm?: number | null;
+  skinfold_triceps_mm?: number | null;
+  skinfold_biceps_mm?: number | null;
+  skinfold_abdominal_mm?: number | null;
+  skinfold_suprailiac_mm?: number | null;
+  skinfold_thigh_mm?: number | null;
+  skinfold_calf_mm?: number | null;
+  anthropometry_notes?: string | null;
+  body_fat_manual_review_required?: boolean;
+  body_fat_manual_review_completed?: boolean;
+  anthropometry_review_completed?: boolean;
+  measurement_protocol?: string | null;
+  anthropometry_ethnicity?: AnthropometryEthnicity | null;
+  anthropometry_maturity?: AnthropometryMaturity | null;
+  evaluated_by_user_id?: string | null;
   target_weight_kg: number | null;
   weight_control_kg: number | null;
   muscle_control_kg: number | null;
@@ -1812,6 +1960,19 @@ export interface BodyCompositionEvaluationCreate {
   height_cm?: number | null;
   weight_kg?: number | null;
   body_fat_kg?: number | null;
+  body_fat_bioimpedance_percent?: number | null;
+  body_fat_anthropometric_percent?: number | null;
+  body_fat_manual_override_percent?: number | null;
+  body_fat_used_percent?: number | null;
+  body_fat_used_source?: BodyFatUsedSource | null;
+  body_fat_method?: BodyFatMethod | null;
+  body_fat_confidence?: BodyFatConfidence | null;
+  body_fat_range_min?: number | null;
+  body_fat_range_max?: number | null;
+  preferred_body_fat_source?: PreferredBodyFatSource | null;
+  measurement_source?: BodyFatMeasurementSource | null;
+  fat_mass_estimated_kg?: number | null;
+  lean_mass_estimated_kg?: number | null;
   body_fat_percent?: number | null;
   waist_hip_ratio?: number | null;
   fat_free_mass_kg?: number | null;
@@ -1825,6 +1986,38 @@ export interface BodyCompositionEvaluationCreate {
   visceral_fat_level?: number | null;
   bmi?: number | null;
   basal_metabolic_rate_kcal?: number | null;
+  neck_cm?: number | null;
+  shoulders_cm?: number | null;
+  chest_cm?: number | null;
+  waist_cm?: number | null;
+  abdomen_cm?: number | null;
+  hip_cm?: number | null;
+  iliac_cm?: number | null;
+  right_arm_relaxed_cm?: number | null;
+  left_arm_relaxed_cm?: number | null;
+  right_arm_flexed_cm?: number | null;
+  left_arm_flexed_cm?: number | null;
+  right_thigh_cm?: number | null;
+  left_thigh_cm?: number | null;
+  right_calf_cm?: number | null;
+  left_calf_cm?: number | null;
+  skinfold_chest_mm?: number | null;
+  skinfold_midaxillary_mm?: number | null;
+  skinfold_subscapular_mm?: number | null;
+  skinfold_triceps_mm?: number | null;
+  skinfold_biceps_mm?: number | null;
+  skinfold_abdominal_mm?: number | null;
+  skinfold_suprailiac_mm?: number | null;
+  skinfold_thigh_mm?: number | null;
+  skinfold_calf_mm?: number | null;
+  anthropometry_notes?: string | null;
+  body_fat_manual_review_required?: boolean;
+  body_fat_manual_review_completed?: boolean;
+  anthropometry_review_completed?: boolean;
+  measurement_protocol?: string | null;
+  anthropometry_ethnicity?: AnthropometryEthnicity | null;
+  anthropometry_maturity?: AnthropometryMaturity | null;
+  evaluated_by_user_id?: string | null;
   target_weight_kg?: number | null;
   weight_control_kg?: number | null;
   muscle_control_kg?: number | null;
@@ -1918,4 +2111,234 @@ export interface BookingStatus {
   scheduled_for: string | null;
   status: string | null;
   provider_name: string | null;
+}
+
+export type MethodPillar = "acquisition" | "sales" | "post_sale";
+export type MethodClientStatus = "prospect" | "onboarding" | "active" | "paused" | "churned";
+export type MethodPersonType = "lead" | "customer" | "inactive_customer" | "prospect";
+export type MethodEventSource = "manual" | "import" | "integration" | "automation" | "ai";
+export type MethodTaskStatus = "open" | "in_progress" | "done" | "dismissed" | "expired";
+export type MethodTaskPriority = "low" | "medium" | "high" | "critical";
+export type MethodActionType = "whatsapp" | "call" | "email" | "in_person" | "internal_note" | "other";
+export type MethodActionResult =
+  | "no_response"
+  | "responded"
+  | "scheduled"
+  | "bought"
+  | "returned"
+  | "renewed"
+  | "lost"
+  | "dismissed"
+  | "other";
+
+export interface MethodSegment {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  default_entry_pillar: MethodPillar;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MethodSegmentPlaybook {
+  id: string;
+  segment_id: string;
+  channels: string[];
+  qualification_questions: string[];
+  risk_opportunity_signals: string[];
+  message_templates: Record<string, string>;
+  success_metrics: string[];
+  segment?: MethodSegment | null;
+}
+
+export interface CordexClient {
+  cordex_client_id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  segment_id: string | null;
+  status: string;
+  city: string | null;
+  state: string | null;
+  main_contact_name: string | null;
+  main_contact_phone: string | null;
+  main_contact_email: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ClientMethodConfig {
+  id: string;
+  cordex_client_id: string;
+  segment_id: string | null;
+  active_pillars: Record<MethodPillar, boolean> | Record<string, boolean>;
+  entry_pillar: MethodPillar;
+  toolkit: Record<string, unknown>;
+  baseline: Record<string, unknown>;
+  success_criteria: Record<string, unknown>;
+  cadence: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MethodClientProfile {
+  client: CordexClient;
+  config: ClientMethodConfig;
+  segment: MethodSegment | null;
+  playbook: MethodSegmentPlaybook | null;
+}
+
+export interface MethodPerson {
+  id: string;
+  cordex_client_id: string;
+  external_id: string | null;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  person_type: string;
+  status: string;
+  source_channel: string | null;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MethodPersonCreate {
+  external_id?: string | null;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  person_type: MethodPersonType;
+  status?: string;
+  source_channel?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MethodOperationalEvent {
+  id: string;
+  cordex_client_id: string;
+  person_id: string | null;
+  person_name: string | null;
+  pillar: MethodPillar | string;
+  event_type: string;
+  event_source: MethodEventSource | string;
+  event_payload: Record<string, unknown>;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface MethodOperationalEventCreate {
+  person_id?: string | null;
+  pillar: MethodPillar;
+  event_type: string;
+  event_source?: MethodEventSource;
+  event_payload?: Record<string, unknown>;
+  occurred_at?: string | null;
+}
+
+export interface MethodOperationalTask {
+  id: string;
+  cordex_client_id: string;
+  person_id: string | null;
+  person_name: string | null;
+  person_phone: string | null;
+  event_id: string | null;
+  pillar: MethodPillar | string;
+  task_type: string;
+  title: string;
+  description: string | null;
+  assigned_role: string;
+  assigned_to: string | null;
+  priority: MethodTaskPriority | string;
+  status: MethodTaskStatus | string;
+  due_date: string | null;
+  suggested_message: string | null;
+  wa_me_link: string | null;
+  dismissal_reason: string | null;
+  completed_at: string | null;
+  dismissed_at: string | null;
+  requires_human_approval: boolean;
+  ai_metadata: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MethodActionCreate {
+  action_type: MethodActionType;
+  action_summary: string;
+  result: MethodActionResult;
+  notes?: string | null;
+  mark_task_status?: "done" | "dismissed" | null;
+  dismissal_reason?: string | null;
+}
+
+export interface MethodHumanAction {
+  id: string;
+  cordex_client_id: string;
+  person_id: string | null;
+  task_id: string;
+  action_type: string;
+  action_summary: string;
+  result: string;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface MethodOutcomeCreate {
+  person_id?: string | null;
+  task_id?: string | null;
+  action_id?: string | null;
+  outcome_type: string;
+  value_numeric?: number | null;
+  value_text?: string | null;
+  measured_at?: string | null;
+}
+
+export interface MethodOutcome {
+  id: string;
+  cordex_client_id: string;
+  person_id: string | null;
+  task_id: string | null;
+  action_id: string | null;
+  outcome_type: string;
+  value_numeric: number | null;
+  value_text: string | null;
+  measured_at: string;
+  created_at: string;
+}
+
+export interface MethodDashboard {
+  cordex_client_id: string;
+  generated_at: string;
+  open_tasks: number;
+  overdue_tasks: number;
+  completed_7d: number;
+  people_total: number;
+  leads_total: number;
+  customers_total: number;
+  opportunities: number;
+  closed_sales: number;
+  risk_customers: number;
+  recovered_customers: number;
+  by_pillar: Record<string, number>;
+  by_priority: Record<string, number>;
+  bottlenecks: string[];
+  recommendations: string[];
+}
+
+export interface MethodWeeklyReport {
+  report_id: string | null;
+  cordex_client_id: string;
+  report_type: "weekly";
+  period_start: string;
+  period_end: string;
+  summary: string;
+  markdown: string;
+  metrics: Record<string, unknown>;
+  bottlenecks: string[];
+  recommendations: string[];
+  requires_human_review: boolean;
 }

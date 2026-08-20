@@ -31,17 +31,56 @@ function makeReport(): BodyCompositionReport {
     reviewed_manually: true,
     parsing_confidence: 0.91,
     data_quality_flags: [],
+    body_fat_context: {
+      bioimpedance_raw_percent: 31.2,
+      anthropometric_percent: 23.8,
+      used_percent: 23.8,
+      used_source: "anthropometry",
+      preferred_source: "geneos_composite",
+      method: "geneos_composite",
+      confidence: "medium_high",
+      range_min: 21.8,
+      range_max: 25.8,
+      difference_between_sources: 7.4,
+      manual_review_required: true,
+      manual_review_completed: true,
+      quality_flags: ["body_fat_source_divergence"],
+    },
+    score_total: 71,
+    score_breakdown: [
+      { key: "body_fat", label: "Gordura corporal", score: 22, max_score: 25, description: "Teste" },
+      { key: "muscle", label: "Massa muscular", score: 18, max_score: 25, description: "Teste" },
+      { key: "visceral_fat", label: "Gordura visceral", score: 18, max_score: 25, description: "Teste" },
+      { key: "waist", label: "Cintura / RCQ", score: 13, max_score: 25, description: "Teste" },
+    ],
+    measurement_rows: [
+      {
+        key: "waist_cm",
+        label: "Cintura",
+        current_value: 82,
+        previous_value: 85,
+        delta: -3,
+        unit: "cm",
+        used_for_body_fat_calculation: true,
+        formatted_current: "82 cm",
+        formatted_previous: "85 cm",
+        formatted_delta: "-3 cm",
+      },
+    ],
     primary_cards: [
       { key: "weight", label: "Peso", value: 84.5, unit: "kg", formatted_value: "84.5 kg", delta_absolute: -1.2, delta_percent: -1.4, trend: "down" },
-      { key: "body_fat_percent", label: "% Gordura corporal", value: 23, unit: "%", formatted_value: "23%", delta_absolute: -1.8, delta_percent: -7.3, trend: "down" },
+      { key: "body_fat_used_percent", label: "Gordura corporal estimada", value: 23.8, unit: "%", formatted_value: "23.8%", delta_absolute: -1.8, delta_percent: -7.3, trend: "down" },
       { key: "visceral_fat_level", label: "Gordura visceral", value: 9, unit: null, formatted_value: "9", delta_absolute: 0, delta_percent: 0, trend: "stable" },
       { key: "muscle_mass_kg", label: "Massa muscular", value: 35.6, unit: "kg", formatted_value: "35.6 kg", delta_absolute: 0.4, delta_percent: 1.1, trend: "up" },
       { key: "bmi", label: "IMC", value: 26.7, unit: null, formatted_value: "26.7", delta_absolute: -0.3, delta_percent: -1.1, trend: "down" },
       { key: "bmr", label: "Metabolismo basal", value: 1880, unit: "kcal", formatted_value: "1880 kcal", delta_absolute: 32, delta_percent: 1.7, trend: "up" },
     ],
     composition_metrics: [
-      { key: "water", label: "Agua corporal", value: 43.3, unit: "kg", formatted_value: "43.3 kg", reference_min: 39, reference_max: 48, status: "adequate", hint: "Dentro da faixa" },
-      { key: "protein", label: "Proteina", value: 17.7, unit: "kg", formatted_value: "17.7 kg", reference_min: 16, reference_max: 19, status: "adequate", hint: null },
+      { key: "body_fat_used_percent", label: "Gordura corporal estimada", value: 23.8, unit: "%", formatted_value: "23.8%", reference_min: 10, reference_max: 25, status: "adequate", hint: null },
+      { key: "body_water_kg", label: "Agua corporal", value: 43.3, unit: "kg", formatted_value: "43.3 kg", reference_min: 39, reference_max: 48, status: "adequate", hint: "Dentro da faixa" },
+      { key: "body_water_percent", label: "Agua corporal (%)", value: 51.2, unit: "%", formatted_value: "51.2%", reference_min: null, reference_max: null, status: "unknown", hint: null },
+      { key: "protein_kg", label: "Proteina", value: 17.7, unit: "kg", formatted_value: "17.7 kg", reference_min: 16, reference_max: 19, status: "adequate", hint: null },
+      { key: "skeletal_muscle_kg", label: "Musculo esqueletico", value: 35.6, unit: "kg", formatted_value: "35.6 kg", reference_min: 28, reference_max: 38, status: "adequate", hint: null },
     ],
     muscle_fat_metrics: [
       { key: "weight", label: "Peso", value: 84.5, unit: "kg", formatted_value: "84.5 kg", reference_min: 65, reference_max: 80, status: "high", hint: null },
@@ -50,11 +89,14 @@ function makeReport(): BodyCompositionReport {
     ],
     risk_metrics: [
       { key: "bmi", label: "IMC", value: 26.7, unit: null, formatted_value: "26.7", reference_min: 18.5, reference_max: 24.9, status: "high", hint: "Acompanhamento operacional" },
-      { key: "whr", label: "Relacao cintura-quadril", value: 0.88, unit: null, formatted_value: "0.88", reference_min: 0.75, reference_max: 0.9, status: "adequate", hint: null },
+      { key: "waist_hip_ratio", label: "Relacao cintura-quadril", value: 0.88, unit: null, formatted_value: "0.88", reference_min: 0.75, reference_max: 0.9, status: "adequate", hint: null },
+      { key: "health_score", label: "Health score da bioimpedancia", value: 77, unit: null, formatted_value: "77", reference_min: 70, reference_max: 100, status: "adequate", hint: null },
     ],
     goal_metrics: [
-      { key: "target_weight", label: "Peso-alvo", value: 78, unit: "kg", formatted_value: "78 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
-      { key: "fat_control", label: "Controle de gordura", value: -6.5, unit: "kg", formatted_value: "-6.5 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
+      { key: "target_weight_kg", label: "Peso-alvo", value: 78, unit: "kg", formatted_value: "78 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
+      { key: "weight_control_kg", label: "Controle de peso", value: -6.5, unit: "kg", formatted_value: "-6.5 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
+      { key: "fat_control_kg", label: "Controle de gordura", value: -6.5, unit: "kg", formatted_value: "-6.5 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
+      { key: "muscle_control_kg", label: "Controle de musculo", value: 0.4, unit: "kg", formatted_value: "0.4 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
     ],
     comparison_rows: [
       {
@@ -132,17 +174,41 @@ describe("BodyCompositionReportPage", () => {
   it("renders the premium report with metric cards and export actions", async () => {
     renderPage();
 
-    expect(await screen.findByText("Erick Bedin")).toBeInTheDocument();
+    expect((await screen.findAllByText("Erick Bedin")).length).toBeGreaterThanOrEqual(2);
+    expect(document.body).toHaveClass("body-composition-report-print");
     expect(screen.getByRole("img", { name: "ProGym" })).toHaveAttribute("src", "/progym-logo.png");
     expect(screen.getByRole("img", { name: "Cordex Gym OS" })).toHaveAttribute("src", "/brand/cordex-logo-report.png");
     expect(screen.queryByText("Relatorio premium pronto")).not.toBeInTheDocument();
-    expect(screen.getByText("% Gordura corporal")).toBeInTheDocument();
+    expect(screen.getAllByText("Gordura corporal estimada").length).toBeGreaterThan(0);
+    expect(screen.getByText("Metodo de leitura da gordura corporal")).toBeInTheDocument();
+    expect(screen.queryByText("Bioimpedancia bruta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Diferenca entre fontes")).not.toBeInTheDocument();
+    expect(screen.queryByText("body_fat_source_divergence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Confianca")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faixa estimada")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revisao manual")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dados da bioimpedancia")).not.toBeInTheDocument();
+    expect(screen.queryByText("Medidas corporais e protocolo")).not.toBeInTheDocument();
+    expect(screen.getByText("Indicadores-chave")).toBeInTheDocument();
+    expect(screen.getByText("Composicao corporal detalhada")).toBeInTheDocument();
+    expect(screen.getAllByText("Dobras e medidas").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Medidas corporais").length).toBeGreaterThan(0);
+    expect(screen.getByText("Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno.")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Mapa corporal frontal masculino de medidas" })).toHaveAttribute("src", "/body-maps/body-map-front-male.png");
+    expect(screen.queryByText("Resultados principais")).not.toBeInTheDocument();
+    expect(screen.getByText("Historico")).toBeInTheDocument();
+    expect(screen.getByText("Observacoes")).toBeInTheDocument();
+    expect(screen.queryByText("Leitura Final")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
-    expect(screen.getByText("Reducao de gordura com preservacao muscular")).toBeInTheDocument();
+    expect(screen.getByText("Leitura da avaliacao")).toBeInTheDocument();
+    expect(document.querySelector(".clinical-web-score-card strong")).toHaveTextContent("71");
+    expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
+    expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
   });
 
-  it("opens the student pdf through the authenticated service", async () => {
+  it("opens the complete technical pdf through the authenticated service", async () => {
     vi.mocked(bodyCompositionService.openPdf).mockResolvedValue(undefined);
     const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);
 
@@ -152,6 +218,21 @@ describe("BodyCompositionReportPage", () => {
 
     await waitFor(() => {
       expect(bodyCompositionService.openPdf).toHaveBeenCalledWith("member-1", "eval-1", "technical", expect.anything());
+    });
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("closes the placeholder tab when the PDF service fails", async () => {
+    vi.mocked(bodyCompositionService.openPdf).mockRejectedValue(new Error("PDF unavailable"));
+    const close = vi.fn();
+    const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close } as unknown as Window);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir PDF" }));
+
+    await waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
     });
 
     windowOpenSpy.mockRestore();

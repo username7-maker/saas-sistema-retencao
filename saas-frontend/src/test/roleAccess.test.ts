@@ -30,10 +30,13 @@ describe("roleAccess", () => {
     expect(canRoleAccessPath("receptionist", "/imports")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/dashboard/operational")).toBe(false);
     expect(canRoleAccessPath("salesperson", "/crm")).toBe(true);
+    expect(canRoleAccessPath("salesperson", "/method-os")).toBe(true);
     expect(canRoleAccessPath("salesperson", "/assessments/members/member-1")).toBe(true);
     expect(canRoleAccessPath("salesperson", "/assessments/new/member-1")).toBe(false);
     expect(canRoleAccessPath("trainer", "/members")).toBe(true);
+    expect(canRoleAccessPath("trainer", "/method-os")).toBe(false);
     expect(canRoleAccessPath("trainer", "/assessments/new/member-1")).toBe(true);
+    expect(canRoleAccessPath("trainer", "/notifications")).toBe(true);
   });
 
   it("keeps seed and delete automation controls owner-only", () => {

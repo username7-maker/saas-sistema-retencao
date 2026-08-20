@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, CheckCircle2, ExternalLink, Search, Video } from "lucide-react";
+import { Bot, CheckCircle2, ExternalLink, MessageCircle, Search, Send, Video } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -34,6 +34,40 @@ const outcomeLabels: Partial<Record<WorkQueueOutcome, string>> = {
 
 function itemKey(item: CoachWorkspaceItem): string {
   return `${item.source_type}:${item.source_id}`;
+}
+
+function getHttpDetail(error: unknown): string {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
+    if (typeof response?.data?.detail === "string") return response.data.detail;
+    if (typeof response?.status === "number") return `Erro ${response.status}`;
+  }
+  return "Operacao nao concluida.";
+}
+
+function getFirstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || "aluno";
+}
+
+function buildDefaultChannelMessage(item: CoachWorkspaceItem): string {
+  if (item.suggested_message?.trim()) return item.suggested_message.trim();
+  const firstName = getFirstName(item.subject_name);
+  if (item.lane === "reassessment") {
+    return `Oi, ${firstName}! Vamos agendar sua reavaliacao para acompanhar sua evolucao? Me diga um horario bom para voce.`;
+  }
+  if (item.lane === "training_delivery") {
+    return `Oi, ${firstName}! Estou conferindo se seu treino novo ja foi entregue e ficou claro para voce. Consegue me confirmar?`;
+  }
+  if (item.lane === "training_feedback") {
+    return `Oi, ${firstName}! Como foi o treino nestes primeiros dias? Teve alguma dificuldade ou ajuste que precisamos fazer?`;
+  }
+  if (item.lane === "body_composition_review") {
+    return `Oi, ${firstName}! Seu resultado de bioimpedancia ja esta pronto. Vou acompanhar com voce os principais pontos e proximos passos.`;
+  }
+  if (item.lane === "assessment_pending") {
+    return `Oi, ${firstName}! Vamos marcar sua avaliacao para ajustar seu treino e acompanhar sua evolucao?`;
+  }
+  return `Oi, ${firstName}! Estou acompanhando sua etapa tecnica na academia. Pode me responder por aqui para alinharmos o proximo passo?`;
 }
 
 function severityVariant(severity: string): "danger" | "warning" | "info" | "neutral" {
@@ -453,6 +487,7 @@ export function CoachWorkspaceView() {
   const [shift, setShift] = useState<CoachWorkspaceShift>("my_shift");
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [channelMessages, setChannelMessages] = useState<Record<string, string>>({});
   const deferredSearch = useDeferredValue(search);
   const canSeeAllShifts = user?.role === "owner" || user?.role === "manager";
   const availableShiftFilters = useMemo<CoachWorkspaceShift[]>(
@@ -479,6 +514,15 @@ export function CoachWorkspaceView() {
     () => filteredItems.find((item) => itemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey],
   );
+  const selectedItemKey = selectedItem ? itemKey(selectedItem) : null;
+  const selectedChannelMessage =
+    selectedItem && selectedItemKey ? channelMessages[selectedItemKey] ?? buildDefaultChannelMessage(selectedItem) : "";
+  const canSendSelectedMessage = Boolean(selectedItem && selectedChannelMessage.trim().length >= 3);
+
+  function updateSelectedChannelMessage(value: string) {
+    if (!selectedItemKey) return;
+    setChannelMessages((current) => ({ ...current, [selectedItemKey]: value }));
+  }
 
   const outcomeMutation = useMutation({
     mutationFn: ({ item, outcome }: { item: CoachWorkspaceItem; outcome: WorkQueueOutcome }) =>
@@ -490,6 +534,31 @@ export function CoachWorkspaceView() {
       toast.success("Resultado tecnico registrado.");
     },
     onError: () => toast.error("Erro ao registrar resultado tecnico."),
+  });
+
+  const sendAndWaitMutation = useMutation({
+    mutationFn: ({
+      item,
+      channel,
+      message,
+    }: {
+      item: CoachWorkspaceItem;
+      channel: "auto" | "kommo" | "whatsapp";
+      message: string;
+    }) =>
+      workQueueService.sendAndWait(item.source_type, item.source_id, {
+        channel,
+        message: message.trim(),
+        operator_note: `Coach Workspace: ${item.next_action_label}`,
+    }),
+    onSuccess: (result) => {
+      setSelectedKey(`${result.item.source_type}:${result.item.source_id}`);
+      void queryClient.invalidateQueries({ queryKey: ["coach-workspace"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success(result.detail || "Mensagem enviada pelo canal operacional.");
+    },
+    onError: (error) => toast.error(getHttpDetail(error)),
   });
 
   return (
@@ -588,6 +657,74 @@ export function CoachWorkspaceView() {
                     <p className="mt-1 text-sm font-semibold text-lovable-ink">{entry.value}</p>
                   </div>
                 ))}
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-lovable-info/25 bg-lovable-info/8 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle size={16} className="text-lovable-info" />
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lovable-ink-muted">Executar pelo canal</p>
+                  </div>
+                  <Badge variant="info">Kommo / WhatsApp</Badge>
+                </div>
+                <p className="mt-2 text-sm text-lovable-ink-muted">
+                  Envie a mensagem pelo canal principal configurado. Se a academia usa Kommo, o sistema roteia para Kommo; se falhar, mostra o motivo.
+                </p>
+                <Textarea
+                  rows={4}
+                  className="mt-3"
+                  value={selectedChannelMessage}
+                  onChange={(event) => updateSelectedChannelMessage(event.target.value)}
+                  placeholder="Mensagem que sera enviada ao aluno..."
+                />
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={!canSendSelectedMessage || sendAndWaitMutation.isPending}
+                    onClick={() =>
+                      sendAndWaitMutation.mutate({
+                        item: selectedItem,
+                        channel: "auto",
+                        message: selectedChannelMessage,
+                      })
+                    }
+                  >
+                    <Send className="h-4 w-4" />
+                    Canal principal
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!canSendSelectedMessage || sendAndWaitMutation.isPending}
+                    onClick={() =>
+                      sendAndWaitMutation.mutate({
+                        item: selectedItem,
+                        channel: "kommo",
+                        message: selectedChannelMessage,
+                      })
+                    }
+                  >
+                    Enviar Kommo
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={!canSendSelectedMessage || sendAndWaitMutation.isPending}
+                    onClick={() =>
+                      sendAndWaitMutation.mutate({
+                        item: selectedItem,
+                        channel: "whatsapp",
+                        message: selectedChannelMessage,
+                      })
+                    }
+                  >
+                    WhatsApp direto
+                  </Button>
+                </div>
+                <p className="mt-3 text-xs text-lovable-ink-muted">
+                  Apos o envio, a task fica aguardando resposta quando o canal permitir monitoramento. Depois registre o outcome abaixo.
+                </p>
               </div>
 
               <CoachPersonalAiPanel memberId={selectedItem.member_id} subjectName={selectedItem.subject_name} />

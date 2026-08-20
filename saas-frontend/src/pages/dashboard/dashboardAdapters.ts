@@ -1,19 +1,19 @@
 import type { ChurnPoint, ExecutiveDashboard, NPSEvolutionPoint } from "../../types";
 
 interface CommercialInput {
-  pipeline: Record<string, number>;
-  stale_leads_total: number;
+  pipeline?: Record<string, number>;
+  stale_leads_total?: number;
 }
 
 interface OperationalInput {
-  realtime_checkins: number;
-  inactive_7d_total: number;
+  realtime_checkins?: number;
+  inactive_7d_total?: number;
 }
 
 interface RetentionInput {
-  red: { total: number };
-  yellow: { total: number };
-  nps_trend: NPSEvolutionPoint[];
+  red?: { total?: number };
+  yellow?: { total?: number };
+  nps_trend?: NPSEvolutionPoint[];
 }
 
 export interface LovableAlert {
@@ -57,8 +57,10 @@ function pipelineTotal(pipeline: Record<string, number> | undefined): number {
 }
 
 function mapRetentionSeries(churn: ChurnPoint[] | undefined, nps: NPSEvolutionPoint[] | undefined): RetentionChartPoint[] {
-  const churnMap = new Map((churn ?? []).map((point) => [point.month, point.churn_rate]));
-  const npsMap = new Map((nps ?? []).map((point) => [point.month, point.average_score]));
+  const churnSeries = Array.isArray(churn) ? churn : [];
+  const npsSeries = Array.isArray(nps) ? nps : [];
+  const churnMap = new Map(churnSeries.map((point) => [point.month, point.churn_rate]));
+  const npsMap = new Map(npsSeries.map((point) => [point.month, point.average_score]));
   const months = Array.from(new Set([...churnMap.keys(), ...npsMap.keys()])).sort();
 
   return months.map((month) => ({
@@ -93,7 +95,7 @@ function buildInsight(
     insightParts.push(`NPS atual em ${npsLatest.toFixed(1)} indica tendência de satisfação`);
   }
 
-  return insightParts.join(". ") + ".";
+  return `${insightParts.join(". ")}.`;
 }
 
 export function buildLovableDashboardViewModel(input: {
@@ -106,10 +108,10 @@ export function buildLovableDashboardViewModel(input: {
   const revenue = input.executive?.mrr ?? 0;
   const leads = pipelineTotal(input.commercial?.pipeline);
   const checkins = input.operational?.realtime_checkins ?? 0;
-  const highRiskMembers = input.retention?.red.total ?? 0;
+  const highRiskMembers = input.retention?.red?.total ?? 0;
   const inactiveMembers = input.operational?.inactive_7d_total ?? 0;
   const staleLeads = input.commercial?.stale_leads_total ?? 0;
-  const npsSeries = input.retention?.nps_trend ?? [];
+  const npsSeries = Array.isArray(input.retention?.nps_trend) ? input.retention.nps_trend : [];
   const npsLatest = npsSeries.length > 0 ? npsSeries[npsSeries.length - 1].average_score : null;
 
   const alerts: LovableAlert[] = [];

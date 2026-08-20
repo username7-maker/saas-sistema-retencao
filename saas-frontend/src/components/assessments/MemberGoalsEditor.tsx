@@ -218,50 +218,52 @@ export function MemberGoalsEditor({ memberId, goals, defaultAssessmentId }: Prop
         </form>
       ) : null}
 
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4">
         {goals.length === 0 ? (
           <div className="rounded-xl border border-dashed border-lovable-border bg-lovable-surface-soft p-4 text-sm text-lovable-ink-muted">
             Nenhum objetivo registrado ainda.
           </div>
         ) : (
-          goals.map((goal) => (
-            <article key={goal.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-4">
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-base font-semibold text-lovable-ink">{goal.title}</p>
-                    <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-lovable-primary">
-                      {goal.category}
-                    </span>
+          <div className="divide-y divide-lovable-border/50">
+            {goals.map((goal) => (
+              <article key={goal.id} className="py-4 first:pt-0 last:pb-0">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-base font-semibold text-lovable-ink">{goal.title}</p>
+                      <span className="rounded-full bg-lovable-primary-soft px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-lovable-primary">
+                        {goal.category}
+                      </span>
+                    </div>
+                    {goal.description ? <p className="mt-2 text-sm text-lovable-ink-muted">{goal.description}</p> : null}
                   </div>
-                  {goal.description ? <p className="mt-2 text-sm text-lovable-ink-muted">{goal.description}</p> : null}
+                  <Button size="sm" variant="secondary" onClick={() => setEditingGoalId(goal.id)}>
+                    <Pencil size={14} />
+                    Editar
+                  </Button>
                 </div>
-                <Button size="sm" variant="secondary" onClick={() => setEditingGoalId(goal.id)}>
-                  <Pencil size={14} />
-                  Editar
-                </Button>
-              </div>
 
-              <div className="mt-3 grid gap-2 text-sm text-lovable-ink-muted md:grid-cols-4">
-                <p>
-                  <span className="font-semibold text-lovable-ink">Atual:</span> {goal.current_value} {goal.unit ?? ""}
-                </p>
-                <p>
-                  <span className="font-semibold text-lovable-ink">Meta:</span> {goal.target_value ?? "-"} {goal.unit ?? ""}
-                </p>
-                <p>
-                  <span className="font-semibold text-lovable-ink">Prazo:</span> {goal.target_date ?? "-"}
-                </p>
-                <p>
-                  <span className="font-semibold text-lovable-ink">Progresso:</span> {goal.progress_pct}%
-                </p>
-              </div>
+                <div className="mt-3 grid gap-2 text-sm text-lovable-ink-muted md:grid-cols-4">
+                  <p>
+                    <span className="font-semibold text-lovable-ink">Atual:</span> {goal.current_value} {goal.unit ?? ""}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-lovable-ink">Meta:</span> {goal.target_value ?? "-"} {goal.unit ?? ""}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-lovable-ink">Prazo:</span> {goal.target_date ?? "-"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-lovable-ink">Progresso:</span> {goal.progress_pct}%
+                  </p>
+                </div>
 
-              {goal.notes ? (
-                <p className="mt-3 rounded-lg bg-lovable-surface px-3 py-2 text-xs text-lovable-ink-muted">{goal.notes}</p>
-              ) : null}
-            </article>
-          ))
+                {goal.notes ? (
+                  <p className="mt-3 rounded-lg bg-lovable-surface px-3 py-2 text-xs text-lovable-ink-muted">{goal.notes}</p>
+                ) : null}
+              </article>
+            ))}
+          </div>
         )}
       </div>
     </section>

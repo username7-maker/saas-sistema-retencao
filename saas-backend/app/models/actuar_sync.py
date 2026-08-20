@@ -82,18 +82,49 @@ class ActuarSyncJob(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(f"job_type IN {ACTUAR_SYNC_JOB_TYPES}", name="actuar_sync_jobs_job_type_valid"),
         CheckConstraint(f"status IN {ACTUAR_SYNC_JOB_STATUSES}", name="actuar_sync_jobs_status_valid"),
+        CheckConstraint(
+            """
+            (
+                job_type = 'body_composition_push'
+                AND body_composition_evaluation_id IS NOT NULL
+                AND assessment_id IS NULL
+            )
+            OR
+            (
+                job_type = 'assessment_push'
+                AND assessment_id IS NOT NULL
+                AND body_composition_evaluation_id IS NULL
+            )
+            """,
+            name="actuar_sync_jobs_source_valid",
+        ),
         Index("ix_actuar_sync_jobs_gym_status_retry", "gym_id", "status", "next_retry_at"),
         Index("ix_actuar_sync_jobs_eval_created", "body_composition_evaluation_id", "created_at"),
+        Index("ix_actuar_sync_jobs_assessment_created", "assessment_id", "created_at"),
         Index("ix_actuar_sync_jobs_member_created", "member_id", "created_at"),
+        Index(
+            "uq_actuar_sync_jobs_gym_assessment_job_type",
+            "gym_id",
+            "assessment_id",
+            "job_type",
+            unique=True,
+            postgresql_where=text("assessment_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     gym_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("gyms.id", ondelete="CASCADE"), nullable=False, index=True)
     member_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
-    body_composition_evaluation_id: Mapped[uuid.UUID] = mapped_column(
+    body_composition_evaluation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("body_composition_evaluations.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("assessments.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     job_type: Mapped[str] = mapped_column(String(40), nullable=False, default="body_composition_push")
@@ -117,6 +148,7 @@ class ActuarSyncJob(Base, TimestampMixin):
         foreign_keys=[body_composition_evaluation_id],
         back_populates="sync_jobs",
     )
+    assessment = relationship("Assessment", foreign_keys=[assessment_id])
     attempts = relationship(
         "ActuarSyncAttempt",
         back_populates="sync_job",

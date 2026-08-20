@@ -243,6 +243,87 @@ class TestUpdateBodyComposition:
         else:
             raise AssertionError("Expected HTTPException when update payload removes all measurements")
 
+    @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt", return_value=None)
+    @patch("app.services.body_composition_service.generate_body_composition_ai")
+    @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_ocr_update_preserves_existing_anthropometry(
+        self,
+        mock_get_member,
+        mock_get_evaluation,
+        mock_generate_ai,
+        mock_prepare_sync,
+    ):
+        evaluation = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            source="manual",
+            reviewed_manually=True,
+            age_years=29,
+            sex="male",
+            height_cm=178.0,
+            neck_cm=38.0,
+            waist_cm=82.0,
+            abdomen_cm=86.0,
+            hip_cm=96.0,
+            right_thigh_cm=56.0,
+            left_thigh_cm=57.0,
+            skinfold_subscapular_mm=14.0,
+            skinfold_triceps_mm=16.0,
+            skinfold_suprailiac_mm=18.0,
+            skinfold_calf_mm=20.0,
+            measurement_protocol="petroski_1995_male_18_66",
+            anthropometry_ethnicity="black",
+            anthropometry_maturity="pubertal",
+            preferred_body_fat_source="geneos_composite",
+            body_fat_manual_override_percent=None,
+            body_fat_manual_review_completed=True,
+            anthropometry_review_completed=True,
+            anthropometry_notes="Medidas conferidas pelo professor.",
+            ai_coach_summary=None,
+            ai_member_friendly_summary=None,
+            ai_risk_flags_json=None,
+            ai_training_focus_json=None,
+            ai_generated_at=None,
+        )
+        mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID, full_name="Aluno")
+        mock_get_evaluation.return_value = evaluation
+        mock_generate_ai.return_value = _ai_payload()
+        db = MagicMock()
+        db.scalar.return_value = None
+
+        from app.schemas.body_composition import BodyCompositionEvaluationUpdate
+        from app.services.body_composition_service import update_body_composition_evaluation
+
+        updated, attempt = update_body_composition_evaluation(
+            db,
+            GYM_ID,
+            MEMBER_ID,
+            EVALUATION_ID,
+            BodyCompositionEvaluationUpdate(
+                evaluation_date=date(2026, 3, 4),
+                source="ocr_receipt",
+                weight_kg=84.5,
+                body_fat_percent=23.0,
+                device_profile="tezewa_receipt_v1",
+                reviewed_manually=True,
+            ),
+            sync_actuar=False,
+        )
+
+        assert updated.source == "ocr_receipt"
+        assert updated.neck_cm == 38.0
+        assert updated.waist_cm == 82.0
+        assert updated.abdomen_cm == 86.0
+        assert updated.skinfold_subscapular_mm == 14.0
+        assert updated.skinfold_triceps_mm == 16.0
+        assert updated.measurement_protocol == "petroski_1995_male_18_66"
+        assert updated.anthropometry_ethnicity == "black"
+        assert updated.anthropometry_maturity == "pubertal"
+        assert updated.body_fat_anthropometric_percent is not None
+        assert attempt is None
+
 
 class TestListBodyComposition:
     def test_lists(self):
@@ -280,6 +361,9 @@ class TestBodyCompositionDelivery:
             ai_training_focus_json={"primary_goal": "reducao_de_gordura"},
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -329,6 +413,9 @@ class TestBodyCompositionDelivery:
             },
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -357,6 +444,9 @@ class TestBodyCompositionDelivery:
             ai_training_focus_json={"primary_goal": "reducao_de_gordura", "secondary_goal": "preservacao_de_massa_magra"},
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             muscle_mass_kg=37.2,
             skeletal_muscle_kg=35.6,
             waist_hip_ratio=0.88,
@@ -374,6 +464,48 @@ class TestBodyCompositionDelivery:
 
 
 class TestBodyCompositionPremiumReportDomain:
+    def test_body_composition_schema_accepts_decimal_comma(self):
+        from app.schemas.body_composition import BodyCompositionEvaluationCreate
+
+        payload = BodyCompositionEvaluationCreate(
+            evaluation_date=date(2026, 6, 9),
+            source="manual",
+            sex="male",
+            age_years="41",
+            height_cm="178,5",
+            weight_kg="84,5",
+            body_fat_percent="23,4",
+            waist_cm="92,1",
+        )
+
+        assert payload.height_cm == 178.5
+        assert payload.weight_kg == 84.5
+        assert payload.body_fat_percent == 23.4
+        assert payload.waist_cm == 92.1
+
+    def test_resolve_persistence_fields_calculates_bmr_without_bioimpedance(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "manual",
+                "reviewed_manually": True,
+                "sex": "female",
+                "age_years": 32,
+                "height_cm": 165,
+                "weight_kg": 64,
+                "measurement_protocol": "petroski_1995_female_18_51",
+                "skinfold_midaxillary_mm": 12,
+                "skinfold_suprailiac_mm": 16,
+                "skinfold_thigh_mm": 22,
+                "skinfold_calf_mm": 14,
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["basal_metabolic_rate_kcal"] == 1350
+
     def test_resolve_persistence_fields_generates_quality_flags_and_reviewer(self):
         from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
 
@@ -414,6 +546,44 @@ class TestBodyCompositionPremiumReportDomain:
         assert payload["fat_free_mass_kg"] == 65.1
         assert payload["lean_mass_kg"] == 65.1
 
+    def test_resolve_persistence_fields_calculates_body_water_percent_deterministically(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "ocr_receipt",
+                "device_profile": "tezewa_receipt_v1",
+                "reviewed_manually": True,
+                "weight_kg": 84.5,
+                "body_water_kg": 43.3,
+                "body_water_percent": 99.0,
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["body_water_percent"] == 51.2
+
+    def test_resolve_persistence_fields_calculates_bmr_for_manual_anthropometry(self):
+        from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+
+        payload = resolve_body_composition_persistence_fields(
+            {
+                "evaluation_date": date(2026, 6, 9),
+                "source": "manual",
+                "reviewed_manually": True,
+                "sex": "female",
+                "age_years": 35,
+                "height_cm": 165.0,
+                "weight_kg": 62.5,
+                "body_fat_manual_override_percent": 24.0,
+                "preferred_body_fat_source": "manual_override",
+            },
+            reviewer_user_id=uuid.uuid4(),
+        )
+
+        assert payload["basal_metabolic_rate_kcal"] == 1320
+
     def test_generate_body_composition_insights_detects_fat_loss_with_muscle_stability(self):
         from app.services.body_composition_report_service import generate_body_composition_insights
 
@@ -422,6 +592,7 @@ class TestBodyCompositionPremiumReportDomain:
             evaluation_date=date(2026, 3, 10),
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             body_fat_percent=25.0,
+            body_fat_used_percent=25.0,
             muscle_mass_kg=35.2,
             weight_kg=85.4,
             visceral_fat_level=10.0,
@@ -433,6 +604,7 @@ class TestBodyCompositionPremiumReportDomain:
             evaluation_date=date(2026, 4, 14),
             measured_at=datetime(2026, 4, 14, 12, 0, tzinfo=UTC),
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
             muscle_mass_kg=35.6,
             weight_kg=84.5,
             visceral_fat_level=9.0,
@@ -443,7 +615,7 @@ class TestBodyCompositionPremiumReportDomain:
         insights = generate_body_composition_insights(current, [previous, current])
 
         assert any(insight.key == "fat_down_muscle_stable" for insight in insights)
-        assert any(any("% gordura variou" in reason for reason in insight.reasons) for insight in insights)
+        assert any(any("gordura estimada variou" in reason for reason in insight.reasons) for insight in insights)
 
     def test_build_report_payload_exposes_history_and_comparison(self):
         member = SimpleNamespace(
@@ -459,6 +631,9 @@ class TestBodyCompositionPremiumReportDomain:
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             weight_kg=85.7,
             body_fat_percent=24.8,
+            body_fat_used_percent=24.8,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             body_fat_kg=20.2,
             muscle_mass_kg=35.1,
             skeletal_muscle_kg=34.7,
@@ -479,6 +654,9 @@ class TestBodyCompositionPremiumReportDomain:
             height_cm=178.0,
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
+            body_fat_used_source="bioimpedance",
+            body_fat_method="legacy_bioimpedance",
             body_fat_kg=19.4,
             body_water_kg=43.3,
             protein_kg=17.7,
@@ -510,9 +688,15 @@ class TestBodyCompositionPremiumReportDomain:
         assert payload.header.member_name == "Erick Bedin"
         assert payload.previous_evaluation_id == previous.id
         assert len(payload.primary_cards) == 6
+        composition_keys = {metric.key for metric in payload.composition_metrics}
+        assert "body_water_percent" in composition_keys
+        assert "skeletal_muscle_kg" in composition_keys
+        body_water_percent = next(metric for metric in payload.composition_metrics if metric.key == "body_water_percent")
+        assert body_water_percent.formatted_value == "51.2%"
         assert len(payload.history_series) == 4
         assert any(row.key == "weight_kg" for row in payload.comparison_rows)
         assert payload.methodological_note
+        assert "bioimpedancia" in payload.methodological_note.lower()
 
 
 class TestSyncLookup:
@@ -595,6 +779,7 @@ class TestBodyCompositionReportRoute:
             measured_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             weight_kg=85.7,
             body_fat_percent=24.8,
+            body_fat_used_percent=24.8,
             muscle_mass_kg=35.1,
             visceral_fat_level=10.0,
             bmi=27.1,
@@ -609,6 +794,7 @@ class TestBodyCompositionReportRoute:
             height_cm=178.0,
             weight_kg=84.5,
             body_fat_percent=23.0,
+            body_fat_used_percent=23.0,
             body_fat_kg=19.4,
             muscle_mass_kg=35.6,
             skeletal_muscle_kg=35.0,

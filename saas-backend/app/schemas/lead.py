@@ -2,14 +2,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import LeadStage
+from app.schemas.audit_email import AuditSafeEmail
 
 
 class LeadCreate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr | None = None
+    email: AuditSafeEmail | None = None
     phone: str | None = None
     source: str = Field(min_length=2, max_length=80)
     stage: LeadStage = LeadStage.NEW
@@ -37,7 +38,7 @@ class LeadConversionHandoff(BaseModel):
 
 class LeadUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
-    email: EmailStr | None = None
+    email: AuditSafeEmail | None = None
     phone: str | None = None
     source: str | None = None
     stage: LeadStage | None = None

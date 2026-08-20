@@ -59,26 +59,26 @@ function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMember
   if (missingMembers.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+    <div className="mt-3 rounded-lg border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-lovable-ink">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-semibold">Nomes presentes na catraca, mas ausentes na base de alunos</p>
-          <p className="text-xs text-amber-900/80">
+          <p className="text-xs text-lovable-ink-muted">
             Esses nomes nao foram encontrados no cadastro atual. Voce pode exportar a lista ou reimportar usando cadastro provisiorio.
           </p>
         </div>
       </div>
       <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
         {missingMembers.slice(0, 16).map((item) => (
-          <li key={item.name} className="rounded-md bg-white/70 px-2 py-1">
+          <li key={item.name} className="rounded-md bg-lovable-surface-soft px-2 py-1">
             <span className="font-medium">{item.name}</span>
-            <span className="ml-2 text-xs text-amber-900/80">{item.occurrences} registros</span>
-            {item.sample_plan ? <span className="ml-2 text-xs text-amber-900/80">Plano: {item.sample_plan}</span> : null}
+            <span className="ml-2 text-xs text-lovable-ink-muted">{item.occurrences} registros</span>
+            {item.sample_plan ? <span className="ml-2 text-xs text-lovable-ink-muted">Plano: {item.sample_plan}</span> : null}
           </li>
         ))}
       </ul>
       {missingMembers.length > 16 ? (
-        <p className="mt-2 text-xs text-amber-900/80">Mostrando 16 de {missingMembers.length} nomes pendentes.</p>
+        <p className="mt-2 text-xs text-lovable-ink-muted">Mostrando 16 de {missingMembers.length} nomes pendentes.</p>
       ) : null}
     </div>
   );
@@ -88,17 +88,17 @@ function CreatedMembersPanel({ names }: { names: string[] }) {
   if (names.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950">
+    <div className="mt-3 rounded-lg border border-lovable-success/30 bg-lovable-success/10 p-3 text-lovable-ink">
       <p className="font-semibold">Cadastros provisórios criados nesta importação</p>
       <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
         {names.slice(0, 16).map((name) => (
-          <li key={name} className="rounded-md bg-white/70 px-2 py-1">
+          <li key={name} className="rounded-md bg-lovable-surface-soft px-2 py-1">
             {name}
           </li>
         ))}
       </ul>
       {names.length > 16 ? (
-        <p className="mt-2 text-xs text-emerald-900/80">Mostrando 16 de {names.length} nomes criados.</p>
+        <p className="mt-2 text-xs text-lovable-ink-muted">Mostrando 16 de {names.length} nomes criados.</p>
       ) : null}
     </div>
   );
@@ -181,13 +181,13 @@ function getMappingRows(preview: ImportPreview | null): ImportPreviewSourceColum
 function getStatusBadgeClass(status: ImportPreviewSourceColumn["status"]): string {
   switch (status) {
     case "mapped":
-      return "border-emerald-300 bg-emerald-50 text-emerald-950";
+      return "border-lovable-success/35 bg-lovable-success/10 text-lovable-success";
     case "ignored":
       return "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted";
     case "conflict":
       return "border-lovable-danger/50 bg-lovable-danger/10 text-lovable-danger";
     case "needs_mapping":
-      return "border-amber-300 bg-amber-50 text-amber-950";
+      return "border-lovable-warning/35 bg-lovable-warning/10 text-lovable-warning";
     default:
       return "border-lovable-border bg-lovable-surface-soft text-lovable-ink-muted";
   }
@@ -346,7 +346,7 @@ function PreviewResult({
       ) : null}
 
       {preview.unrecognized_columns.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">
+        <div className="mt-3 rounded-lg border border-lovable-warning/30 bg-lovable-warning/10 px-3 py-2 text-lovable-ink">
           <p className="font-semibold">Colunas nao reconhecidas</p>
           <p className="mt-1 text-[11px] leading-relaxed">{preview.unrecognized_columns.join(", ")}</p>
         </div>
@@ -396,7 +396,7 @@ function PreviewResult({
         <button
           type="button"
           onClick={() => exportMissingMembersEntries(preview.missing_members)}
-          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-warning/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-warning hover:bg-lovable-warning/12"
         >
           <Download size={14} />
           Exportar pendentes CSV
@@ -435,7 +435,7 @@ function ImportResult({
           className={`mb-3 rounded-lg border px-3 py-2 ${
             notice.tone === "info"
               ? "border-sky-300 bg-sky-50 text-sky-950"
-              : "border-emerald-300 bg-emerald-50 text-emerald-950"
+              : "border-lovable-success/30 bg-lovable-success/10 text-lovable-ink"
           }`}
         >
           <p className="font-semibold">{notice.title}</p>
@@ -459,7 +459,7 @@ function ImportResult({
         <button
           type="button"
           onClick={() => exportMissingMembers(summary)}
-          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100"
+          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-warning/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-warning hover:bg-lovable-warning/12"
         >
           <Download size={14} />
           Exportar pendentes CSV
@@ -778,7 +778,7 @@ export function ImportsPage() {
                   mapping: membersMapping,
                 })
               }
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-success hover:bg-lovable-success/18 disabled:opacity-60"
             >
               <FileUp size={14} />
               {importMembersMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
@@ -794,7 +794,7 @@ export function ImportsPage() {
             </button>
           </div>
           {membersPreviewDirty ? (
-            <p className="mt-2 text-xs text-amber-900">
+            <p className="mt-2 text-xs text-lovable-ink-muted">
               Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
             </p>
           ) : null}
@@ -899,7 +899,7 @@ export function ImportsPage() {
                   mapping: checkinsMapping,
                 })
               }
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-success hover:bg-lovable-success/18 disabled:opacity-60"
             >
               <FileUp size={14} />
               {importCheckinsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
@@ -917,14 +917,14 @@ export function ImportsPage() {
               type="button"
               disabled={!hasMissingMembers || !checkinsSummary}
               onClick={() => checkinsSummary && exportMissingMembers(checkinsSummary)}
-              className="inline-flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-warning/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-warning hover:bg-lovable-warning/12 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={14} />
               Exportar pendentes
             </button>
           </div>
           {checkinsPreviewDirty ? (
-            <p className="mt-2 text-xs text-amber-900">
+            <p className="mt-2 text-xs text-lovable-ink-muted">
               Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
             </p>
           ) : null}
@@ -1010,14 +1010,14 @@ export function ImportsPage() {
                   mapping: assessmentsMapping,
                 })
               }
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-success hover:bg-lovable-success/18 disabled:opacity-60"
             >
               <FileUp size={14} />
               {importAssessmentsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
             </button>
           </div>
           {assessmentsPreviewDirty ? (
-            <p className="mt-2 text-xs text-amber-900">
+            <p className="mt-2 text-xs text-lovable-ink-muted">
               Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
             </p>
           ) : null}

@@ -6,6 +6,43 @@ BODY_COMPOSITION_SOURCES = (
     "actuar_sync",
 )
 
+BODY_FAT_MEASUREMENT_SOURCES = (
+    "bioimpedance",
+    "manual_anthropometry",
+    "composite_geneos",
+    "manual_override",
+)
+
+PREFERRED_BODY_FAT_SOURCES = (
+    "bioimpedance",
+    "anthropometry",
+    "geneos_composite",
+    "manual_override",
+)
+
+BODY_FAT_USED_SOURCES = (
+    "bioimpedance",
+    "anthropometry",
+    "manual_override",
+)
+
+BODY_FAT_METHODS = (
+    "legacy_bioimpedance",
+    "navy_circumference",
+    "rfm",
+    "geneos_composite",
+    "skinfold_protocol",
+    "manual_override",
+)
+
+BODY_FAT_CONFIDENCES = (
+    "high",
+    "medium_high",
+    "medium",
+    "low",
+    "inconsistent",
+)
+
 ACTUAR_SYNC_MODES = (
     "disabled",
     "http_api",
@@ -46,6 +83,7 @@ ACTUAR_SYNC_ATTEMPT_STATUSES = (
 
 ACTUAR_SYNC_JOB_TYPES = (
     "body_composition_push",
+    "assessment_push",
 )
 
 ACTUAR_SYNC_JOB_STATUSES = (

@@ -205,7 +205,9 @@ export function summarizeBodyComposition(evaluation: BodyCompositionEvaluation |
   if (!evaluation) return "Sem bioimpedancia registrada";
   const highlights: string[] = [];
   if (evaluation.weight_kg != null) highlights.push(`${evaluation.weight_kg} kg`);
-  if (evaluation.body_fat_percent != null) highlights.push(`${evaluation.body_fat_percent}% BF`);
+  if (evaluation.body_fat_used_percent != null) {
+    highlights.push(`${evaluation.body_fat_used_percent}% gordura estimada`);
+  }
   if (evaluation.health_score != null) highlights.push(`score ${evaluation.health_score}`);
   return highlights.length > 0 ? highlights.join(" - ") : "Registro salvo na aba dedicada";
 }

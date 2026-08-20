@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OperationalDashboardPage } from "../pages/dashboard/OperationalDashboardPage";
 
@@ -48,6 +48,11 @@ vi.mock("../components/common/QuickActions", () => ({
 }));
 
 describe("OperationalDashboardPage websocket auth", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("opens the websocket without token in the URL and authenticates via first message", () => {
     const send = vi.fn();
     const close = vi.fn();
@@ -96,6 +101,51 @@ describe("OperationalDashboardPage websocket auth", () => {
     expect(send).toHaveBeenCalledWith(JSON.stringify({ type: "auth", token: "jwt-token" }));
     expect(webSocketSpy.mock.calls[0]?.[0]).not.toContain("token=");
 
-    webSocketSpy.mockRestore();
+  });
+
+  it("reconnects after a background websocket is closed", () => {
+    vi.useFakeTimers();
+    const sockets: Array<{
+      readyState: number;
+      onopen: (() => void) | null;
+      onclose: (() => void) | null;
+      onerror: (() => void) | null;
+      onmessage: ((event: MessageEvent<string>) => void) | null;
+      send: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    }> = [];
+
+    class WebSocketMock {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = WebSocketMock.CONNECTING;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      send = vi.fn();
+      close = vi.fn();
+
+      constructor(_: string) {
+        sockets.push(this);
+      }
+    }
+
+    vi.spyOn(globalThis, "WebSocket").mockImplementation(WebSocketMock as unknown as typeof WebSocket);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OperationalDashboardPage />
+      </QueryClientProvider>,
+    );
+
+    expect(sockets).toHaveLength(1);
+    act(() => {
+      sockets[0]?.onclose?.();
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(sockets).toHaveLength(2);
   });
 });

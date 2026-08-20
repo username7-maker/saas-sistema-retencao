@@ -1,0 +1,117 @@
+{
+  "name": "Cordex AI Agent - Human Approval Gateway",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "approval-input",
+      "name": "Approval Request Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cordex-whatsapp-agent/approval-decision",
+        "responseMode": "responseNode"
+      },
+      "id": "approval-webhook",
+      "name": "Approval Decision Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload ?? input.body ?? input;\nconst approval = { id: payload.approval_id ?? `approval_${Date.now()}`, status: payload.status ?? 'pending', tool: payload.tool_name, risk: payload.risk ?? 'high', requested_by: payload.requested_by ?? payload.user_id, payload: payload.payload ?? payload };\nreturn [{ json: { status: approval.status === 'pending' ? 'pending_approval' : approval.status, approval, message: approval.status === 'pending' ? 'Approval request prepared for WhatsApp/Evolution API.' : 'Approval decision received.' } }];"
+      },
+      "id": "prepare-approval",
+      "name": "Prepare Approval Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "approval-response",
+      "name": "Respond Approval Decision",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        560,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Approval Request Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Approval Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Decision Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Approval Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Approval Record": {
+      "main": [
+        [
+          {
+            "node": "Respond Approval Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

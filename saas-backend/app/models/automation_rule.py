@@ -19,6 +19,7 @@ class AutomationTrigger:
 
 class AutomationAction:
     CREATE_TASK = "create_task"
+    SEND_PRIMARY_CHANNEL = "send_primary_channel"
     SEND_WHATSAPP = "send_whatsapp"
     SEND_EMAIL = "send_email"
     NOTIFY = "notify"

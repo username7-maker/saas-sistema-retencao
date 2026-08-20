@@ -26,6 +26,7 @@ def test_api_docs_enabled_by_default_outside_production():
 
 def test_api_docs_disabled_by_default_in_production():
     settings = Settings(
+        _env_file=None,
         environment="production",
         jwt_secret_key=VALID_JWT_SECRET,
         cpf_encryption_key=VALID_ENCRYPTION_KEY,
@@ -35,6 +36,7 @@ def test_api_docs_disabled_by_default_in_production():
 
 def test_api_docs_can_be_explicitly_enabled_for_controlled_environments():
     settings = Settings(
+        _env_file=None,
         environment="production",
         enable_api_docs=True,
         jwt_secret_key=VALID_JWT_SECRET,

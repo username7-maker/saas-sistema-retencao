@@ -225,6 +225,64 @@ def test_sync_ai_triage_recommendations_refreshes_match_and_deactivates_stale(mo
     assert db.flush.called
 
 
+def test_sync_ai_triage_recommendations_does_not_reopen_actioned_member(monkeypatch):
+    gym_id = uuid4()
+    member_id = uuid4()
+    snapshot = {
+        "source_domain": "retention",
+        "source_entity_kind": "member",
+        "source_entity_id": member_id,
+        "member_id": member_id,
+        "lead_id": None,
+        "subject_name": "Ana",
+        "priority_score": 91,
+        "priority_bucket": "critical",
+        "why_now_summary": "Aluno em risco agora.",
+        "why_now_details": ["Risco vermelho."],
+        "recommended_action": "Ligar hoje",
+        "recommended_channel": "call",
+        "recommended_owner": {"user_id": None, "role": "manager", "label": "Manager"},
+        "suggested_message": "Ola Ana",
+        "expected_impact": "Reduzir cancelamento.",
+        "metadata": {"risk_level": "red"},
+    }
+    recommendation = AITriageRecommendation(
+        id=uuid4(),
+        gym_id=gym_id,
+        source_domain="retention",
+        source_entity_kind="member",
+        source_entity_id=member_id,
+        member_id=member_id,
+        priority_score=50,
+        is_active=True,
+        suggestion_state="reviewed",
+        approval_state="approved",
+        execution_state="prepared",
+        outcome_state="pending",
+        last_refreshed_at=datetime.now(tz=timezone.utc),
+        payload_snapshot={"subject_name": "Ana", "metadata": {"prepared_action": "prepare_outbound_message"}},
+    )
+
+    monkeypatch.setattr("app.services.ai_triage_service._build_retention_snapshots", lambda *_args, **_kwargs: [snapshot])
+    monkeypatch.setattr("app.services.ai_triage_service._build_onboarding_snapshots", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("app.services.ai_triage_service.log_audit_event", lambda *_args, **_kwargs: None)
+
+    db = MagicMock()
+    db.scalars.side_effect = [
+        _ScalarResult([recommendation]),
+        _ScalarResult([]),
+    ]
+    db.scalar.return_value = 0
+
+    result = sync_ai_triage_recommendations(db, gym_id=gym_id, limit_per_domain=10)
+
+    assert result == []
+    assert recommendation.is_active is False
+    assert recommendation.priority_score == 50
+    assert recommendation.payload_snapshot["metadata"]["prepared_action"] == "prepare_outbound_message"
+    assert db.flush.called
+
+
 def test_serialize_ai_triage_recommendation_reads_snapshot_contract():
     recommendation = AITriageRecommendation(
         id=uuid4(),

@@ -16,19 +16,19 @@ def test_send_monthly_reports_exposes_blocked_delivery_metadata(monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.report_service.send_email_with_attachment_result",
-        lambda *args, **kwargs: EmailSendResult(sent=False, blocked=True, reason="sendgrid_permission_denied"),
+        lambda *args, **kwargs: EmailSendResult(sent=False, blocked=True, reason="resend_permission_denied"),
     )
 
     leadership = [SimpleNamespace(email="owner@teste.com"), SimpleNamespace(email="manager@teste.com")]
     db = MagicMock()
     db.scalars.return_value.all.return_value = leadership
 
-    result = send_monthly_reports(db)
+    result = send_monthly_reports(db, gym_id="gym-1")
 
     assert result["sent"] == 0
     assert result["failed"] == 2
     assert result["blocked"] == 2
-    assert result["blocked_reasons"] == {"sendgrid_permission_denied": 2}
+    assert result["blocked_reasons"] == {"resend_permission_denied": 2}
     assert result["total_recipients"] == 2
 
 
@@ -39,7 +39,7 @@ def test_execute_monthly_reports_dispatch_job_raises_when_no_email_is_delivered(
             "sent": 0,
             "failed": 2,
             "blocked": 2,
-            "blocked_reasons": {"sendgrid_permission_denied": 2},
+            "blocked_reasons": {"resend_permission_denied": 2},
             "total_recipients": 2,
         },
     )
@@ -54,7 +54,7 @@ def test_execute_monthly_reports_dispatch_job_raises_when_no_email_is_delivered(
             requested_by_user_id="user-1",
         )
 
-    assert exc_info.value.code == "sendgrid_permission_denied"
+    assert exc_info.value.code == "resend_permission_denied"
 
 
 def test_execute_lead_proposal_dispatch_job_raises_when_email_is_not_sent(monkeypatch):
@@ -69,7 +69,7 @@ def test_execute_lead_proposal_dispatch_job_raises_when_email_is_not_sent(monkey
             "lead_id": "lead-1",
             "filename": "proposal.pdf",
             "emailed": False,
-            "email_error_code": "sendgrid_permission_denied",
+            "email_error_code": "resend_permission_denied",
             "whatsapp_status": None,
         },
     )
@@ -77,4 +77,4 @@ def test_execute_lead_proposal_dispatch_job_raises_when_email_is_not_sent(monkey
     with pytest.raises(CoreAsyncJobNonRetryableError) as exc_info:
         execute_lead_proposal_dispatch_job(db, lead_id="lead-1", job_id="job-1")
 
-    assert exc_info.value.code == "sendgrid_permission_denied"
+    assert exc_info.value.code == "resend_permission_denied"

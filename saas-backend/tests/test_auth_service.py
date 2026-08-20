@@ -6,7 +6,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.auth_service import issue_tokens
-from app.core.security import verify_password, hash_password, create_access_token
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    hash_refresh_token,
+    verify_password,
+    verify_refresh_token,
+)
 from tests.conftest import make_mock_db, GYM_ID, USER_ID
 
 
@@ -22,6 +29,26 @@ class TestHashAndVerify:
     def test_verify_password_wrong(self):
         hashed = hash_password("SenhaForte123!")
         assert verify_password("ErradaXXX", hashed) is False
+
+    def test_refresh_token_hash_uses_full_token_digest(self):
+        common_prefix = "x" * 72
+        first_token = f"{common_prefix}-first"
+        second_token = f"{common_prefix}-second"
+
+        stored_hash = hash_refresh_token(first_token)
+
+        assert stored_hash.startswith("sha256$")
+        assert verify_refresh_token(first_token, stored_hash) is True
+        assert verify_refresh_token(second_token, stored_hash) is False
+
+    def test_refresh_token_rotation_rejects_previous_token(self):
+        first_token = create_refresh_token(USER_ID, GYM_ID)
+        rotated_token = create_refresh_token(USER_ID, GYM_ID)
+        rotated_hash = hash_refresh_token(rotated_token)
+
+        assert first_token != rotated_token
+        assert verify_refresh_token(rotated_token, rotated_hash) is True
+        assert verify_refresh_token(first_token, rotated_hash) is False
 
 
 class TestCreateAccessToken:

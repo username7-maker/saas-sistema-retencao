@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Report Generator",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nif (!payload.report_type) return [{ json: { status: 'error', report: '', files: [], error: 'report_type is required' } }];\nconst report = `# ${payload.report_type} report\\n\\nPeriod: ${payload.period ?? 'not specified'}\\n\\nData sources: ${(payload.data_sources ?? []).join(', ') || 'none configured'}\\n\\nThis is a safe V1 draft. Connect data sources before production.`;\nreturn [{ json: { status: 'success', report, files: [], format: payload.format ?? 'markdown' } }];"
+      },
+      "id": "generate-report",
+      "name": "Generate Report Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Generate Report Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

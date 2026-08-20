@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool n8n Workflow Manager",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nconst dangerous = ['activate_workflow', 'deactivate_workflow', 'create_workflow'];\nif (!payload.action) return [{ json: { status: 'error', result: {}, error: 'action is required' } }];\nif (dangerous.includes(payload.action)) return [{ json: { status: 'pending_approval', result: { workflow_id: payload.workflow_id, action: payload.action, backup_required: true }, approval_required: true } }];\nreturn [{ json: { status: 'success', result: { action: payload.action, workflow_id: payload.workflow_id ?? null, description: payload.description ?? null, note: 'Documentation/audit mode only in V1 draft.' } } }];"
+      },
+      "id": "validate-workflow-manager-action",
+      "name": "Validate Workflow Manager Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Workflow Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

@@ -19,6 +19,7 @@ from app.services.work_queue_service import (
     execute_work_queue_item,
     get_work_queue_item,
     list_work_queue_items,
+    regenerate_work_queue_message,
     send_and_wait_work_queue_item,
     update_work_queue_outcome,
 )
@@ -45,6 +46,7 @@ def list_work_queue_items_endpoint(
     assignee: AssigneeFilter = Query("all"),
     domain: DomainFilter = Query("all"),
     source: SourceFilter = Query("all"),
+    bucket: str = Query("all", max_length=80),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
 ) -> PaginatedResponse[WorkQueueItemOut]:
@@ -56,6 +58,7 @@ def list_work_queue_items_endpoint(
         assignee=assignee,
         domain=domain,
         source=source,
+        bucket=bucket,
         page=page,
         page_size=page_size,
     )
@@ -123,6 +126,26 @@ def send_and_wait_work_queue_item_endpoint(
         payload=payload,
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
+    )
+    db.commit()
+    return result
+
+
+@router.post("/items/{source_type}/{source_id}/regenerate-message", response_model=WorkQueueActionResultOut)
+def regenerate_work_queue_message_endpoint(
+    source_type: SourceType,
+    source_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST)),
+    ],
+) -> WorkQueueActionResultOut:
+    result = regenerate_work_queue_message(
+        db,
+        current_user=current_user,
+        source_type=source_type,
+        source_id=source_id,
     )
     db.commit()
     return result

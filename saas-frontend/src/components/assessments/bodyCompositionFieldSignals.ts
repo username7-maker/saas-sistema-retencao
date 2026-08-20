@@ -1,6 +1,5 @@
 import type {
   BodyCompositionOcrResult,
-  BodyCompositionOcrValues,
   BodyCompositionOcrWarning,
 } from "../../services/bodyCompositionOcr";
 import type { EvaluationSource } from "../../types";
@@ -12,7 +11,7 @@ export interface BodyCompositionFieldSignal {
 }
 
 interface ResolveBodyCompositionFieldSignalInput {
-  fieldKey: keyof BodyCompositionOcrValues;
+  fieldKey: string;
   currentSource: EvaluationSource;
   currentValue?: string | number | null;
   ocrResult: BodyCompositionOcrResult | null;
@@ -36,12 +35,17 @@ function hasVisibleValue(value: string | number | null | undefined): boolean {
   return Number.isFinite(value);
 }
 
+function signalValue(value: unknown): string | number | null | undefined {
+  if (value == null || typeof value === "string" || typeof value === "number") return value;
+  return undefined;
+}
+
 function sameNumericValue(left: unknown, right: unknown): boolean {
   if (typeof left !== "number" || typeof right !== "number") return left === right;
   return Math.abs(left - right) < 0.0001;
 }
 
-function warningsForField(fieldKey: keyof BodyCompositionOcrValues, warnings: BodyCompositionOcrWarning[] | null | undefined) {
+function warningsForField(fieldKey: string, warnings: BodyCompositionOcrWarning[] | null | undefined) {
   return (warnings ?? []).filter((warning) => warning.field === fieldKey);
 }
 
@@ -84,8 +88,8 @@ export function resolveBodyCompositionFieldSignal({
     };
   }
 
-  const finalValue = ocrResult?.values[fieldKey];
-  const localValue = localResult?.values[fieldKey];
+  const finalValue = signalValue((ocrResult?.values as Record<string, unknown> | undefined)?.[fieldKey]);
+  const localValue = signalValue((localResult?.values as Record<string, unknown> | undefined)?.[fieldKey]);
 
   if (ocrResult?.engine === "ai_assisted" && hasVisibleValue(finalValue)) {
     return {

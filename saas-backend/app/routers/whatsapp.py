@@ -2,6 +2,7 @@
 Endpoints de gerenciamento da conexao WhatsApp por academia.
 """
 import logging
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -12,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import require_roles
-from app.database import get_db
-from app.models import RoleEnum, User
+from app.database import get_db, set_current_gym_id
+from app.models import Lead, Member, RoleEnum, User
 from app.schemas.core_async_job import CoreAsyncJobStatusRead
 from app.models.gym import Gym
 from app.services.core_async_job_service import (
@@ -29,6 +30,8 @@ from app.services.evolution_service import (
     get_qr_code,
 )
 from app.services.nurturing_service import handle_incoming_whatsapp_webhook
+from app.services.whatsapp_agent_service import send_agent_reply_from_service_token
+from app.services.whatsapp_service import get_gym_instance
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,21 @@ class QRCodeOut(BaseModel):
     job_id: str | None = None
     job_status: str | None = None
     webhook_setup_created: bool | None = None
+
+
+class WhatsAppAgentReplyIn(BaseModel):
+    gym_id: UUID
+    recipient_phone: str
+    message: str
+    instance: str | None = None
+    member_id: UUID | None = None
+    lead_id: UUID | None = None
+
+
+class WhatsAppAgentReplyOut(BaseModel):
+    status: str
+    message_log_id: str | None = None
+    detail: str | None = None
 
 
 def _ensure_evolution_config() -> None:
@@ -96,6 +114,57 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     return authorization.strip() or None
 
 
+def _verify_agent_service_token(
+    *,
+    authorization: str | None,
+    x_cordex_agent_token: str | None,
+) -> None:
+    configured_token = (settings.cordex_agent_service_token or "").strip()
+    provided_token = x_cordex_agent_token or _extract_bearer_token(authorization)
+    if (
+        not configured_token
+        or not provided_token
+        or not secrets.compare_digest(provided_token, configured_token)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid agent service token")
+
+
+def _validate_agent_reply_scope(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID | None,
+    lead_id: UUID | None,
+) -> None:
+    if member_id is not None:
+        member = db.scalar(
+            select(Member).where(
+                Member.id == member_id,
+                Member.gym_id == gym_id,
+                Member.deleted_at.is_(None),
+            )
+        )
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Member not found for the informed gym",
+            )
+
+    if lead_id is not None:
+        lead = db.scalar(
+            select(Lead).where(
+                Lead.id == lead_id,
+                Lead.gym_id == gym_id,
+                Lead.deleted_at.is_(None),
+            )
+        )
+        if lead is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lead not found for the informed gym",
+            )
+
+
 @router.post("/connect", response_model=QRCodeOut)
 def connect_whatsapp(
     db: Session = Depends(get_db),
@@ -104,7 +173,12 @@ def connect_whatsapp(
     _ensure_evolution_config()
 
     gym = _get_gym(db, current_user.gym_id)
-    instance = ensure_instance(str(current_user.gym_id))
+    force_new_instance = not gym.whatsapp_instance or gym.whatsapp_status in {"disconnected", "error"}
+    instance = ensure_instance(
+        str(current_user.gym_id),
+        instance_name=None if force_new_instance else gym.whatsapp_instance,
+        fresh=force_new_instance,
+    )
     gym.whatsapp_instance = instance
     gym.whatsapp_status = "connecting"
     db.add(gym)
@@ -131,6 +205,21 @@ def connect_whatsapp(
     db.commit()
 
     qr_data = get_qr_code(instance)
+    if not qr_data.get("qrcode"):
+        conn = get_connection_status(instance)
+        if conn["state"] == "open":
+            gym.whatsapp_status = "connected"
+            gym.whatsapp_phone = conn.get("phone")
+            gym.whatsapp_connected_at = gym.whatsapp_connected_at or datetime.now(tz=timezone.utc)
+            db.add(gym)
+            db.commit()
+            qr_data = {"status": "connected", "qrcode": None}
+        elif qr_data.get("status") == "connected":
+            gym.whatsapp_status = "connecting"
+            db.add(gym)
+            db.commit()
+            qr_data = {"status": "connecting", "qrcode": None}
+
     return QRCodeOut(
         **qr_data,
         job_id=job_id,
@@ -199,13 +288,55 @@ def disconnect_whatsapp(
 ) -> None:
     gym = _get_gym(db, current_user.gym_id)
     if gym.whatsapp_instance:
-        disconnect_instance(gym.whatsapp_instance)
+        disconnected = disconnect_instance(gym.whatsapp_instance)
+        if not disconnected:
+            logger.warning(
+                "Gym %s: Evolution nao confirmou reset da instancia %s; proximo connect criara instancia nova.",
+                gym.id,
+                gym.whatsapp_instance,
+            )
     gym.whatsapp_instance = None
     gym.whatsapp_status = "disconnected"
     gym.whatsapp_phone = None
     gym.whatsapp_connected_at = None
     db.add(gym)
     db.commit()
+
+
+@router.post("/agent/reply", response_model=WhatsAppAgentReplyOut, include_in_schema=False)
+def whatsapp_agent_reply(
+    payload: WhatsAppAgentReplyIn,
+    authorization: str | None = Header(default=None),
+    x_cordex_agent_token: str | None = Header(default=None, alias="X-Cordex-Agent-Token"),
+    db: Session = Depends(get_db),
+) -> WhatsAppAgentReplyOut:
+    _verify_agent_service_token(
+        authorization=authorization,
+        x_cordex_agent_token=x_cordex_agent_token,
+    )
+    if (settings.whatsapp_agent_mode or "").strip().lower() != "active":
+        return WhatsAppAgentReplyOut(status="skipped", detail="WhatsApp agent is not active")
+
+    set_current_gym_id(payload.gym_id)
+    _get_gym(db, payload.gym_id)
+    _validate_agent_reply_scope(
+        db,
+        gym_id=payload.gym_id,
+        member_id=payload.member_id,
+        lead_id=payload.lead_id,
+    )
+    instance = payload.instance or get_gym_instance(db, payload.gym_id)
+    log_entry = send_agent_reply_from_service_token(
+        db,
+        gym_id=payload.gym_id,
+        recipient_phone=payload.recipient_phone,
+        message=payload.message,
+        instance=instance,
+        member_id=payload.member_id,
+        lead_id=payload.lead_id,
+    )
+    db.commit()
+    return WhatsAppAgentReplyOut(status=log_entry.status, message_log_id=str(log_entry.id))
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK, include_in_schema=False)
@@ -217,7 +348,11 @@ async def whatsapp_webhook(
 ) -> dict:
     configured_token = (settings.whatsapp_webhook_token or "").strip()
     provided_token = x_webhook_token or _extract_bearer_token(authorization)
-    if not configured_token or provided_token != configured_token:
+    if (
+        not configured_token
+        or not provided_token
+        or not secrets.compare_digest(provided_token, configured_token)
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook token")
 
     body = await request.json()
@@ -232,6 +367,8 @@ async def whatsapp_webhook(
     if not gym:
         logger.warning("Webhook para instancia desconhecida: %s", instance_name)
         return {"ok": True}
+
+    set_current_gym_id(gym.id)
 
     if event in ("CONNECTION_UPDATE", "STATUS_INSTANCE"):
         state = data.get("state") or data.get("status", "")

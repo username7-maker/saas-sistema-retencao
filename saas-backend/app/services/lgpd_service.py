@@ -168,7 +168,9 @@ def export_member_pdf(db: Session, member_id: UUID, gym_id: UUID) -> tuple[Bytes
     write_line(f"Total de bioimpedancias exportadas: {len(body_composition)}")
     for idx, evaluation in enumerate(body_composition[:10], start=1):
         write_line(
-            f"{idx}. {evaluation.evaluation_date.isoformat()} | peso={evaluation.weight_kg or '-'} | gordura%={evaluation.body_fat_percent or '-'} | musculo={evaluation.muscle_mass_kg or '-'}"
+            f"{idx}. {evaluation.evaluation_date.isoformat()} | peso={evaluation.weight_kg or '-'} | "
+            f"gordura_estimada%={getattr(evaluation, 'body_fat_used_percent', None) or '-'} | "
+            f"gordura_bioimpedancia_bruta%={evaluation.body_fat_percent or '-'} | musculo={evaluation.muscle_mass_kg or '-'}"
         )
         if evaluation.notes:
             write_line(f"   notas: {evaluation.notes}")

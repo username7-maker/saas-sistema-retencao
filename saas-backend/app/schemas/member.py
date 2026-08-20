@@ -2,15 +2,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import MemberStatus, RiskLevel
+from app.schemas.audit_email import AuditSafeEmail
 from app.schemas.assistant import AIAssistantPayload
 
 
 class MemberCreate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr | None = None
+    email: AuditSafeEmail | None = None
     phone: str | None = None
     cpf: str | None = Field(default=None, min_length=11, max_length=14)
     birthdate: date | None = None
@@ -18,6 +19,8 @@ class MemberCreate(BaseModel):
     monthly_fee: Decimal = Decimal("0")
     join_date: date = Field(default_factory=date.today)
     preferred_shift: str | None = None
+    sex_for_clinical_calculation: str | None = Field(default=None, pattern="^(male|female)$")
+    height_cm: Decimal | None = Field(default=None, gt=0)
     assigned_user_id: UUID | None = None
     loyalty_months: int = 0
     extra_data: dict = Field(default_factory=dict)
@@ -25,7 +28,7 @@ class MemberCreate(BaseModel):
 
 class MemberUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
-    email: EmailStr | None = None
+    email: AuditSafeEmail | None = None
     phone: str | None = None
     cpf: str | None = Field(default=None, min_length=11, max_length=14)
     birthdate: date | None = None
@@ -33,6 +36,8 @@ class MemberUpdate(BaseModel):
     plan_name: str | None = None
     monthly_fee: Decimal | None = None
     preferred_shift: str | None = None
+    sex_for_clinical_calculation: str | None = Field(default=None, pattern="^(male|female)$")
+    height_cm: Decimal | None = Field(default=None, gt=0)
     assigned_user_id: UUID | None = None
     loyalty_months: int | None = None
     nps_last_score: int | None = Field(default=None, ge=0, le=10)
@@ -50,6 +55,8 @@ class MemberOut(BaseModel):
     monthly_fee: Decimal
     join_date: date
     preferred_shift: str | None
+    sex_for_clinical_calculation: str | None = None
+    height_cm: Decimal | None = None
     nps_last_score: int
     loyalty_months: int
     risk_score: int

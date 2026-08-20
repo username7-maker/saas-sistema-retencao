@@ -477,7 +477,8 @@ def _build_personal_ai_reply_result(*, member: Member, context: PersonalAiContex
         fallback = (
             f"Oi, {first_name}! Pela sua bioimpedancia mais recente, o foco agora e acompanhar tendencia, "
             f"manter regularidade no treino e revisar o plano com o professor. "
-            f"Peso: {latest_bio.get('weight_kg') or '-'} kg, gordura: {latest_bio.get('body_fat_percent') or '-'}%, "
+            f"Peso: {latest_bio.get('weight_kg') or '-'} kg, gordura estimada: "
+            f"{latest_bio.get('body_fat_used_percent') or '-'}%, "
             f"massa muscular: {latest_bio.get('skeletal_muscle_kg') or latest_bio.get('muscle_mass_kg') or '-'} kg. {caution}"
         )
     elif intent == "assessment_explanation":
@@ -669,7 +670,12 @@ def _body_composition_snapshot(evaluation: BodyCompositionEvaluation | None) -> 
         "id": str(evaluation.id),
         "evaluation_date": _json_value(evaluation.evaluation_date),
         "weight_kg": _json_value(evaluation.weight_kg),
-        "body_fat_percent": _json_value(evaluation.body_fat_percent),
+        "body_fat_bioimpedance_raw_percent": _json_value(
+            getattr(evaluation, "body_fat_bioimpedance_percent", None) or evaluation.body_fat_percent
+        ),
+        "body_fat_used_percent": _json_value(getattr(evaluation, "body_fat_used_percent", None)),
+        "body_fat_used_source": getattr(evaluation, "body_fat_used_source", None),
+        "body_fat_method": getattr(evaluation, "body_fat_method", None),
         "skeletal_muscle_kg": _json_value(evaluation.skeletal_muscle_kg),
         "muscle_mass_kg": _json_value(evaluation.muscle_mass_kg),
         "health_score": evaluation.health_score,

@@ -6,6 +6,7 @@ export type WorkQueueShiftFilter = "my_shift" | "all" | "overnight" | "morning" 
 export type WorkQueueAssigneeFilter = "mine" | "unassigned" | "all";
 export type WorkQueueDomainFilter = "all" | "operations" | "retention" | "onboarding" | "assessment" | "trainer" | "commercial" | "finance" | "manual";
 export type WorkQueueSourceFilter = "all" | "task" | "ai_triage" | "assessment_queue" | "ai_service_agent" | "student_personal_ai";
+export type WorkQueueBucketFilter = "all" | string;
 
 export interface ListWorkQueueParams {
   state?: WorkQueueListState;
@@ -13,6 +14,7 @@ export interface ListWorkQueueParams {
   assignee?: WorkQueueAssigneeFilter;
   domain?: WorkQueueDomainFilter;
   source?: WorkQueueSourceFilter;
+  bucket?: WorkQueueBucketFilter;
   page?: number;
   page_size?: number;
 }
@@ -40,9 +42,9 @@ export interface SendAndWaitPayload {
 
 export const workQueueService = {
   async listItems(params?: ListWorkQueueParams): Promise<PaginatedResponse<WorkQueueItem>> {
-    const { page = 1, page_size = 25, state = "do_now", shift = "my_shift", assignee = "all", domain = "all", source = "all" } = params ?? {};
+    const { page = 1, page_size = 25, state = "do_now", shift = "my_shift", assignee = "all", domain = "all", source = "all", bucket = "all" } = params ?? {};
     const { data } = await api.get<PaginatedResponse<WorkQueueItem>>("/api/v1/work-queue/items", {
-      params: { page, page_size, state, shift, assignee, domain, source },
+      params: { page, page_size, state, shift, assignee, domain, source, bucket },
     });
     return data;
   },
@@ -84,6 +86,13 @@ export const workQueueService = {
     const { data } = await api.post<WorkQueueActionResult>(
       `/api/v1/work-queue/items/${sourceType}/${sourceId}/send-and-wait`,
       payload,
+    );
+    return data;
+  },
+
+  async regenerateMessage(sourceType: WorkQueueItem["source_type"], sourceId: string): Promise<WorkQueueActionResult> {
+    const { data } = await api.post<WorkQueueActionResult>(
+      `/api/v1/work-queue/items/${sourceType}/${sourceId}/regenerate-message`,
     );
     return data;
   },

@@ -1,8 +1,18 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { authService, type LoginPayload } from "../services/authService";
 import { tokenStorage } from "../services/storage";
 import type { User } from "../types";
+
+const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+function isAuthFailure(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  return status === 401 || status === 403;
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -16,6 +26,7 @@ interface AuthContextValue {
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,8 +37,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const currentUser = await authService.me();
       setUser(currentUser);
-    } catch {
-      tokenStorage.clear();
+    } catch (error) {
+      if (isAuthFailure(error)) {
+        tokenStorage.clear();
+      }
       setUser(null);
     } finally {
       setLoading(false);
@@ -37,6 +50,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const keepSessionWarm = () => {
+      // Keep the operator's session warm, but avoid rotating the HttpOnly
+      // refresh cookie every few minutes while the access token is still fresh.
+      // Fewer rotations reduce race windows across tabs and flaky network edges.
+      void authService.ensureSession({ clearOnFailure: false }).catch(() => undefined);
+    };
+
+    const recoverVisibleSession = () => {
+      if (document.visibilityState === "hidden") return;
+      void authService.ensureSession({ clearOnFailure: false })
+        .then(() => queryClient.invalidateQueries({ refetchType: "active" }))
+        .catch(() => undefined);
+    };
+
+    const intervalId = window.setInterval(keepSessionWarm, SESSION_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", recoverVisibleSession);
+    window.addEventListener("online", recoverVisibleSession);
+    window.addEventListener("pageshow", recoverVisibleSession);
+    document.addEventListener("visibilitychange", recoverVisibleSession);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", recoverVisibleSession);
+      window.removeEventListener("online", recoverVisibleSession);
+      window.removeEventListener("pageshow", recoverVisibleSession);
+      document.removeEventListener("visibilitychange", recoverVisibleSession);
+    };
+  }, [queryClient, user]);
 
   const login = useCallback(async (payload: LoginPayload) => {
     await authService.login(payload);
@@ -53,12 +98,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const currentUser = await authService.me();
       setUser(currentUser);
       return currentUser;
-    } catch {
-      tokenStorage.clear();
-      setUser(null);
+    } catch (error) {
+      if (isAuthFailure(error)) {
+        tokenStorage.clear();
+        setUser(null);
+        return null;
+      }
+      if (user) {
+        return user;
+      }
       return null;
     }
-  }, []);
+  }, [user]);
 
   const logout = useCallback(async () => {
     await authService.logout();

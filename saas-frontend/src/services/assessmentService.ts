@@ -1,12 +1,39 @@
 import { api } from "./api";
 import type { ActuarSyncQueueItem, AIAssistantPayload, RiskLevel } from "../types";
 
+function parseFilename(contentDisposition?: string, fallback = "avaliacao-antropometrica.pdf"): string {
+  const match = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
+  return decodeURIComponent(match?.[1] || match?.[2] || fallback);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+}
+
+function writePdfWindowMessage(targetWindow: Window | null | undefined, title: string, message: string): void {
+  if (!targetWindow) return;
+  try {
+    targetWindow.document.open();
+    targetWindow.document.write(`<!doctype html><title>${title}</title><body style="font-family:Inter,Arial,sans-serif;background:#0b0f17;color:#e5eefb;padding:32px"><h1>${title}</h1><p>${message}</p></body>`);
+    targetWindow.document.close();
+  } catch {
+    // noop
+  }
+}
+
 export interface Assessment {
   id: string;
   gym_id: string;
   member_id: string;
   evaluator_id: string | null;
-  assessment_number: number;
+  assessment_number: number | null;
   assessment_date: string;
   next_assessment_due: string | null;
   height_cm: number | null;
@@ -14,6 +41,21 @@ export interface Assessment {
   bmi: number | null;
   body_fat_pct: number | null;
   lean_mass_kg: number | null;
+  fat_mass_kg?: number | null;
+  waist_hip_ratio?: number | null;
+  basal_metabolic_rate?: number | null;
+  assessment_method?: "manual_anthropometry" | "bioimpedance" | "hybrid" | "imported" | null;
+  record_origin?: "cordex" | "legacy" | "actuar" | null;
+  sex_used_for_formula?: "male" | "female" | null;
+  age_used_for_formula?: number | null;
+  height_used_for_formula?: number | null;
+  weight_used_for_formula?: number | null;
+  measurement_protocol?: string | null;
+  formula_version?: string | null;
+  calculation_hash?: string | null;
+  anthropometry_snapshot_json?: Record<string, unknown> | null;
+  history_badge?: string | null;
+  comparison_warning?: string | null;
   waist_cm: number | null;
   hip_cm: number | null;
   chest_cm: number | null;
@@ -132,6 +174,7 @@ export interface EvolutionData {
   body_fat: Array<number | null>;
   lean_mass: Array<number | null>;
   bmi: Array<number | null>;
+  perimetry?: Record<string, Array<number | null>>;
   strength: Array<number | null>;
   flexibility: Array<number | null>;
   cardio: Array<number | null>;
@@ -653,6 +696,58 @@ export interface AssessmentCreateInput {
   extra_data?: Record<string, unknown>;
 }
 
+export interface AnthropometryProtocol {
+  key: string;
+  label: string;
+  sex: "male" | "female" | null;
+  age_min: number | null;
+  age_max: number | null;
+  required_fields: string[];
+  supported: boolean;
+  notes?: string | null;
+}
+
+export interface AnthropometryMeasurementInput {
+  attempts: number[];
+  unit: "mm" | "cm" | "kg";
+  side: "right" | "left" | "not_applicable";
+  side_exception_reason?: string | null;
+}
+
+export interface AnthropometryAssessmentInput {
+  assessment_date?: string;
+  sex_for_formula?: "male" | "female";
+  age_years?: number | null;
+  measurement_protocol: string;
+  measurements: Record<string, AnthropometryMeasurementInput>;
+  observations?: string;
+}
+
+export interface AnthropometryPreview {
+  assessment_method: "manual_anthropometry";
+  record_origin: "cordex";
+  measurement_policy_version?: string;
+  protocol: {
+    key: string;
+    label: string;
+    [key: string]: unknown;
+  };
+  formula_version: string;
+  calculation_hash: string;
+  results: {
+    bmi?: number | null;
+    body_fat_pct?: number | null;
+    fat_mass_kg?: number | null;
+    lean_mass_kg?: number | null;
+    waist_hip_ratio?: number | null;
+    basal_metabolic_rate?: number | null;
+    muscle_mass_kg?: number | null;
+    [key: string]: number | string | boolean | null | undefined;
+  };
+  indicator_origins: Record<string, string>;
+  snapshot: Record<string, unknown>;
+}
+
 export interface MemberConstraintsUpsertInput {
   medical_conditions?: string;
   injuries?: string;
@@ -812,6 +907,71 @@ export const assessmentService = {
   async create(memberId: string, payload: AssessmentCreateInput): Promise<Assessment> {
     const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}`, payload);
     return data;
+  },
+
+  async anthropometryProtocols(): Promise<AnthropometryProtocol[]> {
+    const { data } = await api.get<AnthropometryProtocol[]>("/api/v1/assessments/anthropometry/protocols");
+    return data;
+  },
+
+  async previewAnthropometry(memberId: string, payload: AnthropometryAssessmentInput): Promise<AnthropometryPreview> {
+    const { data } = await api.post<AnthropometryPreview>(`/api/v1/assessments/members/${memberId}/anthropometry/preview`, payload);
+    return data;
+  },
+
+  async createAnthropometry(memberId: string, payload: AnthropometryAssessmentInput, idempotencyKey: string): Promise<Assessment> {
+    const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}/anthropometry`, payload, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    return data;
+  },
+
+  async fetchAnthropometryPdf(memberId: string, assessmentId: string): Promise<{ blob: Blob; filename: string }> {
+    const response = await api.get<Blob>(`/api/v1/assessments/members/${memberId}/${assessmentId}/pdf`, {
+      headers: { Accept: "application/pdf" },
+      responseType: "blob",
+      params: { ts: Date.now() },
+      timeout: 90_000,
+    });
+
+    return {
+      blob: response.data,
+      filename: parseFilename(response.headers["content-disposition"], "avaliacao-antropometrica.pdf"),
+    };
+  },
+
+  async openAnthropometryPdf(memberId: string, assessmentId: string, popup?: Window | null): Promise<void> {
+    const targetWindow = popup ?? window.open("", "_blank");
+    if (targetWindow) {
+      try {
+        targetWindow.opener = null;
+      } catch {
+        // noop
+      }
+      writePdfWindowMessage(
+        targetWindow,
+        "Gerando PDF",
+        "Estamos montando o relatorio antropometrico completo. A primeira geracao pode levar alguns segundos.",
+      );
+    }
+
+    try {
+      const { blob, filename } = await this.fetchAnthropometryPdf(memberId, assessmentId);
+      const url = window.URL.createObjectURL(blob);
+      if (targetWindow) {
+        targetWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+      triggerBrowserDownload(blob, filename);
+    } catch (error) {
+      writePdfWindowMessage(
+        targetWindow,
+        "Nao foi possivel gerar o PDF",
+        "A avaliacao foi salva, mas o backend nao retornou o arquivo dentro do tempo esperado. Tente abrir o PDF novamente pelo historico.",
+      );
+      throw error;
+    }
   },
 
   async evolution(memberId: string): Promise<EvolutionData> {

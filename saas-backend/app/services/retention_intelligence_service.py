@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.models.enums import ChurnType
 from app.services.notification_service import create_notification
+from app.services.operational_message_ai_service import generate_operational_message_draft
 from app.services.retention_stage_service import (
     RETENTION_STAGE_ATTENTION,
     RETENTION_STAGE_COLD_BASE,
@@ -260,12 +261,26 @@ def materialize_playbook(db: Session, member: Member, playbook: list[dict]) -> l
         title = step["title"]
 
         if step["action"] in ("call", "task", "whatsapp"):
+            base_message = step["message"].replace("{nome}", member.full_name)
+            draft = generate_operational_message_draft(
+                db,
+                domain="retention",
+                base_message=base_message,
+                member=member,
+                context={
+                    "playbook_title": title,
+                    "churn_type": member.churn_type,
+                    "retention_stage": retention_stage,
+                    "retention_stage_label": stage_meta.label,
+                    "owner_role": step["owner"],
+                },
+            )
             task_payload = {
                 "title": title,
-                "description": step["message"].replace("{nome}", member.full_name),
+                "description": base_message,
                 "priority": priority_map.get(step["priority"], TaskPriority.MEDIUM),
                 "due_date": now + timedelta(days=step.get("due_days", 1)),
-                "suggested_message": step["message"].replace("{nome}", member.full_name),
+                "suggested_message": draft.message or base_message,
                 "extra_data": {
                     "source": "retention_intelligence",
                     "domain": "retention",
@@ -274,6 +289,10 @@ def materialize_playbook(db: Session, member: Member, playbook: list[dict]) -> l
                     "retention_stage": retention_stage,
                     "retention_stage_label": stage_meta.label,
                     "retention_stage_priority": stage_meta.priority,
+                    "ai_suggested_message": draft.message,
+                    "ai_message_metadata": draft.metadata,
+                    "ai_message_source": draft.message_source,
+                    "ai_message_blocked_reasons": draft.blocked_reasons,
                 },
             }
 

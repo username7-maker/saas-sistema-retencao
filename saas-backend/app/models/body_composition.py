@@ -6,7 +6,16 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.body_composition_constants import ACTUAR_SYNC_MODES, ACTUAR_SYNC_STATUSES, BODY_COMPOSITION_SOURCES
+from app.models.body_composition_constants import (
+    ACTUAR_SYNC_MODES,
+    ACTUAR_SYNC_STATUSES,
+    BODY_COMPOSITION_SOURCES,
+    BODY_FAT_CONFIDENCES,
+    BODY_FAT_MEASUREMENT_SOURCES,
+    BODY_FAT_METHODS,
+    BODY_FAT_USED_SOURCES,
+    PREFERRED_BODY_FAT_SOURCES,
+)
 
 
 class BodyCompositionEvaluation(Base, TimestampMixin):
@@ -17,6 +26,30 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
             "body_fat_percent IS NULL OR (body_fat_percent >= 0 AND body_fat_percent <= 100)",
             name="bce_fat_range",
         ),
+        CheckConstraint(
+            "body_fat_bioimpedance_percent IS NULL OR "
+            "(body_fat_bioimpedance_percent >= 0 AND body_fat_bioimpedance_percent <= 100)",
+            name="bce_body_fat_bioimpedance_range",
+        ),
+        CheckConstraint(
+            "body_fat_anthropometric_percent IS NULL OR "
+            "(body_fat_anthropometric_percent >= 0 AND body_fat_anthropometric_percent <= 100)",
+            name="bce_body_fat_anthropometric_range",
+        ),
+        CheckConstraint(
+            "body_fat_manual_override_percent IS NULL OR "
+            "(body_fat_manual_override_percent >= 0 AND body_fat_manual_override_percent <= 100)",
+            name="bce_body_fat_manual_override_range",
+        ),
+        CheckConstraint(
+            "body_fat_used_percent IS NULL OR (body_fat_used_percent >= 0 AND body_fat_used_percent <= 100)",
+            name="bce_body_fat_used_range",
+        ),
+        CheckConstraint(f"measurement_source IS NULL OR measurement_source IN {BODY_FAT_MEASUREMENT_SOURCES}", name="bce_measurement_source_valid"),
+        CheckConstraint(f"preferred_body_fat_source IS NULL OR preferred_body_fat_source IN {PREFERRED_BODY_FAT_SOURCES}", name="bce_preferred_body_fat_source_valid"),
+        CheckConstraint(f"body_fat_used_source IS NULL OR body_fat_used_source IN {BODY_FAT_USED_SOURCES}", name="bce_body_fat_used_source_valid"),
+        CheckConstraint(f"body_fat_method IS NULL OR body_fat_method IN {BODY_FAT_METHODS}", name="bce_body_fat_method_valid"),
+        CheckConstraint(f"body_fat_confidence IS NULL OR body_fat_confidence IN {BODY_FAT_CONFIDENCES}", name="bce_body_fat_confidence_valid"),
         CheckConstraint(
             "body_water_percent IS NULL OR (body_water_percent >= 0 AND body_water_percent <= 100)",
             name="bce_water_range",
@@ -49,7 +82,21 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
 
     weight_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     body_fat_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    # Legacy/raw compatibility field. Product surfaces must use body_fat_used_percent.
     body_fat_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_bioimpedance_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_anthropometric_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_manual_override_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_used_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_used_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    body_fat_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    body_fat_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    body_fat_range_min: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    body_fat_range_max: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    preferred_body_fat_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    measurement_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    fat_mass_estimated_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    lean_mass_estimated_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     waist_hip_ratio: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     # Canonical field for modern bioimpedance exams. lean_mass_kg remains legacy compatibility only.
     fat_free_mass_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
@@ -71,6 +118,40 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     visceral_fat_level: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
     bmi: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     basal_metabolic_rate_kcal: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    neck_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    shoulders_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    chest_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    waist_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    abdomen_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    hip_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    iliac_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    right_arm_relaxed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    left_arm_relaxed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    right_arm_flexed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    left_arm_flexed_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    right_thigh_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    left_thigh_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    right_calf_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    left_calf_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    anthropometry_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body_fat_manual_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    body_fat_manual_review_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    anthropometry_review_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    skinfold_chest_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_midaxillary_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_subscapular_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_triceps_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_biceps_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_abdominal_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_suprailiac_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_thigh_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skinfold_calf_mm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    measurement_protocol: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    anthropometry_ethnicity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    anthropometry_maturity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    evaluated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="tezewa")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

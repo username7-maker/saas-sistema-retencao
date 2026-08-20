@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.models import BodyCompositionEvaluation, Member
+from app.models.assessment import Assessment
 
 
 def build_body_composition_canonical_payload(member: Member, evaluation: BodyCompositionEvaluation) -> dict[str, Any]:
@@ -17,7 +18,9 @@ def build_body_composition_canonical_payload(member: Member, evaluation: BodyCom
         "height_cm": _derive_height_cm(weight_kg, bmi),
         "target_weight_kg": _to_float(getattr(evaluation, "target_weight_kg", None)),
         "body_fat_kg": _to_float(getattr(evaluation, "body_fat_kg", None)),
-        "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None)),
+        # Actuar V1 keeps the legacy/raw bioimpedance contract. New perimetry fields are internal to GeneOS.
+        "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None))
+        or _to_float(getattr(evaluation, "body_fat_bioimpedance_percent", None)),
         "waist_hip_ratio": _to_float(getattr(evaluation, "waist_hip_ratio", None)),
         "muscle_mass_kg": _to_float(getattr(evaluation, "skeletal_muscle_kg", None)) or _to_float(getattr(evaluation, "muscle_mass_kg", None)),
         "lean_mass_kg": _to_float(getattr(evaluation, "fat_free_mass_kg", None)) or _to_float(getattr(evaluation, "lean_mass_kg", None)),
@@ -68,6 +71,57 @@ def build_actuar_field_mapping(
     }
 
 
+def build_anthropometric_assessment_actuar_payload(member: Member, assessment: Assessment) -> dict[str, Any]:
+    return {
+        "assessment_id": str(assessment.id),
+        "member_id": str(member.id),
+        "measured_at": assessment.assessment_date.isoformat(),
+        "weight_kg": _to_float(getattr(assessment, "weight_kg", None)),
+        "height_cm": _to_float(getattr(assessment, "height_cm", None)),
+        "body_fat_pct": _to_float(getattr(assessment, "body_fat_pct", None)),
+        "body_fat_kg": _to_float(getattr(assessment, "fat_mass_kg", None)),
+        "lean_mass_kg": _to_float(getattr(assessment, "lean_mass_kg", None)),
+        "bmi": _to_float(getattr(assessment, "bmi", None)),
+        "waist_hip_ratio": _to_float(getattr(assessment, "waist_hip_ratio", None)),
+        "bmr_kcal": _to_float(getattr(assessment, "basal_metabolic_rate", None)),
+        "measurement_protocol": getattr(assessment, "measurement_protocol", None),
+        "source_device": "manual_anthropometry",
+        "operator_name": None,
+        "notes": getattr(assessment, "observations", None),
+    }
+
+
+def build_anthropometric_assessment_actuar_mapping(
+    member: Member,
+    assessment: Assessment,
+) -> dict[str, Any]:
+    payload = build_anthropometric_assessment_actuar_payload(member, assessment)
+    mappings = [
+        _mapping("weight_kg", "weight", payload["weight_kg"], "critical_direct", required=True),
+        _mapping("height_cm", "height_cm", payload["height_cm"], "critical_direct", required=True),
+        _mapping("body_fat_pct", "body_fat_percent", payload["body_fat_pct"], "critical_direct", required=True),
+        _mapping("body_fat_kg", "fat_mass_kg", payload["body_fat_kg"], "unsupported", supported=False),
+        _mapping("lean_mass_kg", "lean_mass_kg", payload["lean_mass_kg"], "unsupported", supported=False),
+        _mapping("bmi", "bmi", payload["bmi"], "unsupported", supported=False),
+        _mapping("waist_hip_ratio", None, payload["waist_hip_ratio"], "unsupported", supported=False),
+        _mapping("bmr_kcal", "bmr_kcal", payload["bmr_kcal"], "unsupported", supported=False),
+        _mapping("evaluation_date", None, payload["measured_at"], "text_note_only"),
+        _mapping("measurement_protocol", None, payload["measurement_protocol"], "text_note_only"),
+        _mapping("notes", None, payload["notes"], "text_note_only"),
+        _mapping("muscle_mass_kg", "muscle_mass_kg", None, "unsupported", supported=False),
+    ]
+    critical_fields = [item for item in mappings if item["classification"].startswith("critical")]
+    non_critical_fields = [item for item in mappings if not item["classification"].startswith("critical")]
+    missing_critical_fields = [item["field"] for item in critical_fields if item["required"] and _is_missing(item["value"])]
+    return {
+        "payload": payload,
+        "mapped_fields": mappings,
+        "critical_fields": critical_fields,
+        "non_critical_fields": non_critical_fields,
+        "missing_critical_fields": missing_critical_fields,
+    }
+
+
 def build_manual_sync_summary(member: Member, evaluation: BodyCompositionEvaluation) -> dict[str, Any]:
     mapping = build_actuar_field_mapping(member, evaluation)
     summary_lines = [
@@ -78,6 +132,26 @@ def build_manual_sync_summary(member: Member, evaluation: BodyCompositionEvaluat
         label = item["actuar_field"] or item["field"]
         value = "-" if _is_missing(item["value"]) else item["value"]
         summary_lines.append(f"{label}: {value}")
+    return {
+        "critical_fields": mapping["critical_fields"],
+        "summary_text": "\n".join(summary_lines),
+    }
+
+
+def build_anthropometric_assessment_manual_sync_summary(member: Member, assessment: Assessment) -> dict[str, Any]:
+    mapping = build_anthropometric_assessment_actuar_mapping(member, assessment)
+    summary_lines = [
+        f"Aluno: {member.full_name}",
+        f"Data da avaliacao: {assessment.assessment_date.date().isoformat()}",
+        "Origem: antropometria manual sem bioimpedancia",
+    ]
+    if assessment.measurement_protocol:
+        summary_lines.append(f"Protocolo: {assessment.measurement_protocol}")
+    for item in mapping["critical_fields"]:
+        label = item["actuar_field"] or item["field"]
+        value = "-" if _is_missing(item["value"]) else item["value"]
+        summary_lines.append(f"{label}: {value}")
+    summary_lines.append("Massa muscular: indisponivel nesta modalidade")
     return {
         "critical_fields": mapping["critical_fields"],
         "summary_text": "\n".join(summary_lines),

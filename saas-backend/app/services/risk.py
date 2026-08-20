@@ -205,6 +205,7 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
         ).all()
     )
     current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True)
+    resolved_retention_episodes = _prefetch_resolved_retention_episodes(db)
     existing_call_tasks = _prefetch_open_call_tasks(db, deduplicate=True)
     manager = _find_manager(db)
     existing_manager_alert_tasks: set[tuple] = set()
@@ -238,29 +239,32 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
                 member.risk_level = result.level
 
                 if result.score >= 40:
-                    actions = _run_inactivity_automations(
-                        db,
-                        member,
-                        result.days_without_checkin,
-                        result.level,
-                        triggered_stages,
-                        existing_call_tasks=existing_call_tasks,
-                        manager=manager,
-                        existing_manager_alert_tasks=existing_manager_alert_tasks,
-                    )
-                    automations_triggered += len(actions)
                     effective_result = _result_from_member_state(member, result)
                     current_alert_obj = current_alerts_by_member.get(member.id)
-                    current_alert = _create_or_update_alert(
-                        db,
-                        member,
-                        effective_result,
-                        actions,
-                        current_alert=current_alert_obj,
-                        ws_events=ws_events,
-                    )
-                    current_alerts_by_member[member.id] = current_alert
-                    alerts_created += 1
+                    if current_alert_obj is None and _should_suppress_resolved_episode(member, resolved_retention_episodes):
+                        current_alerts_by_member.pop(member.id, None)
+                    else:
+                        actions = _run_inactivity_automations(
+                            db,
+                            member,
+                            result.days_without_checkin,
+                            result.level,
+                            triggered_stages,
+                            existing_call_tasks=existing_call_tasks,
+                            manager=manager,
+                            existing_manager_alert_tasks=existing_manager_alert_tasks,
+                        )
+                        automations_triggered += len(actions)
+                        current_alert = _create_or_update_alert(
+                            db,
+                            member,
+                            effective_result,
+                            actions,
+                            current_alert=current_alert_obj,
+                            ws_events=ws_events,
+                        )
+                        current_alerts_by_member[member.id] = current_alert
+                        alerts_created += 1
                 else:
                     effective_result = result
                     current_alert_obj = current_alerts_by_member.pop(member.id, None)
@@ -348,7 +352,11 @@ def refresh_member_risk_snapshot(
 
     metrics_by_member = _prefetch_member_checkin_metrics(db, now, member_ids={member.id for member in members})
     assessment_member_ids = _prefetch_member_ids_with_assessments(db, {member.id for member in members})
+    member_id_set = {member.id for member in members}
     current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True) if sync_alerts else {}
+    resolved_retention_episodes = (
+        _prefetch_resolved_retention_episodes(db, member_ids=member_id_set) if sync_alerts else set()
+    )
     refreshed = 0
     alerts_synced = 0
     for member in members:
@@ -361,6 +369,21 @@ def refresh_member_risk_snapshot(
             db.add(member)
         if sync_alerts and result.score >= 40:
             current_alert = current_alerts_by_member.get(member.id)
+            if _retention_cooldown_active(member, now):
+                if _resolve_alert(
+                    db,
+                    member,
+                    current_alert,
+                    resolved_at=now,
+                    reason="retention_action_cooldown",
+                ):
+                    current_alerts_by_member.pop(member.id, None)
+                    alerts_synced += 1
+                refreshed += 1
+                continue
+            if current_alert is None and _should_suppress_resolved_episode(member, resolved_retention_episodes):
+                refreshed += 1
+                continue
             synced_alert = _create_or_update_alert(
                 db,
                 member,
@@ -386,6 +409,7 @@ def _resolve_alert(
     current_alert: RiskAlert | None,
     *,
     resolved_at: datetime,
+    reason: str = "score_below_threshold",
     ws_events: list[dict] | None = None,
 ) -> bool:
     if current_alert is None or current_alert.resolved:
@@ -396,7 +420,7 @@ def _resolve_alert(
         {
             "type": "automatic_resolution",
             "timestamp": resolved_at.isoformat(),
-            "reason": "score_below_threshold",
+            "reason": reason,
         }
     )
     current_alert.action_history = history
@@ -414,6 +438,51 @@ def _resolve_alert(
         current_alert.level.value,
     )
     return True
+
+
+def _retention_cooldown_active(member: Member, now: datetime) -> bool:
+    extra_data = getattr(member, "extra_data", None)
+    if not isinstance(extra_data, dict):
+        return False
+    value = extra_data.get("retention_cooldown_until")
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed > now
+
+
+def _retention_episode_key(member: Member) -> str:
+    last_checkin_at = getattr(member, "last_checkin_at", None)
+    if last_checkin_at is not None:
+        if last_checkin_at.tzinfo is None:
+            last_checkin_at = last_checkin_at.replace(tzinfo=timezone.utc)
+        normalized = last_checkin_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        return f"absence:last-checkin:{normalized}"
+
+    return "absence:never-checked-in"
+
+
+def _should_suppress_resolved_episode(member: Member, resolved_episodes: set[tuple]) -> bool:
+    return (member.id, _retention_episode_key(member)) in resolved_episodes
+
+
+def _prefetch_resolved_retention_episodes(
+    db: Session,
+    *,
+    member_ids: set[uuid.UUID] | None = None,
+) -> set[tuple]:
+    stmt = select(RiskAlert.member_id, RiskAlert.episode_key).where(
+        RiskAlert.resolved.is_(True),
+        RiskAlert.episode_key.is_not(None),
+    )
+    if member_ids:
+        stmt = stmt.where(RiskAlert.member_id.in_(member_ids))
+    return {(member_id, episode_key) for member_id, episode_key in db.execute(stmt).all()}
 
 
 def _result_from_member_state(member: Member, result: RiskResult) -> RiskResult:
@@ -693,6 +762,8 @@ def _create_or_update_alert(
     ws_events: list[dict] | None = None,
 ) -> RiskAlert:
     if current_alert:
+        if not current_alert.episode_key:
+            current_alert.episode_key = _retention_episode_key(member)
         current_alert.score = risk_result.score
         current_alert.level = risk_result.level
         current_alert.reasons = risk_result.reasons
@@ -705,6 +776,7 @@ def _create_or_update_alert(
     alert = RiskAlert(
         id=uuid.uuid4(),
         member_id=member.id,
+        episode_key=_retention_episode_key(member),
         score=risk_result.score,
         level=risk_result.level,
         reasons=risk_result.reasons,

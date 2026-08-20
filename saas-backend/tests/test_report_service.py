@@ -1,18 +1,43 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
+from uuid import uuid4
 
 from app.services import report_service
+from app.services.body_composition_report_service import build_body_composition_report_read
 from app.services.premium_report_service import (
     PremiumReportBranding,
     PremiumReportMetric,
     PremiumReportNarrative,
     PremiumReportPayload,
     PremiumReportSection,
+    _repair_pdf_text_encoding,
     build_dashboard_report_payload,
     render_premium_report_html,
 )
 from tests.conftest import make_mock_db
+
+
+def test_repair_pdf_text_encoding_fixes_mojibake_before_chromium_render():
+    repaired = _repair_pdf_text_encoding("AvaliaÃ§Ã£o nÂº 1 Â· frequÃªncia")
+
+    assert repaired == "Avaliação nº 1 · frequência"
+
+
+def test_repair_pdf_text_encoding_restores_portuguese_accents_before_pdf_render():
+    repaired = _repair_pdf_text_encoding(
+        "Relatorio de avaliacao fisica: composicao, bioimpedancia, evolucao e proxima avaliacao ate 90 dias. "
+        "Houve reducao de gordura com manutencao nas ultimas avaliacoes. "
+        "BIOIMPEDANCIA TERCO MEDIO DA FAIXA CALCULO. "
+        "Agua, Proteina, Musculo esqueletico, Relacao cintura-quadril, Razao cintura-altura e Indices."
+    )
+
+    assert repaired == (
+        "Relatório de avaliação física: composição, bioimpedância, evolução e próxima avaliação até 90 dias. "
+        "Houve redução de gordura com manutenção nas últimas avaliações. "
+        "BIOIMPEDÂNCIA TERÇO MÉDIO DA FAIXA CÁLCULO. "
+        "Água, Proteína, Músculo esquelético, Relação cintura-quadril, Razão cintura-altura e Índices."
+    )
 
 
 def test_build_dashboard_report_payload_accepts_serialized_executive_dashboard(monkeypatch):
@@ -111,10 +136,35 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                 },
                 "primary_cards": [
                     {"key": "weight_kg", "label": "Peso", "formatted_value": "84,5 kg", "delta_absolute": -1.2, "unit": "kg"},
-                    {"key": "body_fat_percent", "label": "% gordura corporal", "formatted_value": "23,0%", "delta_absolute": -1.8, "unit": "%"},
+                    {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "delta_absolute": -1.8, "unit": "%"},
                 ],
+                "body_fat_context": {
+                    "used_source": "anthropometry",
+                    "method": "skinfold_protocol",
+                    "manual_review_required": False,
+                    "quality_flags": [],
+                },
+                "score_total": 71,
+                "score_breakdown": [
+                    {"key": "body_fat", "label": "Gordura corporal", "score": 22, "max_score": 25, "description": "Teste"},
+                    {"key": "muscle", "label": "Massa muscular", "score": 18, "max_score": 25, "description": "Teste"},
+                    {"key": "visceral_fat", "label": "Gordura visceral", "score": 18, "max_score": 25, "description": "Teste"},
+                    {"key": "waist", "label": "Cintura / RCQ", "score": 13, "max_score": 25, "description": "Teste"},
+                ],
+                "next_assessment": {
+                    "due_date": "2026-07-13",
+                    "formatted_due_date": "13/07/2026",
+                    "contact_date": "2026-06-28",
+                    "formatted_contact_date": "28/06/2026",
+                    "cycle_days": 90,
+                    "contact_offset_days": 75,
+                    "conditions": ["mesmo horario sempre que possivel"],
+                },
                 "composition_metrics": [
+                    {"key": "body_fat_used_percent", "label": "Gordura corporal estimada", "formatted_value": "23,0%", "reference_min": 10, "reference_max": 25, "unit": "%"},
+                    {"key": "body_fat_bioimpedance_percent", "label": "Percentual bruto oculto", "formatted_value": "31,2%", "reference_min": 10, "reference_max": 25, "unit": "%"},
                     {"key": "body_water_kg", "label": "Agua corporal", "formatted_value": "43,3 kg", "reference_min": 39, "reference_max": 48, "unit": "kg"},
+                    {"key": "protein_kg", "label": "Proteina", "formatted_value": "17,7 kg", "reference_min": 5, "reference_max": 25, "unit": "kg"},
                 ],
                 "muscle_fat_metrics": [
                     {"key": "weight_kg", "label": "Peso", "formatted_value": "84,5 kg", "value": 84.5, "reference_min": 65, "reference_max": 80, "status": "high"},
@@ -133,11 +183,24 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                     {
                         "key": "weight_kg",
                         "label": "Peso",
+                        "previous_value": 85.7,
+                        "current_value": 84.5,
                         "previous_formatted": "85,7 kg",
                         "current_formatted": "84,5 kg",
                         "difference_absolute": -1.2,
                         "unit": "kg",
                         "trend": "down",
+                    }
+                ],
+                "measurement_rows": [
+                    {
+                        "key": "neck_cm",
+                        "label": "Pescoco",
+                        "current_value": 38,
+                        "previous_value": 37,
+                        "formatted_current": "38 cm",
+                        "formatted_previous": "37 cm",
+                        "formatted_delta": "+1 cm",
                     }
                 ],
                 "history_series": [
@@ -172,25 +235,119 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
 
     html = render_premium_report_html(payload)
 
-    assert "Analise da Composicao Corporal" in html
-    assert "Pontuacao corporal" in html
+    assert "Relatorio de avaliacao fisica" in html
+    assert "Indicadores-chave" in html
+    assert "Metodo de leitura da gordura corporal" in html
+    assert "Composicao corporal detalhada" in html
+    assert "Medidas/protocolo" in html
+    assert "Bioimpedancia" in html
+    assert "Medidas corporais" in html
+    assert "Mapa corporal frontal masculino de medidas" in html
+    assert 'data-report-asset="body-map"' in html
+    assert "https://report-assets.local/body-map-front-male.png" in html
+    assert "Score da avaliacao" in html
+    assert "<strong>71</strong>" in html
+    assert "Nova avaliacao em 90 dias" in html
+    assert "contato da academia: 28/06/2026" in html
     assert "Historico da Composicao Corporal" not in html
-    assert "Comparativo rapido" in html
-    assert "Leitura final" in html
+    assert "Leitura Final" not in html
     assert "Gordura visceral" in html
     assert "Relacao cintura-quadril" in html
     assert "Erick Bedin" in html
+    assert "Percentual bruto oculto" not in html
+    assert "Diferenca entre fontes" not in html
+    assert "body_fat_source_divergence" not in html
+    assert "Confianca" not in html
+    assert "Faixa estimada" not in html
+    assert "Revisao manual" not in html
+    assert "ANTHROPOMETRY" not in html
+    assert "anthropometry_protocol_manual_only" not in html
+    assert "Dados adicionais" not in html
+    assert "Nota tecnica" not in html
     assert "OCR 82%" not in html
     assert "OCR com baixa confianca" not in html
     assert ">ID<" not in html
     assert "clinical-cordex-logo" in html
     assert "clinical-progym-logo" in html
-    assert "data:image/png;base64" in html
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 
-    assert "Historico da Composicao Corporal" in technical_html
-    assert "Anterior x Atual" in technical_html
+    assert "Historico" in technical_html
+    assert "clinical-history-page" in technical_html
+    assert technical_html.rindex("clinical-history-page") > technical_html.index("<h2>Observacoes do professor</h2>")
+    assert "Observacoes do professor" in technical_html
+    assert "Leitura Final" not in technical_html
+    assert "Percentual bruto oculto" not in technical_html
+    assert "Diferenca entre fontes" not in technical_html
+    assert "body_fat_source_divergence" not in technical_html
+    assert "Confianca" not in technical_html
+    assert "Faixa estimada" not in technical_html
+    assert "Revisao manual" not in technical_html
+    assert "ANTHROPOMETRY" not in technical_html
+    assert "anthropometry_protocol_manual_only" not in technical_html
+    assert "Proteina" in technical_html
+    assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." not in technical_html
+
+
+def test_body_composition_report_builds_v3_score_indicators_and_rules():
+    member = SimpleNamespace(
+        full_name="Erick Bedin",
+        birthdate=None,
+        gym=SimpleNamespace(name="AI GYM OS Piloto"),
+        assigned_user=None,
+    )
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        evaluation_date=date(2026, 7, 8),
+        measured_at=datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
+        age_years=20,
+        sex="male",
+        height_cm=178,
+        weight_kg=84.5,
+        body_fat_used_percent=17.94,
+        body_fat_range_min=14.94,
+        body_fat_range_max=20.94,
+        body_fat_used_source="anthropometry",
+        body_fat_method="skinfold_protocol",
+        body_fat_anthropometric_percent=17.94,
+        fat_mass_estimated_kg=15.16,
+        fat_free_mass_kg=65.0,
+        muscle_mass_kg=37.2,
+        skeletal_muscle_kg=35.6,
+        visceral_fat_level=9.1,
+        waist_hip_ratio=0.88,
+        waist_cm=82,
+        abdomen_cm=86,
+        hip_cm=96,
+        right_thigh_cm=56,
+        left_thigh_cm=67,
+        right_calf_cm=43,
+        left_calf_cm=43,
+        muscle_control_kg=-7.8,
+        data_quality_flags_json=[],
+        reviewed_manually=True,
+        notes=None,
+    )
+
+    report = build_body_composition_report_read(member, evaluation, history=[evaluation])
+    risk_by_key = {metric.key: metric for metric in report.risk_metrics}
+
+    assert risk_by_key["waist_height_ratio"].formatted_value == "0.46"
+    assert risk_by_key["ffmi"].formatted_value == "20.5"
+    assert risk_by_key["visceral_fat_level"].status == "monitor"
+    assert risk_by_key["waist_hip_ratio"].status == "monitor"
+    assert risk_by_key["waist_hip_ratio"].position_label == "terco superior da faixa"
+    assert report.score_total == sum(item.score for item in report.score_breakdown)
+    assert [item.key for item in report.score_breakdown] == ["body_fat", "muscle", "visceral_fat", "waist"]
+    assert [item.key for item in report.recommendations] == [
+        "monitor_waist_visceral",
+        "repeat_thigh_measurement",
+        "review_target_weight",
+    ]
+    assert report.next_assessment is not None
+    assert report.next_assessment.formatted_due_date == "06/10/2026"
+    assert report.next_assessment.formatted_contact_date == "21/09/2026"
+    assert report.next_assessment.contact_offset_days == 75
 
 
 def test_build_consolidated_dashboard_payload_includes_board_pack_sections(monkeypatch):
@@ -340,17 +497,25 @@ def test_send_monthly_reports_uses_premium_pipeline(monkeypatch):
         ]
     )
 
-    result = report_service.send_monthly_reports(db)
+    result = report_service.send_monthly_reports(db, gym_id="gym-1")
 
     assert result == {"sent": 2, "failed": 0, "blocked": 0, "blocked_reasons": {}, "total_recipients": 2}
+    statement = db.scalars.call_args.args[0]
+    assert "users.gym_id" in str(statement)
 
 
 def test_execute_monthly_reports_dispatch_job_logs_completion_without_commit(monkeypatch):
     audit_calls = []
+    send_calls = []
+
+    def fake_send_monthly_reports(*_args, **kwargs):
+        send_calls.append(kwargs)
+        return {"sent": 2, "failed": 0, "total_recipients": 2}
+
     monkeypatch.setattr(
         report_service,
         "send_monthly_reports",
-        lambda *_args, **_kwargs: {"sent": 2, "failed": 0, "total_recipients": 2},
+        fake_send_monthly_reports,
     )
     monkeypatch.setattr(
         report_service,
@@ -367,4 +532,5 @@ def test_execute_monthly_reports_dispatch_job_logs_completion_without_commit(mon
     )
 
     assert result["sent"] == 2
+    assert send_calls == [{"gym_id": "gym-1"}]
     assert audit_calls[0]["action"] == "monthly_reports_dispatched"

@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 _FIELD_LABELS = {
     "evaluation_date": "data da avaliacao",
     "weight_kg": "peso",
-    "body_fat_kg": "gordura corporal em kg",
-    "body_fat_percent": "percentual de gordura",
+    "fat_mass_estimated_kg": "massa de gordura estimada",
+    "body_fat_used_percent": "percentual de gordura estimado",
     "waist_hip_ratio": "relacao cintura-quadril",
     "fat_free_mass_kg": "massa livre de gordura",
     "inorganic_salt_kg": "sal inorganico",
@@ -66,7 +66,7 @@ _TECHNICAL_MEMBER_TERMS = (
     "relacao cintura-quadril",
     "indice de massa corporal",
     "massa muscular esqueletica",
-    "percentual de gordura",
+    "percentual de gordura estimado",
     "imc",
 )
 
@@ -185,7 +185,7 @@ def _generate_with_openai(
     previous_summary = _summarize_previous(previous_evaluation)
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
-        "Analise uma bioimpedancia real e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
+        "Analise uma avaliacao de composicao corporal e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
         "Regras obrigatorias:\n"
         "- nao diagnosticar doenca\n"
         "- nao sugerir condicao medica\n"
@@ -193,6 +193,10 @@ def _generate_with_openai(
         "- nao prescrever treino fechado\n"
         "- nao sugerir exercicios especificos como prescricao pronta\n"
         "- nao substituir avaliacao profissional presencial\n"
+        "- tratar percentual de gordura como estimativa, nunca como diagnostico ou verdade absoluta\n"
+        "- quando comentar gordura corporal, usar apenas o campo used_percent e a fonte used_source do contexto de gordura corporal\n"
+        "- se used_source for bioimpedance, diga que o percentual veio da bioimpedancia porque nao havia medidas/protocolo suficientes\n"
+        "- nao comparar fontes de gordura corporal no texto final\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- se uma medida estiver acima ou abaixo da faixa impressa, isso deve aparecer fielmente no resumo; nunca diga que esta dentro da faixa quando nao estiver\n"
         "- o campo member_friendly_summary deve soar como uma conversa do professor com o aluno depois do exame\n"
@@ -210,6 +214,7 @@ def _generate_with_openai(
         f"Restricoes: {constraints_summary}\n"
         f"Contexto previo: {previous_summary}\n"
         f"Valores atuais: {_serialize_measurements(evaluation)}\n"
+        f"Contexto de gordura corporal: {_serialize_body_fat_context(evaluation)}\n"
         f"Faixas: {range_summary}\n"
         f"Classificacao objetiva: {classification_summary}\n"
     )
@@ -264,7 +269,7 @@ def _generate_with_claude(
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Voce e um assistente de apoio operacional para professores de academia.\n"
-        "Analise uma bioimpedancia e retorne JSON com campos: coach_summary, member_friendly_summary, "
+        "Analise uma avaliacao de composicao corporal e retorne JSON com campos: coach_summary, member_friendly_summary, "
         "risk_flags, training_focus.\n"
         "Regras obrigatorias:\n"
         "- nao diagnosticar doenca\n"
@@ -273,6 +278,10 @@ def _generate_with_claude(
         "- nao prescrever treino fechado\n"
         "- nao sugerir exercicios especificos como prescricao pronta\n"
         "- nao substituir avaliacao profissional presencial\n"
+        "- tratar percentual de gordura como estimativa, nunca como diagnostico ou verdade absoluta\n"
+        "- quando comentar gordura corporal, usar apenas o campo used_percent e a fonte used_source do contexto de gordura corporal\n"
+        "- se used_source for bioimpedance, diga que o percentual veio da bioimpedancia porque nao havia medidas/protocolo suficientes\n"
+        "- nao comparar fontes de gordura corporal no texto final\n"
         "- produzir apenas interpretacao corporal resumida, alertas objetivos, foco inicial sugerido e direcao geral de acompanhamento\n"
         "- responder em portugues do Brasil\n"
         "- training_focus deve ter primary_goal, secondary_goal, suggested_focuses, cautions\n"
@@ -291,6 +300,7 @@ def _generate_with_claude(
         f"Restricoes: {constraints_summary}\n"
         f"Contexto previo: {previous_summary}\n"
         f"Valores atuais: {_serialize_measurements(evaluation)}\n"
+        f"Contexto de gordura corporal: {_serialize_body_fat_context(evaluation)}\n"
         f"Faixas: {range_summary}\n"
         f"Classificacao objetiva: {classification_summary}\n"
     )
@@ -439,11 +449,37 @@ def _serialize_measurements(evaluation: BodyCompositionEvaluation) -> dict[str, 
     return payload
 
 
+def _serialize_body_fat_context(evaluation: BodyCompositionEvaluation) -> dict[str, Any]:
+    anthropometric = _to_float(getattr(evaluation, "body_fat_anthropometric_percent", None))
+    used = _official_body_fat(evaluation)
+    return {
+        "anthropometric_percent": anthropometric,
+        "used_percent": used,
+        "used_source": getattr(evaluation, "body_fat_used_source", None),
+        "preferred_source": getattr(evaluation, "preferred_body_fat_source", None),
+        "method": getattr(evaluation, "body_fat_method", None),
+        "confidence": getattr(evaluation, "body_fat_confidence", None),
+        "range_min": _to_float(getattr(evaluation, "body_fat_range_min", None)),
+        "range_max": _to_float(getattr(evaluation, "body_fat_range_max", None)),
+        "quality_flags": [
+            flag
+            for flag in (getattr(evaluation, "data_quality_flags_json", None) or [])
+            if str(flag) != "body_fat_source_divergence"
+        ],
+        "manual_review_required": bool(getattr(evaluation, "body_fat_manual_review_required", False)),
+        "photos_used": False,
+        "visual_claims_used": False,
+    }
+
+
 def _classify_fields(evaluation: BodyCompositionEvaluation) -> list[tuple[str, str]]:
     measured_ranges = evaluation.measured_ranges_json or {}
     results: list[tuple[str, str]] = []
     for field_name, label in _FIELD_LABELS.items():
-        current = _to_float(getattr(evaluation, field_name, None))
+        if field_name == "body_fat_used_percent":
+            current = _official_body_fat(evaluation)
+        else:
+            current = _to_float(getattr(evaluation, field_name, None))
         if current is None:
             continue
         range_payload = measured_ranges.get(field_name)
@@ -463,7 +499,7 @@ def _classify_fields(evaluation: BodyCompositionEvaluation) -> list[tuple[str, s
 
 
 def _resolve_primary_goal(high_flags: list[str], low_flags: list[str], evaluation: BodyCompositionEvaluation) -> str:
-    if any(label in {"gordura corporal em kg", "percentual de gordura", "gordura visceral", "peso", "IMC"} for label in high_flags):
+    if any(label in {"massa de gordura estimada", "percentual de gordura estimado", "gordura visceral", "peso", "IMC"} for label in high_flags):
         return "reducao_de_gordura"
     if any(label in {"massa livre de gordura", "massa muscular", "musculo esqueletico"} for label in low_flags):
         return "ganho_de_massa"
@@ -477,7 +513,7 @@ def _resolve_primary_goal(high_flags: list[str], low_flags: list[str], evaluatio
 def _resolve_secondary_goal(primary_goal: str, high_flags: list[str], low_flags: list[str]) -> str:
     if primary_goal == "reducao_de_gordura" and any(label in {"massa livre de gordura", "massa muscular", "musculo esqueletico"} for label in low_flags):
         return "preservacao_de_massa_magra"
-    if primary_goal == "ganho_de_massa" and any(label in {"percentual de gordura", "gordura corporal em kg"} for label in high_flags):
+    if primary_goal == "ganho_de_massa" and any(label in {"percentual de gordura estimado", "massa de gordura estimada"} for label in high_flags):
         return "controle_de_gordura"
     if primary_goal == "melhora_metabolica":
         return "preservacao_de_massa_magra"
@@ -512,17 +548,17 @@ def _build_focuses(primary_goal: str, secondary_goal: str, previous_evaluation: 
 
 
 def _compare_with_previous(current: BodyCompositionEvaluation, previous: BodyCompositionEvaluation) -> str:
-    current_fat = _to_float(current.body_fat_percent)
-    previous_fat = _to_float(previous.body_fat_percent)
+    current_fat = _official_body_fat(current)
+    previous_fat = _official_body_fat(previous)
     current_weight = _to_float(current.weight_kg)
     previous_weight = _to_float(previous.weight_kg)
     parts: list[str] = []
     if current_fat is not None and previous_fat is not None:
         delta = round(current_fat - previous_fat, 2)
         if delta > 0:
-            parts.append(f"Percentual de gordura subiu {delta} ponto(s).")
+            parts.append(f"Estimativa de gordura corporal subiu {delta} ponto(s).")
         elif delta < 0:
-            parts.append(f"Percentual de gordura caiu {abs(delta)} ponto(s).")
+            parts.append(f"Estimativa de gordura corporal caiu {abs(delta)} ponto(s).")
     if current_weight is not None and previous_weight is not None:
         delta = round(current_weight - previous_weight, 2)
         if delta > 0:
@@ -579,7 +615,7 @@ def _summarize_previous(previous_evaluation: BodyCompositionEvaluation | None) -
     return (
         f"Ultima bioimpedancia em {previous_evaluation.evaluation_date.isoformat()} com peso "
         f"{_to_float(previous_evaluation.weight_kg) or '-'} kg e gordura "
-        f"{_to_float(previous_evaluation.body_fat_percent) or '-'}%."
+        f"{_official_body_fat(previous_evaluation) or '-'}%."
     )
 
 
@@ -758,3 +794,14 @@ def _to_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _official_float(evaluation: BodyCompositionEvaluation, field: str, *, fallback_field: str | None = None) -> float | None:
+    value = _to_float(getattr(evaluation, field, None))
+    if value is not None or fallback_field is None:
+        return value
+    return _to_float(getattr(evaluation, fallback_field, None))
+
+
+def _official_body_fat(evaluation: BodyCompositionEvaluation) -> float | None:
+    return _official_float(evaluation, "body_fat_used_percent")

@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Documents RAG",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nif (!payload.question) return [{ json: { status: 'error', answer: '', citations: [], confidence: 'low', error: 'question is required' } }];\nreturn [{ json: { status: 'success', answer: 'RAG placeholder: no indexed evidence was retrieved in this draft. Configure pgvector ingestion and embeddings before production.', citations: [], confidence: 'low', query: { question: payload.question, collection: payload.collection ?? 'default', top_k: payload.top_k ?? 5 } } }];"
+      },
+      "id": "validate-rag-query",
+      "name": "Validate RAG Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate RAG Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

@@ -11,7 +11,7 @@ const GOAL_LABELS: Record<string, string> = {
 
 const RANGE_FIELD_ORDER: Array<keyof BodyCompositionEvaluation> = [
   "weight_kg",
-  "body_fat_percent",
+  "body_fat_used_percent",
   "waist_hip_ratio",
   "skeletal_muscle_kg",
   "muscle_mass_kg",
@@ -22,7 +22,7 @@ const RANGE_FIELD_ORDER: Array<keyof BodyCompositionEvaluation> = [
 
 const RANGE_LABELS: Partial<Record<keyof BodyCompositionEvaluation, string>> = {
   weight_kg: "Peso",
-  body_fat_percent: "Gordura corporal",
+  body_fat_used_percent: "Gordura corporal estimada",
   waist_hip_ratio: "Relacao cintura-quadril",
   skeletal_muscle_kg: "Musculo esqueletico",
   muscle_mass_kg: "Massa muscular",
@@ -120,8 +120,15 @@ export function buildBodyCompositionRangeClassifications(
 
   const results: Array<{ label: string; status: "abaixo" | "dentro" | "acima" }> = [];
   for (const field of RANGE_FIELD_ORDER) {
-    const range = evaluation.measured_ranges_json[field];
-    const currentValue = evaluation[field];
+    const range = field === "body_fat_used_percent"
+      ? {
+          min: evaluation.body_fat_range_min ?? null,
+          max: evaluation.body_fat_range_max ?? null,
+        }
+      : evaluation.measured_ranges_json[field];
+    const currentValue = field === "body_fat_used_percent"
+      ? evaluation.body_fat_used_percent
+      : evaluation[field];
     if (typeof currentValue !== "number" || !range) continue;
     const min = typeof range.min === "number" ? range.min : null;
     const max = typeof range.max === "number" ? range.max : null;

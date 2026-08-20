@@ -75,7 +75,7 @@ class AssessmentOut(BaseModel):
     gym_id: UUID
     member_id: UUID
     evaluator_id: UUID | None
-    assessment_number: int
+    assessment_number: int | None
     assessment_date: datetime
     next_assessment_due: date | None
     height_cm: float | None
@@ -83,6 +83,21 @@ class AssessmentOut(BaseModel):
     bmi: float | None
     body_fat_pct: float | None
     lean_mass_kg: float | None
+    fat_mass_kg: float | None = None
+    waist_hip_ratio: float | None = None
+    basal_metabolic_rate: float | None = None
+    assessment_method: str | None = None
+    record_origin: str | None = None
+    sex_used_for_formula: str | None = None
+    age_used_for_formula: int | None = None
+    height_used_for_formula: float | None = None
+    weight_used_for_formula: float | None = None
+    measurement_protocol: str | None = None
+    formula_version: str | None = None
+    calculation_hash: str | None = None
+    anthropometry_snapshot_json: dict | None = None
+    history_badge: str | None = None
+    comparison_warning: str | None = None
     waist_cm: float | None
     hip_cm: float | None
     chest_cm: float | None
@@ -247,6 +262,7 @@ class EvolutionOut(BaseModel):
     body_fat: list[float | None]
     lean_mass: list[float | None]
     bmi: list[float | None]
+    perimetry: dict[str, list[float | None]] = Field(default_factory=dict)
     strength: list[int | None]
     flexibility: list[int | None]
     cardio: list[int | None]
@@ -255,6 +271,45 @@ class EvolutionOut(BaseModel):
     main_lift_load: list[float | None] = Field(default_factory=list)
     main_lift_label: str | None = None
     deltas: dict[str, float | int | None]
+
+
+class AnthropometryProtocolOut(BaseModel):
+    key: str
+    label: str
+    sex: Literal["male", "female"] | None = None
+    age_min: int | None = None
+    age_max: int | None = None
+    required_fields: list[str]
+    supported: bool
+    notes: str | None = None
+
+
+class AnthropometryMeasurementInput(BaseModel):
+    attempts: list[float] = Field(min_length=2, max_length=3)
+    unit: Literal["mm", "cm", "kg"]
+    side: Literal["right", "left", "not_applicable"] = "right"
+    side_exception_reason: str | None = Field(default=None, max_length=240)
+
+
+class AnthropometryAssessmentInput(BaseModel):
+    assessment_date: datetime | None = None
+    sex_for_formula: Literal["male", "female"] | None = None
+    age_years: int | None = Field(default=None, ge=0, le=120)
+    measurement_protocol: str = Field(min_length=2, max_length=120)
+    measurements: dict[str, AnthropometryMeasurementInput]
+    observations: str | None = None
+
+
+class AnthropometryPreviewOut(BaseModel):
+    assessment_method: Literal["manual_anthropometry"]
+    record_origin: Literal["cordex"]
+    measurement_policy_version: str
+    protocol: dict
+    formula_version: str
+    calculation_hash: str
+    results: dict
+    indicator_origins: dict
+    snapshot: dict
 
 
 class AssessmentDashboardOut(BaseModel):

@@ -455,11 +455,11 @@ class ActuarBrowserClient:
         try:
             locator.dispatch_event("change")
         except Exception:
-            pass
+            logger.debug("Falha best-effort em dispatch_event do browser; ignorando", exc_info=True)
         try:
             locator.press("Tab")
         except Exception:
-            pass
+            logger.debug("Falha best-effort em press Tab do browser; ignorando", exc_info=True)
 
     def _locator_input_value(self, locator) -> str | None:
         try:
@@ -479,7 +479,7 @@ class ActuarBrowserClient:
         try:
             locator.scroll_into_view_if_needed()
         except Exception:
-            pass
+            logger.debug("Falha best-effort em scroll_into_view_if_needed do browser; ignorando", exc_info=True)
         try:
             locator.click()
             return True
@@ -619,7 +619,7 @@ class ActuarBrowserClient:
             selected_card.click()
             self.page.wait_for_timeout(600)
         except Exception:
-            pass
+            logger.debug("Falha best-effort em click de selected_card do browser; ignorando", exc_info=True)
         if self._click_first_visible(ACTUAR_SELECTORS["new_assessment_button"]):
             self.page.wait_for_load_state("domcontentloaded")
             self._dismiss_global_overlays()
@@ -1084,22 +1084,22 @@ class ActuarBrowserClient:
             try:
                 self.page.close()
             except Exception:
-                pass
+                logger.debug("Falha best-effort em page.close do browser; ignorando", exc_info=True)
         if self._context is not None:
             try:
                 self._context.close()
             except Exception:
-                pass
+                logger.debug("Falha best-effort em context.close do browser; ignorando", exc_info=True)
         if self._browser is not None:
             try:
                 self._browser.close()
             except Exception:
-                pass
+                logger.debug("Falha best-effort em browser.close do browser; ignorando", exc_info=True)
         if self._playwright is not None:
             try:
                 self._playwright.stop()
             except Exception:
-                pass
+                logger.debug("Falha best-effort em playwright.stop do browser; ignorando", exc_info=True)
 
 
 def _normalize_api_candidates(

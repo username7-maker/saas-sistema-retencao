@@ -47,6 +47,7 @@ function formatSexLabel(value: BodyCompositionReportHeader["sex"]) {
 function statusLabel(status: BodyCompositionReferenceMetric["status"]) {
   if (status === "adequate") return "Normal";
   if (status === "low") return "Baixo";
+  if (status === "monitor") return "Monitorar";
   if (status === "high") return "Acima";
   return "Sem faixa";
 }
@@ -54,6 +55,7 @@ function statusLabel(status: BodyCompositionReferenceMetric["status"]) {
 function statusTone(status: BodyCompositionReferenceMetric["status"]) {
   if (status === "adequate") return "text-emerald-700";
   if (status === "low") return "text-amber-700";
+  if (status === "monitor") return "text-amber-700";
   if (status === "high") return "text-rose-700";
   return "text-slate-500";
 }
@@ -63,6 +65,12 @@ function flagLabel(flag: BodyCompositionDataQualityFlag) {
   if (flag === "missing_muscle_mass") return "massa muscular ausente";
   if (flag === "suspect_bmi") return "IMC suspeito";
   if (flag === "ocr_low_confidence") return "OCR com baixa confianca";
+  if (flag === "anthropometry_incomplete") return "medidas incompletas";
+  if (flag === "body_fat_source_divergence") return "revisao do protocolo";
+  if (flag === "anthropometry_needs_review") return "antropometria pede revisao";
+  if (flag === "anthropometry_inconsistent") return "antropometria inconsistente";
+  if (flag === "impossible_measurement_value") return "medida fora da faixa";
+  if (flag === "abnormal_measurement_variation") return "variacao incomum de medidas";
   return "revisao manual";
 }
 
@@ -120,9 +128,9 @@ function DocumentSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3 border-t border-[#d8d5d0] pt-4 first:border-t-0 first:pt-0">
+    <section className="report-document-section space-y-3 border-t border-[#d8d5d0] pt-4 first:border-t-0 first:pt-0">
       <div className="space-y-1">
-        <h2 className="text-[34px] leading-none text-[#4f433a]" style={SECTION_SERIF}>
+        <h2 className="report-document-title text-[34px] leading-none text-[#4f433a]" style={SECTION_SERIF}>
           {title}
         </h2>
         {subtitle ? <p className="text-sm text-[#6d655f]">{subtitle}</p> : null}
@@ -140,26 +148,28 @@ export function ReportHeaderCard({
   dataQualityFlags: BodyCompositionDataQualityFlag[];
   parsingConfidence: number | null;
 }) {
-  const visibleQualityFlags = dataQualityFlags.filter((flag) => !flag.toLowerCase().startsWith("ocr"));
+  const visibleQualityFlags = dataQualityFlags.filter(
+    (flag) => !flag.toLowerCase().startsWith("ocr") && flag !== "body_fat_source_divergence",
+  );
 
   return (
-    <header className="space-y-4 border-b border-[#6fa7c7] pb-4">
-      <div className="grid gap-5 lg:grid-cols-[210px_minmax(150px,1fr)_260px] lg:items-start">
+    <header className="report-header-card space-y-4 border-b border-[#6fa7c7] pb-4">
+      <div className="report-header-grid grid gap-5 lg:grid-cols-[210px_minmax(150px,1fr)_260px] lg:items-start">
         <div className="flex items-start">
-          <img src={BRAND_ASSETS.logoReport} alt={PRODUCT_NAME} className="h-auto w-40 object-contain sm:w-44" />
+          <img src={BRAND_ASSETS.logoReport} alt={PRODUCT_NAME} className="report-brand-logo h-auto w-40 object-contain sm:w-44" />
         </div>
         <div className="flex items-start justify-center">
-          <img src={PROGYM_LOGO_SRC} alt="ProGym" className="h-auto w-36 object-contain sm:w-40" />
+          <img src={PROGYM_LOGO_SRC} alt="ProGym" className="report-gym-logo h-auto w-36 object-contain sm:w-40" />
         </div>
         <div className="min-w-0 space-y-1 text-left lg:text-right">
           <p className="text-[15px] uppercase tracking-[0.22em] text-[#7a6f68]">Relatorio de bioimpedancia</p>
-          <h1 className="break-words text-3xl font-semibold leading-tight tracking-[-0.03em] text-[#14110f] sm:text-4xl">{header.member_name}</h1>
+          <h1 className="report-member-name break-words text-3xl font-semibold leading-tight tracking-[-0.03em] text-[#14110f] sm:text-4xl">{header.member_name}</h1>
           <p className="text-sm text-[#5d554e]">{header.trainer_name || "Professor nao informado"}</p>
           <p className="text-sm text-[#5d554e]">{header.gym_name || "Academia nao informada"}</p>
         </div>
       </div>
 
-      <div className="grid gap-0 border border-[#d8d5d0] bg-[#f7f5f1] sm:grid-cols-4">
+      <div className="report-header-data-grid grid gap-0 border border-[#d8d5d0] bg-[#f7f5f1] sm:grid-cols-4">
         <HeaderDatum label="Altura" value={header.height_cm != null ? `${header.height_cm} cm` : "-"} />
         <HeaderDatum label="Idade" value={header.age_years != null ? `${header.age_years} anos` : "-"} />
         <HeaderDatum label="Sexo" value={formatSexLabel(header.sex)} />
@@ -197,11 +207,11 @@ function HeaderDatum({ label, value, last = false }: { label: string; value: str
 
 export function MetricHighlights({ metrics }: { metrics: BodyCompositionMetricCard[] }) {
   return (
-    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <div className="metric-highlights-grid grid gap-3 md:grid-cols-3 xl:grid-cols-6">
       {metrics.map((metric) => (
-        <article key={metric.key} className="border border-[#d8d5d0] bg-[#faf8f4] px-4 py-3">
+        <article key={metric.key} className="metric-highlight-card border border-[#d8d5d0] bg-[#faf8f4] px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7a6f68]">{metric.label}</p>
-          <p className="mt-2 text-3xl font-semibold text-[#15110f]">{metric.formatted_value}</p>
+          <p className="metric-highlight-value mt-2 text-3xl font-semibold text-[#15110f]">{metric.formatted_value}</p>
           <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#5f5852]">
             {trendIcon(metric.trend)}
             <span>{formatSignedNumber(metric.delta_absolute, metric.unit)}</span>
@@ -249,11 +259,13 @@ export function CompositionAnalysisTable({ metrics }: { metrics: BodyComposition
 
 function compositionExplanation(key: string) {
   if (key === "body_water_kg") return "Quantidade total de agua no corpo";
+  if (key === "body_water_percent") return "Percentual calculado a partir da agua corporal e peso";
   if (key === "protein_kg") return "Para a construcao e preservacao muscular";
   if (key === "inorganic_salt_kg") return "Para fortalecimento estrutural";
   if (key === "body_fat_kg") return "Reserva energetica atual";
   if (key === "fat_free_mass_kg") return "Componentes livres de gordura";
   if (key === "muscle_mass_kg") return "Base muscular do organismo";
+  if (key === "skeletal_muscle_kg") return "Indicador de musculo esqueletico capturado no exame";
   return "Leitura corporal";
 }
 
@@ -369,16 +381,16 @@ export function RightRailSummary({
         </SidebarSection>
       ) : null}
 
-      <SidebarSection title="Dados adicionais">
+      <SidebarSection title="Dados adicionais" className="print:hidden">
         <MetricList metrics={additionalMetrics} />
       </SidebarSection>
     </aside>
   );
 }
 
-function SidebarSection({ title, children }: { title: string; children: React.ReactNode }) {
+function SidebarSection({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className="border-t border-[#d8d5d0] pt-3">
+    <section className={`border-t border-[#d8d5d0] pt-3 ${className}`}>
       <h3 className="text-[18px] font-semibold text-[#1a1613]">{title}</h3>
       <div className="mt-3">{children}</div>
     </section>

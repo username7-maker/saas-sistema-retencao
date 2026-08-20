@@ -1,0 +1,6 @@
+{
+  "smoke": ["py", "-3.12", "-m", "pytest", "saas-backend", "-q"],
+  "branchPrefix": "worker",
+  "syncBarrels": [],
+  "baseBranch": "pilot-safe/p0-blockers-20260424"
+}

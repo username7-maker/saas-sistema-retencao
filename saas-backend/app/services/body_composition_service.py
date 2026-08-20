@@ -19,6 +19,7 @@ from app.services.body_composition_actuar_sync_service import (
     prepare_body_composition_sync_attempt,
 )
 from app.services.body_composition_ai_service import generate_body_composition_ai
+from app.services.body_composition_anthropometry_service import ANTHROPOMETRY_FIELDS
 from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
 from app.services.member_service import get_member_or_404
 
@@ -45,6 +46,11 @@ BODY_COMPOSITION_MEASUREMENT_FIELDS = (
     "total_energy_kcal",
     "physical_age",
     "health_score",
+    "body_fat_used_percent",
+    "body_fat_bioimpedance_percent",
+    "body_fat_anthropometric_percent",
+    "body_fat_manual_override_percent",
+    *ANTHROPOMETRY_FIELDS,
 )
 
 
@@ -58,7 +64,12 @@ def create_body_composition_evaluation(
     sync_actuar: bool = True,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    evaluation_data = resolve_body_composition_persistence_fields(payload.model_dump(), reviewer_user_id=reviewer_user_id)
+    previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id)
+    evaluation_data = resolve_body_composition_persistence_fields(
+        payload.model_dump(),
+        reviewer_user_id=reviewer_user_id,
+        previous_evaluation=previous_evaluation,
+    )
     _validate_body_composition_payload(payload)
     evaluation_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     evaluation = BodyCompositionEvaluation(
@@ -113,7 +124,15 @@ def update_body_composition_evaluation(
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
 
-    update_data = resolve_body_composition_persistence_fields(payload.model_dump(), reviewer_user_id=reviewer_user_id)
+    previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id, exclude_evaluation_id=evaluation_id)
+    payload_values = payload.model_dump()
+    if payload.source == "ocr_receipt":
+        payload_values = _preserve_existing_anthropometry_for_ocr_update(payload_values, evaluation)
+    update_data = resolve_body_composition_persistence_fields(
+        payload_values,
+        reviewer_user_id=reviewer_user_id,
+        previous_evaluation=previous_evaluation,
+    )
     _validate_body_composition_payload(payload)
     update_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     for field, value in update_data.items():
@@ -206,17 +225,68 @@ def _resolve_reviewed_manually(payload: BodyCompositionEvaluationCreate | BodyCo
     return bool(payload.reviewed_manually)
 
 
+def _preserve_existing_anthropometry_for_ocr_update(
+    values: dict,
+    evaluation: BodyCompositionEvaluation,
+) -> dict:
+    """Merge stored anthropometry into an OCR update so bioimpedance cannot erase it."""
+    merged = dict(values)
+    preserved_fields = (
+        "age_years",
+        "sex",
+        "height_cm",
+        "weight_kg",
+        *ANTHROPOMETRY_FIELDS,
+        "anthropometry_notes",
+        "measurement_protocol",
+        "anthropometry_ethnicity",
+        "anthropometry_maturity",
+        "preferred_body_fat_source",
+        "body_fat_manual_override_percent",
+        "body_fat_manual_review_completed",
+        "anthropometry_review_completed",
+    )
+    for field in preserved_fields:
+        incoming = merged.get(field)
+        stored = getattr(evaluation, field, None)
+        is_empty = incoming is None or incoming == "" or (isinstance(incoming, bool) and not incoming)
+        if is_empty and stored is not None:
+            merged[field] = stored
+    return merged
+
+
 def _apply_ai_payload(db: Session, *, member, evaluation: BodyCompositionEvaluation) -> None:
     ai_payload = generate_body_composition_ai(db, member=member, evaluation=evaluation)
     evaluation.ai_coach_summary = ai_payload["coach_summary"]
     evaluation.ai_member_friendly_summary = ai_payload["member_friendly_summary"]
     evaluation.ai_risk_flags_json = ai_payload["risk_flags"]
-    evaluation.ai_training_focus_json = ai_payload["training_focus"]
+    evaluation.ai_training_focus_json = ai_payload.get("training_focus")
     generated_at = ai_payload.get("generated_at")
     if isinstance(generated_at, str):
         from datetime import datetime
 
         evaluation.ai_generated_at = datetime.fromisoformat(generated_at)
+
+
+def _find_previous_evaluation(
+    db: Session,
+    *,
+    gym_id: UUID,
+    member_id: UUID,
+    exclude_evaluation_id: UUID | None = None,
+) -> BodyCompositionEvaluation | None:
+    statement = (
+        select(BodyCompositionEvaluation)
+        .where(
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.member_id == member_id,
+        )
+        .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
+        .limit(1)
+    )
+    if exclude_evaluation_id is not None:
+        statement = statement.where(BodyCompositionEvaluation.id != exclude_evaluation_id)
+    return db.scalar(statement)
 
 
 def _validate_body_composition_payload(

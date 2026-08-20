@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Calendar Assistant",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nif (!payload.action) return [{ json: { status: 'error', event: {}, error: 'action is required' } }];\nconst needsApproval = payload.action === 'cancel_event' || (payload.action === 'create_event' && Array.isArray(payload.attendees) && payload.attendees.length > 0);\nreturn [{ json: { status: needsApproval ? 'pending_approval' : 'success', event: { action: payload.action, title: payload.title ?? null, date_range: payload.date_range ?? {}, attendees: payload.attendees ?? [] }, approval_required: needsApproval, note: 'Calendar credential placeholder.' } }];"
+      },
+      "id": "validate-calendar-action",
+      "name": "Validate Calendar Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Calendar Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

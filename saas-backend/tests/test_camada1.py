@@ -373,6 +373,77 @@ class TestRiskHistory:
         assert stale_alert.action_history[-1]["reason"] == "score_below_threshold"
         create_or_update_alert.assert_not_called()
 
+    def test_same_absence_episode_stays_suppressed_after_manual_resolution(self):
+        member = SimpleNamespace(
+            id="m1",
+            join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+            last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
+        )
+
+        episode_key = risk_service._retention_episode_key(member)
+
+        assert risk_service._should_suppress_resolved_episode(member, {("m1", episode_key)}) is True
+        assert episode_key == "absence:last-checkin:2026-08-01T09:30:00.000000+00:00"
+
+    def test_checkin_after_resolution_starts_a_new_absence_episode(self):
+        member = SimpleNamespace(
+            id="m1",
+            join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+            last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
+        )
+        resolved_episode = risk_service._retention_episode_key(member)
+
+        member.last_checkin_at = datetime(2026, 8, 12, 18, 45, tzinfo=timezone.utc)
+
+        assert risk_service._should_suppress_resolved_episode(member, {("m1", resolved_episode)}) is False
+
+    def test_never_checked_in_episode_is_stable_when_import_corrects_join_date(self):
+        member = SimpleNamespace(id="m1", join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(), last_checkin_at=None)
+        original_episode = risk_service._retention_episode_key(member)
+
+        member.join_date = datetime(2026, 6, 15, tzinfo=timezone.utc).date()
+
+        assert original_episode == "absence:never-checked-in"
+        assert risk_service._retention_episode_key(member) == original_episode
+
+    def test_import_risk_refresh_does_not_recreate_resolved_same_episode(self, monkeypatch):
+        member = SimpleNamespace(
+            id="m1",
+            gym_id="g1",
+            join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+            last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
+            risk_score=70,
+            risk_level=RiskLevel.RED,
+            extra_data={},
+        )
+        result = risk_service.RiskResult(score=70, level=RiskLevel.RED, reasons={}, days_without_checkin=11)
+        create_or_update_alert = MagicMock()
+
+        monkeypatch.setattr(risk_service, "calculate_risk_score", lambda *_a, **_kw: result)
+        monkeypatch.setattr(risk_service, "_prefetch_member_checkin_metrics", lambda *_a, **_kw: {})
+        monkeypatch.setattr(risk_service, "_prefetch_member_ids_with_assessments", lambda *_a, **_kw: set())
+        monkeypatch.setattr(risk_service, "_prefetch_open_risk_alerts", lambda *_a, **_kw: {})
+        monkeypatch.setattr(
+            risk_service,
+            "_prefetch_resolved_retention_episodes",
+            lambda *_a, **_kw: {(member.id, risk_service._retention_episode_key(member))},
+        )
+        monkeypatch.setattr(risk_service, "_create_or_update_alert", create_or_update_alert)
+        monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_a, **_kw: None)
+
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = [member]
+
+        refreshed = risk_service.refresh_member_risk_snapshot(
+            db,
+            member_ids=[member.id],
+            sync_alerts=True,
+            now=datetime(2026, 8, 12, tzinfo=timezone.utc),
+        )
+
+        assert refreshed == {"members_refreshed": 1, "alerts_synced": 0}
+        create_or_update_alert.assert_not_called()
+
     def test_apply_risk_statement_timeout_uses_configured_limit(self, monkeypatch):
         db = MagicMock()
         monkeypatch.setattr(risk_service.settings, "risk_processing_statement_timeout_ms", 45000)

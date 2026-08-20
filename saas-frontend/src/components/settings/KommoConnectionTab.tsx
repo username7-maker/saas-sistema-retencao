@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 
 import { PRODUCT_NAME } from "../../config/brand";
 import { kommoSettingsService } from "../../services/kommoSettingsService";
-import type { KommoDomainRoute } from "../../types";
+import type { KommoDomainRoute, KommoTrainerRoute } from "../../types";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "../ui2";
 
 const KOMMO_DOMAINS = [
@@ -38,6 +38,7 @@ export function KommoConnectionTab() {
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(true);
   const [fallbackChannel, setFallbackChannel] = useState("whatsapp");
   const [domainRoutes, setDomainRoutes] = useState<KommoDomainRoute[]>([]);
+  const [trainerRoutes, setTrainerRoutes] = useState<KommoTrainerRoute[]>([]);
   const [nativeTestLeadId, setNativeTestLeadId] = useState("");
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export function KommoConnectionTab() {
     setAutoCloseEnabled(settingsQuery.data.kommo_auto_close_enabled);
     setFallbackChannel(settingsQuery.data.kommo_fallback_channel ?? "whatsapp");
     setDomainRoutes(ensureDomainRoutes(settingsQuery.data.domain_routes ?? []));
+    setTrainerRoutes(settingsQuery.data.trainer_routes ?? []);
   }, [settingsQuery.data]);
 
   const saveMutation = useMutation({
@@ -71,6 +73,7 @@ export function KommoConnectionTab() {
         kommo_auto_close_enabled: autoCloseEnabled,
         kommo_fallback_channel: fallbackChannel,
         domain_routes: domainRoutes,
+        trainer_routes: trainerRoutes,
       }),
     onSuccess: async (payload) => {
       await queryClient.invalidateQueries({ queryKey: ["kommo-settings"] });
@@ -115,8 +118,27 @@ export function KommoConnectionTab() {
     return Boolean(enabled && baseUrl.trim() && (accessToken.trim() || settings?.kommo_has_access_token) && !clearAccessToken);
   }, [accessToken, baseUrl, clearAccessToken, enabled, settings?.kommo_has_access_token]);
 
+  const routeCoverage = useMemo(() => {
+    const total = domainRoutes.length;
+    const readyMessages = domainRoutes.filter((route) => route.ready_for_messages).length;
+    const nativePdf = domainRoutes.filter((route) => route.ready_for_native_pdf).length;
+    const incomplete = domainRoutes.filter((route) => !route.ready_for_messages).length;
+    return { total, readyMessages, nativePdf, incomplete };
+  }, [domainRoutes]);
+
+  const trainerCoverage = useMemo(() => {
+    const total = trainerRoutes.length;
+    const ready = trainerRoutes.filter((route) => route.ready_for_messages).length;
+    const incomplete = trainerRoutes.filter((route) => !route.ready_for_messages).length;
+    return { total, ready, incomplete };
+  }, [trainerRoutes]);
+
   function updateRoute(domain: string, patch: Partial<KommoDomainRoute>) {
     setDomainRoutes((current) => current.map((route) => (route.domain === domain ? { ...route, ...patch } : route)));
+  }
+
+  function updateTrainerRoute(trainerUserId: string, patch: Partial<KommoTrainerRoute>) {
+    setTrainerRoutes((current) => current.map((route) => (route.trainer_user_id === trainerUserId ? { ...route, ...patch } : route)));
   }
 
   return (
@@ -299,10 +321,104 @@ export function KommoConnectionTab() {
             <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
               <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                 <div>
+                  <p className="text-sm font-semibold text-lovable-ink">Pipelines por professor</p>
+                  <p className="mt-1 text-xs text-lovable-ink-muted">
+                    Usadas somente para acoes tecnicas: avaliacao, treino, bioimpedancia e Aluno IA. Se faltar algum ID, o envio cai na rota de coordenacao do dominio.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 font-semibold text-emerald-200">
+                      {trainerCoverage.ready}/{trainerCoverage.total} professores prontos
+                    </span>
+                    {trainerCoverage.incomplete > 0 ? (
+                      <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 font-semibold text-amber-200">
+                        {trainerCoverage.incomplete} incompletos
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {trainerRoutes.length ? (
+                  trainerRoutes.map((route) => (
+                    <div key={route.trainer_user_id} className="rounded-xl border border-lovable-border bg-lovable-bg-muted p-3">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <label className="flex items-center gap-2 text-sm font-semibold text-lovable-ink">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={route.is_enabled}
+                            onChange={(event) => updateTrainerRoute(route.trainer_user_id, { is_enabled: event.target.checked })}
+                          />
+                          {route.trainer_name || "Professor sem nome"}
+                        </label>
+                        <RouteHealthBadge route={route} readyLabel="Pronta" />
+                      </div>
+                      <div className="mb-3 grid gap-3 md:grid-cols-3">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-lovable-ink-muted">Modo PDF</label>
+                          <select
+                            value={route.pdf_delivery_mode || "native_file_required"}
+                            onChange={(event) => updateTrainerRoute(route.trainer_user_id, { pdf_delivery_mode: event.target.value })}
+                            className="h-10 w-full rounded-xl border border-lovable-border bg-lovable-surface px-3 text-xs text-lovable-ink outline-none focus:border-lovable-primary"
+                          >
+                            <option value="native_file_required">Nativo obrigatorio</option>
+                            <option value="native_file_preferred">Nativo preferencial</option>
+                            <option value="link_only">Somente link</option>
+                          </select>
+                        </div>
+                        <RouteInput label="Campo file_uuid" value={route.file_uuid_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { file_uuid_field_id: value })} />
+                        <RouteInput label="Campo nome arquivo" value={route.file_name_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { file_name_field_id: value })} />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <RouteInput label="Pipeline" value={route.pipeline_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { pipeline_id: value })} />
+                        <RouteInput label="Etapa" value={route.stage_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { stage_id: value })} />
+                        <RouteInput label="Salesbot" value={route.salesbot_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { salesbot_id: value })} />
+                        <RouteInput label="Responsavel" value={route.responsible_user_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { responsible_user_id: value })} />
+                        <RouteInput label="Campo mensagem" value={route.message_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { message_field_id: value })} />
+                        <RouteInput label="Campo PDF" value={route.pdf_url_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { pdf_url_field_id: value })} />
+                        <RouteInput label="Campo origem" value={route.source_type_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { source_type_field_id: value })} />
+                        <RouteInput label="Campo ID origem" value={route.source_id_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { source_id_field_id: value })} />
+                        <RouteInput label="Campo nota/anexo" value={route.file_attachment_note_field_id} onChange={(value) => updateTrainerRoute(route.trainer_user_id, { file_attachment_note_field_id: value })} />
+                      </div>
+                      <div className="mt-3">
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-lovable-ink-muted">Tags</label>
+                        <Input
+                          value={(route.tags ?? []).join(", ")}
+                          onChange={(event) => updateTrainerRoute(route.trainer_user_id, { tags: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })}
+                          placeholder="professor, tecnico, cordex"
+                        />
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-xl border border-lovable-border bg-lovable-bg-muted px-3 py-4 text-sm text-lovable-ink-muted">
+                    Nenhum professor ativo encontrado. Crie usuarios com papel professor para configurar pipelines individuais.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
+              <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+                <div>
                   <p className="text-sm font-semibold text-lovable-ink">Roteamento por dominio</p>
                   <p className="mt-1 text-xs text-lovable-ink-muted">
                     Configure onde cada mensagem cai na Kommo. O Salesbot usa os campos de mensagem/PDF para enviar ao numero do aluno.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 font-semibold text-emerald-200">
+                      {routeCoverage.readyMessages}/{routeCoverage.total} dominios prontos
+                    </span>
+                    <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-3 py-1 font-semibold text-sky-200">
+                      {routeCoverage.nativePdf} com PDF nativo
+                    </span>
+                    {routeCoverage.incomplete > 0 ? (
+                      <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 font-semibold text-amber-200">
+                        {routeCoverage.incomplete} incompletos
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
@@ -334,9 +450,7 @@ export function KommoConnectionTab() {
                         />
                         {domainLabel(route.domain)}
                       </label>
-                      <span className="text-[11px] uppercase tracking-wide text-lovable-ink-muted">
-                        {route.salesbot_id ? "Salesbot configurado" : "Falta Salesbot"}
-                      </span>
+                      <RouteHealthBadge route={route} />
                     </div>
                     <div className="mb-3 grid gap-3 md:grid-cols-3">
                       <div>
@@ -463,6 +577,11 @@ function emptyRoute(domain: string): KommoDomainRoute {
   return {
     domain,
     is_enabled: true,
+    route_status: "missing",
+    missing_fields: ["pipeline_id", "stage_id", "salesbot_id", "message_field_id"],
+    ready_for_messages: false,
+    ready_for_native_pdf: false,
+    ready_for_link_pdf: false,
     pipeline_id: null,
     stage_id: null,
     salesbot_id: null,
@@ -482,6 +601,49 @@ function emptyRoute(domain: string): KommoDomainRoute {
 
 function domainLabel(domain: string): string {
   return KOMMO_DOMAINS.find(([key]) => key === domain)?.[1] ?? domain;
+}
+
+type KommoRouteHealth = {
+  is_enabled: boolean;
+  route_status?: "ready" | "incomplete" | "missing" | "disabled" | string;
+  missing_fields?: string[];
+  ready_for_messages?: boolean;
+};
+
+function RouteHealthBadge({ route, readyLabel = "Pronta para automacoes" }: { route: KommoRouteHealth; readyLabel?: string }) {
+  if (!route.is_enabled || route.route_status === "disabled") {
+    return (
+      <span className="rounded-full border border-lovable-border bg-lovable-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-lovable-ink-muted">
+        Desativada
+      </span>
+    );
+  }
+  if (route.ready_for_messages) {
+    return (
+      <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
+        {readyLabel}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+      Falta {formatMissingRouteFields(route.missing_fields)}
+    </span>
+  );
+}
+
+function formatMissingRouteFields(fields?: string[]): string {
+  const labels: Record<string, string> = {
+    pipeline_id: "pipeline",
+    stage_id: "etapa",
+    salesbot_id: "salesbot",
+    message_field_id: "campo mensagem",
+    pdf_url_field_id: "campo PDF",
+    route_disabled: "ativar rota",
+  };
+  const normalized = (fields ?? []).map((field) => labels[field] ?? field).filter(Boolean);
+  if (!normalized.length) return "configuracao";
+  return normalized.slice(0, 3).join(", ");
 }
 
 function RouteInput({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string | null) => void }) {

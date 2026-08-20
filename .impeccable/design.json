@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-08T00:00:00Z",
+  "title": "Design System: Cordex Gym OS",
+  "extensions": {
+    "colorMeta": {
+      "orbit-blue": {
+        "role": "primary",
+        "displayName": "Orbit Blue",
+        "canonical": "hsl(217 91% 60%)",
+        "tonalRamp": ["#02132a", "#052a52", "#0a4a8f", "#1565c9", "#3B82F6", "#6ba3f8", "#a6c8fb", "#dbe9fd"]
+      },
+      "carbon": {
+        "role": "neutral",
+        "displayName": "Carbon",
+        "canonical": "hsl(228 15% 6%)",
+        "tonalRamp": ["#0A0B0F", "#0C0E14", "#0E1018", "#101320", "#202329", "#3a3d45", "#8B8E96", "#F2F3F5"]
+      },
+      "success": { "role": "status", "displayName": "Retention Green", "canonical": "hsl(158 64% 42%)" },
+      "warning": { "role": "status", "displayName": "Attention Amber", "canonical": "hsl(38 92% 50%)" },
+      "danger": { "role": "status", "displayName": "Churn Red", "canonical": "hsl(0 100% 61%)" },
+      "ai-violet": { "role": "identity", "displayName": "AI Violet", "canonical": "hsl(258 90% 66%)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page titles, dashboard section headers." },
+      "numeric": { "displayName": "Numeric", "purpose": "Every KPI, currency, and metric value — always tabular." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)", "purpose": "Default resting shadow for cards and panels." },
+      { "name": "panel-raised", "value": "0 30px 120px -52px rgba(0,0,0,0.96), 0 14px 44px -28px rgba(59,130,246,0.22)", "purpose": "Modals and popovers — the one place a colored long-shadow is allowed." },
+      { "name": "focus-glow", "value": "0 0 12px rgba(59,130,246,0.28)", "purpose": "Focus ring companion on interactive elements." }
+    ],
+    "motion": [
+      { "name": "rise", "value": "rise 0.45s ease-out", "purpose": "Entrance for newly-mounted content." },
+      { "name": "stagger", "value": "stagger-in 0.3s both, 50ms increment per item", "purpose": "Sequential card/list entrance, capped at 4 steps." },
+      { "name": "count-in", "value": "0.4s cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "KPI value settling into place." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1440px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action; gradient blue fill, near-black text for contrast.",
+      "html": "<button class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 12px; font-weight: 600; font-size: 14px; color: #04121F; background: linear-gradient(135deg, #3B82F6, rgba(59,130,246,0.92)); box-shadow: 0 18px 46px -26px rgba(59,130,246,0.9); transition: transform 0.15s ease, filter 0.15s ease; border: none; cursor: pointer; } .ds-btn-primary:hover { transform: translateY(-2px); filter: brightness(1.1); } .ds-btn-primary:focus-visible { outline: 2px solid #3B82F6; outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default action button when primary emphasis isn't warranted.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 12px; font-weight: 600; font-size: 14px; color: #F2F3F5; background: rgba(16,19,32,0.88); border: 1px solid #202329; transition: background 0.15s ease, border-color 0.15s ease; cursor: pointer; } .ds-btn-secondary:hover { background: #0E1018; border-color: #266BD9; } .ds-btn-secondary:focus-visible { outline: 2px solid #266BD9; outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "Default panel/card container with subtle diagonal gradient and glass top-edge.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-shine\"></div><h3 class=\"ds-card-title\">Retention risk</h3><p class=\"ds-card-body\">12 members flagged this week.</p></div>",
+      "css": ".ds-card { position: relative; overflow: hidden; border-radius: 24px; border: 1px solid #202329; padding: 20px; background: linear-gradient(145deg, rgba(14,16,24,0.97), rgba(10,11,15,0.93)); box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04); } .ds-card-shine { position: absolute; inset: 0 0 auto 0; height: 64px; background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 60%); pointer-events: none; } .ds-card-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 18px; color: #F2F3F5; margin: 0 0 4px; } .ds-card-body { font-size: 14px; color: #8B8E96; margin: 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Nucleus",
+    "overview": "The Cordex mark replaces the O in CORDEX with an orbit around a soft glowing core. That's the system: one calm point of focus (the blue accent), everything else in disciplined near-black orbit around it. The interface is a precision instrument for gym operators managing churn risk, follow-ups, and revenue — not a control room. It earns trust through restraint, not through blinking lights. This explicitly rejects generic SaaS scaffolding and the unused 'command center' neon layer still sitting as dead config in tailwind.config.js.",
+    "keyCharacteristics": [
+      "Near-black navy depth (four flat layers, no pure black)",
+      "One accent color (orbit-blue) carrying focus, interactivity, and brand identity",
+      "Status colors reserved strictly for state, never decoration",
+      "Condensed display type for headings, tabular monospace for every metric/KPI number",
+      "Motion is a confirmation, not a performance"
+    ],
+    "rules": [
+      { "name": "The One Nucleus Rule", "body": "orbit-blue is the only color allowed to carry brand identity. Status colors report state; they never substitute as a second brand accent.", "section": "colors" },
+      { "name": "The Retired Neon Rule", "body": "command-* and pi-* colors/glows in tailwind.config.js are legacy and not part of this system. Do not reach for them in new work.", "section": "colors" },
+      { "name": "The Tabular Truth Rule", "body": "Any number a user might compare across rows or over time uses .num (JetBrains Mono, tabular-nums).", "section": "typography" },
+      { "name": "The One Glow Rule", "body": "Only orbit-blue gets a glow, and only on the single most elevated surface on screen — never on a resting card, never in more than one color at once, never animated into a pulse.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do treat orbit-blue (#3B82F6) as the only brand accent; everything else is neutral or status.",
+      "Do use the four-step neutral depth scale to convey hierarchy instead of stacking shadows.",
+      "Do render every KPI/metric number in .num (JetBrains Mono, tabular-nums).",
+      "Do reserve glow effects for the single most-elevated element on screen, in blue only.",
+      "Do keep motion short and purposeful (150-450ms), always with a prefers-reduced-motion fallback.",
+      "Do show AI-origin content in ai-violet so users can always tell what the model suggested."
+    ],
+    "donts": [
+      "Don't introduce the command-* Tailwind color group in new components — it's legacy, unused config.",
+      "Don't use pi-* glow/pulse utilities — alarm-style pulsing contradicts the calm-precision direction.",
+      "Don't use gray text on a colored background — bump toward ink when contrast is close.",
+      "Don't nest cards inside cards, or default to a card when a plain list/row would read better.",
+      "Don't use border-left/border-right colored stripes as a callout accent.",
+      "Don't let a screen ship with only a dashboard and no actionable task."
+    ]
+  }
+}

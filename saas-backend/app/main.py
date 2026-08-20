@@ -50,7 +50,9 @@ from app.routers import (
     automation_journeys,
     checkins,
     coach,
+    commercial_funnel,
     crm,
+    daily_cockpit,
     dashboards,
     exports,
     finance,
@@ -59,6 +61,7 @@ from app.routers import (
     kommo,
     lgpd,
     members,
+    method_os,
     movement_video,
     notifications,
     nps,
@@ -215,6 +218,7 @@ async def correlation_id_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(members.router, prefix=settings.api_prefix)
+app.include_router(method_os.router, prefix=settings.api_prefix)
 app.include_router(assessment_appointments.router, prefix=settings.api_prefix)
 app.include_router(assessments.router, prefix=settings.api_prefix)
 app.include_router(checkins.router, prefix=settings.api_prefix)
@@ -224,6 +228,8 @@ app.include_router(crm.router, prefix=settings.api_prefix)
 app.include_router(nps.router, prefix=settings.api_prefix)
 app.include_router(onboarding.router, prefix=settings.api_prefix)
 app.include_router(dashboards.router, prefix=settings.api_prefix)
+app.include_router(daily_cockpit.router, prefix=settings.api_prefix)
+app.include_router(commercial_funnel.router, prefix=settings.api_prefix)
 app.include_router(finance.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(imports.router, prefix=settings.api_prefix)

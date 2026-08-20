@@ -4,13 +4,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_request_context
 from app.core.limiter import limiter
 from app.core.security import decode_token
-from app.database import get_db
+from app.database import get_db, include_all_tenants
 from app.models import RoleEnum, User
 from app.schemas import APIMessage, GymOwnerRegister, RefreshTokenInput, TokenPair, UserLogin, UserOut, UserRegister
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
@@ -113,6 +114,20 @@ def _resolve_refresh_token(request: Request, payload: RefreshTokenInput | None) 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
 
 
+def _email_delivery_failure_detail(reason: str | None) -> str:
+    if reason == "resend_api_key_missing":
+        return "Servico de e-mail sem chave do Resend. Configure o envio ou solicite reset ao administrador."
+    if reason == "resend_permission_denied":
+        return "Servico de e-mail sem permissao de envio no Resend. Corrija a chave ou solicite reset ao administrador."
+    if reason == "resend_rate_limited":
+        return "Servico de e-mail temporariamente limitado pelo Resend. Tente novamente em alguns minutos."
+    if reason == "resend_validation_error":
+        return "Servico de e-mail recusou o payload de envio. Corrija a configuracao ou solicite reset ao administrador."
+    if reason == "sender_identity_unverified":
+        return "Remetente ou dominio de e-mail nao verificado. Corrija o remetente ou solicite reset ao administrador."
+    return "Nao foi possivel enviar o e-mail de redefinicao. Solicite reset ao administrador."
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/hour")
 def register_user(request: Request, payload: GymOwnerRegister, db: Annotated[Session, Depends(get_db)]) -> User:
@@ -182,7 +197,14 @@ def refresh(
     context = get_request_context(request)
     try:
         decoded = decode_token(refresh_token)
-        user = db.get(User, UUID(decoded["sub"]))
+        user_id = UUID(decoded["sub"])
+        token_gym_id = UUID(decoded["gym_id"])
+        user = db.scalar(
+            include_all_tenants(
+                select(User).where(User.id == user_id, User.gym_id == token_gym_id),
+                reason="auth.refresh_audit_lookup",
+            )
+        )
         if user:
             log_audit_event(
                 db,
@@ -219,7 +241,8 @@ def logout_session(
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
-    logout(db, current_user, commit=False)
+    refresh_token = request.cookies.get(settings.refresh_cookie_name, "").strip() or None
+    logout(db, current_user, refresh_token=refresh_token, commit=False)
     db.commit()
     _clear_refresh_cookie(response)
     return APIMessage(message="Sessao encerrada")
@@ -229,7 +252,18 @@ def logout_session(
 @router.post("/forgot-password", response_model=APIMessage)
 @limiter.limit("3/hour")
 def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Annotated[Session, Depends(get_db)]) -> APIMessage:
-    request_password_reset(db, email=payload.email, gym_slug=payload.gym_slug)
+    if not settings.email_delivery_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servico de e-mail indisponivel. Solicite reset ao administrador.",
+        )
+
+    outcome = request_password_reset(db, email=payload.email, gym_slug=payload.gym_slug)
+    if outcome.requested and outcome.email_result and not outcome.email_result.sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE if outcome.email_result.blocked else status.HTTP_502_BAD_GATEWAY,
+            detail=_email_delivery_failure_detail(outcome.email_result.reason),
+        )
     return APIMessage(message="Se o e-mail estiver cadastrado, você receberá as instruções em breve.")
 
 

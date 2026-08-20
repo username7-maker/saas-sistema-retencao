@@ -9,7 +9,8 @@ import {
   type AssessmentQueueResolutionStatus,
   type AssessmentQueueResponse,
 } from "../../services/assessmentService";
-import { EmptyState, FilterBar, KPIStrip, PageHeader, RiskBadge, SectionHeader, SkeletonList, StatusBadge } from "../ui";
+import { EmptyState, FilterBar, RiskBadge, SectionHeader, SkeletonList, StatusBadge } from "../ui";
+import { MetricCard } from "../ui2/command";
 import { Badge, Button, Card, CardContent } from "../ui2";
 import {
   ASSESSMENT_QUEUE_FILTER_OPTIONS,
@@ -168,9 +169,9 @@ function AttentionNowList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="divide-y divide-lovable-border/50">
       {items.map((member) => (
-        <li key={member.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft px-4 py-3">
+        <li key={member.id} className="py-3 first:pt-0 last:pb-0">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-lovable-ink">{member.full_name}</p>
@@ -281,17 +282,19 @@ export function AssessmentOperationsBoard({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Avaliacoes"
-        subtitle="Priorize atrasos, primeiras leituras e proximas janelas sem perder a visao executiva da base ativa."
-        breadcrumb={[{ label: "Workspace" }, { label: "Avaliacoes" }]}
-        actions={
+      <div className="relative overflow-hidden rounded-[18px] border border-[rgba(59,130,246,0.26)] bg-[radial-gradient(ellipse_70%_55%_at_85%_10%,rgba(59,130,246,0.08),transparent_65%),linear-gradient(145deg,rgba(14,16,24,0.97),rgba(10,11,15,0.96))] p-5 shadow-card backdrop-blur-xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">Gestão</p>
+            <h2 className="mt-1 font-heading text-3xl font-bold text-lovable-ink md:text-4xl">Avaliações</h2>
+            <p className="mt-1 text-sm text-lovable-ink-muted">Priorize atrasos, primeiras leituras e próximas janelas sem perder a visão executiva da base ativa.</p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="success">Base ativa</Badge>
             <Badge variant="neutral">{activeBaseLabel}</Badge>
           </div>
-        }
-      />
+        </div>
+      </div>
 
       <div className="space-y-3">
         <FilterBar
@@ -337,21 +340,19 @@ export function AssessmentOperationsBoard({
         </div>
 
         {hasHistoricalBacklog ? (
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          <div className="rounded-2xl border border-lovable-warning/25 bg-lovable-warning/10 px-4 py-3 text-sm text-lovable-warning">
             {dashboard.historical_backlog_total} aluno(s) ficaram fora da fila do dia por serem backlog historico.
             {" "}Sao {dashboard.historical_never_assessed} sem primeira avaliacao recente e {dashboard.historical_overdue_assessments} reavaliacoes antigas sem engajamento recente.
           </div>
         ) : null}
       </div>
 
-      <KPIStrip
-        items={[
-          { label: "Atrasadas", value: dashboard.overdue_assessments, tone: "danger" },
-          { label: "Vencem em breve", value: dashboard.upcoming_7_days, tone: "warning" },
-          { label: "Primeira avaliacao", value: dashboard.never_assessed, tone: "warning" },
-          { label: "Cobertura recente", value: `${coverageRatio}%`, tone: coverageRatio >= 70 ? "success" : "neutral" },
-        ]}
-      />
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <MetricCard label="Atrasadas" value={String(dashboard.overdue_assessments)} tone="danger" className="stagger-1" />
+        <MetricCard label="Vencem em breve" value={String(dashboard.upcoming_7_days)} tone="warning" className="stagger-2" />
+        <MetricCard label="Primeira avaliação" value={String(dashboard.never_assessed)} tone="warning" className="stagger-3" />
+        <MetricCard label="Cobertura recente" value={`${coverageRatio}%`} tone={coverageRatio >= 70 ? "success" : "neutral"} className="stagger-4" />
+      </div>
 
       <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className="border-lovable-primary/20 bg-lovable-primary-soft/70">
@@ -360,9 +361,9 @@ export function AssessmentOperationsBoard({
               title="Resumo do dia"
               subtitle={`Pressao operacional atual: ${overduePressure}% da base ativa com atraso em avaliacao.`}
             />
-            <ul className="space-y-2 text-sm text-lovable-ink">
+            <ul className="divide-y divide-lovable-border/50 text-sm text-lovable-ink">
               {executiveRead.map((line) => (
-                <li key={line} className="rounded-xl border border-lovable-border bg-lovable-surface px-4 py-3">
+                <li key={line} className="py-3 first:pt-0 last:pb-0">
                   {line}
                 </li>
               ))}

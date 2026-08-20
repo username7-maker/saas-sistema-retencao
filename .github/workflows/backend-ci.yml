@@ -35,18 +35,35 @@ jobs:
       - name: Lint critical Python errors (ruff)
         run: ruff check app tests --select E9,F63,F7,F82
 
-      - name: Type check advisory (mypy)
-        run: mypy app/ --ignore-missing-imports --no-strict-optional || true
+      - name: Type check (mypy)
+        run: mypy app/ --config-file mypy.ini
 
       - name: Security scan (bandit)
         run: bandit -r app/ -ll -q
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --strict --desc on 2>&1 || true
-        # Non-blocking for now — review output and fix critical vulns manually
+        run: >
+          pip-audit -r requirements.runtime.txt --strict --desc on
+          --ignore-vuln PYSEC-2025-185
 
+      # TODO(coverage): cobertura atual ~66.76%; meta 80% (gap ~13.24pp / ~3.756 linhas).
+      # Subir o piso gradualmente apos cobrir work_queue_service, personal_ai_service,
+      # student_personal_ai_service e proposal_service.
+      # Nao elevar sem medir. Proximos checkpoints sugeridos: 70 → 75 → 80.
       - name: Run tests with coverage
         run: pytest -q --tb=short --cov=app --cov-report=term-missing --cov-fail-under=65
+
+      - name: Run critical auth and tenant tests
+        run: >
+          pytest -q --tb=short
+          tests/test_auth_service.py
+          tests/test_auth_service_full.py
+          tests/test_auth_router_session_cookies.py
+          tests/test_dependencies.py
+          tests/test_database_tenant_guardrails.py
+          tests/test_main_tenant_context.py
+          tests/test_permissions.py
+          tests/test_tenant_fk_guards.py
 
   secrets-scan:
     runs-on: ubuntu-latest

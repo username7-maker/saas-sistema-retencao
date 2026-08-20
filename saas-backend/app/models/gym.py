@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,18 @@ class Gym(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    segment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("method_segments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    cordex_status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    main_contact_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    main_contact_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    main_contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     whatsapp_instance: Mapped[str | None] = mapped_column(String(120), nullable=True)
     whatsapp_status: Mapped[str] = mapped_column(String(30), nullable=False, default="disconnected")
     whatsapp_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -43,6 +55,8 @@ class Gym(Base, TimestampMixin):
     kommo_fallback_channel: Mapped[str] = mapped_column(String(20), nullable=False, default="whatsapp")
 
     users = relationship("User", back_populates="gym")
+    segment = relationship("Segment")
     members = relationship("Member", back_populates="gym")
     goals = relationship("Goal")
     kommo_domain_routes = relationship("KommoDomainRoute", cascade="all, delete-orphan")
+    kommo_trainer_routes = relationship("KommoTrainerRoute", cascade="all, delete-orphan")

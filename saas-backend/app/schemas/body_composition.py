@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.assistant import AIAssistantPayload
 
@@ -21,22 +21,108 @@ ActuarSyncStatus = Literal[
 ]
 ActuarSyncAttemptStatus = Literal["pending", "processing", "exported", "synced", "failed", "skipped", "disabled"]
 ActuarSyncJobStatus = Literal["pending", "processing", "synced", "failed", "needs_review", "cancelled"]
-ActuarSyncJobType = Literal["body_composition_push"]
+ActuarSyncJobType = Literal["body_composition_push", "assessment_push"]
 ActuarSyncAttemptV2Status = Literal["started", "succeeded", "failed"]
 ActuarFieldClassification = Literal["critical_direct", "critical_derived", "non_critical_direct", "unsupported", "text_note_only"]
 OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 BodyCompositionSex = Literal["male", "female"]
+AnthropometryEthnicity = Literal["white", "black"]
+AnthropometryMaturity = Literal["prepubertal", "pubertal", "postpubertal"]
+BodyFatMeasurementSource = Literal["bioimpedance", "manual_anthropometry", "composite_geneos", "manual_override"]
+PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]
+BodyFatUsedSource = Literal["bioimpedance", "anthropometry", "manual_override"]
+BodyFatMethod = Literal["legacy_bioimpedance", "navy_circumference", "rfm", "geneos_composite", "skinfold_protocol", "manual_override"]
+BodyFatConfidence = Literal["high", "medium_high", "medium", "low", "inconsistent"]
 BodyCompositionDataQualityFlag = Literal[
     "missing_body_fat_percent",
     "missing_muscle_mass",
     "suspect_bmi",
     "ocr_low_confidence",
     "manually_review_required",
+    "anthropometry_incomplete",
+    "body_fat_source_divergence",
+    "anthropometry_needs_review",
+    "anthropometry_inconsistent",
+    "impossible_measurement_value",
+    "abnormal_measurement_variation",
+    "anthropometry_protocol_manual_only",
+    "anthropometry_protocol_mismatch",
+    "anthropometry_protocol_age_outside_range",
 ]
+
+BODY_COMPOSITION_NUMERIC_INPUT_FIELDS = (
+    "age_years",
+    "height_cm",
+    "weight_kg",
+    "body_fat_kg",
+    "body_fat_percent",
+    "body_fat_bioimpedance_percent",
+    "body_fat_anthropometric_percent",
+    "body_fat_manual_override_percent",
+    "body_fat_used_percent",
+    "body_fat_range_min",
+    "body_fat_range_max",
+    "fat_mass_estimated_kg",
+    "lean_mass_estimated_kg",
+    "waist_hip_ratio",
+    "fat_free_mass_kg",
+    "inorganic_salt_kg",
+    "protein_kg",
+    "body_water_kg",
+    "lean_mass_kg",
+    "muscle_mass_kg",
+    "skeletal_muscle_kg",
+    "body_water_percent",
+    "visceral_fat_level",
+    "bmi",
+    "basal_metabolic_rate_kcal",
+    "neck_cm",
+    "shoulders_cm",
+    "chest_cm",
+    "waist_cm",
+    "abdomen_cm",
+    "hip_cm",
+    "iliac_cm",
+    "right_arm_relaxed_cm",
+    "left_arm_relaxed_cm",
+    "right_arm_flexed_cm",
+    "left_arm_flexed_cm",
+    "right_thigh_cm",
+    "left_thigh_cm",
+    "right_calf_cm",
+    "left_calf_cm",
+    "skinfold_chest_mm",
+    "skinfold_midaxillary_mm",
+    "skinfold_subscapular_mm",
+    "skinfold_triceps_mm",
+    "skinfold_biceps_mm",
+    "skinfold_abdominal_mm",
+    "skinfold_suprailiac_mm",
+    "skinfold_thigh_mm",
+    "skinfold_calf_mm",
+    "target_weight_kg",
+    "weight_control_kg",
+    "muscle_control_kg",
+    "fat_control_kg",
+    "total_energy_kcal",
+    "physical_age",
+    "health_score",
+    "ocr_confidence",
+    "parsing_confidence",
+)
+
+
+def _normalize_decimal_input(value):
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().replace(" ", "").replace("%", "").replace(",", ".")
+    if not cleaned:
+        return None
+    return cleaned
 BodyCompositionTrend = Literal["up", "down", "stable", "insufficient"]
-BodyCompositionRangeStatus = Literal["low", "adequate", "high", "unknown"]
+BodyCompositionRangeStatus = Literal["low", "adequate", "monitor", "high", "unknown"]
 BodyCompositionInsightTone = Literal["positive", "warning", "neutral"]
 
 
@@ -99,6 +185,11 @@ class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
 
 
 class BodyCompositionEvaluationBase(BaseModel):
+    @field_validator(*BODY_COMPOSITION_NUMERIC_INPUT_FIELDS, mode="before")
+    @classmethod
+    def accept_decimal_comma(cls, value):
+        return _normalize_decimal_input(value)
+
     evaluation_date: date
     measured_at: datetime | None = None
     age_years: int | None = Field(default=None, ge=1, le=119)
@@ -106,7 +197,21 @@ class BodyCompositionEvaluationBase(BaseModel):
     height_cm: float | None = Field(default=None, ge=100, le=250)
     weight_kg: float | None = Field(default=None, gt=0)
     body_fat_kg: float | None = Field(default=None)
+    # Raw/legacy bioimpedance value. Product surfaces must use body_fat_used_percent.
     body_fat_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_bioimpedance_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_anthropometric_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_manual_override_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_used_percent: float | None = Field(default=None, ge=0, le=75)
+    body_fat_used_source: BodyFatUsedSource | None = None
+    body_fat_method: BodyFatMethod | None = None
+    body_fat_confidence: BodyFatConfidence | None = None
+    body_fat_range_min: float | None = Field(default=None, ge=0, le=75)
+    body_fat_range_max: float | None = Field(default=None, ge=0, le=75)
+    preferred_body_fat_source: PreferredBodyFatSource | None = None
+    measurement_source: BodyFatMeasurementSource | None = None
+    fat_mass_estimated_kg: float | None = Field(default=None)
+    lean_mass_estimated_kg: float | None = Field(default=None)
     waist_hip_ratio: float | None = Field(default=None, ge=0)
     fat_free_mass_kg: float | None = Field(default=None)
     inorganic_salt_kg: float | None = Field(default=None)
@@ -120,6 +225,38 @@ class BodyCompositionEvaluationBase(BaseModel):
     visceral_fat_level: float | None = Field(default=None, ge=0, le=30)
     bmi: float | None = Field(default=None, ge=5, le=80)
     basal_metabolic_rate_kcal: float | None = Field(default=None)
+    neck_cm: float | None = Field(default=None, gt=0)
+    shoulders_cm: float | None = Field(default=None, gt=0)
+    chest_cm: float | None = Field(default=None, gt=0)
+    waist_cm: float | None = Field(default=None, gt=0)
+    abdomen_cm: float | None = Field(default=None, gt=0)
+    hip_cm: float | None = Field(default=None, gt=0)
+    iliac_cm: float | None = Field(default=None, gt=0)
+    right_arm_relaxed_cm: float | None = Field(default=None, gt=0)
+    left_arm_relaxed_cm: float | None = Field(default=None, gt=0)
+    right_arm_flexed_cm: float | None = Field(default=None, gt=0)
+    left_arm_flexed_cm: float | None = Field(default=None, gt=0)
+    right_thigh_cm: float | None = Field(default=None, gt=0)
+    left_thigh_cm: float | None = Field(default=None, gt=0)
+    right_calf_cm: float | None = Field(default=None, gt=0)
+    left_calf_cm: float | None = Field(default=None, gt=0)
+    skinfold_chest_mm: float | None = Field(default=None, gt=0)
+    skinfold_midaxillary_mm: float | None = Field(default=None, gt=0)
+    skinfold_subscapular_mm: float | None = Field(default=None, gt=0)
+    skinfold_triceps_mm: float | None = Field(default=None, gt=0)
+    skinfold_biceps_mm: float | None = Field(default=None, gt=0)
+    skinfold_abdominal_mm: float | None = Field(default=None, gt=0)
+    skinfold_suprailiac_mm: float | None = Field(default=None, gt=0)
+    skinfold_thigh_mm: float | None = Field(default=None, gt=0)
+    skinfold_calf_mm: float | None = Field(default=None, gt=0)
+    anthropometry_notes: str | None = None
+    body_fat_manual_review_required: bool = False
+    body_fat_manual_review_completed: bool = False
+    anthropometry_review_completed: bool = False
+    measurement_protocol: str | None = None
+    anthropometry_ethnicity: AnthropometryEthnicity | None = None
+    anthropometry_maturity: AnthropometryMaturity | None = None
+    evaluated_by_user_id: UUID | None = None
     target_weight_kg: float | None = Field(default=None)
     weight_control_kg: float | None = Field(default=None)
     muscle_control_kg: float | None = Field(default=None)
@@ -253,6 +390,61 @@ class BodyCompositionReferenceMetricRead(BaseModel):
     reference_max: float | None = None
     status: BodyCompositionRangeStatus = "unknown"
     hint: str | None = None
+    position_label: str | None = None
+
+
+class BodyCompositionScoreBreakdownItemRead(BaseModel):
+    key: str
+    label: str
+    score: int
+    max_score: int = 25
+    description: str
+
+
+class BodyCompositionRecommendationRead(BaseModel):
+    key: str
+    title: str
+    detail: str
+    tone: BodyCompositionInsightTone = "neutral"
+
+
+class BodyCompositionNextAssessmentRead(BaseModel):
+    due_date: date
+    formatted_due_date: str
+    contact_date: date
+    formatted_contact_date: str
+    cycle_days: int = 90
+    contact_offset_days: int = 75
+    conditions: list[str] = Field(default_factory=list)
+
+
+class BodyCompositionBodyFatContextRead(BaseModel):
+    bioimpedance_raw_percent: float | None = None
+    anthropometric_percent: float | None = None
+    used_percent: float | None = None
+    used_source: BodyFatUsedSource | None = None
+    preferred_source: PreferredBodyFatSource | None = None
+    method: BodyFatMethod | None = None
+    confidence: BodyFatConfidence | None = None
+    range_min: float | None = None
+    range_max: float | None = None
+    difference_between_sources: float | None = None
+    manual_review_required: bool = False
+    manual_review_completed: bool = False
+    quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
+
+
+class BodyCompositionMeasurementRowRead(BaseModel):
+    key: str
+    label: str
+    current_value: float | None = None
+    previous_value: float | None = None
+    delta: float | None = None
+    unit: str = "cm"
+    used_for_body_fat_calculation: bool = False
+    formatted_current: str
+    formatted_previous: str
+    formatted_delta: str
 
 
 class BodyCompositionComparisonRowRead(BaseModel):
@@ -297,6 +489,12 @@ class BodyCompositionReportRead(BaseModel):
     reviewed_manually: bool
     parsing_confidence: float | None = None
     data_quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
+    body_fat_context: BodyCompositionBodyFatContextRead | None = None
+    score_total: int | None = None
+    score_breakdown: list[BodyCompositionScoreBreakdownItemRead] = Field(default_factory=list)
+    recommendations: list[BodyCompositionRecommendationRead] = Field(default_factory=list)
+    next_assessment: BodyCompositionNextAssessmentRead | None = None
+    measurement_rows: list[BodyCompositionMeasurementRowRead] = Field(default_factory=list)
     primary_cards: list[BodyCompositionMetricCardRead] = Field(default_factory=list)
     composition_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
     muscle_fat_metrics: list[BodyCompositionReferenceMetricRead] = Field(default_factory=list)
@@ -345,7 +543,8 @@ class ActuarSyncJobRead(BaseModel):
     id: UUID
     gym_id: UUID
     member_id: UUID
-    body_composition_evaluation_id: UUID
+    body_composition_evaluation_id: UUID | None
+    assessment_id: UUID | None = None
     job_type: ActuarSyncJobType
     status: ActuarSyncJobStatus
     error_code: str | None
@@ -420,6 +619,9 @@ class BodyCompositionKommoDispatchRead(BaseModel):
     file_attach_status: str | None = None
     pdf_delivery_mode: str | None = None
     fallback_available: bool = False
+    route_kind: str | None = None
+    trainer_user_id: UUID | None = None
+    route_fallback_reason: str | None = None
 
 
 class ActuarSyncQueueItemRead(BaseModel):

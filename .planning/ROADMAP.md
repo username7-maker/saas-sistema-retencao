@@ -143,8 +143,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute (blocker-only durante o freeze; so entram correcoes que protejam o loop core)
-- [ ] verify/validate
+- [x] execute (reaberta em 2026-05-27 como fase `09.15-pilot-admin-surfaces-closure`; primeiro corte protege relatorios mensais contra envio cross-tenant, alinha notificacoes e publica API/worker/frontend no piloto)
+- [x] verify/validate (validada com Spec Kit, testes focados backend/frontend, lint/build, smoke Vercel/Railway e logs pos-deploy)
 
 ### Phase 4.35: Upload real de foto e funcoes mais ricas por usuario
 
@@ -160,8 +160,8 @@ Status:
 - [x] context
 - [x] ui-spec
 - [x] plan
-- [ ] execute (blocker-only durante o freeze; sem avancar identidade fora do loop core)
-- [ ] verify/validate
+- [x] execute (V1 publicada no piloto com upload de avatar proprio/equipe, URL manual rebaixada para fallback e cargo exibido separado de papel de acesso)
+- [x] verify/validate (Spec Kit OK, backend 18 passed, frontend focado 10 passed, lint/build OK, smoke Vercel/Railway e logs pos-deploy OK)
 
 ### Phase 4.36: Higiene de tokens e lockdown de superficies publicas
 

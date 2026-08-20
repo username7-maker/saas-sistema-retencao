@@ -469,7 +469,7 @@ export function TaskDetailDrawer({
               </Button>
             </div>
 
-            <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+            <div className="mt-4 max-h-72 overflow-y-auto pr-1">
               {eventsQuery.isLoading ? (
                 <p className="text-sm text-lovable-ink-muted">Carregando historico operacional...</p>
               ) : eventsQuery.isError ? (
@@ -477,20 +477,22 @@ export function TaskDetailDrawer({
               ) : (eventsQuery.data ?? []).length === 0 ? (
                 <p className="text-sm text-lovable-ink-muted">Sem historico detalhado desta task.</p>
               ) : (
-                (eventsQuery.data ?? []).map((event) => (
-                  <div key={event.id} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-lovable-ink">{eventLabel(event)}</p>
-                      <span className="text-xs text-lovable-ink-muted">{formatDateTime(event.created_at)}</span>
+                <div className="divide-y divide-lovable-border/50">
+                  {(eventsQuery.data ?? []).map((event) => (
+                    <div key={event.id} className="py-3 first:pt-0 last:pb-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-lovable-ink">{eventLabel(event)}</p>
+                        <span className="text-xs text-lovable-ink-muted">{formatDateTime(event.created_at)}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-lovable-ink-muted">
+                        {[event.contact_channel, event.outcome, event.scheduled_for ? `para ${formatDateTime(event.scheduled_for)}` : null]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      {event.note ? <p className="mt-2 text-sm text-lovable-ink">{event.note}</p> : null}
                     </div>
-                    <p className="mt-1 text-sm text-lovable-ink-muted">
-                      {[event.contact_channel, event.outcome, event.scheduled_for ? `para ${formatDateTime(event.scheduled_for)}` : null]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    {event.note ? <p className="mt-2 text-sm text-lovable-ink">{event.note}</p> : null}
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>

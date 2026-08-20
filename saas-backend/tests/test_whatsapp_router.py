@@ -6,7 +6,13 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.routers.whatsapp import connect_whatsapp, get_webhook_setup_status, whatsapp_webhook
+from app.routers.whatsapp import (
+    WhatsAppAgentReplyIn,
+    connect_whatsapp,
+    get_webhook_setup_status,
+    whatsapp_agent_reply,
+    whatsapp_webhook,
+)
 
 
 class _RequestStub:
@@ -29,13 +35,18 @@ def test_connect_whatsapp_enqueues_webhook_setup_without_query_secret(monkeypatc
     db = MagicMock()
     current_user = SimpleNamespace(id=uuid4(), gym_id=gym_id)
     queued_jobs: list[dict] = []
+    ensure_calls: list[dict] = []
 
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_api_url", "https://evolution.example.com")
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_api_token", "secret")
     monkeypatch.setattr("app.routers.whatsapp.settings.public_backend_url", "https://api.example.com")
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_webhook_token", "webhook-secret")
     monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: gym)
-    monkeypatch.setattr("app.routers.whatsapp.ensure_instance", lambda *_args, **_kwargs: "gym_instance")
+    def fake_ensure_instance(*_args, **kwargs):
+        ensure_calls.append(kwargs)
+        return "gym_instance"
+
+    monkeypatch.setattr("app.routers.whatsapp.ensure_instance", fake_ensure_instance)
     monkeypatch.setattr("app.routers.whatsapp.get_qr_code", lambda *_args, **_kwargs: {"status": "connecting", "qrcode": "data:image/png;base64,abc"})
     job_id = uuid4()
     monkeypatch.setattr(
@@ -48,6 +59,8 @@ def test_connect_whatsapp_enqueues_webhook_setup_without_query_secret(monkeypatc
     result = connect_whatsapp(db=db, current_user=current_user)
 
     assert result.status == "connecting"
+    assert ensure_calls[0]["fresh"] is True
+    assert ensure_calls[0]["instance_name"] is None
     assert result.job_id == str(job_id)
     assert result.job_status == "pending"
     assert result.webhook_setup_created is True
@@ -109,6 +122,77 @@ def test_get_webhook_setup_status_rejects_missing_or_wrong_type(monkeypatch):
     assert exc_info.value.status_code == 404
 
 
+def test_whatsapp_agent_reply_uses_backend_send(monkeypatch):
+    db = MagicMock()
+    gym_id = uuid4()
+    log_id = uuid4()
+    calls = {}
+
+    monkeypatch.setattr("app.routers.whatsapp.settings.cordex_agent_service_token", "service-token")
+    monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_agent_mode", "active")
+    monkeypatch.setattr("app.routers.whatsapp.set_current_gym_id", lambda value: calls.update(tenant=value))
+    monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: SimpleNamespace(id=gym_id))
+    monkeypatch.setattr(
+        "app.routers.whatsapp._validate_agent_reply_scope",
+        lambda *_args, **kwargs: calls.update(scope=kwargs),
+    )
+    monkeypatch.setattr("app.routers.whatsapp.get_gym_instance", lambda *_args, **_kwargs: "gym_instance")
+
+    def fake_send(*_args, **kwargs):
+        calls["send"] = kwargs
+        return SimpleNamespace(id=log_id, status="sent")
+
+    monkeypatch.setattr(
+        "app.routers.whatsapp.send_agent_reply_from_service_token",
+        fake_send,
+    )
+
+    result = whatsapp_agent_reply(
+        payload=WhatsAppAgentReplyIn(
+            gym_id=gym_id,
+            recipient_phone="5511999999999",
+            message="Resposta do agente",
+        ),
+        authorization="Bearer service-token",
+        x_cordex_agent_token=None,
+        db=db,
+    )
+
+    assert result.status == "sent"
+    assert result.message_log_id == str(log_id)
+    assert calls["tenant"] == gym_id
+    assert calls["scope"]["gym_id"] == gym_id
+    assert calls["send"]["gym_id"] == gym_id
+    db.commit.assert_called_once()
+
+
+def test_whatsapp_agent_reply_rejects_member_outside_gym(monkeypatch):
+    db = MagicMock()
+    gym_id = uuid4()
+    member_id = uuid4()
+
+    monkeypatch.setattr("app.routers.whatsapp.settings.cordex_agent_service_token", "service-token")
+    monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_agent_mode", "active")
+    monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: SimpleNamespace(id=gym_id))
+    db.scalar.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        whatsapp_agent_reply(
+            payload=WhatsAppAgentReplyIn(
+                gym_id=gym_id,
+                member_id=member_id,
+                recipient_phone="5511999999999",
+                message="Resposta do agente",
+            ),
+            authorization="Bearer service-token",
+            x_cordex_agent_token=None,
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "Member" in exc_info.value.detail
+
+
 @pytest.mark.anyio
 async def test_whatsapp_webhook_accepts_header_token(monkeypatch):
     gym = SimpleNamespace(
@@ -120,8 +204,10 @@ async def test_whatsapp_webhook_accepts_header_token(monkeypatch):
     )
     db = MagicMock()
     db.scalar.return_value = gym
+    tenant_calls = []
 
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_webhook_token", "webhook-secret")
+    monkeypatch.setattr("app.routers.whatsapp.set_current_gym_id", tenant_calls.append)
 
     body = {
         "event": "STATUS_INSTANCE",
@@ -140,7 +226,42 @@ async def test_whatsapp_webhook_accepts_header_token(monkeypatch):
     assert gym.whatsapp_status == "connected"
     assert gym.whatsapp_phone == "5511999999999"
     assert isinstance(gym.whatsapp_connected_at, datetime)
+    assert tenant_calls == [gym.id]
     db.commit.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_whatsapp_message_sets_tenant_before_processing(monkeypatch):
+    gym = SimpleNamespace(id=uuid4(), whatsapp_instance="gym_instance")
+    db = MagicMock()
+    db.scalar.return_value = gym
+    call_order = []
+
+    monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_webhook_token", "webhook-secret")
+    monkeypatch.setattr(
+        "app.routers.whatsapp.set_current_gym_id",
+        lambda gym_id: call_order.append(("tenant", gym_id)),
+    )
+    monkeypatch.setattr(
+        "app.routers.whatsapp.handle_incoming_whatsapp_webhook",
+        lambda _db, _body, *, gym_id: call_order.append(("handler", gym_id)),
+    )
+
+    result = await whatsapp_webhook(
+        request=_RequestStub(
+            {
+                "event": "MESSAGES_UPSERT",
+                "instance": "gym_instance",
+                "data": {"message": {"conversation": "Ola"}},
+            }
+        ),
+        x_webhook_token="webhook-secret",
+        authorization=None,
+        db=db,
+    )
+
+    assert result == {"ok": True}
+    assert call_order == [("tenant", gym.id), ("handler", gym.id)]
 
 
 @pytest.mark.anyio

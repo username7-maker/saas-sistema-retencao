@@ -510,6 +510,68 @@ def test_import_members_csv_updates_existing_member_by_name_without_strong_ident
     assert member.phone == "54999990000"
 
 
+def test_import_members_csv_refreshes_existing_name_when_phone_confirms_actuar_row() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Gabriel Pereira",
+        phone="54992084222",
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente,Telefones,Assinaturas,Assinaturas - Condições,Situação\n"
+        "Maicon Gabriel Pereira Ribeiro,54992084222,LIVRE MENSAL,PLANO PRO-LIVRE 12 MESES,A\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert summary.imported == 0
+    assert summary.updated_existing == 1
+    assert member.full_name == "Maicon Gabriel Pereira Ribeiro"
+    assert member.phone == "54992084222"
+    assert member.plan_name == "LIVRE ANUAL"
+
+
+def test_import_members_csv_does_not_rename_fuzzy_match_without_strong_identifier() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Gabriel Pereira",
+        phone=None,
+        email=None,
+        status=MemberStatus.ACTIVE,
+        plan_name="Plano Base",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    csv_content = (
+        "Cliente,Assinaturas\n"
+        "Maicon Gabriel Pereira Ribeiro,LIVRE MENSAL\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert summary.imported == 0
+    assert summary.updated_existing == 1
+    assert member.full_name == "Gabriel Pereira"
+
+
 def test_import_members_csv_skips_onboarding_when_join_date_is_missing(monkeypatch) -> None:
     db = MagicMock()
     mock_scalars = MagicMock()

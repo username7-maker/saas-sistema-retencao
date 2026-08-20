@@ -1,0 +1,63 @@
+{
+  "name": "Cordex AI Agent - Tool Database Query",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "payload",
+              "type": "object"
+            },
+            {
+              "name": "context",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "tool-input",
+      "name": "Tool Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($input.first().json.payload ?? $input.first().json);\nconst sql = String(payload.sql ?? '').trim();\nconst lower = sql.toLowerCase();\nconst blocked = ['insert ', 'update ', 'delete ', 'drop ', 'alter ', 'truncate ', 'grant ', 'revoke ', ';'].some(token => lower.includes(token));\nif (!sql) return [{ json: { status: 'error', rows: [], summary: 'SQL is required' } }];\nif (!lower.startsWith('select') || blocked) return [{ json: { status: 'pending_approval', rows: [], summary: 'Only safe single SELECT statements are allowed by default.', approval_required: true } }];\nreturn [{ json: { status: 'success', rows: [], summary: 'SQL validated. Connect Postgres execution node with allowlist before production.', validated_sql: sql, parameters: payload.parameters ?? {} } }];"
+      },
+      "id": "validate-sql",
+      "name": "Validate SQL Safety",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Tool Input": {
+      "main": [
+        [
+          {
+            "node": "Validate SQL Safety",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

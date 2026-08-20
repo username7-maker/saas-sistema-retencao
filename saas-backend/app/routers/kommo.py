@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -191,6 +192,9 @@ def send_kommo_message_endpoint(
             "pdf_url": result.pdf_url,
             "kommo_file_uuid": result.kommo_file_uuid,
             "pdf_delivery_mode": result.pdf_delivery_mode,
+            "route_kind": getattr(result, "route_kind", None),
+            "trainer_user_id": str(result.trainer_user_id) if getattr(result, "trainer_user_id", None) else None,
+            "route_fallback_reason": getattr(result, "route_fallback_reason", None),
         },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
@@ -216,6 +220,9 @@ def send_kommo_message_endpoint(
         file_attach_status=result.file_attach_status,
         pdf_delivery_mode=result.pdf_delivery_mode,
         fallback_available=result.fallback_available,
+        route_kind=getattr(result, "route_kind", None),
+        trainer_user_id=getattr(result, "trainer_user_id", None),
+        route_fallback_reason=getattr(result, "route_fallback_reason", None),
     )
 
 
@@ -230,7 +237,7 @@ async def kommo_webhook_endpoint(
     received = (x_kommo_webhook_token or token or "").strip()
     if not expected:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kommo webhook token nao configurado.")
-    if received != expected:
+    if not received or not secrets.compare_digest(received, expected):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token Kommo invalido.")
 
     payload = await _read_payload(request)

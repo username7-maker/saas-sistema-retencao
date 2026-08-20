@@ -25,6 +25,14 @@ const NUMERIC_FIELDS = [
   "height_cm",
   "body_fat_kg",
   "body_fat_percent",
+  "body_fat_bioimpedance_percent",
+  "body_fat_anthropometric_percent",
+  "body_fat_manual_override_percent",
+  "body_fat_used_percent",
+  "body_fat_range_min",
+  "body_fat_range_max",
+  "fat_mass_estimated_kg",
+  "lean_mass_estimated_kg",
   "waist_hip_ratio",
   "fat_free_mass_kg",
   "inorganic_salt_kg",
@@ -37,6 +45,21 @@ const NUMERIC_FIELDS = [
   "visceral_fat_level",
   "bmi",
   "basal_metabolic_rate_kcal",
+  "neck_cm",
+  "shoulders_cm",
+  "chest_cm",
+  "waist_cm",
+  "abdomen_cm",
+  "hip_cm",
+  "iliac_cm",
+  "right_arm_relaxed_cm",
+  "left_arm_relaxed_cm",
+  "right_arm_flexed_cm",
+  "left_arm_flexed_cm",
+  "right_thigh_cm",
+  "left_thigh_cm",
+  "right_calf_cm",
+  "left_calf_cm",
   "target_weight_kg",
   "weight_control_kg",
   "muscle_control_kg",
@@ -81,6 +104,44 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+}
+
+function isPdfBlob(blob: Blob): boolean {
+  if (blob.size === 0) return false;
+  return !blob.type || blob.type.toLowerCase().includes("pdf");
+}
+
+function openBlobInPopup(targetWindow: Window, url: string): boolean {
+  try {
+    if (targetWindow.closed) return false;
+    if (typeof targetWindow.location.replace === "function") {
+      targetWindow.location.replace(url);
+    } else {
+      targetWindow.location.href = url;
+    }
+    targetWindow.focus?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writePdfWindowMessage(targetWindow: Window | null | undefined, title: string, message: string): void {
+  if (!targetWindow) return;
+  try {
+    targetWindow.document.title = title;
+    targetWindow.document.body.innerHTML = `
+      <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;background:#0a0b0f;color:#f8fafc;font-family:Inter,Arial,sans-serif;">
+        <section style="width:min(420px,calc(100vw - 32px));border:1px solid rgba(255,255,255,.14);border-radius:18px;background:#101320;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,.28);">
+          <p style="margin:0 0 8px;color:#60a5fa;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;">Cordex Gym OS</p>
+          <h1 style="margin:0 0 10px;font-size:22px;line-height:1.2;">${title}</h1>
+          <p style="margin:0;color:#aab4c3;font-size:14px;line-height:1.55;">${message}</p>
+        </section>
+      </main>
+    `;
+  } catch {
+    // Browser may block document writes after navigation. The PDF flow can continue.
+  }
 }
 
 export type BodyCompositionPdfKind = "summary" | "technical";
@@ -283,9 +344,15 @@ export const bodyCompositionService = {
   ): Promise<{ blob: Blob; filename: string }> {
     const path = kind === "technical" ? "technical-pdf" : "pdf";
     const response = await api.get<Blob>(`/api/v1/members/${memberId}/body-composition/${evaluationId}/${path}`, {
+      headers: { Accept: "application/pdf" },
       responseType: "blob",
       params: { ts: Date.now() },
+      timeout: 90_000,
     });
+
+    if (!isPdfBlob(response.data)) {
+      throw new Error("O servidor nao retornou um PDF valido.");
+    }
 
     return {
       blob: response.data,
@@ -302,8 +369,6 @@ export const bodyCompositionService = {
     kind: BodyCompositionPdfKind,
     popup?: Window | null,
   ): Promise<void> {
-    const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
-    const url = window.URL.createObjectURL(blob);
     const targetWindow = popup ?? window.open("", "_blank");
 
     if (targetWindow) {
@@ -312,12 +377,32 @@ export const bodyCompositionService = {
       } catch {
         // noop
       }
-      targetWindow.location.href = url;
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      return;
+      writePdfWindowMessage(
+        targetWindow,
+        "Gerando PDF",
+        "Estamos montando o relatorio completo. A primeira geracao pode levar alguns segundos.",
+      );
     }
 
-    triggerBrowserDownload(blob, filename);
+    try {
+      const { blob, filename } = await this.fetchPdf(memberId, evaluationId, kind);
+      const url = window.URL.createObjectURL(blob);
+
+      if (targetWindow && openBlobInPopup(targetWindow, url)) {
+        // Keep the object URL alive while the browser PDF viewer initializes.
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 15 * 60_000);
+        return;
+      }
+
+      triggerBrowserDownload(blob, filename);
+    } catch (error) {
+      writePdfWindowMessage(
+        targetWindow,
+        "Nao foi possivel gerar o PDF",
+        "O backend nao retornou o arquivo dentro do tempo esperado. Volte para o Cordex e tente novamente.",
+      );
+      throw error;
+    }
   },
 
   async readWithAssistedFallback(
@@ -360,13 +445,17 @@ export const bodyCompositionService = {
 
     try {
       const assistedResult = await bodyCompositionService.parseImage(memberId, file, localResult, deviceProfile);
+      const assistedUsed = assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used);
+      const assistedWarning = assistedResult.warnings.find(
+        (warning) => warning.field == null && warning.message.toLowerCase().includes("leitura assistida"),
+      );
       return {
         localResult,
         result: assistedResult,
         fallbackReasons,
         assistedAttempted: true,
-        assistedUsed: assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used),
-        assistedError: null,
+        assistedUsed,
+        assistedError: assistedUsed ? null : assistedWarning?.message ?? null,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Leitura assistida indisponivel no momento.";
