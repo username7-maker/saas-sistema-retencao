@@ -228,10 +228,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="female",
         age_min=20,
         age_max=60,
-        required_fields=("abdomen_cm", "weight_kg", "height_cm"),
+        required_fields=("waist_cm", "abdomen_cm", "weight_kg", "height_cm"),
         calculation="weltman_1988_female",
         supported=True,
-        notes="Weltman feminino usa abdomen, peso e altura; resultado direto em percentual.",
+        notes="Weltman feminino usa a media de cintura e abdomen, peso e altura; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="weltman_1988_male_obese_20_60",
@@ -239,10 +239,10 @@ PROTOCOLS: tuple[BodyCompositionProtocol, ...] = (
         sex="male",
         age_min=20,
         age_max=60,
-        required_fields=("abdomen_cm", "hip_cm", "iliac_cm", "weight_kg"),
+        required_fields=("waist_cm", "abdomen_cm", "weight_kg"),
         calculation="weltman_1988_male",
         supported=True,
-        notes="Weltman masculino usa abdomen, quadril, circunferencia iliaca e peso; resultado direto em percentual.",
+        notes="Weltman masculino usa a media de cintura e abdomen e o peso; resultado direto em percentual.",
     ),
     BodyCompositionProtocol(
         key="slaughter_1988_boys_black_white_6_17",
@@ -685,24 +685,26 @@ def _ymca_3(values: Any, sex: str | None, age_years: int | None) -> float | None
 def _weltman_1988_female(values: Any, sex: str | None, age_years: int | None) -> float | None:
     if sex != "female":
         return None
+    waist_cm = _read_float(values, "waist_cm")
     abdomen_cm = _read_float(values, "abdomen_cm")
     weight_kg = _read_float(values, "weight_kg")
     height_cm = _read_float(values, "height_cm")
-    if abdomen_cm is None or weight_kg is None or height_cm is None:
+    if waist_cm is None or abdomen_cm is None or weight_kg is None or height_cm is None:
         return None
-    return 0.11077 * abdomen_cm - 0.17666 * height_cm + 0.14354 * weight_kg + 51.03301
+    mean_abdomen_cm = (waist_cm + abdomen_cm) / 2
+    return 0.11077 * mean_abdomen_cm - 0.17666 * height_cm + 0.14354 * weight_kg + 51.03301
 
 
 def _weltman_1988_male(values: Any, sex: str | None, age_years: int | None) -> float | None:
     if sex != "male":
         return None
+    waist_cm = _read_float(values, "waist_cm")
     abdomen_cm = _read_float(values, "abdomen_cm")
-    hip_cm = _read_float(values, "hip_cm")
-    iliac_cm = _read_float(values, "iliac_cm")
     weight_kg = _read_float(values, "weight_kg")
-    if abdomen_cm is None or hip_cm is None or iliac_cm is None or weight_kg is None:
+    if waist_cm is None or abdomen_cm is None or weight_kg is None:
         return None
-    return -47.371817 + 0.57914807 * abdomen_cm + 0.25189114 * hip_cm + 0.21366088 * iliac_cm - 0.35595404 * weight_kg
+    mean_abdomen_cm = (waist_cm + abdomen_cm) / 2
+    return 0.31457 * mean_abdomen_cm - 0.10969 * weight_kg + 10.8336
 
 
 def _slaughter_triceps_subscapular_total(values: Any) -> float | None:

@@ -325,9 +325,10 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
                 "age_years": 42,
                 "height_cm": 165,
                 "weight_kg": 80,
+                "waist_cm": 90,
                 "abdomen_cm": 98,
             },
-            44.22,
+            43.78,
         ),
         (
             "slaughter_1988_boys",
@@ -381,7 +382,7 @@ def test_expanded_supported_protocols_match_reference_formulas() -> None:
         assert resolved["body_fat_used_percent"] == expected_percent
 
 
-def test_weltman_male_reports_new_required_measurements() -> None:
+def test_weltman_male_requires_both_afig_abdominal_circumferences() -> None:
     resolved = resolve_body_fat_fields(
         {
             "sex": "male",
@@ -403,6 +404,37 @@ def test_weltman_male_reports_new_required_measurements() -> None:
     assert "anthropometry_protocol_manual_only" not in resolved["data_quality_flags_json"]
     assert "anthropometry_incomplete" in resolved["data_quality_flags_json"]
     assert "anthropometry_needs_review" in resolved["data_quality_flags_json"]
+
+
+def test_weltman_protocols_match_confirmed_afig_field_contract_and_persist_selection() -> None:
+    female = resolve_body_fat_fields(
+        {
+            "sex": "female",
+            "age_years": 42,
+            "height_cm": 165,
+            "weight_kg": 80,
+            "waist_cm": 90,
+            "abdomen_cm": 98,
+            "preferred_body_fat_source": "anthropometry",
+            "measurement_protocol": "weltman_1988_female_obese_20_60",
+        }
+    )
+    male = resolve_body_fat_fields(
+        {
+            "sex": "male",
+            "age_years": 40,
+            "weight_kg": 100,
+            "waist_cm": 98,
+            "abdomen_cm": 110,
+            "preferred_body_fat_source": "anthropometry",
+            "measurement_protocol": "weltman_1988_male_obese_20_60",
+        }
+    )
+
+    assert female["measurement_protocol"] == "weltman_1988_female_obese_20_60"
+    assert female["body_fat_used_percent"] == 43.78
+    assert male["measurement_protocol"] == "weltman_1988_male_obese_20_60"
+    assert male["body_fat_used_percent"] == 32.58
 
 
 def test_newly_effective_protocols_match_reference_cases() -> None:
@@ -442,17 +474,3 @@ def test_newly_effective_protocols_match_reference_cases() -> None:
         assert resolved["body_fat_used_source"] == "anthropometry", protocol
         assert resolved["body_fat_method"] == "skinfold_protocol", protocol
         assert resolved["body_fat_used_percent"] == expected, protocol
-
-    weltman = resolve_body_fat_fields(
-        {
-            "sex": "male",
-            "age_years": 40,
-            "weight_kg": 100,
-            "abdomen_cm": 110,
-            "hip_cm": 108,
-            "iliac_cm": 105,
-            "preferred_body_fat_source": "anthropometry",
-            "measurement_protocol": "weltman_1988_male_obese_20_60",
-        }
-    )
-    assert weltman["body_fat_used_percent"] == 30.38

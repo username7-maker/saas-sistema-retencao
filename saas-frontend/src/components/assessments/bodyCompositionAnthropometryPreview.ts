@@ -415,21 +415,23 @@ function calculateYmca3(input: AnthropometryPreviewInput, sex: Sex, ageYears: nu
 
 function calculateWeltmanFemale(input: AnthropometryPreviewInput, sex: Sex): number | null {
   if (sex !== "female") return null;
+  const waistCm = readProtocolValue(input, "waist_cm");
   const abdomenCm = readProtocolValue(input, "abdomen_cm");
   const weightKg = readProtocolValue(input, "weight_kg");
   const heightCm = readProtocolValue(input, "height_cm");
-  if (abdomenCm == null || weightKg == null || heightCm == null) return null;
-  return 0.11077 * abdomenCm - 0.17666 * heightCm + 0.14354 * weightKg + 51.03301;
+  if (waistCm == null || abdomenCm == null || weightKg == null || heightCm == null) return null;
+  const meanAbdomenCm = (waistCm + abdomenCm) / 2;
+  return 0.11077 * meanAbdomenCm - 0.17666 * heightCm + 0.14354 * weightKg + 51.03301;
 }
 
 function calculateWeltmanMale(input: AnthropometryPreviewInput, sex: Sex): number | null {
   if (sex !== "male") return null;
+  const waistCm = readProtocolValue(input, "waist_cm");
   const abdomenCm = readProtocolValue(input, "abdomen_cm");
-  const hipCm = readProtocolValue(input, "hip_cm");
-  const iliacCm = readProtocolValue(input, "iliac_cm");
   const weightKg = readProtocolValue(input, "weight_kg");
-  if (abdomenCm == null || hipCm == null || iliacCm == null || weightKg == null) return null;
-  return -47.371817 + 0.57914807 * abdomenCm + 0.25189114 * hipCm + 0.21366088 * iliacCm - 0.35595404 * weightKg;
+  if (waistCm == null || abdomenCm == null || weightKg == null) return null;
+  const meanAbdomenCm = (waistCm + abdomenCm) / 2;
+  return 0.31457 * meanAbdomenCm - 0.10969 * weightKg + 10.8336;
 }
 
 function calculateSlaughterPopulation(input: AnthropometryPreviewInput, sex: Sex): number | null {

@@ -287,6 +287,40 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByRole("textbox", { name: "Dobra panturrilha (mm) para protocolo" })).toHaveValue("12");
   });
 
+  it("does not show fake numeric examples in empty measurement inputs", async () => {
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
+    renderTab();
+
+    await screen.findByText("Registrar bioimpedancia");
+    expect(document.querySelector('input[name="weight_kg"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="body_fat_kg"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="waist_cm"]')).toHaveAttribute("placeholder", "");
+    expect(document.querySelector('input[name="skinfold_triceps_mm"]')).toHaveAttribute("placeholder", "");
+  });
+
+  it("submits the Weltman protocol that is currently selected", async () => {
+    const evaluation = makeEvaluation();
+    vi.mocked(bodyCompositionService.update).mockResolvedValue({
+      ...evaluation,
+      measurement_protocol: "weltman_1988_female_obese_20_60",
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+
+    const protocolSelect = document.querySelector('select[name="measurement_protocol"]') as HTMLSelectElement;
+    fireEvent.change(protocolSelect, { target: { value: "weltman_1988_female_obese_20_60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.update).toHaveBeenCalledWith(
+        "member-1",
+        "eval-1",
+        expect.objectContaining({ measurement_protocol: "weltman_1988_female_obese_20_60" }),
+        { syncActuar: true },
+      );
+    });
+  });
+
   it("keeps a pt-BR comma while typing a Petroski fold and persists its decimal value", async () => {
     const evaluation = makeEvaluation();
     evaluation.sex = "male";
@@ -357,7 +391,7 @@ describe("MemberBodyCompositionTab", () => {
 
     expect(await screen.findByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("31");
     expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
-    expect(screen.getAllByDisplayValue("62.5")).toHaveLength(2);
+    expect(screen.getAllByDisplayValue("62.5")).toHaveLength(1);
   });
 
   it("opens the device camera capture flow next to file upload", async () => {

@@ -1971,7 +1971,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <Input type="date" {...register("evaluation_date")} />
                 </FormField>
                 <FormField label="Idade no exame" error={errors.age_years?.message}>
-                  <Input type="text" inputMode="numeric" placeholder="29" autoComplete="off" {...register("age_years")} />
+                  <Input type="text" inputMode="numeric" placeholder="" autoComplete="off" {...register("age_years")} />
                 </FormField>
                 <FormField label="Sexo" error={errors.sex?.message}>
                   <Select defaultValue="" {...register("sex")}>
@@ -1981,7 +1981,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   </Select>
                 </FormField>
                 <FormField label="Altura (cm)" error={errors.height_cm?.message}>
-                  <Input type="text" inputMode="decimal" placeholder="178" autoComplete="off" {...register("height_cm")} />
+                  <Input type="text" inputMode="decimal" placeholder="" autoComplete="off" {...register("height_cm")} />
                 </FormField>
               </div>
 
@@ -2125,7 +2125,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                           aria-label="Idade para protocolo"
                           type="text"
                           inputMode="numeric"
-                          placeholder="29"
+                          placeholder=""
                           value={watchedAgeYears ?? ""}
                           onChange={(event) => {
                             const normalized = normalizeNullableIntegerInput(event.target.value);
@@ -2142,7 +2142,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                             aria-label={`${protocolFieldLabel(field)} para protocolo`}
                             type="text"
                             inputMode="decimal"
-                            placeholder={field.placeholder}
+                            placeholder=""
                             value={String(watchedFormValues[field.key] ?? "")}
                             onChange={(event) => setQuickProtocolNumber(field.key, event.target.value)}
                           />
@@ -2274,7 +2274,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                             <Input
                               type="text"
                               inputMode={field.step === "1" ? "numeric" : "decimal"}
-                              placeholder={field.placeholder}
+                              placeholder={field.calculated ? field.placeholder : ""}
                               className={warningTone(warning)}
                               autoComplete="off"
                               readOnly={field.calculated}

@@ -258,9 +258,10 @@ describe("calculateAnthropometryPreview", () => {
           ageYears: 42,
           heightCm: 165,
           weightKg: 80,
+          waistCm: 90,
           abdomenCm: 98,
         },
-        expected: 44.22,
+        expected: 43.78,
       },
       {
         protocol: "slaughter_1988_boys",
@@ -314,7 +315,7 @@ describe("calculateAnthropometryPreview", () => {
     }
   });
 
-  it("reports the measurements missing from the now-effective male Weltman protocol", () => {
+  it("requires both Afig abdominal circumferences for the male Weltman protocol", () => {
     const result = calculateAnthropometryPreview({
       sex: "male",
       ageYears: 25,
@@ -366,16 +367,27 @@ describe("calculateAnthropometryPreview", () => {
     });
     expect(slaughterPopulation.usedPercent).toBe(22.85);
 
-    const weltman = calculateAnthropometryPreview({
+    const weltmanFemale = calculateAnthropometryPreview({
+      sex: "female",
+      ageYears: 42,
+      heightCm: 165,
+      weightKg: 80,
+      waistCm: 90,
+      abdomenCm: 98,
+      preferredSource: "anthropometry",
+      measurementProtocol: "weltman_1988_female_obese_20_60",
+    });
+    expect(weltmanFemale.usedPercent).toBe(43.78);
+
+    const weltmanMale = calculateAnthropometryPreview({
       sex: "male",
       ageYears: 40,
       weightKg: 100,
+      waistCm: 98,
       abdomenCm: 110,
-      hipCm: 108,
-      iliacCm: 105,
       preferredSource: "anthropometry",
       measurementProtocol: "weltman_1988_male_obese_20_60",
     });
-    expect(weltman.usedPercent).toBe(30.38);
+    expect(weltmanMale.usedPercent).toBe(32.58);
   });
 });
