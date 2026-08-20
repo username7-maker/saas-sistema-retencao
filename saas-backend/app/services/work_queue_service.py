@@ -184,7 +184,13 @@ def _task_domain(task: Task) -> str:
         return "trainer"
     if "onboarding" in source or "onboarding" in title:
         return "onboarding"
-    if "retention" in source or "reten" in title or "reten" in description or "churn" in title:
+    if (
+        domain == "retention"
+        or "retention" in source
+        or "reten" in title
+        or "reten" in description
+        or "churn" in title
+    ):
         return "retention"
     if "assessment" in source or "avaliacao" in title or "avalia" in title:
         return "assessment"
@@ -1974,6 +1980,13 @@ def send_and_wait_work_queue_item(
         },
         flush=False,
     )
+    _resolve_retention_alert_after_contact_sent(
+        db,
+        task=task,
+        action=action,
+        current_user=current_user,
+        contact_channel=effective_channel,
+    )
     db.flush()
     item = _task_to_item(task, shift_diagnostics=_task_shift_diagnostics(db, task))
     if action.status == "awaiting_outcome":
@@ -2106,6 +2119,75 @@ def _latest_open_retention_alert(db: Session, task: Task) -> RiskAlert | None:
         )
         .order_by(RiskAlert.created_at.desc())
     )
+
+
+def _resolve_retention_alert_after_contact_sent(
+    db: Session,
+    *,
+    task: Task,
+    action: AutopilotAction,
+    current_user: User,
+    contact_channel: str,
+) -> bool:
+    """Close the absence episode after a real outbound retention contact.
+
+    The follow-up task remains awaiting a response in Work Queue. Closing only
+    the risk alert prevents the same absence from drifting through retention
+    lanes. Blocked, failed and merely scheduled actions do not enter here.
+    """
+    if _task_domain(task) != "retention" or task.member is None or action.status != "awaiting_outcome":
+        return False
+
+    alert = _latest_open_retention_alert(db, task)
+    if alert is None:
+        return False
+
+    now = _now()
+    task_extra = _task_extra(task)
+    history = list(alert.action_history or [])
+    history.append(
+        {
+            "type": "retention_contact_sent",
+            "timestamp": now.isoformat(),
+            "task_id": str(task.id),
+            "autopilot_action_id": str(action.id),
+            "contact_channel": contact_channel,
+        }
+    )
+    alert.action_history = history
+    alert.resolved = True
+    alert.resolved_by_user_id = current_user.id
+    alert.resolved_at = now
+    db.add(alert)
+
+    member_extra = dict(getattr(task.member, "extra_data", None) or {})
+    member_extra.update(
+        {
+            "retention_last_action_at": now.isoformat(),
+            "retention_last_outcome": "contact_sent_awaiting_response",
+            "retention_last_action_task_id": str(task.id),
+            "retention_last_action_user_id": str(current_user.id),
+            "retention_last_contact_channel": contact_channel,
+            "retention_last_stage": task_extra.get("retention_stage"),
+        }
+    )
+    task.member.extra_data = member_extra
+    db.add(task.member)
+
+    log_audit_event(
+        db,
+        action="work_queue_contact_sent",
+        entity="risk_alert",
+        entity_id=alert.id,
+        member_id=task.member_id,
+        user=current_user,
+        details={
+            "task_id": str(task.id),
+            "autopilot_action_id": str(action.id),
+            "contact_channel": contact_channel,
+        },
+    )
+    return True
 
 
 def _persist_retention_action_state(

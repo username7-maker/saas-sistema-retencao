@@ -11,6 +11,7 @@ from app.schemas.work_queue import WorkQueueExecuteInput, WorkQueueItemOut, Work
 from app.services.work_queue_service import (
     _filter_items,
     _matches_shift,
+    _resolve_retention_alert_after_contact_sent,
     _task_to_item,
     execute_work_queue_item,
     list_work_queue_items,
@@ -140,6 +141,72 @@ def test_retention_task_final_outcome_resolves_alert_and_sets_member_cooldown(mo
     assert alert.resolved is True
     assert alert.resolved_by_user_id == USER_ID
     assert alert.action_history[-1]["type"] == "retention_action_completed"
+
+
+def test_retention_contact_sent_resolves_episode_but_keeps_followup_task(monkeypatch):
+    member_id = uuid.UUID("66666666-6666-6666-6666-666666666666")
+    member = SimpleNamespace(id=member_id, extra_data={})
+    alert = SimpleNamespace(
+        id=uuid.UUID("77777777-7777-7777-7777-777777777777"),
+        action_history=[],
+        resolved=False,
+        resolved_by_user_id=None,
+        resolved_at=None,
+    )
+    task = _task(
+        status=TaskStatus.DOING,
+        kanban_column=TaskStatus.DOING.value,
+        member_id=member_id,
+        member=member,
+        extra_data={"domain": "retention", "retention_stage": "recovery"},
+    )
+    action = SimpleNamespace(
+        id=uuid.UUID("88888888-8888-8888-8888-888888888888"),
+        status="awaiting_outcome",
+    )
+    db = MagicMock()
+    db.scalar.return_value = alert
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    resolved = _resolve_retention_alert_after_contact_sent(
+        db,
+        task=task,
+        action=action,
+        current_user=_user(),
+        contact_channel="whatsapp",
+    )
+
+    assert resolved is True
+    assert task.status == TaskStatus.DOING
+    assert alert.resolved is True
+    assert alert.resolved_by_user_id == USER_ID
+    assert alert.action_history[-1]["type"] == "retention_contact_sent"
+    assert member.extra_data["retention_last_outcome"] == "contact_sent_awaiting_response"
+
+
+@pytest.mark.parametrize("action_status", ["failed", "scheduled", "planned"])
+def test_retention_contact_not_sent_does_not_resolve_episode(action_status, monkeypatch):
+    member_id = uuid.UUID("66666666-6666-6666-6666-666666666666")
+    member = SimpleNamespace(id=member_id, extra_data={})
+    task = _task(
+        member_id=member_id,
+        member=member,
+        extra_data={"domain": "retention", "retention_stage": "recovery"},
+    )
+    action = SimpleNamespace(id=uuid.uuid4(), status=action_status)
+    db = MagicMock()
+    monkeypatch.setattr("app.services.work_queue_service.log_audit_event", lambda *args, **kwargs: None)
+
+    resolved = _resolve_retention_alert_after_contact_sent(
+        db,
+        task=task,
+        action=action,
+        current_user=_user(),
+        contact_channel="whatsapp",
+    )
+
+    assert resolved is False
+    db.scalar.assert_not_called()
 
 
 def test_task_outcome_no_response_snoozes_to_tomorrow(monkeypatch):

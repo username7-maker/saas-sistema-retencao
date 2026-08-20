@@ -76,7 +76,12 @@ from app.services.retention_stage_service import (
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
 
-RETENTION_CONTACT_ACTIONS = ("whatsapp_sent_manually", "call_log_manual", "work_queue_task_outcome_updated")
+RETENTION_CONTACT_ACTIONS = (
+    "whatsapp_sent_manually",
+    "call_log_manual",
+    "work_queue_contact_sent",
+    "work_queue_task_outcome_updated",
+)
 
 
 def _cache_dashboard_payload(cache_key: str, schema: Any, payload: object) -> None:
