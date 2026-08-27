@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models import MemberStatus, RiskLevel
-from app.services.risk import _inactivity_points
+from app.services.risk import RiskResult, _inactivity_points, _retention_alert_result, _should_open_retention_alert
 
 
 class TestInactivityPoints:
@@ -36,6 +36,28 @@ class TestInactivityPoints:
 
     def test_forty_five_days(self):
         assert _inactivity_points(45) == 90
+
+
+class TestRetentionAlertEligibility:
+    def test_opens_operational_alert_from_seven_days_without_changing_risk_model(self):
+        result = RiskResult(score=20, level=RiskLevel.GREEN, reasons={}, days_without_checkin=7)
+
+        assert _should_open_retention_alert(result) is True
+        alert_result = _retention_alert_result(result)
+        assert alert_result.score == 40
+        assert alert_result.level == RiskLevel.YELLOW
+        assert alert_result.reasons["operational_inactivity_alert"] is True
+
+    def test_does_not_open_operational_alert_before_seven_days(self):
+        result = RiskResult(score=10, level=RiskLevel.GREEN, reasons={}, days_without_checkin=6)
+
+        assert _should_open_retention_alert(result) is False
+        assert _retention_alert_result(result) is result
+
+    def test_all_operational_retention_windows_are_eligible(self):
+        for days in (7, 13, 14, 29, 30, 44, 45, 59, 60):
+            result = RiskResult(score=20, level=RiskLevel.GREEN, reasons={}, days_without_checkin=days)
+            assert _should_open_retention_alert(result) is True
 
 
 class TestPrefetchOpenRiskAlerts:

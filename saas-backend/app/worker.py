@@ -3,6 +3,7 @@ import signal
 import time
 
 from app.background_jobs.scheduler import build_scheduler, should_start_scheduler_in_worker
+from app.background_jobs.jobs import retention_alert_backfill_job
 from app.core.logging_config import configure_logging
 
 
@@ -29,6 +30,7 @@ def main() -> None:
         "Scheduler worker starting dedicated scheduler process.",
         extra={"extra_fields": {"event": "scheduler_worker_starting", "status": "starting"}},
     )
+    retention_alert_backfill_job()
     scheduler = build_scheduler()
     scheduler.start()
     logger.info(

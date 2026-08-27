@@ -32,6 +32,10 @@ from app.services.preferred_shift_service import sync_preferred_shifts_from_chec
 from app.services.retention_intelligence_service import run_daily_retention_intelligence
 from app.services.risk import run_daily_risk_processing
 from app.services.risk_recalculation_service import process_pending_risk_recalculation_requests
+from app.services.retention_alert_backfill_service import (
+    backfill_retention_alerts_for_current_gym,
+    repair_retention_episode_guard,
+)
 from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
 
 logger = logging.getLogger(__name__)
@@ -111,6 +115,25 @@ def daily_risk_job() -> None:
             try:
                 set_current_gym_id(gym.id)
                 result = run_daily_risk_processing(db)
+                _log_job_metrics(job_name, gym_id=gym.id, result=result)
+            except Exception:
+                _log_job_failure(job_name, gym_id=gym.id)
+                db.rollback()
+    finally:
+        clear_current_gym_id()
+        db.close()
+
+
+@with_distributed_lock("retention_alert_backfill_v3", ttl_seconds=1800, fail_open=_critical_lock_fail_open)
+def retention_alert_backfill_job() -> None:
+    job_name = "retention_alert_backfill"
+    db = SessionLocal()
+    try:
+        repair_retention_episode_guard(db)
+        for gym in _active_gyms(db):
+            try:
+                set_current_gym_id(gym.id)
+                result = backfill_retention_alerts_for_current_gym(db)
                 _log_job_metrics(job_name, gym_id=gym.id, result=result)
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import DateTime, and_, case, exists, func, not_, or_, select
+from sqlalchemy import DateTime, and_, case, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import dashboard_cache, make_cache_key
@@ -1074,15 +1074,6 @@ def _retention_last_contact_map(db: Session, member_ids) -> dict[str, datetime]:
     return {str(row.member_id): row.last_at for row in rows if row.last_at is not None}
 
 
-def _retention_not_already_contacted_condition():
-    contact_exists = exists().where(
-        AuditLog.member_id == Member.id,
-        AuditLog.action.in_(RETENTION_CONTACT_ACTIONS),
-        AuditLog.created_at >= RiskAlert.created_at,
-    )
-    return not_(contact_exists)
-
-
 def _retention_plan_cycle_filter(plan_cycle: str):
     plan_label = {
         "monthly": "mensal",
@@ -1171,7 +1162,7 @@ def get_retention_queue(
         else_=2,
     )
 
-    filters = [Member.deleted_at.is_(None), _retention_not_already_contacted_condition()]
+    filters = [Member.deleted_at.is_(None)]
     if resolved_gym_id is not None:
         filters.append(RiskAlert.gym_id == resolved_gym_id)
     if level in {"red", "yellow"}:

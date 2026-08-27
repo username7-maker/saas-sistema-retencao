@@ -238,27 +238,30 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
                 member.risk_score = result.score
                 member.risk_level = result.level
 
-                if result.score >= 40:
+                if _should_open_retention_alert(result):
                     effective_result = _result_from_member_state(member, result)
+                    alert_result = _retention_alert_result(effective_result)
                     current_alert_obj = current_alerts_by_member.get(member.id)
                     if current_alert_obj is None and _should_suppress_resolved_episode(member, resolved_retention_episodes):
                         current_alerts_by_member.pop(member.id, None)
                     else:
-                        actions = _run_inactivity_automations(
-                            db,
-                            member,
-                            result.days_without_checkin,
-                            result.level,
-                            triggered_stages,
-                            existing_call_tasks=existing_call_tasks,
-                            manager=manager,
-                            existing_manager_alert_tasks=existing_manager_alert_tasks,
-                        )
+                        actions = []
+                        if result.score >= 40:
+                            actions = _run_inactivity_automations(
+                                db,
+                                member,
+                                result.days_without_checkin,
+                                alert_result.level,
+                                triggered_stages,
+                                existing_call_tasks=existing_call_tasks,
+                                manager=manager,
+                                existing_manager_alert_tasks=existing_manager_alert_tasks,
+                            )
                         automations_triggered += len(actions)
                         current_alert = _create_or_update_alert(
                             db,
                             member,
-                            effective_result,
+                            alert_result,
                             actions,
                             current_alert=current_alert_obj,
                             ws_events=ws_events,
@@ -367,7 +370,7 @@ def refresh_member_risk_snapshot(
             member.risk_score = result.score
             member.risk_level = result.level
             db.add(member)
-        if sync_alerts and result.score >= 40:
+        if sync_alerts and _should_open_retention_alert(result):
             current_alert = current_alerts_by_member.get(member.id)
             if _retention_cooldown_active(member, now):
                 if _resolve_alert(
@@ -387,7 +390,7 @@ def refresh_member_risk_snapshot(
             synced_alert = _create_or_update_alert(
                 db,
                 member,
-                result,
+                _retention_alert_result(result),
                 [],
                 current_alert=current_alert,
             )
@@ -401,6 +404,69 @@ def refresh_member_risk_snapshot(
 
     invalidate_dashboard_cache("risk")
     return {"members_refreshed": refreshed, "alerts_synced": alerts_synced}
+
+
+def sync_retention_alerts_from_member_activity(
+    db: Session,
+    *,
+    member_ids: Iterable[uuid.UUID],
+    now: datetime | None = None,
+) -> dict[str, int]:
+    normalized_member_ids = tuple(dict.fromkeys(member_ids))
+    if not normalized_member_ids:
+        return {"members_refreshed": 0, "alerts_synced": 0}
+
+    now = now or datetime.now(tz=timezone.utc)
+    members = db.scalars(
+        select(Member).where(
+            Member.id.in_(normalized_member_ids),
+            Member.deleted_at.is_(None),
+            Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+        )
+    ).all()
+    member_ids_set = {member.id for member in members}
+    current_alerts_by_member = _prefetch_open_risk_alerts(db, deduplicate=True)
+    explicitly_resolved_episodes = _prefetch_resolved_retention_episodes(
+        db,
+        member_ids=member_ids_set,
+    )
+    alerts_synced = 0
+    for member in members:
+        reference_dt = member.last_checkin_at or _member_join_datetime(member, now) or now
+        if reference_dt.tzinfo is None:
+            reference_dt = reference_dt.replace(tzinfo=timezone.utc)
+        days_without_checkin = max(0, (now - reference_dt).days)
+        if days_without_checkin < 7:
+            continue
+        if (
+            current_alerts_by_member.get(member.id) is None
+            and _should_suppress_resolved_episode(member, explicitly_resolved_episodes)
+        ):
+            continue
+
+        score = max(int(member.risk_score or 0), 40)
+        result = RiskResult(
+            score=score,
+            level=_determine_level(score),
+            reasons={
+                "operational_inactivity_alert": True,
+                "backfilled_from_member_activity": True,
+            },
+            days_without_checkin=days_without_checkin,
+        )
+        synced_alert = _create_or_update_alert(
+            db,
+            member,
+            result,
+            [],
+            current_alert=current_alerts_by_member.get(member.id),
+            ws_events=[],
+        )
+        current_alerts_by_member[member.id] = synced_alert
+        alerts_synced += 1
+
+    invalidate_dashboard_cache("risk")
+    return {"members_refreshed": len(members), "alerts_synced": alerts_synced}
 
 
 def _resolve_alert(
@@ -478,6 +544,7 @@ def _prefetch_resolved_retention_episodes(
 ) -> set[tuple]:
     stmt = select(RiskAlert.member_id, RiskAlert.episode_key).where(
         RiskAlert.resolved.is_(True),
+        RiskAlert.resolved_by_user_id.is_not(None),
         RiskAlert.episode_key.is_not(None),
     )
     if member_ids:
@@ -509,6 +576,18 @@ def _inactivity_points(days_without_checkin: int) -> int:
     if days_without_checkin >= 3:
         return 10
     return 0
+
+
+def _should_open_retention_alert(result: RiskResult) -> bool:
+    return result.score >= 40 or result.days_without_checkin >= 7
+
+
+def _retention_alert_result(result: RiskResult) -> RiskResult:
+    if result.score >= 40 or result.days_without_checkin < 7:
+        return result
+    reasons = dict(result.reasons)
+    reasons["operational_inactivity_alert"] = True
+    return replace(result, score=40, level=RiskLevel.YELLOW, reasons=reasons)
 
 
 def _prefetch_member_checkin_metrics(
