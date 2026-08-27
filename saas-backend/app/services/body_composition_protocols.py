@@ -763,7 +763,7 @@ def _slaughter_white_postpubertal(values: Any, sex: str | None, age_years: int |
 
 
 def _slaughter_black_prepubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:
-    return _slaughter_fixed_boys(values, 3.5) if sex == "male" else None
+    return _slaughter_fixed_boys(values, 3.2) if sex == "male" else None
 
 
 def _slaughter_black_pubertal(values: Any, sex: str | None, age_years: int | None) -> float | None:

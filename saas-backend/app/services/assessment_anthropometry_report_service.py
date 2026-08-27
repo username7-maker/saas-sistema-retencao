@@ -31,21 +31,35 @@ def build_anthropometric_report_payload(
         raw_history.append(assessment)
     report_history = [_assessment_to_report_evaluation(item) for item in raw_history]
     report = build_body_composition_report_read(member, current, history=report_history)
-    report.score_breakdown = [
-        item.model_copy(
-            update={
-                "label": "Massa livre / FFMI",
-                "description": "Usa massa livre de gordura e altura. Nao representa massa muscular medida.",
-            }
-        )
-        if item.key == "muscle"
-        else item
-        for item in report.score_breakdown
-    ]
-    _omit_unavailable_report_metrics(report)
+    has_muscle_mass = getattr(assessment, "muscle_mass_kg", None) is not None
+    if not has_muscle_mass:
+        report.score_breakdown = [
+            item.model_copy(
+                update={
+                    "label": "Massa livre / FFMI",
+                    "description": "Usa massa livre de gordura e altura. Nao representa massa muscular medida.",
+                }
+            )
+            if item.key == "muscle"
+            else item
+            for item in report.score_breakdown
+        ]
+    _omit_unavailable_report_metrics(report, has_muscle_mass=has_muscle_mass)
+    extrapolation_flags = _lee_extrapolation_flags(assessment)
+    muscle_note = (
+        " A massa muscular esqueletica foi estimada pela equacao antropometrica de Lee et al. (2000)."
+        if has_muscle_mass
+        else " Massa muscular nao foi calculada nesta avaliacao."
+    )
+    extrapolation_note = (
+        " O resultado de Lee e uma extrapolacao fora da populacao adulta nao obesa da validacao original."
+        if extrapolation_flags
+        else ""
+    )
     report.methodological_note = (
-        "Avaliacao antropometrica sem bioimpedancia. Os resultados sao estimativas por protocolo manual; "
-        "massa muscular, agua corporal, gordura visceral, massa ossea e idade metabolica nao foram inferidas."
+        "Avaliacao antropometrica sem bioimpedancia. Os resultados sao estimativas por protocolo manual."
+        f"{muscle_note}{extrapolation_note} Massa muscular esqueletica, massa livre de gordura e massa magra sao conceitos distintos."
+        " Agua corporal, gordura visceral, massa ossea e idade metabolica nao foram inferidas."
     )
 
     payload = build_body_composition_premium_pdf_payload(report, technical=False)
@@ -56,9 +70,12 @@ def build_anthropometric_report_payload(
             "formula_version": formula_version,
             "assessment_method": getattr(assessment, "assessment_method", "manual_anthropometry"),
             "record_origin": getattr(assessment, "record_origin", "cordex"),
+            "muscle_mass_formula": "Lee et al. (2000)" if has_muscle_mass else None,
+            "muscle_mass_extrapolation_flags": extrapolation_flags,
+            "methodological_note": report.methodological_note,
             "client_footer_note": (
-                "Relatorio antropometrico informativo. Valores exclusivos da bioimpedancia permanecem indisponiveis; "
-                "massa livre de gordura nao e massa muscular."
+                "Relatorio antropometrico informativo. Massa muscular, quando presente, e estimada por Lee et al. (2000); "
+                "massa livre de gordura continua sendo um indicador diferente."
             ),
             "composition_detail_subtitle": (
                 "Valores separados por origem: medidas manuais, protocolo antropometrico e calculos derivados."
@@ -69,14 +86,16 @@ def build_anthropometric_report_payload(
     payload.title = "Relatorio premium de avaliacao antropometrica"
     payload.subtitle = f"{getattr(member, 'full_name', 'Aluno')} - {assessed_at.strftime('%d/%m/%Y %H:%M')}"
     payload.generated_by = generated_by or payload.generated_by
-    payload.version = "anthropometry-premium-v1"
+    payload.version = "anthropometry-premium-v2"
     payload.parameters = parameters
     payload.cover_summary = (
         "Relatorio gerado a partir de medidas manuais e protocolo antropometrico. "
-        "Campos exclusivos da bioimpedancia permanecem indisponiveis."
+        + ("Inclui massa muscular esqueletica estimada por Lee. " if has_muscle_mass else "")
+        + "Campos exclusivos da bioimpedancia permanecem indisponiveis."
     )
     payload.footer_note = (
-        "Massa livre de gordura nao e massa muscular. Nenhuma metrica exclusiva da bioimpedancia foi inferida."
+        "Massa muscular esqueletica, massa livre de gordura e massa magra sao indicadores distintos. "
+        "Nenhuma metrica exclusiva da bioimpedancia foi inferida."
     )
     _apply_anthropometry_metric_source_labels(payload)
     return payload
@@ -131,7 +150,7 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
         "lean_mass_estimated_kg": getattr(assessment, "lean_mass_kg", None),
         "lean_mass_kg": getattr(assessment, "lean_mass_kg", None),
         "fat_free_mass_kg": getattr(assessment, "lean_mass_kg", None),
-        "muscle_mass_kg": None,
+        "muscle_mass_kg": getattr(assessment, "muscle_mass_kg", None),
         "skeletal_muscle_kg": None,
         "visceral_fat_level": None,
         "body_water_kg": None,
@@ -156,9 +175,8 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
     return SimpleNamespace(**attributes)
 
 
-def _omit_unavailable_report_metrics(report: Any) -> None:
+def _omit_unavailable_report_metrics(report: Any, *, has_muscle_mass: bool) -> None:
     unavailable_keys = {
-        "muscle_mass_kg",
         "skeletal_muscle_kg",
         "visceral_fat_level",
         "body_water_kg",
@@ -172,6 +190,8 @@ def _omit_unavailable_report_metrics(report: Any) -> None:
         "fat_control_kg",
         "muscle_control_kg",
     }
+    if not has_muscle_mass:
+        unavailable_keys.add("muscle_mass_kg")
 
     def keep_metric(metric: Any) -> bool:
         return getattr(metric, "key", None) not in unavailable_keys and getattr(metric, "value", None) is not None
@@ -211,6 +231,7 @@ def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> 
         "ffmi": ("measurements", "Calculo"),
         "bmi": ("measurements", "Calculo"),
         "basal_metabolic_rate_kcal": ("measurements", "Calculo"),
+        "muscle_mass_kg": ("measurements", "Calculado por antropometria - Lee et al. (2000)"),
     }
     metric_sections = (
         "primary_cards",
@@ -232,6 +253,22 @@ def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> 
                 continue
             metric["source_group"] = source[0]
             metric["source_label"] = source[1]
+            if key == "muscle_mass_kg":
+                metric["label"] = "Massa muscular esqueletica estimada - Lee et al. (2000)"
+            elif key == "basal_metabolic_rate_kcal":
+                metric["label"] = "TMB estimada"
+                metric["unit"] = "kcal/dia"
+                formatted = metric.get("formatted_value")
+                if isinstance(formatted, str):
+                    metric["formatted_value"] = formatted.replace(" kcal", " kcal/dia")
+
+
+def _lee_extrapolation_flags(assessment: Any) -> list[str]:
+    snapshot = getattr(assessment, "anthropometry_snapshot_json", None) or {}
+    flags = snapshot.get("flags", []) if isinstance(snapshot, dict) else []
+    if not isinstance(flags, list):
+        return []
+    return [str(flag) for flag in flags if str(flag).startswith("lee_")]
 
 
 def _assessment_datetime(assessment: Any) -> datetime:

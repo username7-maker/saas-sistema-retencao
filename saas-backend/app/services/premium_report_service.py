@@ -1133,6 +1133,12 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     teacher_notes = report.get("teacher_notes") or ""
     data_quality_flags = report.get("data_quality_flags", []) or []
     technical_scope = payload.report_scope == "technical"
+    report_parameters = payload.parameters if isinstance(payload.parameters, dict) else {}
+    composition_detail_subtitle = str(
+        report_parameters.get("composition_detail_subtitle")
+        or "Valores separados por origem: bioimpedancia, medidas/protocolo e calculos derivados."
+    )
+    methodological_note = str(report_parameters.get("methodological_note") or "").strip()
     summary_composition_keys = {
         "body_fat_used_percent",
         "fat_mass_estimated_kg",
@@ -1200,8 +1206,9 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     ).strip()
     compact_lead_insight_message = _truncate_body_text(lead_insight_message, 180 if technical_scope else 150)
 
-    client_footer_note = (
-        "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
+    client_footer_note = str(
+        report_parameters.get("client_footer_note")
+        or "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
     )
     measurement_section_html = _render_body_measurement_pdf_section(measurement_rows, header.get("sex"))
     bmr_metric = _body_metric_by_key(primary_cards, "basal_metabolic_rate_kcal") or _body_metric_by_key(primary_cards, "bmr")
@@ -1296,7 +1303,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       </section>
       <section class="clinical-section clinical-detail-section">
         <h2>Composicao corporal detalhada</h2>
-        <p class="clinical-section-subtitle">Valores separados por origem: bioimpedancia, medidas/protocolo e calculos derivados.</p>
+        <p class="clinical-section-subtitle">{escape(composition_detail_subtitle)}</p>
         {_render_body_detail_grid(detail_metrics, body_fat_context)}
       </section>
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
@@ -1329,6 +1336,10 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         <h2>Observacoes do professor</h2>
         {_render_body_client_observations(insights, teacher_notes)}
       </section>
+      {f'''<section class="clinical-section clinical-observation-section">
+        <h2>Nota metodologica</h2>
+        <p>{escape(methodological_note)}</p>
+      </section>''' if methodological_note else ''}
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
     </section>
     {history_page_html}

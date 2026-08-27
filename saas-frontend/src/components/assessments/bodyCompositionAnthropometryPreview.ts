@@ -309,7 +309,7 @@ function calculateSupportedProtocolPercent(
   if (key === "guedes_1985_boys_white_prepuberal_6_11") return calculateSlaughterFixedBoy(input, sex, 1.7);
   if (key === "guedes_1985_boys_white_puberal_12_16") return calculateSlaughterFixedBoy(input, sex, 3.4);
   if (key === "guedes_1985_boys_white_postpuberal_17_18") return calculateSlaughterFixedBoy(input, sex, 5.5);
-  if (key === "guedes_1985_boys_black_prepuberal_6_11") return calculateSlaughterFixedBoy(input, sex, 3.5);
+  if (key === "guedes_1985_boys_black_prepuberal_6_11") return calculateSlaughterFixedBoy(input, sex, 3.2);
   if (key === "guedes_1985_boys_black_puberal_12_16") return calculateSlaughterFixedBoy(input, sex, 5.2);
   if (key === "guedes_1985_boys_black_postpuberal_17_18") return calculateSlaughterFixedBoy(input, sex, 6.8);
   if (key === "guedes_1985_girls_sum_under_35") return calculateSlaughterGirlsTricepsSubscapular(input, sex);

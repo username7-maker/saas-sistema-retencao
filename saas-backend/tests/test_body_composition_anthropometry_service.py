@@ -452,7 +452,7 @@ def test_newly_effective_protocols_match_reference_cases() -> None:
         ("guedes_1985_boys_white_prepuberal_6_11", {"sex": "male", "age_years": 10}, 24.35),
         ("guedes_1985_boys_white_puberal_12_16", {"sex": "male", "age_years": 14}, 22.65),
         ("guedes_1985_boys_white_postpuberal_17_18", {"sex": "male", "age_years": 17}, 20.55),
-        ("guedes_1985_boys_black_prepuberal_6_11", {"sex": "male", "age_years": 10}, 22.55),
+        ("guedes_1985_boys_black_prepuberal_6_11", {"sex": "male", "age_years": 10}, 22.85),
         ("guedes_1985_boys_black_puberal_12_16", {"sex": "male", "age_years": 14}, 20.85),
         ("guedes_1985_boys_black_postpuberal_17_18", {"sex": "male", "age_years": 17}, 19.25),
         ("guedes_1985_girls_sum_under_35", {"sex": "female", "age_years": 14}, 23.29),

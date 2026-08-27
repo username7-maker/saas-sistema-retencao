@@ -31,6 +31,7 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("bmi IS NULL OR bmi > 0", name="assessment_bmi_positive"),
         CheckConstraint("body_fat_pct IS NULL OR (body_fat_pct >= 0 AND body_fat_pct <= 100)", name="assessment_body_fat_range"),
         CheckConstraint("fat_mass_kg IS NULL OR fat_mass_kg >= 0", name="assessment_fat_mass_non_negative"),
+        CheckConstraint("muscle_mass_kg IS NULL OR muscle_mass_kg > 0", name="assessment_muscle_mass_positive"),
         CheckConstraint("waist_hip_ratio IS NULL OR waist_hip_ratio > 0", name="assessment_whr_positive"),
         CheckConstraint("basal_metabolic_rate IS NULL OR basal_metabolic_rate > 0", name="assessment_bmr_positive"),
         CheckConstraint(
@@ -71,6 +72,7 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
     body_fat_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     lean_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     fat_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    muscle_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     waist_hip_ratio: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     basal_metabolic_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
 

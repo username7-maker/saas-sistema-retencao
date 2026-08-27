@@ -62,6 +62,14 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SKIP_DYNAMIC_FIELDS = new Set(["height_cm", "weight_kg"]);
+const LEE_REQUIRED_FIELDS = [
+  "right_arm_relaxed_cm",
+  "right_thigh_cm",
+  "right_calf_cm",
+  "skinfold_triceps_mm",
+  "skinfold_thigh_mm",
+  "skinfold_calf_mm",
+] as const;
 const FIELD_LIMITS: Record<string, { min: number; max: number; unit: string }> = {
   height_cm: { min: 80, max: 250, unit: "cm" },
   weight_kg: { min: 15, max: 400, unit: "kg" },
@@ -90,6 +98,7 @@ const FALLBACK_ANTHROPOMETRY_PROTOCOLS: AnthropometryProtocol[] = BODY_COMPOSITI
     age_min: protocol.ageMin,
     age_max: protocol.ageMax,
     required_fields: protocol.requiredFields,
+    required_choice_fields: protocol.requiredChoiceFields ?? [],
     supported: protocol.supported,
     notes: protocol.notes ?? null,
   }));
@@ -213,6 +222,12 @@ function anthropometryErrorMessage(error: unknown, fallback: string): string {
       if (code === "anthropometry_missing_required_measurement") {
         return `${label}: medida obrigatoria ausente.`;
       }
+      if (code === "anthropometry_choice_invalid") {
+        return `${label}: selecione uma opcao valida para a formula.`;
+      }
+      if (code === "lee_corrected_circumference_invalid" || code === "lee_muscle_mass_invalid") {
+        return "As medidas informadas nao permitem calcular uma massa muscular valida por Lee. Confira perimetros e dobras.";
+      }
     }
   }
   return fallback;
@@ -325,6 +340,9 @@ function ManualAnthropometricAssessmentForm({
   const [height, setHeight] = useState(member?.height_cm != null ? String(member.height_cm) : "");
   const [weight, setWeight] = useState("");
   const [protocolKey, setProtocolKey] = useState("");
+  const [anthropometryEthnicity, setAnthropometryEthnicity] = useState<"white" | "black" | "asian" | "">("");
+  const [anthropometryMaturity, setAnthropometryMaturity] = useState<"prepubertal" | "pubertal" | "postpubertal" | "">("");
+  const [calculateMuscleMass, setCalculateMuscleMass] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, { first: string; second: string; third?: string }>>({});
   const [perimetry, setPerimetry] = useState<Record<string, string>>({});
   const [observations, setObservations] = useState("");
@@ -340,7 +358,8 @@ function ManualAnthropometricAssessmentForm({
   }, [protocolsQuery.data]);
 
   useEffect(() => {
-    if (!protocolKey && protocolOptions.length) {
+    const currentProtocolStillExists = protocolOptions.some((protocol) => protocol.key === protocolKey);
+    if (protocolOptions.length && (!protocolKey || !currentProtocolStillExists)) {
       const preferred = protocolOptions.find((protocol) => protocol.sex === sex) ?? protocolOptions[0];
       setProtocolKey(preferred.key);
     }
@@ -351,8 +370,22 @@ function ManualAnthropometricAssessmentForm({
   }, [protocolKey, protocolOptions]);
 
   const dynamicFields = useMemo(() => {
-    return (selectedProtocol?.required_fields ?? []).filter((field) => !SKIP_DYNAMIC_FIELDS.has(field));
-  }, [selectedProtocol]);
+    const fields = new Set<string>(selectedProtocol?.required_fields ?? []);
+    if (calculateMuscleMass) {
+      LEE_REQUIRED_FIELDS.forEach((field) => fields.add(field));
+    }
+    return Array.from(fields).filter((field) => !SKIP_DYNAMIC_FIELDS.has(field));
+  }, [calculateMuscleMass, selectedProtocol]);
+
+  const requiresSlaughterEthnicity = selectedProtocol?.required_choice_fields?.includes("anthropometry_ethnicity") ?? false;
+  const requiresMaturity = selectedProtocol?.required_choice_fields?.includes("anthropometry_maturity") ?? false;
+  const requiresEthnicity = requiresSlaughterEthnicity || calculateMuscleMass;
+
+  useEffect(() => {
+    if (requiresSlaughterEthnicity && anthropometryEthnicity === "asian") {
+      setAnthropometryEthnicity("");
+    }
+  }, [anthropometryEthnicity, requiresSlaughterEthnicity]);
 
   function updateAttempt(field: string, key: "first" | "second" | "third", value: string) {
     setAttempts((current) => ({
@@ -417,6 +450,9 @@ function ManualAnthropometricAssessmentForm({
       sex_for_formula: sex,
       age_years: toNumber(ageYears),
       measurement_protocol: protocolKey,
+      anthropometry_ethnicity: anthropometryEthnicity || null,
+      anthropometry_maturity: anthropometryMaturity || null,
+      calculate_muscle_mass: calculateMuscleMass,
       measurements,
       observations: observations || undefined,
     };
@@ -424,6 +460,18 @@ function ManualAnthropometricAssessmentForm({
 
   function buildValidatedPayload(): AnthropometryAssessmentInput {
     const payload = buildPayload();
+    if (payload.age_years == null || payload.age_years <= 0) {
+      throw new AnthropometryClientValidationError("Informe uma idade valida para calcular TMB e composicao corporal.");
+    }
+    if (requiresSlaughterEthnicity && !payload.anthropometry_ethnicity) {
+      throw new AnthropometryClientValidationError("Selecione o grupo etnico usado no protocolo Slaughter.");
+    }
+    if (requiresMaturity && !payload.anthropometry_maturity) {
+      throw new AnthropometryClientValidationError("Selecione o estagio maturacional usado no protocolo Slaughter.");
+    }
+    if (calculateMuscleMass && !payload.anthropometry_ethnicity) {
+      throw new AnthropometryClientValidationError("Selecione o grupo etnico usado no calculo de massa muscular.");
+    }
     const validationError = validateAnthropometryPayload(payload);
     if (validationError) throw new AnthropometryClientValidationError(validationError);
     return payload;
@@ -485,7 +533,7 @@ function ManualAnthropometricAssessmentForm({
             </div>
           </div>
           <p className="text-sm text-lovable-ink-muted">
-            Massa muscular, agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis nesta modalidade.
+            Massa muscular pode ser estimada opcionalmente por Lee. Agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis.
           </p>
         </CardContent>
       </Card>
@@ -502,7 +550,7 @@ function ManualAnthropometricAssessmentForm({
               <option value="female">Feminino</option>
             </Select>
           </FormField>
-          <FormField label="Idade usada na formula">
+          <FormField label="Idade usada na formula" required>
             <Input aria-label="Idade usada na formula" type="text" inputMode="numeric" value={ageYears} onChange={(event) => setAgeYears(event.target.value)} />
           </FormField>
           <FormField label="Altura (cm)">
@@ -523,7 +571,52 @@ function ManualAnthropometricAssessmentForm({
               <p className="mt-1 text-xs text-yellow-300">Lista carregada pelo catalogo local. A API de protocolos nao respondeu agora.</p>
             ) : null}
           </FormField>
+          {requiresEthnicity ? (
+            <FormField label={calculateMuscleMass ? "Grupo etnico usado nas formulas" : "Grupo etnico usado na formula"} required>
+              <Select
+                aria-label="Grupo etnico usado na formula"
+                value={anthropometryEthnicity}
+                onChange={(event) => setAnthropometryEthnicity(event.target.value as typeof anthropometryEthnicity)}
+              >
+                <option value="">Selecione</option>
+                <option value="white">{requiresSlaughterEthnicity ? "Branco" : "Branco ou hispanico"}</option>
+                <option value="black">Negro</option>
+                {!requiresSlaughterEthnicity ? <option value="asian">Asiatico</option> : null}
+              </Select>
+            </FormField>
+          ) : null}
+          {requiresMaturity ? (
+            <FormField label="Estagio maturacional" required>
+              <Select
+                aria-label="Estagio maturacional"
+                value={anthropometryMaturity}
+                onChange={(event) => setAnthropometryMaturity(event.target.value as typeof anthropometryMaturity)}
+              >
+                <option value="">Selecione</option>
+                <option value="prepubertal">Pre-pubere</option>
+                <option value="pubertal">Pubere</option>
+                <option value="postpubertal">Pos-pubere</option>
+              </Select>
+            </FormField>
+          ) : null}
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border border-lovable-border"
+            checked={calculateMuscleMass}
+            onChange={(event) => setCalculateMuscleMass(event.target.checked)}
+          />
+          <span>
+            <span className="block text-sm font-semibold text-lovable-ink">Calcular massa muscular</span>
+            <span className="mt-1 block text-xs text-lovable-ink-muted">
+              Usa Lee et al. (2000) com braco, coxa e panturrilha direitos corrigidos pelas respectivas dobras.
+            </span>
+          </span>
+        </label>
       </section>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
@@ -607,9 +700,17 @@ function ManualAnthropometricAssessmentForm({
             <PreviewMetric label="Massa de gordura" value={preview.results.fat_mass_kg != null ? `${preview.results.fat_mass_kg} kg` : "-"} />
             <PreviewMetric label="Massa livre" value={preview.results.lean_mass_kg != null ? `${preview.results.lean_mass_kg} kg` : "-"} />
             <PreviewMetric label="RCQ" value={preview.results.waist_hip_ratio != null ? String(preview.results.waist_hip_ratio) : "-"} />
-            <PreviewMetric label="TMB estimada" value={preview.results.basal_metabolic_rate != null ? `${preview.results.basal_metabolic_rate} kcal` : "-"} />
+            <PreviewMetric label="TMB estimada" value={preview.results.basal_metabolic_rate != null ? `${preview.results.basal_metabolic_rate} kcal/dia` : "-"} />
+            {calculateMuscleMass ? (
+              <PreviewMetric label="Massa muscular estimada" value={preview.results.muscle_mass_kg != null ? `${preview.results.muscle_mass_kg} kg` : "-"} />
+            ) : null}
           </div>
-          <p className="mt-3 text-sm font-medium text-lovable-ink">Massa muscular: indisponivel nesta modalidade</p>
+          {!calculateMuscleMass ? <p className="mt-3 text-sm font-medium text-lovable-ink">Massa muscular: calculo opcional nao selecionado</p> : null}
+          {Array.isArray(preview.snapshot.flags) && preview.snapshot.flags.some((flag) => String(flag).startsWith("lee_")) ? (
+            <p className="mt-3 text-xs font-medium text-yellow-300">
+              A estimativa de Lee esta fora da populacao adulta nao obesa usada na validacao original e deve ser interpretada como extrapolacao.
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-lovable-ink-muted">Hash do calculo: {preview.calculation_hash}</p>
         </section>
       ) : null}

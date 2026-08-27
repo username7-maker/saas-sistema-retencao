@@ -84,6 +84,7 @@ class AssessmentOut(BaseModel):
     body_fat_pct: float | None
     lean_mass_kg: float | None
     fat_mass_kg: float | None = None
+    muscle_mass_kg: float | None = None
     waist_hip_ratio: float | None = None
     basal_metabolic_rate: float | None = None
     assessment_method: str | None = None
@@ -280,6 +281,7 @@ class AnthropometryProtocolOut(BaseModel):
     age_min: int | None = None
     age_max: int | None = None
     required_fields: list[str]
+    required_choice_fields: list[str] = Field(default_factory=list)
     supported: bool
     notes: str | None = None
 
@@ -294,8 +296,11 @@ class AnthropometryMeasurementInput(BaseModel):
 class AnthropometryAssessmentInput(BaseModel):
     assessment_date: datetime | None = None
     sex_for_formula: Literal["male", "female"] | None = None
-    age_years: int | None = Field(default=None, ge=0, le=120)
+    age_years: int | None = Field(default=None, ge=1, le=120)
     measurement_protocol: str = Field(min_length=2, max_length=120)
+    anthropometry_ethnicity: Literal["white", "black", "asian"] | None = None
+    anthropometry_maturity: Literal["prepubertal", "pubertal", "postpubertal"] | None = None
+    calculate_muscle_mass: bool = False
     measurements: dict[str, AnthropometryMeasurementInput]
     observations: str | None = None
 

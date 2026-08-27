@@ -347,6 +347,7 @@ describe("calculateAnthropometryPreview", () => {
       ["mcardle_1992_male_9_12", "male", 10, 28.12],
       ["mcardle_1992_male_13_16", "male", 14, 25.57],
       ["guedes_1985_boys_white_prepuberal_6_11", "male", 10, 24.35],
+      ["guedes_1985_boys_black_prepuberal_6_11", "male", 10, 22.85],
       ["guedes_1985_boys_black_postpuberal_17_18", "male", 17, 19.25],
       ["guedes_1985_girls_sum_under_35", "female", 14, 23.29],
     ] as const;

@@ -42,6 +42,7 @@ export interface Assessment {
   body_fat_pct: number | null;
   lean_mass_kg: number | null;
   fat_mass_kg?: number | null;
+  muscle_mass_kg?: number | null;
   waist_hip_ratio?: number | null;
   basal_metabolic_rate?: number | null;
   assessment_method?: "manual_anthropometry" | "bioimpedance" | "hybrid" | "imported" | null;
@@ -703,6 +704,7 @@ export interface AnthropometryProtocol {
   age_min: number | null;
   age_max: number | null;
   required_fields: string[];
+  required_choice_fields: string[];
   supported: boolean;
   notes?: string | null;
 }
@@ -719,6 +721,9 @@ export interface AnthropometryAssessmentInput {
   sex_for_formula?: "male" | "female";
   age_years?: number | null;
   measurement_protocol: string;
+  anthropometry_ethnicity?: "white" | "black" | "asian" | null;
+  anthropometry_maturity?: "prepubertal" | "pubertal" | "postpubertal" | null;
+  calculate_muscle_mass: boolean;
   measurements: Record<string, AnthropometryMeasurementInput>;
   observations?: string;
 }
