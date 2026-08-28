@@ -31,6 +31,7 @@ import {
   getBodyCompositionProtocol,
 } from "./bodyCompositionProtocols";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
+import { assessmentService } from "../../services/assessmentService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import {
   calculateBodyWaterPercent,
@@ -900,6 +901,39 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     enabled: Boolean(memberId),
     staleTime: 60 * 1000,
   });
+
+  const { data: assessmentHistory, isLoading: isAssessmentHistoryLoading } = useQuery({
+    queryKey: ["assessments", "list", memberId],
+    queryFn: () => assessmentService.list(memberId),
+    enabled: Boolean(memberId),
+    staleTime: 60 * 1000,
+  });
+
+  const anthropometricAssessments = useMemo(
+    () => assessmentHistory?.filter((assessment) => assessment.assessment_method === "manual_anthropometry") ?? [],
+    [assessmentHistory],
+  );
+
+  const compositionHistory = useMemo(() => {
+    const bioimpedance = (evaluations ?? []).map((evaluation) => ({
+      kind: "bioimpedance" as const,
+      date: evaluation.evaluation_date,
+      id: evaluation.id,
+      evaluation,
+    }));
+    const anthropometry = anthropometricAssessments.map((assessment) => ({
+      kind: "anthropometry" as const,
+      date: assessment.assessment_date,
+      id: assessment.id,
+      assessment,
+    }));
+
+    return [...bioimpedance, ...anthropometry].sort((left, right) => (
+      new Date(right.date).getTime() - new Date(left.date).getTime()
+    ));
+  }, [anthropometricAssessments, evaluations]);
+
+  const isCompositionHistoryLoading = isLoading || isAssessmentHistoryLoading;
 
   const actuarSettingsQuery = useQuery({
     queryKey: ["actuar-settings", "body-composition-workspace"],
@@ -2644,32 +2678,33 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
 
       <Card>
         <CardHeader>
-          <CardTitle>Historico de bioimpedancia</CardTitle>
+          <CardTitle>Historico de composicao corporal</CardTitle>
         </CardHeader>
-        <CardContent className={isLoading || !evaluations?.length ? "space-y-3" : "divide-y divide-lovable-border/50"}>
-          {isLoading ? (
+        <CardContent className={isCompositionHistoryLoading || !compositionHistory.length ? "space-y-3" : "divide-y divide-lovable-border/50"}>
+          {isCompositionHistoryLoading ? (
             <>
               <Skeleton className="h-28 w-full rounded-2xl" />
               <Skeleton className="h-28 w-full rounded-2xl" />
             </>
-          ) : !evaluations?.length ? (
-            <p className="text-sm text-lovable-ink-muted">Nenhuma bioimpedancia registrada ainda.</p>
+          ) : !compositionHistory.length ? (
+            <p className="text-sm text-lovable-ink-muted">Nenhuma avaliacao de composicao corporal registrada ainda.</p>
           ) : (
-            evaluations.map((evaluation) => (
-              <article key={evaluation.id} className="py-4 first:pt-0 last:pb-0">
+            compositionHistory.map((entry) => entry.kind === "bioimpedance" ? (
+              <article key={`bioimpedance-${entry.id}`} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-lovable-ink">{fmtDate(evaluation.evaluation_date)}</span>
-                      <StatusPill tone="neutral">{sourceLabel(evaluation.source)}</StatusPill>
-                      <StatusPill tone={evaluation.needs_review ? "warning" : "success"}>
-                        Revisao: {evaluation.needs_review ? "pendente" : "ok"}
+                      <span className="text-sm font-semibold text-lovable-ink">{fmtDate(entry.evaluation.evaluation_date)}</span>
+                      <StatusPill tone="neutral">Bioimpedancia</StatusPill>
+                      <StatusPill tone="neutral">{sourceLabel(entry.evaluation.source)}</StatusPill>
+                      <StatusPill tone={entry.evaluation.needs_review ? "warning" : "success"}>
+                        Revisao: {entry.evaluation.needs_review ? "pendente" : "ok"}
                       </StatusPill>
-                      <StatusPill tone={evaluation.reviewed_manually ? "success" : "neutral"}>
-                        Revisado manualmente: {evaluation.reviewed_manually ? "sim" : "nao"}
+                      <StatusPill tone={entry.evaluation.reviewed_manually ? "success" : "neutral"}>
+                        Revisado manualmente: {entry.evaluation.reviewed_manually ? "sim" : "nao"}
                       </StatusPill>
-                      <StatusPill tone={statusPillToneForSync(evaluation.actuar_sync_status)}>
-                        Sync: {syncLabel(evaluation.actuar_sync_status)}
+                      <StatusPill tone={statusPillToneForSync(entry.evaluation.actuar_sync_status)}>
+                        Sync: {syncLabel(entry.evaluation.actuar_sync_status)}
                       </StatusPill>
                     </div>
                     <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -2677,26 +2712,65 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                         <Metric
                           key={metric.label}
                           label={metric.label}
-                          value={fmt((evaluation[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
+                          value={fmt((entry.evaluation[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
                         />
                       ))}
                     </div>
-                    {evaluation.ai_coach_summary ? (
-                      <p className="text-sm text-lovable-ink-muted">{evaluation.ai_coach_summary}</p>
+                    {entry.evaluation.ai_coach_summary ? (
+                      <p className="text-sm text-lovable-ink-muted">{entry.evaluation.ai_coach_summary}</p>
                     ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Link to={`/assessments/members/${memberId}/body-composition/${evaluation.id}/report`}>
+                    <Link to={`/assessments/members/${memberId}/body-composition/${entry.evaluation.id}/report`}>
                       <Button type="button" size="sm" variant="ghost">
                         <ArrowUpRight size={14} />
                         Relatorio
                       </Button>
                     </Link>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => handleEditEvaluation(evaluation)}>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => handleEditEvaluation(entry.evaluation)}>
                       <Pencil size={14} />
                       Editar
                     </Button>
                   </div>
+                </div>
+              </article>
+            ) : (
+              <article key={`anthropometry-${entry.id}`} className="py-4 first:pt-0 last:pb-0">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-lovable-ink">{fmtDate(entry.assessment.assessment_date)}</span>
+                      <StatusPill tone="success">Sem bioimpedancia</StatusPill>
+                      <StatusPill tone="neutral">{entry.assessment.history_badge ?? "Antropometria"}</StatusPill>
+                      {entry.assessment.measurement_protocol ? (
+                        <StatusPill tone="neutral">Protocolo: {entry.assessment.measurement_protocol}</StatusPill>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+                      <Metric label="Peso" value={fmt(entry.assessment.weight_kg, " kg")} />
+                      <Metric label="Gordura estimada" value={fmt(entry.assessment.body_fat_pct, "%")} />
+                      <Metric label="Massa muscular esqueletica" value={fmt(entry.assessment.muscle_mass_kg, " kg")} />
+                      <Metric label="IMC" value={fmt(entry.assessment.bmi)} />
+                      <Metric label="TMB" value={fmt(entry.assessment.basal_metabolic_rate, " kcal/dia")} />
+                    </div>
+                    {entry.assessment.comparison_warning ? (
+                      <p className="text-xs text-lovable-ink-muted">{entry.assessment.comparison_warning}</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const popup = window.open("", "_blank");
+                      void assessmentService.openAnthropometryPdf(memberId, entry.assessment.id, popup).catch(() => {
+                        toast.error("Nao foi possivel abrir o relatorio premium desta avaliacao.");
+                      });
+                    }}
+                  >
+                    <Download size={14} />
+                    Abrir PDF premium
+                  </Button>
                 </div>
               </article>
             ))

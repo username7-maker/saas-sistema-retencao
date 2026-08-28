@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemberBodyCompositionTab } from "../components/assessments/MemberBodyCompositionTab";
 import { actuarSettingsService } from "../services/actuarSettingsService";
+import { assessmentService } from "../services/assessmentService";
 import { bodyCompositionService } from "../services/bodyCompositionService";
 import type { ActuarSettings, BodyCompositionActuarSyncStatus, BodyCompositionEvaluation } from "../types";
 
@@ -35,6 +36,13 @@ vi.mock("../services/bodyCompositionService", () => ({
 vi.mock("../services/actuarSettingsService", () => ({
   actuarSettingsService: {
     getSettings: vi.fn(),
+  },
+}));
+
+vi.mock("../services/assessmentService", () => ({
+  assessmentService: {
+    list: vi.fn(),
+    openAnthropometryPdf: vi.fn(),
   },
 }));
 
@@ -211,6 +219,8 @@ describe("MemberBodyCompositionTab", () => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
+    vi.mocked(assessmentService.list).mockResolvedValue([]);
+    vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
     Object.defineProperty(navigator, "clipboard", {
@@ -255,6 +265,43 @@ describe("MemberBodyCompositionTab", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Braco contraido")).toBeInTheDocument();
+    });
+  });
+
+  it("shows saved no-bioimpedance assessments and reopens their premium PDF", async () => {
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
+    vi.mocked(assessmentService.list).mockResolvedValue([
+      {
+        id: "anthropometry-1",
+        assessment_date: "2026-08-28",
+        assessment_method: "manual_anthropometry",
+        history_badge: "Antropometria",
+        measurement_protocol: "slaughter_1988",
+        weight_kg: 100,
+        body_fat_pct: 10.31,
+        muscle_mass_kg: 42.5,
+        bmi: 31.56,
+        basal_metabolic_rate: 1930,
+      } as Awaited<ReturnType<typeof assessmentService.list>>[number],
+    ]);
+    const popup = {} as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+
+    renderTab();
+
+    expect(await screen.findByText("Historico de composicao corporal")).toBeInTheDocument();
+    expect(screen.getByText("Sem bioimpedancia")).toBeInTheDocument();
+    expect(screen.getByText("10.31%")).toBeInTheDocument();
+    expect(screen.getByText("1930 kcal/dia")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Abrir PDF premium" }));
+
+    await waitFor(() => {
+      expect(assessmentService.openAnthropometryPdf).toHaveBeenCalledWith(
+        "member-1",
+        "anthropometry-1",
+        popup,
+      );
     });
   });
 
