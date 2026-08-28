@@ -33,6 +33,59 @@ interface AssessmentRegistrationComposerProps {
   onSaved?: () => void;
 }
 
+type AnthropometryDraft = {
+  saved_at: number;
+  assessment_date: string;
+  sex: SexForFormula;
+  age_years: string;
+  height: string;
+  weight: string;
+  protocol_key: string;
+  anthropometry_ethnicity: "white" | "black" | "asian" | "";
+  anthropometry_maturity: "prepubertal" | "pubertal" | "postpubertal" | "";
+  calculate_muscle_mass: boolean;
+  attempts: Record<string, { first: string; second: string; third?: string }>;
+  perimetry: Record<string, string>;
+  observations: string;
+};
+
+const ANTHROPOMETRY_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
+
+function anthropometryDraftKey(memberId: string): string {
+  return `cordex:anthropometry-draft:v1:${memberId}`;
+}
+
+function readAnthropometryDraft(memberId: string): AnthropometryDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(anthropometryDraftKey(memberId));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as AnthropometryDraft;
+    if (!draft.saved_at || Date.now() - draft.saved_at > ANTHROPOMETRY_DRAFT_TTL_MS) {
+      window.sessionStorage.removeItem(anthropometryDraftKey(memberId));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function saveAnthropometryDraft(memberId: string, draft: AnthropometryDraft): void {
+  try {
+    window.sessionStorage.setItem(anthropometryDraftKey(memberId), JSON.stringify(draft));
+  } catch {
+    // O formulario continua utilizavel quando o armazenamento da aba nao esta disponivel.
+  }
+}
+
+function clearAnthropometryDraft(memberId: string): void {
+  try {
+    window.sessionStorage.removeItem(anthropometryDraftKey(memberId));
+  } catch {
+    // A limpeza e best-effort e restrita a esta aba do navegador.
+  }
+}
+
 const FIELD_LABELS: Record<string, string> = {
   height_cm: "Altura",
   weight_kg: "Peso",
@@ -334,19 +387,71 @@ function ManualAnthropometricAssessmentForm({
 }) {
   const queryClient = useQueryClient();
   const ageFromBirthdate = calculateAge(member?.birthdate);
-  const [assessmentDate, setAssessmentDate] = useState(defaultDateTimeLocal);
-  const [sex, setSex] = useState<SexForFormula>((member?.sex_for_clinical_calculation ?? "male") as SexForFormula);
-  const [ageYears, setAgeYears] = useState(ageFromBirthdate?.toString() ?? "");
-  const [height, setHeight] = useState(member?.height_cm != null ? String(member.height_cm) : "");
-  const [weight, setWeight] = useState("");
-  const [protocolKey, setProtocolKey] = useState("");
-  const [anthropometryEthnicity, setAnthropometryEthnicity] = useState<"white" | "black" | "asian" | "">("");
-  const [anthropometryMaturity, setAnthropometryMaturity] = useState<"prepubertal" | "pubertal" | "postpubertal" | "">("");
-  const [calculateMuscleMass, setCalculateMuscleMass] = useState(false);
-  const [attempts, setAttempts] = useState<Record<string, { first: string; second: string; third?: string }>>({});
-  const [perimetry, setPerimetry] = useState<Record<string, string>>({});
-  const [observations, setObservations] = useState("");
+  const [initialDraft] = useState(() => readAnthropometryDraft(memberId));
+  const [hasUserChanges, setHasUserChanges] = useState(Boolean(initialDraft));
+  const [assessmentDate, setAssessmentDate] = useState(initialDraft?.assessment_date ?? defaultDateTimeLocal);
+  const [sex, setSex] = useState<SexForFormula>(
+    initialDraft?.sex ?? (member?.sex_for_clinical_calculation ?? "male") as SexForFormula,
+  );
+  const [ageYears, setAgeYears] = useState(initialDraft?.age_years ?? ageFromBirthdate?.toString() ?? "");
+  const [height, setHeight] = useState(initialDraft?.height ?? (member?.height_cm != null ? String(member.height_cm) : ""));
+  const [weight, setWeight] = useState(initialDraft?.weight ?? "");
+  const [protocolKey, setProtocolKey] = useState(initialDraft?.protocol_key ?? "");
+  const [anthropometryEthnicity, setAnthropometryEthnicity] = useState<"white" | "black" | "asian" | "">(
+    initialDraft?.anthropometry_ethnicity ?? "",
+  );
+  const [anthropometryMaturity, setAnthropometryMaturity] = useState<"prepubertal" | "pubertal" | "postpubertal" | "">(
+    initialDraft?.anthropometry_maturity ?? "",
+  );
+  const [calculateMuscleMass, setCalculateMuscleMass] = useState(initialDraft?.calculate_muscle_mass ?? false);
+  const [attempts, setAttempts] = useState<Record<string, { first: string; second: string; third?: string }>>(
+    initialDraft?.attempts ?? {},
+  );
+  const [perimetry, setPerimetry] = useState<Record<string, string>>(initialDraft?.perimetry ?? {});
+  const [observations, setObservations] = useState(initialDraft?.observations ?? "");
   const [preview, setPreview] = useState<AnthropometryPreview | null>(null);
+
+  useEffect(() => {
+    if (!initialDraft) return;
+    toast.success("Rascunho da avaliacao sem bioimpedancia recuperado. Revise e continue de onde parou.");
+  }, [initialDraft]);
+
+  useEffect(() => {
+    if (!hasUserChanges) return;
+    const timer = window.setTimeout(() => {
+      saveAnthropometryDraft(memberId, {
+        saved_at: Date.now(),
+        assessment_date: assessmentDate,
+        sex,
+        age_years: ageYears,
+        height,
+        weight,
+        protocol_key: protocolKey,
+        anthropometry_ethnicity: anthropometryEthnicity,
+        anthropometry_maturity: anthropometryMaturity,
+        calculate_muscle_mass: calculateMuscleMass,
+        attempts,
+        perimetry,
+        observations,
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    ageYears,
+    anthropometryEthnicity,
+    anthropometryMaturity,
+    assessmentDate,
+    attempts,
+    calculateMuscleMass,
+    hasUserChanges,
+    height,
+    memberId,
+    observations,
+    perimetry,
+    protocolKey,
+    sex,
+    weight,
+  ]);
 
   const protocolsQuery = useQuery({
     queryKey: ["anthropometry-protocols"],
@@ -388,6 +493,7 @@ function ManualAnthropometricAssessmentForm({
   }, [anthropometryEthnicity, requiresSlaughterEthnicity]);
 
   function updateAttempt(field: string, key: "first" | "second" | "third", value: string) {
+    setHasUserChanges(true);
     setAttempts((current) => ({
       ...current,
       [field]: {
@@ -400,6 +506,7 @@ function ManualAnthropometricAssessmentForm({
   }
 
   function updatePerimetry(field: string, value: string) {
+    setHasUserChanges(true);
     setPerimetry((current) => ({
       ...current,
       [field]: value,
@@ -487,6 +594,8 @@ function ManualAnthropometricAssessmentForm({
     mutationFn: ({ payload, popup }: { payload: AnthropometryAssessmentInput; popup: Window | null }) =>
       assessmentService.createAnthropometry(memberId, payload, idempotencyKey).then((assessment) => ({ assessment, popup })),
     onSuccess: async ({ assessment, popup }) => {
+      clearAnthropometryDraft(memberId);
+      setHasUserChanges(false);
       await invalidateAssessmentQueries(queryClient, memberId);
       try {
         await assessmentService.openAnthropometryPdf(memberId, assessment.id, popup);
@@ -535,6 +644,9 @@ function ManualAnthropometricAssessmentForm({
           <p className="text-sm text-lovable-ink-muted">
             Massa muscular pode ser estimada opcionalmente por Lee. Agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis.
           </p>
+          <p className="text-xs font-medium text-lovable-primary">
+            Rascunho salvo automaticamente nesta aba por ate 12 horas.
+          </p>
         </CardContent>
       </Card>
 
@@ -542,25 +654,43 @@ function ManualAnthropometricAssessmentForm({
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dados da avaliacao</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <FormField label="Data da avaliacao">
-            <Input aria-label="Data da avaliacao" type="datetime-local" value={assessmentDate} onChange={(event) => setAssessmentDate(event.target.value)} />
+            <Input aria-label="Data da avaliacao" type="datetime-local" value={assessmentDate} onChange={(event) => {
+              setHasUserChanges(true);
+              setAssessmentDate(event.target.value);
+            }} />
           </FormField>
           <FormField label="Sexo usado na formula">
-            <Select aria-label="Sexo usado na formula" value={sex} onChange={(event) => setSex(event.target.value as SexForFormula)}>
+            <Select aria-label="Sexo usado na formula" value={sex} onChange={(event) => {
+              setHasUserChanges(true);
+              setSex(event.target.value as SexForFormula);
+            }}>
               <option value="male">Masculino</option>
               <option value="female">Feminino</option>
             </Select>
           </FormField>
           <FormField label="Idade usada na formula" required>
-            <Input aria-label="Idade usada na formula" type="text" inputMode="numeric" value={ageYears} onChange={(event) => setAgeYears(event.target.value)} />
+            <Input aria-label="Idade usada na formula" type="text" inputMode="numeric" value={ageYears} onChange={(event) => {
+              setHasUserChanges(true);
+              setAgeYears(event.target.value);
+            }} />
           </FormField>
           <FormField label="Altura (cm)">
-            <Input aria-label="Altura" type="text" inputMode="decimal" value={height} onChange={(event) => setHeight(event.target.value)} />
+            <Input aria-label="Altura" type="text" inputMode="decimal" value={height} onChange={(event) => {
+              setHasUserChanges(true);
+              setHeight(event.target.value);
+            }} />
           </FormField>
           <FormField label="Peso (kg)" required>
-            <Input aria-label="Peso" type="text" inputMode="decimal" value={weight} onChange={(event) => setWeight(event.target.value)} />
+            <Input aria-label="Peso" type="text" inputMode="decimal" value={weight} onChange={(event) => {
+              setHasUserChanges(true);
+              setWeight(event.target.value);
+            }} />
           </FormField>
           <FormField label="Protocolo" required>
-            <Select aria-label="Protocolo" value={protocolKey} onChange={(event) => setProtocolKey(event.target.value)}>
+            <Select aria-label="Protocolo" value={protocolKey} onChange={(event) => {
+              setHasUserChanges(true);
+              setProtocolKey(event.target.value);
+            }}>
               {protocolOptions.map((protocol) => (
                 <option key={protocol.key} value={protocol.key}>
                   {protocol.label}
@@ -576,7 +706,10 @@ function ManualAnthropometricAssessmentForm({
               <Select
                 aria-label="Grupo etnico usado na formula"
                 value={anthropometryEthnicity}
-                onChange={(event) => setAnthropometryEthnicity(event.target.value as typeof anthropometryEthnicity)}
+                onChange={(event) => {
+                  setHasUserChanges(true);
+                  setAnthropometryEthnicity(event.target.value as typeof anthropometryEthnicity);
+                }}
               >
                 <option value="">Selecione</option>
                 <option value="white">{requiresSlaughterEthnicity ? "Branco" : "Branco ou hispanico"}</option>
@@ -590,7 +723,10 @@ function ManualAnthropometricAssessmentForm({
               <Select
                 aria-label="Estagio maturacional"
                 value={anthropometryMaturity}
-                onChange={(event) => setAnthropometryMaturity(event.target.value as typeof anthropometryMaturity)}
+                onChange={(event) => {
+                  setHasUserChanges(true);
+                  setAnthropometryMaturity(event.target.value as typeof anthropometryMaturity);
+                }}
               >
                 <option value="">Selecione</option>
                 <option value="prepubertal">Pre-pubere</option>
@@ -608,7 +744,10 @@ function ManualAnthropometricAssessmentForm({
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border border-lovable-border"
             checked={calculateMuscleMass}
-            onChange={(event) => setCalculateMuscleMass(event.target.checked)}
+            onChange={(event) => {
+              setHasUserChanges(true);
+              setCalculateMuscleMass(event.target.checked);
+            }}
           />
           <span>
             <span className="block text-sm font-semibold text-lovable-ink">Calcular massa muscular</span>
@@ -685,7 +824,10 @@ function ManualAnthropometricAssessmentForm({
             aria-label="Observacoes"
             rows={3}
             value={observations}
-            onChange={(event) => setObservations(event.target.value)}
+            onChange={(event) => {
+              setHasUserChanges(true);
+              setObservations(event.target.value);
+            }}
             placeholder="Notas do professor, condicoes da medida ou contexto do protocolo."
           />
         </FormField>

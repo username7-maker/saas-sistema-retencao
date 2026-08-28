@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AssessmentRegistrationComposer } from "../components/assessments/AssessmentRegistrationComposer";
@@ -28,6 +28,7 @@ function renderComposer() {
 describe("AssessmentRegistrationComposer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.sessionStorage.clear();
     vi.spyOn(assessmentService, "anthropometryProtocols").mockResolvedValue([
       {
         key: "slaughter_1988_boys_black_white_6_17",
@@ -63,5 +64,26 @@ describe("AssessmentRegistrationComposer", () => {
     expect(screen.getByLabelText("Dobra coxa - tentativa 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Dobra panturrilha - tentativa 1")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Dobra tricipital - tentativa 1")).toHaveLength(1);
+  });
+
+  it("restores the no-bioimpedance draft after the form is reloaded", async () => {
+    const firstRender = renderComposer();
+    await screen.findByLabelText("Grupo etnico usado na formula");
+
+    fireEvent.change(screen.getByLabelText("Peso"), { target: { value: "82,3" } });
+    fireEvent.change(screen.getByLabelText("Grupo etnico usado na formula"), { target: { value: "black" } });
+    fireEvent.change(screen.getByLabelText("Estagio maturacional"), { target: { value: "pubertal" } });
+    fireEvent.change(screen.getByLabelText("Dobra tricipital - tentativa 1"), { target: { value: "12,5" } });
+    fireEvent.change(screen.getByLabelText("Observacoes"), { target: { value: "Aluno em jejum." } });
+
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1));
+    firstRender.unmount();
+    renderComposer();
+
+    expect(await screen.findByLabelText("Peso")).toHaveValue("82,3");
+    expect(screen.getByLabelText("Grupo etnico usado na formula")).toHaveValue("black");
+    expect(screen.getByLabelText("Estagio maturacional")).toHaveValue("pubertal");
+    expect(screen.getByLabelText("Dobra tricipital - tentativa 1")).toHaveValue("12,5");
+    expect(screen.getByLabelText("Observacoes")).toHaveValue("Aluno em jejum.");
   });
 });
