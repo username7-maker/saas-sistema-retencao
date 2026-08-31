@@ -147,6 +147,34 @@ describe("ImportsPage", () => {
     });
   });
 
+  it("blocks an Actuar access export in the members importer", async () => {
+    vi.mocked(importExportService.previewMembers).mockResolvedValue(
+      buildPreview({
+        would_create: 0,
+        would_update: 1,
+        can_confirm: false,
+        blocking_issues: [
+          "Arquivo de acessos/catraca detectado. Envie este arquivo em Importar check-ins; ele nao pode ser confirmado como cadastro de alunos.",
+        ],
+      }),
+    );
+
+    const { container } = renderPage();
+    const membersFileInput = container.querySelectorAll('input[type="file"]')[0] as HTMLInputElement;
+    const file = new File(
+      ["Cliente,Data Entrada,Hora Entrada,Assinatura\nEvelyn Casela,27/08/2026,11:43,LIVRE MENSAL"],
+      "Acessos.csv",
+      { type: "text/csv" },
+    );
+
+    fireEvent.change(membersFileInput, { target: { files: [file] } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Validar arquivo" })[0]);
+
+    expect(await screen.findByText(/Arquivo de acessos\/catraca detectado/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Confirmar importacao" })[0]).toBeDisabled();
+    expect(importExportService.importMembers).not.toHaveBeenCalled();
+  });
+
   it("requires revalidation after manual column mapping before confirming", async () => {
     vi.mocked(importExportService.previewMembers)
       .mockResolvedValueOnce(

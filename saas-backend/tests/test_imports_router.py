@@ -33,6 +33,83 @@ def _valid_preview() -> ImportPreview:
     )
 
 
+def _blocked_member_access_preview() -> ImportPreview:
+    return ImportPreview(
+        preview_kind="members",
+        total_rows=1,
+        valid_rows=1,
+        would_update=1,
+        can_confirm=False,
+        blocking_issues=[
+            "Arquivo de acessos/catraca detectado. Envie este arquivo em Importar check-ins."
+        ],
+    )
+
+
+def test_member_commit_blocks_access_export_before_any_write(app, client, mock_owner, monkeypatch):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: mock_owner
+    import_mock = MagicMock()
+    audit_calls: list[dict] = []
+
+    monkeypatch.setattr("app.routers.imports.preview_members_csv", lambda *_args, **_kwargs: _blocked_member_access_preview())
+    monkeypatch.setattr("app.routers.imports.import_members_csv", import_mock)
+    monkeypatch.setattr(
+        "app.routers.imports.log_audit_event",
+        lambda *_args, **kwargs: audit_calls.append(kwargs),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/imports/members",
+            files={
+                "file": (
+                    "Acessos.csv",
+                    b"Cliente,Data Entrada,Hora Entrada,Assinatura\nEvelyn Casela,27/08/2026,11:43,LIVRE MENSAL",
+                    "text/csv",
+                )
+            },
+        )
+
+        assert response.status_code == 422
+        assert "nenhum cadastro foi alterado" in response.json()["detail"].lower()
+        import_mock.assert_not_called()
+        db.commit.assert_called_once()
+        assert audit_calls[0]["action"] == "import_members_csv_blocked"
+        assert audit_calls[0]["details"]["would_update"] == 1
+        assert "payload" not in audit_calls[0]["details"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_member_preview_audits_access_export_block_without_payload(app, client, mock_owner, monkeypatch):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: mock_owner
+    audit_calls: list[dict] = []
+
+    monkeypatch.setattr("app.routers.imports.preview_members_csv", lambda *_args, **_kwargs: _blocked_member_access_preview())
+    monkeypatch.setattr(
+        "app.routers.imports.log_audit_event",
+        lambda *_args, **kwargs: audit_calls.append(kwargs),
+    )
+
+    try:
+        response = client.post(
+            "/api/v1/imports/members/preview",
+            files={"file": ("Acessos.csv", b"Cliente,Data Entrada,Hora Entrada\nEvelyn,27/08/2026,11:43", "text/csv")},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["can_confirm"] is False
+        db.commit.assert_called_once()
+        assert audit_calls[0]["action"] == "preview_members_csv_blocked"
+        assert "payload" not in audit_calls[0]["details"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_checkin_commit_is_fail_closed_when_preflight_has_errors(app, client, mock_owner, monkeypatch):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db

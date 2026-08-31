@@ -29,3 +29,22 @@
 - Vercel `dpl_GjRz5mbDrm9juD9MuEvtVEyXQSr9`: `Ready` e alias de producao atualizado.
 - Smoke real: arquivo propositalmente invalido respondeu `422`, nao gravou check-in e gerou auditoria sem payload de linha.
 - Reparo controlado: ultimo acesso da aluna afetada passou de `2026-08-23 10:07` para `2026-08-27 11:43`; risco recalculado de `44/yellow` para `31/green`; plano `LIVRE ANUAL` preservado.
+
+## Extensao: arquivo de acessos enviado como cadastro de alunos
+
+Uma nova importacao, feita pela rota de alunos, usou um export do Actuar com colunas `Cliente`, `Assinatura`,
+`Data Entrada` e `Hora Entrada`. Os aliases de cadastro interpretaram `Cliente` como nome e `Assinatura` como plano,
+atualizando membros existentes. O hotfix de check-ins nao podia atuar porque a requisicao entrou por `/imports/members`.
+
+Decisoes adicionais:
+
+- O preview de alunos identifica a assinatura `Data Entrada` + `Hora Entrada` + identificador de membro como arquivo de
+  acessos/catraca, retorna `can_confirm=false` e orienta o envio em `Importar check-ins`.
+- O commit de alunos repete o preview no backend e responde `422` antes de qualquer escrita quando o arquivo esta
+  bloqueado. A tentativa e auditada apenas com hash, contagens e motivos, sem payload/PII.
+- Uma importacao de cadastro nao pode mais sobrescrever `last_checkin_at` quando o membro ja possui um snapshot
+  canonico. A partir desse ponto, somente o fluxo de check-ins avanca esse campo.
+- Foi criada uma reconciliacao administrativa, isolada por academia e auditada, que recalcula `last_checkin_at` a
+  partir do maior `checkins.checkin_at` e atualiza o risco.
+- A reparacao de dados fica limitada a Evelyn Casela, cujo plano correto foi confirmado como `LIVRE ANUAL`. Os demais
+  membros nao devem ser corrigidos por inferencia sem um cadastro historico confiavel.

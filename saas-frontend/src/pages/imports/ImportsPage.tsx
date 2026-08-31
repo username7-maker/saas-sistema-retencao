@@ -782,6 +782,9 @@ export function ImportsPage() {
           <p className="mt-1 text-xs text-lovable-ink-muted">
             Colunas aceitas: nome/full_name, email, telefone, cpf, matricula, plano, mensalidade, data_matricula.
           </p>
+          <p className="mt-2 rounded-lg border border-lovable-warning/30 bg-lovable-warning/10 px-3 py-2 text-xs text-lovable-ink">
+            Arquivos do Actuar com Data Entrada e Hora Entrada sao de acessos: envie em Importar check-ins.
+          </p>
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

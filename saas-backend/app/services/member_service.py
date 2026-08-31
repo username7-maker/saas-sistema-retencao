@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id, include_all_tenants
-from app.models import Member, MemberStatus, RiskLevel
+from app.models import Checkin, Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
 from app.services.preferred_shift_service import hydrate_missing_preferred_shifts_from_checkins, preferred_shift_filter_condition
@@ -238,6 +238,36 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: U
     db.add(member)
     invalidate_dashboard_cache("members", "nps", "risk")
     return member
+
+
+def reconcile_member_last_checkin(
+    db: Session,
+    member_id: UUID,
+    gym_id: UUID | None = None,
+) -> tuple[Member, datetime | None, datetime]:
+    member = get_member_or_404(db, member_id, gym_id=gym_id)
+    latest_checkin_at = db.scalar(
+        _scoped_statement(
+            select(func.max(Checkin.checkin_at)).where(
+                Checkin.member_id == member.id,
+                Checkin.gym_id == member.gym_id,
+            ),
+            member.gym_id,
+        )
+    )
+    if latest_checkin_at is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Membro nao possui check-in para reconciliar")
+
+    previous_last_checkin_at = member.last_checkin_at
+    member.last_checkin_at = latest_checkin_at
+    db.add(member)
+    db.flush()
+
+    from app.services.risk import refresh_member_risk_snapshot
+
+    refresh_member_risk_snapshot(db, member_ids=[member.id], sync_alerts=True)
+    invalidate_dashboard_cache("members", "checkins", "risk")
+    return member, previous_last_checkin_at, latest_checkin_at
 
 
 def soft_delete_member(db: Session, member_id: UUID, gym_id: UUID | None = None) -> None:

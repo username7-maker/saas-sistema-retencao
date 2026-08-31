@@ -72,7 +72,15 @@ from app.services.body_composition_service import (
 )
 from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError
-from app.services.member_service import create_member, get_member_or_404, list_member_index, list_members, soft_delete_member, update_member
+from app.services.member_service import (
+    create_member,
+    get_member_or_404,
+    list_member_index,
+    list_members,
+    reconcile_member_last_checkin,
+    soft_delete_member,
+    update_member,
+)
 from app.services.member_intelligence_service import get_member_intelligence_context
 from app.services.member_operational_profile_service import (
     build_member_operational_profile,
@@ -329,6 +337,40 @@ def update_member_endpoint(
         member_id=member.id,
         entity_id=member.id,
         details={"updated_fields": list(payload.model_dump(exclude_unset=True).keys())},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@router.post("/{member_id}/reconcile-last-checkin", response_model=MemberOut)
+def reconcile_member_last_checkin_endpoint(
+    request: Request,
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> MemberOut:
+    member, previous_last_checkin_at, latest_checkin_at = reconcile_member_last_checkin(
+        db,
+        member_id,
+        gym_id=current_user.gym_id,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="member_last_checkin_reconciled",
+        entity="member",
+        user=current_user,
+        member_id=member.id,
+        entity_id=member.id,
+        details={
+            "previous_last_checkin_at": (
+                previous_last_checkin_at.isoformat() if previous_last_checkin_at is not None else None
+            ),
+            "reconciled_last_checkin_at": latest_checkin_at.isoformat(),
+        },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

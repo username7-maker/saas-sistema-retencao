@@ -187,6 +187,42 @@ class TestUpdateMember:
         assert member.cpf_encrypted == "new-enc"
 
 
+class TestReconcileMemberLastCheckin:
+    @patch("app.services.member_service.invalidate_dashboard_cache")
+    @patch("app.services.risk.refresh_member_risk_snapshot")
+    def test_uses_latest_canonical_checkin_and_refreshes_risk(self, mock_refresh_risk, mock_cache):
+        previous = datetime(2026, 8, 27, 13, 9, 43, tzinfo=timezone.utc)
+        latest = datetime(2026, 8, 27, 11, 43, tzinfo=timezone.utc)
+        member = _mock_member(last_checkin_at=previous)
+        db = MagicMock()
+        db.scalar.side_effect = [member, latest]
+
+        from app.services.member_service import reconcile_member_last_checkin
+
+        result, old_value, reconciled_value = reconcile_member_last_checkin(db, MEMBER_ID, gym_id=GYM_ID)
+
+        assert result is member
+        assert old_value == previous
+        assert reconciled_value == latest
+        assert member.last_checkin_at == latest
+        db.flush.assert_called_once()
+        mock_refresh_risk.assert_called_once_with(db, member_ids=[MEMBER_ID], sync_alerts=True)
+        mock_cache.assert_called_once_with("members", "checkins", "risk")
+
+    def test_rejects_member_without_checkins(self):
+        member = _mock_member(last_checkin_at=None)
+        db = MagicMock()
+        db.scalar.side_effect = [member, None]
+
+        from app.services.member_service import reconcile_member_last_checkin
+
+        with pytest.raises(HTTPException) as exc_info:
+            reconcile_member_last_checkin(db, MEMBER_ID, gym_id=GYM_ID)
+
+        assert exc_info.value.status_code == 409
+        db.add.assert_not_called()
+
+
 class TestSoftDeleteMember:
     @patch("app.services.member_service.invalidate_dashboard_cache")
     @patch("app.services.member_service.get_member_or_404")

@@ -62,6 +62,40 @@ def _audit_checkin_preview_errors(
     db.commit()
 
 
+def _member_block_audit_details(content: bytes, preview: ImportPreview) -> dict:
+    return {
+        "file_sha256": hashlib.sha256(content).hexdigest(),
+        "total_rows": preview.total_rows,
+        "valid_rows": preview.valid_rows,
+        "would_create": preview.would_create,
+        "would_update": preview.would_update,
+        "blocking_issues": preview.blocking_issues,
+        "error_count": len(preview.errors),
+    }
+
+
+def _audit_member_preview_block(
+    request: Request,
+    db: Session,
+    current_user: User,
+    *,
+    content: bytes,
+    preview: ImportPreview,
+    action: str,
+) -> None:
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action=action,
+        entity="members",
+        user=current_user,
+        details=_member_block_audit_details(content, preview),
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+
+
 def _parse_mapping_dict(raw_value: str | None) -> dict[str, str]:
     if not raw_value:
         return {}
@@ -102,14 +136,42 @@ async def import_members_endpoint(
     content = await file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+    parsed_mappings = _parse_mapping_dict(column_mappings)
+    parsed_ignored_columns = _parse_ignored_columns(ignored_columns)
     try:
+        preview = preview_members_csv(
+            db,
+            content,
+            filename=file.filename,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+        )
+        if not preview.can_confirm:
+            _audit_member_preview_block(
+                request,
+                db,
+                current_user,
+                content=content,
+                preview=preview,
+                action="import_members_csv_blocked",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "Importacao de alunos bloqueada pelo preview. "
+                    "Revise as pendencias e use Importar check-ins quando o arquivo for de acessos/catraca; "
+                    "nenhum cadastro foi alterado."
+                ),
+            )
         summary = import_members_csv(
             db,
             content,
             filename=file.filename,
-            column_mappings=_parse_mapping_dict(column_mappings),
-            ignored_columns=_parse_ignored_columns(ignored_columns),
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -118,7 +180,12 @@ async def import_members_endpoint(
         action="import_members_csv",
         entity="members",
         user=current_user,
-        details={"imported": summary.imported, "duplicates": summary.skipped_duplicates, "errors": len(summary.errors)},
+        details={
+            "imported": summary.imported,
+            "updated_existing": summary.updated_existing,
+            "duplicates": summary.skipped_duplicates,
+            "errors": len(summary.errors),
+        },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -136,7 +203,6 @@ async def preview_members_endpoint(
     column_mappings: str | None = Form(None),
     ignored_columns: str | None = Form(None),
 ) -> ImportPreview:
-    _ = request
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
@@ -145,13 +211,23 @@ async def preview_members_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        return preview_members_csv(
+        preview = preview_members_csv(
             db,
             content,
             filename=file.filename,
             column_mappings=_parse_mapping_dict(column_mappings),
             ignored_columns=_parse_ignored_columns(ignored_columns),
         )
+        if not preview.can_confirm:
+            _audit_member_preview_block(
+                request,
+                db,
+                current_user,
+                content=content,
+                preview=preview,
+                action="preview_members_csv_blocked",
+            )
+        return preview
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

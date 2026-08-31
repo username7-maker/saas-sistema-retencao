@@ -160,6 +160,8 @@ _NAME_PARTICLES = {"da", "de", "do", "das", "dos", "e"}
 _GENERIC_PLAN_VALUES = {"livre", "nao_informado", "nao informado", "nao", "sem_assinatura", "sem plano", "sem_plano"}
 _GENERIC_SHIFT_VALUES = {"livre", "nao_informado", "nao informado", "integral", "full", "all_day"}
 _IGNORABLE_CHECKIN_NAMES = {"passagem liberada manualmente", "registro manual", "catraca liberada manualmente"}
+_ACCESS_EXPORT_ENTRY_DATE_COLUMNS = {"data_entrada", "data_hora_entrada"}
+_ACCESS_EXPORT_ENTRY_TIME_COLUMNS = {"hora_entrada"}
 _PLAN_CYCLE_LABELS = {
     "monthly": "MENSAL",
     "semiannual": "SEMESTRAL",
@@ -562,6 +564,13 @@ def _preview_member_snapshot(
     }
 
 
+def _looks_like_access_export(columns: set[str]) -> bool:
+    has_member_identity = bool(columns.intersection(NAME_KEYS + MEMBER_ID_KEYS + EXTERNAL_ID_KEYS + CPF_KEYS))
+    has_entry_date = bool(columns.intersection(_ACCESS_EXPORT_ENTRY_DATE_COLUMNS))
+    has_entry_time = bool(columns.intersection(_ACCESS_EXPORT_ENTRY_TIME_COLUMNS))
+    return has_member_identity and has_entry_date and has_entry_time
+
+
 def preview_members_csv(
     db: Session,
     csv_content: bytes,
@@ -719,6 +728,12 @@ def preview_members_csv(
         ignored_columns=normalized_ignored,
         valid_rows=valid_rows,
     )
+    if _looks_like_access_export(seen_columns):
+        blocking_issues.append(
+            "Arquivo de acessos/catraca detectado. Envie este arquivo em Importar check-ins; "
+            "ele nao pode ser confirmado como cadastro de alunos."
+        )
+        can_confirm = False
     return ImportPreview(
         preview_kind="members",
         total_rows=total_rows,
@@ -2623,7 +2638,10 @@ def _refresh_existing_member_from_import_row(
     if member.preferred_shift != preferred_shift:
         member.preferred_shift = preferred_shift
         changed = True
-    if last_checkin_at and (member.last_checkin_at is None or last_checkin_at > member.last_checkin_at):
+    # Once a member has a canonical check-in snapshot, only the check-in importer
+    # may advance it. Member exports often contain access-like columns whose
+    # semantics differ from the check-in timeline.
+    if last_checkin_at and member.last_checkin_at is None:
         member.last_checkin_at = last_checkin_at
         changed = True
 

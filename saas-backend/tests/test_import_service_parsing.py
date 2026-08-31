@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, timezone
 from decimal import Decimal
 from io import BytesIO
 from collections import Counter
@@ -373,6 +373,36 @@ def test_import_members_csv_updates_existing_duplicate_with_plan_cycle() -> None
     assert db.commit.call_count == 2
 
 
+def test_import_members_csv_does_not_override_canonical_last_checkin() -> None:
+    canonical_checkin = import_service._parse_datetime("27/08/2026 11:43")
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Evelyn Casela",
+        email="evelyn@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        last_checkin_at=canonical_checkin,
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    csv_content = (
+        "nome,email,plano,ult_acesso,data_matricula\n"
+        "Evelyn Casela,evelyn@example.com,LIVRE ANUAL,31/08/2026 18:30,01/01/2026\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_members_csv(db, csv_content, filename="clientes.csv")
+
+    assert summary.updated_existing == 1
+    assert member.last_checkin_at == canonical_checkin
+    assert member.plan_name == "LIVRE ANUAL"
+
+
 def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
     member = Member(
         id=uuid4(),
@@ -407,6 +437,24 @@ def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
     assert any("atualizadas" in warning for warning in preview.warnings)
     assert any("nao geram onboarding" in warning for warning in preview.warnings)
     assert len(preview.sample_rows) == 2
+
+
+def test_preview_members_csv_blocks_actuar_access_export() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+    csv_content = (
+        "Data Entrada,Hora Entrada,Data Saida,Hora Saida,Tipo Cadastro,Cliente,Assinatura,CPF,Marcadores,Consome Passe\n"
+        "27/08/2026,11:43,27/08/2026,13:09,Cliente,Evelyn Casela,LIVRE MENSAL,07031504996,,Nao\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_members_csv(db, csv_content, filename="Acessos.csv")
+
+    assert preview.valid_rows == 1
+    assert preview.can_confirm is False
+    assert any("acessos/catraca" in issue for issue in preview.blocking_issues)
+    assert any("Importar check-ins" in issue for issue in preview.blocking_issues)
 
 
 def test_preview_members_csv_matches_existing_member_by_name_without_strong_identifiers() -> None:
