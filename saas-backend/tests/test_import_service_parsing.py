@@ -1056,6 +1056,68 @@ def test_import_checkins_csv_accepts_turnstile_xlsx_with_data_entrada_serial() -
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
 
 
+def test_preview_checkins_blocks_commit_when_any_row_has_error() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Evelyn Casela",
+        email="evelyn@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = (
+        "Cliente,Data Entrada,Hora Entrada\n"
+        "Evelyn Casela,27/08/2026,11:43\n"
+        "Evelyn Casela,data-invalida,12:00\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_checkins_csv(db, csv_content, filename="Acessos.csv")
+
+    assert preview.valid_rows == 1
+    assert len(preview.errors) == 1
+    assert preview.can_confirm is False
+    assert preview.errors[0].row_number == 3
+    assert "1 linha(s) de check-in com erro" in " ".join(preview.blocking_issues)
+
+
+def test_import_checkin_updates_last_access_without_changing_member_plan() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Evelyn Casela",
+        email="evelyn@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    summary = import_service.import_checkins_csv(
+        db,
+        b"Cliente,Data Entrada,Hora Entrada\nEvelyn Casela,27/08/2026,11:43\n",
+        filename="Acessos.csv",
+    )
+
+    assert summary.imported == 1
+    assert member.last_checkin_at == import_service._parse_datetime("27/08/2026 11:43")
+    assert member.plan_name == "LIVRE ANUAL"
+
+
 def test_preview_assessments_csv_marks_legacy_count_without_date() -> None:
     member = Member(
         id=uuid4(),

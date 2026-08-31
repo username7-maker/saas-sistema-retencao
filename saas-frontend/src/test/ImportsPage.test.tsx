@@ -219,4 +219,53 @@ describe("ImportsPage", () => {
       });
     });
   });
+
+  it("blocks check-in commit and offers an error CSV when any row is invalid", async () => {
+    vi.mocked(importExportService.previewCheckins).mockResolvedValue({
+      preview_kind: "checkins",
+      total_rows: 2,
+      valid_rows: 1,
+      would_create: 1,
+      would_update: 0,
+      would_skip: 0,
+      ignored_rows: 0,
+      provisional_members_possible: 0,
+      recognized_columns: ["cliente", "data_entrada", "hora_entrada"],
+      unrecognized_columns: [],
+      missing_members: [],
+      warnings: [],
+      sample_rows: [],
+      mapping_required: false,
+      can_confirm: true,
+      resolved_mappings: {},
+      ignored_columns: [],
+      conflicting_targets: [],
+      blocking_issues: ["Existe uma linha com erro."],
+      source_columns: [],
+      errors: [
+        {
+          row_number: 3,
+          reason: "Formato de data invalido",
+          payload: { cliente: "Evelyn Casela" },
+        },
+      ],
+    });
+
+    const { container } = renderPage();
+    const fileInputs = container.querySelectorAll('input[type="file"]');
+    const checkinsFileInput = fileInputs[1] as HTMLInputElement;
+    const file = new File(
+      ["Cliente,Data Entrada,Hora Entrada\nEvelyn Casela,data-invalida,11:43"],
+      "Acessos.csv",
+      { type: "text/csv" },
+    );
+
+    fireEvent.change(checkinsFileInput, { target: { files: [file] } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Validar arquivo" })[1]);
+
+    expect(await screen.findByText("Importacao bloqueada: 1 linha(s) precisam de correcao")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Baixar erros CSV" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Confirmar importacao" })[1]).toBeDisabled();
+    expect(importExportService.importCheckins).not.toHaveBeenCalled();
+  });
 });

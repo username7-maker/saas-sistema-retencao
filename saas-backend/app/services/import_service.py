@@ -878,6 +878,11 @@ def preview_checkins_csv(
         ignored_columns=normalized_ignored,
         valid_rows=valid_rows,
     )
+    if errors:
+        blocking_issues.append(
+            f"Existem {len(errors)} linha(s) de check-in com erro. Corrija as pendencias e valide o arquivo novamente."
+        )
+        can_confirm = False
     return ImportPreview(
         preview_kind="checkins",
         total_rows=total_rows,

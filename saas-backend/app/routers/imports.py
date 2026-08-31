@@ -1,4 +1,6 @@
+import hashlib
 import json
+from collections import Counter
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -21,11 +23,43 @@ from app.services.import_service import (
     preview_members_csv,
 )
 
-
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 _MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
 _ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+
+
+def _checkin_error_audit_details(content: bytes, preview: ImportPreview) -> dict:
+    reason_counts = Counter(error.reason for error in preview.errors)
+    return {
+        "file_sha256": hashlib.sha256(content).hexdigest(),
+        "error_count": len(preview.errors),
+        "error_rows": [error.row_number for error in preview.errors[:100]],
+        "error_reasons": dict(reason_counts),
+        "ignored_rows": preview.ignored_rows,
+    }
+
+
+def _audit_checkin_preview_errors(
+    request: Request,
+    db: Session,
+    current_user: User,
+    *,
+    content: bytes,
+    preview: ImportPreview,
+    action: str,
+) -> None:
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action=action,
+        entity="checkins",
+        user=current_user,
+        details=_checkin_error_audit_details(content, preview),
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
 
 
 def _parse_mapping_dict(raw_value: str | None) -> dict[str, str]:
@@ -140,15 +174,43 @@ async def import_checkins_endpoint(
     content = await file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+    parsed_mappings = _parse_mapping_dict(column_mappings)
+    parsed_ignored_columns = _parse_ignored_columns(ignored_columns)
     try:
+        preview = preview_checkins_csv(
+            db,
+            content,
+            filename=file.filename,
+            auto_create_missing_members=auto_create_missing_members,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+        )
+        if preview.errors:
+            _audit_checkin_preview_errors(
+                request,
+                db,
+                current_user,
+                content=content,
+                preview=preview,
+                action="import_checkins_csv_blocked",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Importacao bloqueada: {len(preview.errors)} linha(s) de check-in possuem erro. "
+                    "Corrija as pendencias no preview e valide novamente; nenhum check-in foi gravado."
+                ),
+            )
         summary = import_checkins_csv(
             db,
             content,
             filename=file.filename,
             auto_create_missing_members=auto_create_missing_members,
-            column_mappings=_parse_mapping_dict(column_mappings),
-            ignored_columns=_parse_ignored_columns(ignored_columns),
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     context = get_request_context(request)
@@ -182,7 +244,6 @@ async def preview_checkins_endpoint(
     column_mappings: str | None = Form(None),
     ignored_columns: str | None = Form(None),
 ) -> ImportPreview:
-    _ = request
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
@@ -191,7 +252,7 @@ async def preview_checkins_endpoint(
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
-        return preview_checkins_csv(
+        preview = preview_checkins_csv(
             db,
             content,
             filename=file.filename,
@@ -199,6 +260,16 @@ async def preview_checkins_endpoint(
             column_mappings=_parse_mapping_dict(column_mappings),
             ignored_columns=_parse_ignored_columns(ignored_columns),
         )
+        if preview.errors:
+            _audit_checkin_preview_errors(
+                request,
+                db,
+                current_user,
+                content=content,
+                preview=preview,
+                action="preview_checkins_csv_errors",
+            )
+        return preview
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

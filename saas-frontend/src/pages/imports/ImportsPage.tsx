@@ -7,7 +7,13 @@ import {
   importExportService,
   type ImportMappingPayload,
 } from "../../services/importExportService";
-import type { ImportPreview, ImportPreviewSourceColumn, ImportSummary, MissingMemberEntry } from "../../types";
+import type {
+  ImportErrorEntry,
+  ImportPreview,
+  ImportPreviewSourceColumn,
+  ImportSummary,
+  MissingMemberEntry,
+} from "../../types";
 import {
   getIgnoredRowsHint,
   getImportSummaryNotice,
@@ -53,6 +59,14 @@ function exportMissingMembersEntries(missingMembers: MissingMemberEntry[]): void
     rows.push([item.name, String(item.occurrences), item.sample_plan ?? ""]);
   }
   downloadCsv("pendencias-catraca.csv", rows);
+}
+
+function exportImportErrors(errors: ImportErrorEntry[]): void {
+  const rows: string[][] = [["linha", "motivo"]];
+  for (const error of errors) {
+    rows.push([String(error.row_number), error.reason]);
+  }
+  downloadCsv("erros-importacao.csv", rows);
 }
 
 function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMemberEntry[] }) {
@@ -311,9 +325,11 @@ function ReconciliationPanel({
 function PreviewResult({
   preview,
   allowMissingExport = false,
+  blockOnErrors = false,
 }: {
   preview: ImportPreview | null;
   allowMissingExport?: boolean;
+  blockOnErrors?: boolean;
 }) {
   if (!preview) return null;
 
@@ -404,13 +420,31 @@ function PreviewResult({
       ) : null}
 
       {preview.errors.length > 0 ? (
-        <ul className="mt-3 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
-          {preview.errors.slice(0, 20).map((error, index) => (
-            <li key={`${error.row_number}-${index}`}>
-              Linha {error.row_number}: {error.reason}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 rounded-lg border border-lovable-danger/40 bg-lovable-danger/10 px-3 py-2 text-lovable-danger">
+          <p className="font-semibold">
+            {blockOnErrors ? "Importacao bloqueada" : "Linhas com erro"}: {preview.errors.length} linha(s) precisam de correcao
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed">
+            {blockOnErrors
+              ? "Nenhum check-in sera gravado enquanto houver erro. Corrija as linhas indicadas e valide o arquivo novamente."
+              : "Corrija as linhas indicadas e valide o arquivo novamente antes de confirmar."}
+          </p>
+          <ul className="mt-2 max-h-36 list-disc space-y-1 overflow-auto pl-5">
+            {preview.errors.slice(0, 20).map((error, index) => (
+              <li key={`${error.row_number}-${index}`}>
+                Linha {error.row_number}: {error.reason}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => exportImportErrors(preview.errors)}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-danger/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider hover:bg-lovable-danger/10"
+          >
+            <Download size={14} />
+            Baixar erros CSV
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -467,13 +501,23 @@ function ImportResult({
       ) : null}
 
       {visibleErrors.length > 0 ? (
-        <ul className="mt-3 max-h-36 list-disc space-y-1 overflow-auto pl-5 text-lovable-danger">
-          {visibleErrors.slice(0, 20).map((error, index) => (
-            <li key={`${error.row_number}-${index}`}>
-              Linha {error.row_number}: {error.reason}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 text-lovable-danger">
+          <ul className="max-h-36 list-disc space-y-1 overflow-auto pl-5">
+            {visibleErrors.slice(0, 20).map((error, index) => (
+              <li key={`${error.row_number}-${index}`}>
+                Linha {error.row_number}: {error.reason}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => exportImportErrors(visibleErrors)}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-danger/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider hover:bg-lovable-danger/10"
+          >
+            <Download size={14} />
+            Baixar erros CSV
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -562,6 +606,7 @@ export function ImportsPage() {
       checkinsPreview &&
       checkinsPreview.valid_rows > 0 &&
       checkinsPreview.can_confirm &&
+      checkinsPreview.errors.length === 0 &&
       !checkinsPreviewDirty,
   );
   const canConfirmAssessmentsImport = Boolean(
@@ -627,6 +672,10 @@ export function ImportsPage() {
       setCheckinsPreview(null);
       setCheckinsPreviewDirty(false);
       refreshImportedDataViews();
+      if (summary.errors.length > 0) {
+        toast.error(`Importacao incompleta: ${summary.errors.length} linha(s) precisam de correcao.`);
+        return;
+      }
       if (isDuplicateOnlyImport(summary)) {
         toast.success("Esse arquivo ja tinha sido importado antes. Nenhum check-in novo foi duplicado.");
         return;
@@ -833,6 +882,10 @@ export function ImportsPage() {
           <p className="mt-1 text-xs text-lovable-ink-muted">
             Match automatico por member_id, email, matricula, cpf ou nome.
           </p>
+          <p className="mt-2 rounded-lg border border-sky-300/50 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">
+            Exporte sempre uma janela sobreposta, de preferencia os ultimos 7 dias. Registros repetidos sao identificados e nao
+            serao duplicados; assim, acessos feitos depois da importacao anterior tambem entram no Cordex.
+          </p>
           <input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -928,7 +981,7 @@ export function ImportsPage() {
               Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
             </p>
           ) : null}
-          <PreviewResult preview={checkinsPreview} allowMissingExport />
+          <PreviewResult preview={checkinsPreview} allowMissingExport blockOnErrors />
           <ReconciliationPanel
             preview={checkinsPreview}
             options={CHECKIN_MAPPING_OPTIONS}
