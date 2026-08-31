@@ -170,6 +170,8 @@ class TestUpdateMember:
         result = update_member(db, MEMBER_ID, payload)
         assert member.full_name == "Atualizado"
         assert member.join_date == date(2026, 1, 11)
+        from app.services.member_service import _compute_loyalty_months
+        assert member.loyalty_months == _compute_loyalty_months(date(2026, 1, 11))
         assert result is member
         db.add.assert_called_once_with(member)
         db.commit.assert_not_called()

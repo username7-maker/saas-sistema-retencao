@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -237,11 +237,21 @@ def update_member(db: Session, member_id: UUID, payload: MemberUpdate, gym_id: U
         ensure_optional_user_in_gym(db, data["assigned_user_id"], member.gym_id)
     if cpf:
         member.cpf_encrypted = encrypt_cpf(cpf)
+    if data.get("join_date") and "loyalty_months" not in data:
+        data["loyalty_months"] = _compute_loyalty_months(data["join_date"])
     for key, value in data.items():
         setattr(member, key, value)
     db.add(member)
     invalidate_dashboard_cache("members", "nps", "risk")
     return member
+
+
+def _compute_loyalty_months(join_date: date) -> int:
+    today = datetime.now(tz=timezone.utc).date()
+    completed_months = (today.year - join_date.year) * 12 + today.month - join_date.month
+    if today.day < join_date.day:
+        completed_months -= 1
+    return max(0, completed_months)
 
 
 def reconcile_member_last_checkin(
