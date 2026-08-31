@@ -50,3 +50,14 @@ Decisoes adicionais:
   partir do maior `checkins.checkin_at` e atualiza o risco.
 - A reparacao de dados fica limitada a Evelyn Casela, cujo plano correto foi confirmado como `LIVRE ANUAL`. Os demais
   membros nao devem ser corrigidos por inferencia sem um cadastro historico confiavel.
+
+Resultado da extensao:
+
+- Testes focados: `81 passed`; analise estatica critica sem erros; build frontend de producao verde.
+- Vercel `dpl_bcxdvKz6jahUEhDpxAJ3xWb99VyB`: `READY`, com alias de producao atualizado.
+- Railway final: API `7214be7a-5ade-4b8c-bef3-5f8530b79c98` e worker
+  `7567f392-9a15-4648-b0fe-52b9ebc41887`, ambos `SUCCESS`.
+- Smoke real: preview do export de acessos em `/imports/members/preview` retornou `can_confirm=false`; o commit em
+  `/imports/members` retornou `422`; auditorias de preview e commit nao contêm payload de linha.
+- Evelyn Casela: plano restaurado para `LIVRE ANUAL`, ciclo `annual`, matricula `2026-01-11`, fidelidade recalculada
+  para 7 meses, turno reconciliado para `evening`, ultimo check-in canonico `2026-08-27 11:43` e risco `33/green`.
