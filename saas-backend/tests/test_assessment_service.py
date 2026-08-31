@@ -177,6 +177,50 @@ def test_body_composition_task_specs_mark_source_and_default_reassessment_due():
 
 
 @patch("app.services.assessment_service.invalidate_dashboard_cache")
+def test_remove_body_composition_task_sources_deletes_exclusive_and_preserves_mixed(mock_cache):
+    evaluation_id = uuid.uuid4()
+    formal_assessment_id = uuid.uuid4()
+    exclusive = SimpleNamespace(
+        deleted_at=None,
+        extra_data={
+            "source": "assessment_feedback_followup",
+            "body_composition_evaluation_id": str(evaluation_id),
+            "assessment_sources": [
+                {"type": "body_composition", "id": str(evaluation_id)},
+            ],
+        },
+    )
+    mixed = SimpleNamespace(
+        deleted_at=None,
+        extra_data={
+            "source": "assessment_reassessment_due",
+            "body_composition_evaluation_id": str(evaluation_id),
+            "assessment_sources": [
+                {"type": "formal_assessment", "id": str(formal_assessment_id)},
+                {"type": "body_composition", "id": str(evaluation_id)},
+            ],
+        },
+    )
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = [exclusive, mixed]
+
+    assessment_service.remove_body_composition_technical_ladder_task_sources(
+        db,
+        member_id=uuid.uuid4(),
+        evaluation_id=evaluation_id,
+    )
+
+    assert exclusive.deleted_at is not None
+    assert mixed.deleted_at is None
+    assert mixed.extra_data["assessment_sources"] == [
+        {"type": "formal_assessment", "id": str(formal_assessment_id)},
+    ]
+    assert "body_composition_evaluation_id" not in mixed.extra_data
+    assert mixed.extra_data["assessment_source_type"] == "formal_assessment"
+    mock_cache.assert_called_once_with("tasks")
+
+
+@patch("app.services.assessment_service.invalidate_dashboard_cache")
 def test_ensure_post_assessment_ladder_tasks_creates_three_tasks(mock_cache, monkeypatch):
     db = MagicMock()
     db.scalar.return_value = None

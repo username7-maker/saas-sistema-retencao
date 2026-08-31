@@ -269,6 +269,11 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert ">ID<" not in html
     assert "clinical-cordex-logo" in html
     assert "clinical-progym-logo" in html
+    weight_meta = html.index('<article class="clinical-meta-card clinical-meta-prominent">')
+    assert weight_meta < html.index("Altura")
+    assert weight_meta < html.index('<section class="clinical-cover-evaluation-grid">')
+    assert "84,5 kg" in html[weight_meta : weight_meta + 250]
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in html
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 

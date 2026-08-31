@@ -338,6 +338,30 @@ class TestListBodyComposition:
         assert result == []
 
 
+class TestDeleteBodyComposition:
+    @patch("app.services.body_composition_service.remove_body_composition_technical_ladder_task_sources")
+    @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
+    def test_deletes_tenant_scoped_evaluation_and_related_task_sources(self, mock_get_evaluation, mock_remove_tasks):
+        evaluation = SimpleNamespace(id=EVALUATION_ID, gym_id=GYM_ID, member_id=MEMBER_ID)
+        mock_get_evaluation.return_value = evaluation
+        db = MagicMock()
+
+        from app.services.body_composition_service import delete_body_composition_evaluation
+
+        result = delete_body_composition_evaluation(db, GYM_ID, MEMBER_ID, EVALUATION_ID)
+
+        assert result is evaluation
+        mock_get_evaluation.assert_called_once_with(
+            db,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            evaluation_id=EVALUATION_ID,
+        )
+        mock_remove_tasks.assert_called_once_with(db, member_id=MEMBER_ID, evaluation_id=EVALUATION_ID)
+        db.delete.assert_called_once_with(evaluation)
+        db.flush.assert_called_once()
+
+
 class TestBodyCompositionDelivery:
     @patch("app.services.body_composition_delivery_service.send_whatsapp_document_sync")
     @patch("app.services.body_composition_delivery_service.generate_body_composition_technical_pdf")
@@ -721,6 +745,35 @@ class TestSyncLookup:
 
 
 class TestBodyCompositionPdfRoutes:
+    @patch("app.routers.members.log_audit_event")
+    @patch("app.routers.members.get_request_context", return_value={"ip_address": "127.0.0.1", "user_agent": "pytest"})
+    @patch("app.routers.members.delete_body_composition_evaluation")
+    def test_delete_body_composition_endpoint_audits_and_commits(self, mock_delete, _mock_context, mock_audit):
+        mock_delete.return_value = SimpleNamespace(
+            id=EVALUATION_ID,
+            evaluation_date=date(2026, 4, 14),
+            source="manual",
+        )
+        db = MagicMock()
+        current_user = SimpleNamespace(id=uuid.uuid4(), gym_id=GYM_ID)
+
+        from app.routers.members import delete_body_composition_endpoint
+
+        response = delete_body_composition_endpoint(
+            request=MagicMock(),
+            member_id=MEMBER_ID,
+            evaluation_id=EVALUATION_ID,
+            db=db,
+            current_user=current_user,
+        )
+
+        assert response.message == "Avaliacao de bioimpedancia excluida"
+        mock_delete.assert_called_once_with(db, GYM_ID, MEMBER_ID, EVALUATION_ID)
+        mock_audit.assert_called_once()
+        assert mock_audit.call_args.kwargs["action"] == "body_composition_evaluation_deleted"
+        assert mock_audit.call_args.kwargs["entity_id"] == EVALUATION_ID
+        db.commit.assert_called_once()
+
     @patch("app.routers.members.log_audit_event")
     @patch("app.routers.members.get_request_context", return_value={"ip_address": "127.0.0.1", "user_agent": "pytest"})
     @patch("app.routers.members.generate_body_composition_pdf", return_value=(b"%PDF-1.4 summary", "bioimpedancia_erick.pdf"))

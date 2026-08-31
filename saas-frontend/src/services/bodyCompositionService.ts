@@ -174,6 +174,10 @@ export const bodyCompositionService = {
     return normalizeBodyComposition(data);
   },
 
+  async delete(memberId: string, evaluationId: string): Promise<void> {
+    await api.delete(`/api/v1/members/${memberId}/body-composition/${evaluationId}`);
+  },
+
   async create(
     memberId: string,
     payload: BodyCompositionEvaluationCreate,

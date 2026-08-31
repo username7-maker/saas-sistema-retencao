@@ -549,6 +549,74 @@ def ensure_body_composition_technical_ladder_tasks(
     )
 
 
+def remove_body_composition_technical_ladder_task_sources(
+    db: Session,
+    *,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> None:
+    evaluation_id_text = str(evaluation_id)
+    candidate_tasks = list(
+        db.scalars(
+            select(Task).where(
+                Task.member_id == member_id,
+                Task.deleted_at.is_(None),
+                Task.extra_data["source"].astext.in_(
+                    (
+                        _ASSESSMENT_TRAINING_DELIVERY_TASK_SOURCE,
+                        _ASSESSMENT_FEEDBACK_TASK_SOURCE,
+                        _ASSESSMENT_REASSESSMENT_TASK_SOURCE,
+                    )
+                ),
+            )
+        ).all()
+    )
+    tasks = [
+        task
+        for task in candidate_tasks
+        if str((task.extra_data or {}).get("body_composition_evaluation_id")) == evaluation_id_text
+        or any(
+            isinstance(source, dict)
+            and source.get("type") == "body_composition"
+            and str(source.get("id")) == evaluation_id_text
+            for source in (task.extra_data or {}).get("assessment_sources", [])
+        )
+    ]
+    if not tasks:
+        return
+
+    deleted_at = datetime.now(tz=timezone.utc)
+    for task in tasks:
+        extra = dict(task.extra_data or {})
+        sources = [
+            dict(source)
+            for source in extra.get("assessment_sources", [])
+            if isinstance(source, dict)
+            and not (
+                source.get("type") == "body_composition"
+                and str(source.get("id")) == evaluation_id_text
+            )
+        ]
+        if not sources:
+            task.deleted_at = deleted_at
+            continue
+
+        extra["assessment_sources"] = sources
+        extra["assessment_source_type"] = "mixed" if len(sources) > 1 else sources[0].get("type")
+        extra["assessment_source_id"] = sources[-1].get("id")
+        remaining_body_source = next(
+            (source for source in reversed(sources) if source.get("type") == "body_composition"),
+            None,
+        )
+        if remaining_body_source:
+            extra["body_composition_evaluation_id"] = remaining_body_source.get("id")
+        else:
+            extra.pop("body_composition_evaluation_id", None)
+        task.extra_data = extra
+
+    invalidate_dashboard_cache("tasks")
+
+
 def _ensure_assessment_feedback_followup_task(
     db: Session,
     *,

@@ -16,6 +16,7 @@ import {
   ScanText,
   ShieldCheck,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -48,9 +49,10 @@ import type {
 import { useAuth } from "../../hooks/useAuth";
 import { PRODUCT_NAME } from "../../config/brand";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
-import { canManageActuarSync } from "../../utils/roleAccess";
+import { canDeleteBodyComposition, canManageActuarSync } from "../../utils/roleAccess";
 import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
+import { Dialog } from "../ui2/Dialog";
 import { FormField } from "../ui2/FormField";
 import { Input } from "../ui2/Input";
 import { Select } from "../ui2/Select";
@@ -885,6 +887,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [ocrReadSession, setOcrReadSession] = useState<OcrReadSessionState>(EMPTY_OCR_READ_SESSION);
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
   const [reportReadyEvaluationId, setReportReadyEvaluationId] = useState<string | null>(null);
+  const [evaluationToDelete, setEvaluationToDelete] = useState<BodyCompositionEvaluation | null>(null);
   const [currentSource, setCurrentSource] = useState<EvaluationSource>("manual");
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
@@ -1021,6 +1024,27 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         return;
       }
       toast.error("Erro ao salvar a bioimpedancia.");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (evaluationId: string) => bodyCompositionService.delete(memberId, evaluationId),
+    onSuccess: async (_, deletedEvaluationId) => {
+      if (editingEvaluationId === deletedEvaluationId) {
+        resetEditor(null);
+      } else if (reportReadyEvaluationId === deletedEvaluationId) {
+        setReportReadyEvaluationId(null);
+      }
+      setEvaluationToDelete(null);
+      toast.success("Avaliacao excluida do historico.");
+      await invalidateAssessmentQueries(queryClient, memberId);
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel excluir a avaliacao.");
     },
   });
 
@@ -2731,6 +2755,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <Pencil size={14} />
                       Editar
                     </Button>
+                    {canDeleteBodyComposition(user?.role) ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="danger"
+                        onClick={() => setEvaluationToDelete(entry.evaluation)}
+                      >
+                        <Trash2 size={14} />
+                        Excluir
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               </article>
@@ -2777,6 +2812,34 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(evaluationToDelete)}
+        onClose={() => {
+          if (!deleteMutation.isPending) setEvaluationToDelete(null);
+        }}
+        title="Excluir avaliacao"
+        description={
+          evaluationToDelete
+            ? `Excluir definitivamente a avaliacao de ${fmtDate(evaluationToDelete.evaluation_date)}? Esta acao nao pode ser desfeita.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setEvaluationToDelete(null)} disabled={deleteMutation.isPending}>
+            Cancelar
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (evaluationToDelete) deleteMutation.mutate(evaluationToDelete.id);
+            }}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? "Excluindo..." : "Excluir definitivamente"}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

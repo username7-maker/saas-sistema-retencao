@@ -64,6 +64,7 @@ from app.services.body_composition_delivery_service import (
 )
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
+    delete_body_composition_evaluation,
     list_body_composition_evaluations,
     review_body_composition_evaluation,
     serialize_body_composition_evaluation,
@@ -607,6 +608,39 @@ def get_body_composition_detail_endpoint(
         evaluation_id=evaluation_id,
     )
     return serialize_body_composition_evaluation(db, current_user.gym_id, member_id, evaluation)
+
+
+@router.delete("/{member_id}/body-composition/{evaluation_id}", response_model=APIMessage)
+def delete_body_composition_endpoint(
+    request: Request,
+    member_id: UUID,
+    evaluation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> APIMessage:
+    evaluation = delete_body_composition_evaluation(
+        db,
+        current_user.gym_id,
+        member_id,
+        evaluation_id,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="body_composition_evaluation_deleted",
+        entity="body_composition_evaluation",
+        user=current_user,
+        member_id=member_id,
+        entity_id=evaluation_id,
+        details={
+            "evaluation_date": evaluation.evaluation_date.isoformat(),
+            "source": evaluation.source,
+        },
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+    )
+    db.commit()
+    return APIMessage(message="Avaliacao de bioimpedancia excluida")
 
 
 @router.post("/{member_id}/body-composition/{evaluation_id}/review", response_model=BodyCompositionEvaluationRead)

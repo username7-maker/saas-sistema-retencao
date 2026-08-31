@@ -13,7 +13,10 @@ from app.schemas.body_composition import (
     BodyCompositionEvaluationUpdate,
 )
 from app.services.ai_assistant_service import build_body_composition_assistant
-from app.services.assessment_service import ensure_body_composition_technical_ladder_tasks
+from app.services.assessment_service import (
+    ensure_body_composition_technical_ladder_tasks,
+    remove_body_composition_technical_ladder_task_sources,
+)
 from app.services.body_composition_actuar_sync_service import (
     get_body_composition_evaluation_or_404,
     prepare_body_composition_sync_attempt,
@@ -109,6 +112,28 @@ def list_body_composition_evaluations(
             .limit(limit)
         ).all()
     )
+
+
+def delete_body_composition_evaluation(
+    db: Session,
+    gym_id: UUID,
+    member_id: UUID,
+    evaluation_id: UUID,
+) -> BodyCompositionEvaluation:
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    remove_body_composition_technical_ladder_task_sources(
+        db,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+    )
+    db.delete(evaluation)
+    db.flush()
+    return evaluation
 
 
 def update_body_composition_evaluation(

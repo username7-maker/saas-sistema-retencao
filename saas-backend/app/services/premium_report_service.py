@@ -1212,6 +1212,12 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     )
     measurement_section_html = _render_body_measurement_pdf_section(measurement_rows, header.get("sex"))
     bmr_metric = _body_metric_by_key(primary_cards, "basal_metabolic_rate_kcal") or _body_metric_by_key(primary_cards, "bmr")
+    weight_metric = _body_metric_by_key(primary_cards, "weight_kg") or _body_metric_by_key(muscle_fat_metrics, "weight_kg")
+    weight_header_value = (
+        _body_metric_formatted(weight_metric)
+        if weight_metric is not None
+        else _body_header_value(header.get("weight_kg"), "kg")
+    )
     fat_mass_metric = _body_metric_by_key(composition_metrics, "fat_mass_estimated_kg") or _body_metric_by_key(
         muscle_fat_metrics,
         "fat_mass_estimated_kg",
@@ -1273,6 +1279,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       </header>
 
       <section class="clinical-meta-grid">
+        {_render_body_meta_block("Peso", weight_header_value, prominent=True)}
         {_render_body_meta_block("Altura", _body_header_value(header.get("height_cm"), "cm"))}
         {_render_body_meta_block("Idade", _body_header_value(header.get("age_years"), "anos"))}
         {_render_body_meta_block("Sexo", _body_sex_label(header.get("sex")))}
@@ -2602,10 +2609,14 @@ def _truncate_body_text(value: str, limit: int) -> str:
     return value[: max(limit - 3, 0)].rstrip(" ,;:-") + "..."
 
 
-def _render_body_meta_block(label: str, value: str, *, last: bool = False) -> str:
-    border = " clinical-meta-last" if last else ""
+def _render_body_meta_block(label: str, value: str, *, last: bool = False, prominent: bool = False) -> str:
+    classes = ""
+    if prominent:
+        classes += " clinical-meta-prominent"
+    if last:
+        classes += " clinical-meta-last"
     return f"""
-    <article class="clinical-meta-card{border}">
+    <article class="clinical-meta-card{classes}">
       <span>{escape(label)}</span>
       <strong>{escape(value)}</strong>
     </article>
@@ -4059,7 +4070,7 @@ def _body_composition_report_css() -> str:
         letter-spacing: 0.24em;
       }
       .clinical-meta-grid {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         margin-top: 18px;
         border-radius: 8px;
         overflow: hidden;
@@ -4071,6 +4082,13 @@ def _body_composition_report_css() -> str:
       }
       .clinical-meta-card strong {
         font-size: 12.5px;
+      }
+      .clinical-meta-prominent {
+        background: #e9f3ff;
+      }
+      .clinical-meta-prominent span,
+      .clinical-meta-prominent strong {
+        color: #0f5fae;
       }
       .clinical-cover-evaluation-grid {
         grid-template-columns: 0.85fr 1.45fr;

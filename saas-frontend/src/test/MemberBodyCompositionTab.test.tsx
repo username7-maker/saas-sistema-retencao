@@ -21,6 +21,7 @@ vi.mock("../services/bodyCompositionService", () => ({
     getActuarSyncStatus: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
     retryActuarSync: vi.fn(),
     enqueueActuarSync: vi.fn(),
     confirmManualSync: vi.fn(),
@@ -222,6 +223,7 @@ describe("MemberBodyCompositionTab", () => {
     vi.mocked(assessmentService.list).mockResolvedValue([]);
     vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
+    vi.mocked(bodyCompositionService.delete).mockResolvedValue(undefined);
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -265,6 +267,23 @@ describe("MemberBodyCompositionTab", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Braco contraido")).toBeInTheDocument();
+    });
+  });
+
+  it("deletes a bioimpedance evaluation only after explicit confirmation", async () => {
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir" }));
+
+    expect(screen.getByRole("dialog", { name: "Excluir avaliacao" })).toBeInTheDocument();
+    expect(screen.getByText(/Esta acao nao pode ser desfeita/)).toBeInTheDocument();
+    expect(bodyCompositionService.delete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excluir definitivamente" }));
+
+    await waitFor(() => {
+      expect(bodyCompositionService.delete).toHaveBeenCalledWith("member-1", "eval-1");
+      expect(screen.queryByRole("dialog", { name: "Excluir avaliacao" })).not.toBeInTheDocument();
     });
   });
 
