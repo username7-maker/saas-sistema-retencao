@@ -35,6 +35,7 @@ class MemberUpdate(BaseModel):
     status: MemberStatus | None = None
     plan_name: str | None = None
     monthly_fee: Decimal | None = None
+    join_date: date | None = None
     preferred_shift: str | None = None
     sex_for_clinical_calculation: str | None = Field(default=None, pattern="^(male|female)$")
     height_cm: Decimal | None = Field(default=None, gt=0)

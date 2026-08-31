@@ -403,6 +403,39 @@ def test_import_members_csv_does_not_override_canonical_last_checkin() -> None:
     assert member.plan_name == "LIVRE ANUAL"
 
 
+def test_import_members_csv_preserves_existing_fields_missing_from_sparse_row() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno@example.com",
+        status=MemberStatus.PAUSED,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=Decimal("149.90"),
+        join_date=date(2026, 1, 11),
+        preferred_shift="evening",
+        extra_data={"plan_cycle": "annual", "plan_cycle_source": "conditions"},
+    )
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [member]
+    db.scalars.return_value = mock_scalars
+
+    summary = import_service.import_members_csv(
+        db,
+        b"nome,email\nAluno Existente,aluno@example.com\n",
+        filename="clientes.csv",
+    )
+
+    assert summary.updated_existing == 1
+    assert member.status == MemberStatus.PAUSED
+    assert member.plan_name == "LIVRE ANUAL"
+    assert member.monthly_fee == Decimal("149.90")
+    assert member.join_date == date(2026, 1, 11)
+    assert member.preferred_shift == "evening"
+    assert member.extra_data["plan_cycle"] == "annual"
+
+
 def test_preview_members_csv_reports_updates_and_unknown_columns() -> None:
     member = Member(
         id=uuid4(),

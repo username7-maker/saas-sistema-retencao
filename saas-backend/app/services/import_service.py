@@ -1299,7 +1299,7 @@ def import_members_csv(
                 external_id=external_id,
                 cpf_digits=cpf_digits,
                 monthly_fee=monthly_fee,
-                join_date=join_date,
+                join_date=canonical_join_date,
                 last_checkin_at=last_checkin_at,
             ):
                 db.add(existing_member)
@@ -2588,7 +2588,7 @@ def _refresh_existing_member_from_import_row(
     external_id: str | None,
     cpf_digits: str | None,
     monthly_fee: Decimal,
-    join_date: date,
+    join_date: date | None,
     last_checkin_at: datetime | None,
 ) -> bool:
     changed = False
@@ -2617,27 +2617,39 @@ def _refresh_existing_member_from_import_row(
         member.cpf_encrypted = encrypt_cpf(cpf_digits)
         changed = True
 
-    status = _parse_member_status(_pick_first(row, STATUS_KEYS))
-    if member.status != status:
-        member.status = status
-        changed = True
+    status_raw = _pick_first(row, STATUS_KEYS)
+    if status_raw:
+        status_value = _parse_member_status(status_raw)
+        if member.status != status_value:
+            member.status = status_value
+            changed = True
 
-    plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(row, join_date=join_date)
-    if member.plan_name != plan_name:
-        member.plan_name = plan_name
-        changed = True
-    if member.monthly_fee != monthly_fee:
+    plan_raw = _pick_first(row, PLAN_KEYS)
+    plan_cycle = None
+    plan_cycle_source = _PLAN_CYCLE_SOURCE_UNKNOWN
+    if plan_raw:
+        plan_name, plan_cycle, plan_cycle_source = _extract_plan_metadata(
+            row,
+            join_date=join_date or member.join_date,
+        )
+        if member.plan_name != plan_name:
+            member.plan_name = plan_name
+            changed = True
+    monthly_fee_raw = _pick_first(row, MONTHLY_FEE_KEYS)
+    if monthly_fee_raw and member.monthly_fee != monthly_fee:
         member.monthly_fee = monthly_fee
         changed = True
-    if member.join_date != join_date:
+    if join_date and member.join_date != join_date:
         member.join_date = join_date
         member.loyalty_months = _compute_loyalty_months(join_date)
         changed = True
 
-    preferred_shift = _extract_preferred_shift(row)
-    if member.preferred_shift != preferred_shift:
-        member.preferred_shift = preferred_shift
-        changed = True
+    preferred_shift_raw = _pick_first(row, PREFERRED_SHIFT_KEYS)
+    if preferred_shift_raw:
+        preferred_shift = _extract_preferred_shift(row)
+        if member.preferred_shift != preferred_shift:
+            member.preferred_shift = preferred_shift
+            changed = True
     # Once a member has a canonical check-in snapshot, only the check-in importer
     # may advance it. Member exports often contain access-like columns whose
     # semantics differ from the check-in timeline.
@@ -2653,8 +2665,9 @@ def _refresh_existing_member_from_import_row(
 
     before_snapshot = dict(extra_data)
     _populate_member_extra_data(extra_data, row)
-    extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
-    extra_data["plan_cycle_source"] = plan_cycle_source
+    if plan_raw:
+        extra_data["plan_cycle"] = plan_cycle or _PLAN_CYCLE_SOURCE_UNKNOWN
+        extra_data["plan_cycle_source"] = plan_cycle_source
     if extra_data != before_snapshot:
         changed = True
 

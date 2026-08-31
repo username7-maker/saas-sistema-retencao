@@ -44,6 +44,8 @@ Decisoes adicionais:
   bloqueado. A tentativa e auditada apenas com hash, contagens e motivos, sem payload/PII.
 - Uma importacao de cadastro nao pode mais sobrescrever `last_checkin_at` quando o membro ja possui um snapshot
   canonico. A partir desse ponto, somente o fluxo de check-ins avanca esse campo.
+- Atualizacoes de membros passam a ter semantica de patch: campos ausentes na planilha nao zeram status, plano,
+  mensalidade, data de matricula ou turno ja existentes.
 - Foi criada uma reconciliacao administrativa, isolada por academia e auditada, que recalcula `last_checkin_at` a
   partir do maior `checkins.checkin_at` e atualiza o risco.
 - A reparacao de dados fica limitada a Evelyn Casela, cujo plano correto foi confirmado como `LIVRE ANUAL`. Os demais

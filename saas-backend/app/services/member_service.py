@@ -11,7 +11,11 @@ from app.database import get_current_gym_id, include_all_tenants
 from app.models import Checkin, Member, MemberStatus, RiskLevel
 from app.schemas import MemberCreate, MemberUpdate, PaginatedResponse
 from app.services.onboarding_service import create_onboarding_tasks_for_member, create_plan_followup_tasks_for_member
-from app.services.preferred_shift_service import hydrate_missing_preferred_shifts_from_checkins, preferred_shift_filter_condition
+from app.services.preferred_shift_service import (
+    hydrate_missing_preferred_shifts_from_checkins,
+    preferred_shift_filter_condition,
+    sync_preferred_shifts_from_checkins,
+)
 from app.services.tenant_guard import ensure_optional_user_in_gym
 from app.utils.encryption import encrypt_cpf
 
@@ -262,6 +266,7 @@ def reconcile_member_last_checkin(
     member.last_checkin_at = latest_checkin_at
     db.add(member)
     db.flush()
+    sync_preferred_shifts_from_checkins(db, member_ids={member.id}, commit=False, flush=False)
 
     from app.services.risk import refresh_member_risk_snapshot
 

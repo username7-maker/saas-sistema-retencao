@@ -165,10 +165,11 @@ class TestUpdateMember:
         mock_get.return_value = member
         db = MagicMock()
         db.refresh = MagicMock()
-        payload = MemberUpdate(full_name="Atualizado")
+        payload = MemberUpdate(full_name="Atualizado", join_date=date(2026, 1, 11))
         from app.services.member_service import update_member
         result = update_member(db, MEMBER_ID, payload)
         assert member.full_name == "Atualizado"
+        assert member.join_date == date(2026, 1, 11)
         assert result is member
         db.add.assert_called_once_with(member)
         db.commit.assert_not_called()
@@ -190,7 +191,8 @@ class TestUpdateMember:
 class TestReconcileMemberLastCheckin:
     @patch("app.services.member_service.invalidate_dashboard_cache")
     @patch("app.services.risk.refresh_member_risk_snapshot")
-    def test_uses_latest_canonical_checkin_and_refreshes_risk(self, mock_refresh_risk, mock_cache):
+    @patch("app.services.member_service.sync_preferred_shifts_from_checkins")
+    def test_uses_latest_canonical_checkin_and_refreshes_risk(self, mock_sync_shift, mock_refresh_risk, mock_cache):
         previous = datetime(2026, 8, 27, 13, 9, 43, tzinfo=timezone.utc)
         latest = datetime(2026, 8, 27, 11, 43, tzinfo=timezone.utc)
         member = _mock_member(last_checkin_at=previous)
@@ -206,6 +208,7 @@ class TestReconcileMemberLastCheckin:
         assert reconciled_value == latest
         assert member.last_checkin_at == latest
         db.flush.assert_called_once()
+        mock_sync_shift.assert_called_once_with(db, member_ids={MEMBER_ID}, commit=False, flush=False)
         mock_refresh_risk.assert_called_once_with(db, member_ids=[MEMBER_ID], sync_alerts=True)
         mock_cache.assert_called_once_with("members", "checkins", "risk")
 
