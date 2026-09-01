@@ -209,6 +209,14 @@ export default function App() {
           }
         />
         <Route
+          path="/assessments/members/:memberId/anthropometry/:assessmentId/report"
+          element={
+            <ProtectedRoute>
+              <BodyCompositionReportPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/assessments/new/:memberId"
           element={
             <GuardedLazyRoute allowedRoles={[...ROUTE_ACCESS.assessmentRegistration]}>

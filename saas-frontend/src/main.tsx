@@ -13,6 +13,12 @@ import "./styles/lovable-theme.css";
 import { createAppQueryClient } from "./services/queryClient";
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
+const releaseSha = (import.meta.env.VITE_RELEASE_SHA as string | undefined) || "dev";
+document.documentElement.dataset.cordexRelease = releaseSha;
+const releaseMeta = document.createElement("meta");
+releaseMeta.name = "cordex-release";
+releaseMeta.content = releaseSha;
+document.head.appendChild(releaseMeta);
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,

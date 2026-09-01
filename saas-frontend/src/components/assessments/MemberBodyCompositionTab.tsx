@@ -32,7 +32,7 @@ import {
   getBodyCompositionProtocol,
 } from "./bodyCompositionProtocols";
 import { actuarSettingsService } from "../../services/actuarSettingsService";
-import { assessmentService } from "../../services/assessmentService";
+import { assessmentService, type Assessment } from "../../services/assessmentService";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import {
   calculateBodyWaterPercent,
@@ -76,6 +76,7 @@ import {
 } from "./bodyCompositionInterpretation";
 import { calculateAnthropometryPreview } from "./bodyCompositionAnthropometryPreview";
 import { invalidateAssessmentQueries } from "./queryUtils";
+import { GuidedDocumentScanner } from "./GuidedDocumentScanner";
 
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
   if (value == null || value === "") return null;
@@ -316,6 +317,7 @@ interface Props {
   memberId: string;
   memberName?: string;
   memberPhone?: string | null;
+  onEditAnthropometry?: (assessmentId: string) => void;
 }
 
 const EMPTY_OCR_METADATA: OcrMetadataState = {
@@ -622,11 +624,9 @@ function fmt(value: number | null | undefined, unit = ""): string {
 }
 
 function fmtDate(value: string): string {
-  try {
-    return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
-  } catch {
-    return value;
-  }
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("pt-BR");
 }
 
 function sourceLabel(source: EvaluationSource | string | null | undefined): string {
@@ -878,7 +878,7 @@ function buildAssistedReadSummary(
   return null;
 }
 
-export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: Props) {
+export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, onEditAnthropometry }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
@@ -889,13 +889,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
   const [reportReadyEvaluationId, setReportReadyEvaluationId] = useState<string | null>(null);
   const [evaluationToDelete, setEvaluationToDelete] = useState<BodyCompositionEvaluation | null>(null);
+  const [anthropometryToDelete, setAnthropometryToDelete] = useState<Assessment | null>(null);
   const [currentSource, setCurrentSource] = useState<EvaluationSource>("manual");
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
   const recoveredDraftMemberRef = useRef<string | null>(null);
 
@@ -1049,6 +1047,22 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
         return;
       }
       toast.error("Nao foi possivel excluir a avaliacao.");
+    },
+  });
+
+  const deleteAnthropometryMutation = useMutation({
+    mutationFn: (assessmentId: string) => assessmentService.deleteAnthropometry(memberId, assessmentId),
+    onSuccess: async () => {
+      setAnthropometryToDelete(null);
+      toast.success("Avaliacao antropometrica removida. A exclusao permanece tecnicamente recuperavel.");
+      await invalidateAssessmentQueries(queryClient, memberId);
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
+        toast.error(error.response.data.detail);
+        return;
+      }
+      toast.error("Nao foi possivel excluir a avaliacao antropometrica.");
     },
   });
 
@@ -1460,77 +1474,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
     return () => URL.revokeObjectURL(nextUrl);
   }, [ocrFile]);
 
-  useEffect(() => {
-    if (!cameraOpen) return;
-
-    let cancelled = false;
-    async function startCamera() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError("A camera nao esta disponivel neste navegador. Envie a foto como arquivo.");
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" } },
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        cameraStreamRef.current = stream;
-        if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-        }
-      } catch {
-        setCameraError("Nao foi possivel acessar a camera. Verifique a permissao do navegador ou envie a foto como arquivo.");
-      }
-    }
-
-    void startCamera();
-    return () => {
-      cancelled = true;
-      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
-      cameraStreamRef.current = null;
-    };
-  }, [cameraOpen]);
-
-  function closeCamera() {
-    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
-    cameraStreamRef.current = null;
-    setCameraOpen(false);
-    setCameraError(null);
-  }
-
-  function captureCameraPhoto() {
-    const video = cameraVideoRef.current;
-    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
-      toast.error("Aguarde a imagem da camera carregar antes de fotografar.");
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      toast.error("Nao foi possivel preparar a foto da camera.");
-      return;
-    }
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        toast.error("Nao foi possivel capturar a foto da camera.");
-        return;
-      }
-      const file = new File([blob], `bioimpedancia-camera-${Date.now()}.jpg`, { type: "image/jpeg" });
-      setOcrFile(file);
-      closeCamera();
-      toast.success("Foto capturada. Clique em Ler foto para preencher os dados do exame.");
-    }, "image/jpeg", 0.92);
-  }
-
   async function handleOpenPdf(kind: "summary" | "technical") {
     if (!reportEvaluationId) return;
     const popup = window.open("", "_blank");
@@ -1730,37 +1673,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
 
   return (
     <div className="space-y-6">
-      {cameraOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="camera-capture-title"
-        >
-          <section className="w-full max-w-2xl rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="camera-capture-title" className="text-base font-semibold text-lovable-ink">Fotografar exame</h2>
-                <p className="mt-1 text-xs text-lovable-ink-muted">Posicione a folha inteira, com boa luz e sem reflexos.</p>
-              </div>
-              <Button type="button" size="sm" variant="ghost" onClick={closeCamera} aria-label="Fechar camera">
-                <X size={16} />
-              </Button>
-            </div>
-            <div className="mt-4 overflow-hidden rounded-xl border border-lovable-border bg-black">
-              <video ref={cameraVideoRef} autoPlay muted playsInline className="aspect-video w-full object-contain" />
-            </div>
-            {cameraError ? <p className="mt-3 text-sm text-lovable-danger">{cameraError}</p> : null}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={closeCamera}>Cancelar</Button>
-              <Button type="button" variant="primary" onClick={captureCameraPhoto} disabled={Boolean(cameraError)}>
-                <Camera size={14} />
-                Capturar foto
-              </Button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <GuidedDocumentScanner
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onConfirm={(file) => setOcrFile(file)}
+      />
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -1942,10 +1859,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     type="button"
                     variant="secondary"
                     aria-label="Abrir camera para fotografar a bioimpedancia"
-                    onClick={() => {
-                      setCameraError(null);
-                      setCameraOpen(true);
-                    }}
+                    onClick={() => setCameraOpen(true)}
                   >
                     <Camera size={14} />
                     Camera
@@ -2840,20 +2754,41 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                       <p className="text-xs text-lovable-ink-muted">{entry.assessment.comparison_warning}</p>
                     ) : null}
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const popup = window.open("", "_blank");
-                      void assessmentService.openAnthropometryPdf(memberId, entry.assessment.id, popup).catch(() => {
-                        toast.error("Nao foi possivel abrir o relatorio premium desta avaliacao.");
-                      });
-                    }}
-                  >
-                    <Download size={14} />
-                    Abrir PDF premium
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Link to={`/assessments/members/${memberId}/anthropometry/${entry.assessment.id}/report`}>
+                      <Button type="button" size="sm" variant="ghost">
+                        <ArrowUpRight size={14} />
+                        Relatorio
+                      </Button>
+                    </Link>
+                    {onEditAnthropometry ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={() => onEditAnthropometry(entry.assessment.id)}>
+                        <Pencil size={14} />
+                        Editar
+                      </Button>
+                    ) : null}
+                    {canDeleteBodyComposition(user?.role) ? (
+                      <Button type="button" size="sm" variant="danger" onClick={() => setAnthropometryToDelete(entry.assessment)}>
+                        <Trash2 size={14} />
+                        Excluir
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const popup = window.open("", "_blank");
+                        void assessmentService.openAnthropometryPdf(memberId, entry.assessment.id, popup).catch(() => {
+                          popup?.close();
+                          toast.error("Nao foi possivel abrir o relatorio premium desta avaliacao.");
+                        });
+                      }}
+                    >
+                      <Download size={14} />
+                      Abrir PDF premium
+                    </Button>
+                  </div>
                 </div>
               </article>
             ))
@@ -2885,6 +2820,32 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
             disabled={deleteMutation.isPending}
           >
             {deleteMutation.isPending ? "Excluindo..." : "Excluir definitivamente"}
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(anthropometryToDelete)}
+        onClose={() => {
+          if (!deleteAnthropometryMutation.isPending) setAnthropometryToDelete(null);
+        }}
+        title="Excluir avaliacao antropometrica"
+        description={
+          anthropometryToDelete
+            ? `Remover a avaliacao de ${fmtDate(anthropometryToDelete.assessment_date)} do historico? O aluno, as demais avaliacoes e a auditoria serao preservados.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setAnthropometryToDelete(null)} disabled={deleteAnthropometryMutation.isPending}>
+            Cancelar
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => anthropometryToDelete && deleteAnthropometryMutation.mutate(anthropometryToDelete.id)}
+            disabled={deleteAnthropometryMutation.isPending}
+          >
+            {deleteAnthropometryMutation.isPending ? "Excluindo..." : "Excluir do historico"}
           </Button>
         </div>
       </Dialog>

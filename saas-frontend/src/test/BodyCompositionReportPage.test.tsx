@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import BodyCompositionReportPage from "../pages/assessments/BodyCompositionReportPage";
+import { assessmentService } from "../services/assessmentService";
 import { bodyCompositionService } from "../services/bodyCompositionService";
 import type { BodyCompositionReport } from "../types";
 
@@ -11,6 +12,13 @@ vi.mock("../services/bodyCompositionService", () => ({
   bodyCompositionService: {
     getReport: vi.fn(),
     openPdf: vi.fn(),
+  },
+}));
+
+vi.mock("../services/assessmentService", () => ({
+  assessmentService: {
+    getAnthropometryReport: vi.fn(),
+    openAnthropometryPdf: vi.fn(),
   },
 }));
 
@@ -172,6 +180,19 @@ function renderPage() {
   );
 }
 
+function renderAnthropometryPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/assessments/members/member-1/anthropometry/assessment-1/report"]}>
+        <Routes>
+          <Route path="/assessments/members/:memberId/anthropometry/:assessmentId/report" element={<BodyCompositionReportPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe("BodyCompositionReportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -184,6 +205,7 @@ describe("BodyCompositionReportPage", () => {
       vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     }
     vi.mocked(bodyCompositionService.getReport).mockResolvedValue(makeReport());
+    vi.mocked(assessmentService.getAnthropometryReport).mockResolvedValue(makeReport());
   });
 
   it("renders the premium report with metric cards and export actions", async () => {
@@ -257,5 +279,22 @@ describe("BodyCompositionReportPage", () => {
     });
 
     windowOpenSpy.mockRestore();
+  });
+
+  it("renders anthropometry as a premium web presentation without bioimpedance-only actions", async () => {
+    vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
+    vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);
+
+    renderAnthropometryPage();
+
+    expect(await screen.findByText("Antropometria — sem bioimpedancia")).toBeInTheDocument();
+    expect(screen.getByText("Voltar para antropometria")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resumo do aluno" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir PDF" }));
+    await waitFor(() => expect(assessmentService.openAnthropometryPdf).toHaveBeenCalledWith(
+      "member-1",
+      "assessment-1",
+      expect.anything(),
+    ));
   });
 });

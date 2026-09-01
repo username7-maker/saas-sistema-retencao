@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { AlertTriangle, ArrowLeft, Bot, CalendarDays, Clock3, ListTodo, MessageCircle, Phone, TriangleAlert, Video } from "lucide-react";
 import toast from "react-hot-toast";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { AssessmentRegistrationComposer } from "../../components/assessments/AssessmentRegistrationComposer";
 import { AssessmentTimeline } from "../../components/assessments/AssessmentTimeline";
@@ -972,6 +972,7 @@ function MemberTasksPanel({
 
 export function MemberProfile360Page() {
   const { memberId } = useParams<{ memberId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
@@ -982,6 +983,7 @@ export function MemberProfile360Page() {
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
 
   const activeTab = normalizeAssessmentWorkspaceTab(searchParams.get("tab"));
+  const editingAnthropometryId = searchParams.get("anthropometryEdit");
   const visibleTabs = getVisibleAssessmentWorkspaceTabs(user?.role);
   const canCreateAssessmentRecord = canCreateAssessment(user?.role);
   const canManageNotes = canAddAssessmentInternalNote(user?.role);
@@ -1552,8 +1554,15 @@ export function MemberProfile360Page() {
             <AssessmentRegistrationComposer
               memberId={memberId}
               member={member}
+              editingAssessmentId={editingAnthropometryId}
               onOpenBioimpedance={() => openTab("bioimpedancia")}
-              onSaved={() => openTab("overview")}
+              onCancelEdit={() => {
+                const next = new URLSearchParams(searchParams);
+                next.delete("anthropometryEdit");
+                next.set("tab", "bioimpedancia");
+                setSearchParams(next);
+              }}
+              onSaved={(assessmentId) => navigate(`/assessments/members/${memberId}/anthropometry/${assessmentId}/report`)}
             />
           </TabsContent>
         ) : null}
@@ -1667,7 +1676,17 @@ export function MemberProfile360Page() {
 
         {visibleTabs.includes("bioimpedancia") ? (
           <TabsContent value="bioimpedancia">
-            <MemberBodyCompositionTab memberId={memberId} memberName={member.full_name} memberPhone={member.phone} />
+            <MemberBodyCompositionTab
+              memberId={memberId}
+              memberName={member.full_name}
+              memberPhone={member.phone}
+              onEditAnthropometry={(assessmentId) => {
+                const next = new URLSearchParams(searchParams);
+                next.set("tab", "registro");
+                next.set("anthropometryEdit", assessmentId);
+                setSearchParams(next);
+              }}
+            />
           </TabsContent>
         ) : null}
       </Tabs>

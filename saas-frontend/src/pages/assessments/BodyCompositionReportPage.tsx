@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { LoadingPanel } from "../../components/common/LoadingPanel";
 import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
+import { assessmentService } from "../../services/assessmentService";
 import type {
   BodyCompositionBodyFatContext,
   BodyCompositionComparisonRow,
@@ -211,7 +212,13 @@ function trendLabel(trend: BodyCompositionTrend): string {
 }
 
 function BodyCompositionReportPage() {
-  const { memberId, evaluationId } = useParams<{ memberId: string; evaluationId: string }>();
+  const { memberId, evaluationId, assessmentId } = useParams<{
+    memberId: string;
+    evaluationId?: string;
+    assessmentId?: string;
+  }>();
+  const isAnthropometry = Boolean(assessmentId);
+  const reportId = assessmentId ?? evaluationId;
 
   useEffect(() => {
     document.body.classList.add("body-composition-report-print");
@@ -219,9 +226,11 @@ function BodyCompositionReportPage() {
   }, []);
 
   const reportQuery = useQuery({
-    queryKey: ["body-composition-report", memberId, evaluationId],
-    queryFn: () => bodyCompositionService.getReport(memberId ?? "", evaluationId ?? ""),
-    enabled: Boolean(memberId && evaluationId),
+    queryKey: [isAnthropometry ? "anthropometry-report" : "body-composition-report", memberId, reportId],
+    queryFn: () => isAnthropometry
+      ? assessmentService.getAnthropometryReport(memberId ?? "", reportId ?? "")
+      : bodyCompositionService.getReport(memberId ?? "", reportId ?? ""),
+    enabled: Boolean(memberId && reportId),
     staleTime: 60 * 1000,
   });
 
@@ -232,13 +241,13 @@ function BodyCompositionReportPage() {
   if (reportQuery.isError || !reportQuery.data) {
     return (
       <section className="space-y-4">
-        <Link to={memberId ? `/assessments/members/${memberId}?tab=bioimpedancia` : "/assessments"} className="inline-flex items-center gap-2 text-sm text-lovable-ink-muted">
+        <Link to={memberId ? `/assessments/members/${memberId}?tab=${isAnthropometry ? "registro" : "bioimpedancia"}` : "/assessments"} className="inline-flex items-center gap-2 text-sm text-lovable-ink-muted">
           <ArrowLeft size={14} />
           Voltar
         </Link>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-lovable-ink-muted">Nao foi possivel carregar o relatorio premium desta bioimpedancia.</p>
+            <p className="text-sm text-lovable-ink-muted">Nao foi possivel carregar o relatorio premium desta avaliacao.</p>
           </CardContent>
         </Card>
       </section>
@@ -262,10 +271,14 @@ function BodyCompositionReportPage() {
   const cleanGoalMetrics = report.goal_metrics.filter(isPresentMetric);
 
   async function handleOpenPdf(kind: "summary" | "technical") {
-    if (!memberId || !evaluationId) return;
+    if (!memberId || !reportId) return;
     const popup = window.open("", "_blank");
     try {
-      await bodyCompositionService.openPdf(memberId, evaluationId, kind, popup);
+      if (isAnthropometry) {
+        await assessmentService.openAnthropometryPdf(memberId, reportId, popup);
+      } else {
+        await bodyCompositionService.openPdf(memberId, reportId, kind, popup);
+      }
     } catch {
       popup?.close();
       toast.error(kind === "technical" ? "Nao foi possivel abrir o relatorio tecnico." : "Nao foi possivel abrir o resumo do aluno.");
@@ -275,19 +288,21 @@ function BodyCompositionReportPage() {
   return (
     <section className="body-composition-report-page space-y-6 print:space-y-0">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
-        <Link to={`/assessments/members/${memberId}?tab=bioimpedancia`} className="inline-flex items-center gap-2 text-sm font-medium text-lovable-ink-muted transition hover:text-lovable-ink">
+        <Link to={`/assessments/members/${memberId}?tab=${isAnthropometry ? "registro" : "bioimpedancia"}`} className="inline-flex items-center gap-2 text-sm font-medium text-lovable-ink-muted transition hover:text-lovable-ink">
           <ArrowLeft size={14} />
-          Voltar para bioimpedancia
+          {isAnthropometry ? "Voltar para antropometria" : "Voltar para bioimpedancia"}
         </Link>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="primary" onClick={() => void handleOpenPdf("technical")}>
             <Download size={14} />
             Abrir PDF
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("summary")}>
-            <Download size={14} />
-            Resumo do aluno
-          </Button>
+          {!isAnthropometry ? (
+            <Button size="sm" variant="secondary" onClick={() => void handleOpenPdf("summary")}>
+              <Download size={14} />
+              Resumo do aluno
+            </Button>
+          ) : null}
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer size={14} />
             Imprimir
@@ -298,6 +313,11 @@ function BodyCompositionReportPage() {
       <article className="clinical-web-document body-composition-report-document mx-auto max-w-[1180px] overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
         <div className="body-composition-report-content">
           <section className="clinical-web-page">
+            {isAnthropometry ? (
+              <p className="mb-3 inline-flex rounded-full border border-[#157ca5]/30 bg-[#eaf6fa] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-[#0b668a]">
+                Antropometria — sem bioimpedancia
+              </p>
+            ) : null}
             <ReportHeader
               header={report.header}
               physicalAge={metricValue(physicalAgeMetric)}

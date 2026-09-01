@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { ActuarSyncQueueItem, AIAssistantPayload, CalculationOrigin, RiskLevel } from "../types";
+import type { ActuarSyncQueueItem, AIAssistantPayload, BodyCompositionReport, CalculationOrigin, RiskLevel } from "../types";
 import { stripReadOnlyCalculationOrigins } from "../utils/calculationOrigins";
 
 function parseFilename(contentDisposition?: string, fallback = "avaliacao-antropometrica.pdf"): string {
@@ -731,6 +731,10 @@ export interface AnthropometryAssessmentInput {
   observations?: string;
 }
 
+export type AnthropometryAssessmentUpdateInput = AnthropometryAssessmentInput & {
+  expected_updated_at: string;
+};
+
 export interface AnthropometryPreview {
   assessment_method: "manual_anthropometry";
   record_origin: "cordex";
@@ -939,6 +943,36 @@ export const assessmentService = {
       stripReadOnlyCalculationOrigins(payload), {
       headers: { "Idempotency-Key": idempotencyKey },
     });
+    return data;
+  },
+
+  async getAnthropometry(memberId: string, assessmentId: string): Promise<Assessment> {
+    const { data } = await api.get<Assessment>(
+      `/api/v1/assessments/members/${memberId}/anthropometry/${assessmentId}`,
+    );
+    return data;
+  },
+
+  async updateAnthropometry(
+    memberId: string,
+    assessmentId: string,
+    payload: AnthropometryAssessmentUpdateInput,
+  ): Promise<Assessment> {
+    const { data } = await api.put<Assessment>(
+      `/api/v1/assessments/members/${memberId}/anthropometry/${assessmentId}`,
+      stripReadOnlyCalculationOrigins(payload),
+    );
+    return data;
+  },
+
+  async deleteAnthropometry(memberId: string, assessmentId: string): Promise<void> {
+    await api.delete(`/api/v1/assessments/members/${memberId}/anthropometry/${assessmentId}`);
+  },
+
+  async getAnthropometryReport(memberId: string, assessmentId: string): Promise<BodyCompositionReport> {
+    const { data } = await api.get<BodyCompositionReport>(
+      `/api/v1/assessments/members/${memberId}/anthropometry/${assessmentId}/report`,
+    );
     return data;
   },
 

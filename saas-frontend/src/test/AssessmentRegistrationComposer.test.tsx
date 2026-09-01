@@ -6,7 +6,7 @@ import { AssessmentRegistrationComposer } from "../components/assessments/Assess
 import { assessmentService } from "../services/assessmentService";
 
 
-function renderComposer() {
+function renderComposer(options: { editingAssessmentId?: string; onSaved?: (assessmentId: string) => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -19,6 +19,8 @@ function renderComposer() {
           height_cm: 170,
         }}
         initialMode="manual_anthropometry"
+        editingAssessmentId={options.editingAssessmentId}
+        onSaved={options.onSaved}
       />
     </QueryClientProvider>,
   );
@@ -112,5 +114,69 @@ describe("AssessmentRegistrationComposer", () => {
 
     expect(await screen.findByText("1512 kcal/dia")).toBeInTheDocument();
     expect(screen.getByText("Origem: TMB por Schofield")).toBeInTheDocument();
+  });
+
+  it("loads original attempts for editing and sends only measured inputs with the concurrency token", async () => {
+    const updatedAt = "2026-08-28T13:19:00Z";
+    vi.spyOn(assessmentService, "getAnthropometry").mockResolvedValue({
+      id: "anthropometry-1",
+      assessment_date: "2026-08-28T13:18:00Z",
+      updated_at: updatedAt,
+      assessment_method: "manual_anthropometry",
+      measurement_protocol: "slaughter_1988_boys_black_white_6_17",
+      observations: "Medida original",
+      anthropometry_snapshot_json: {
+        protocol: { key: "slaughter_1988_boys_black_white_6_17" },
+        inputs: {
+          sex_used_for_formula: "male",
+          age_used_for_formula: 15,
+          height_used_for_formula: "170.0",
+          weight_used_for_formula: "60.0",
+          anthropometry_ethnicity: "white",
+          anthropometry_maturity: "pubertal",
+          calculate_muscle_mass: false,
+        },
+        measurements: {
+          height_cm: { attempts: [170, 170], consolidated_value: 170 },
+          weight_kg: { attempts: [60, 60], consolidated_value: 60 },
+          skinfold_triceps_mm: { attempts: [12.1, 12.3], consolidated_value: 12.2 },
+          skinfold_subscapular_mm: { attempts: [10, 10], consolidated_value: 10 },
+        },
+      },
+    } as unknown as Awaited<ReturnType<typeof assessmentService.getAnthropometry>>);
+    vi.spyOn(assessmentService, "previewAnthropometry").mockResolvedValue({
+      assessment_method: "manual_anthropometry",
+      record_origin: "cordex",
+      protocol: { key: "slaughter_1988_boys_black_white_6_17", label: "Slaughter" },
+      formula_version: "anthropometry-v3",
+      calculation_hash: "hash-new",
+      results: { body_fat_pct: 18, basal_metabolic_rate: 1600 },
+      indicator_origins: { basal_metabolic_rate: "schofield_hw_1985" },
+      snapshot: { flags: [] },
+    });
+    const updateSpy = vi.spyOn(assessmentService, "updateAnthropometry").mockResolvedValue({
+      id: "anthropometry-1",
+      extra_data: { actuar_sync: { sync_status: "manual_sync_required" } },
+    } as unknown as Awaited<ReturnType<typeof assessmentService.updateAnthropometry>>);
+    const onSaved = vi.fn();
+
+    renderComposer({ editingAssessmentId: "anthropometry-1", onSaved });
+
+    await waitFor(() => expect(screen.getByLabelText("Dobra tricipital - tentativa 1")).toHaveValue("12.1"));
+    expect(screen.getByLabelText("Dobra tricipital - tentativa 2")).toHaveValue("12.3");
+    expect(screen.getByLabelText("Observacoes")).toHaveValue("Medida original");
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+    await screen.findByText("1600 kcal/dia");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][2]).toEqual(expect.objectContaining({
+      expected_updated_at: updatedAt,
+      measurements: expect.objectContaining({
+        skinfold_triceps_mm: expect.objectContaining({ attempts: [12.1, 12.3] }),
+      }),
+    }));
+    expect(updateSpy.mock.calls[0][2]).not.toHaveProperty("body_fat_pct");
+    expect(onSaved).toHaveBeenCalledWith("anthropometry-1");
   });
 });

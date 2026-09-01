@@ -30,8 +30,10 @@ interface AssessmentRegistrationComposerProps {
   memberId: string;
   member?: AssessmentComposerMember | null;
   initialMode?: "select" | "manual_anthropometry";
+  editingAssessmentId?: string | null;
   onOpenBioimpedance?: () => void;
-  onSaved?: () => void;
+  onSaved?: (assessmentId: string) => void;
+  onCancelEdit?: () => void;
 }
 
 type AnthropometryDraft = {
@@ -170,6 +172,18 @@ function defaultDateTimeLocal(): string {
   return new Date(now.getTime() - tzOffsetMs).toISOString().slice(0, 16);
 }
 
+function toDateTimeLocal(value: string | null | undefined): string {
+  if (!value) return defaultDateTimeLocal();
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value.slice(0, 16);
+  const tzOffsetMs = parsed.getTimezoneOffset() * 60_000;
+  return new Date(parsed.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function calculateAge(birthdate?: string | null): number | null {
   if (!birthdate) return null;
   const parsed = new Date(`${birthdate}T12:00:00`);
@@ -279,6 +293,9 @@ function anthropometryErrorMessage(error: unknown, fallback: string): string {
       if (code === "anthropometry_choice_invalid") {
         return `${label}: selecione uma opcao valida para a formula.`;
       }
+      if (code === "anthropometry_edit_conflict") {
+        return "Esta avaliacao foi alterada em outra tela. Reabra a edicao para evitar sobrescrever dados mais novos.";
+      }
       if (code === "lee_corrected_circumference_invalid" || code === "lee_muscle_mass_invalid") {
         return "As medidas informadas nao permitem calcular uma massa muscular valida por Lee. Confira perimetros e dobras.";
       }
@@ -304,15 +321,17 @@ export function AssessmentRegistrationComposer({
   memberId,
   member,
   initialMode = "select",
+  editingAssessmentId,
   onOpenBioimpedance,
   onSaved,
+  onCancelEdit,
 }: AssessmentRegistrationComposerProps) {
   const [mode, setMode] = useState<"select" | "manual_anthropometry">(initialMode);
   const [idempotencyKey, setIdempotencyKey] = useState(randomIdempotencyKey);
 
   useEffect(() => {
-    setMode(initialMode);
-  }, [initialMode]);
+    setMode(editingAssessmentId ? "manual_anthropometry" : initialMode);
+  }, [editingAssessmentId, initialMode]);
 
   if (mode === "manual_anthropometry") {
     return (
@@ -320,9 +339,11 @@ export function AssessmentRegistrationComposer({
         memberId={memberId}
         member={member}
         idempotencyKey={idempotencyKey}
-        onSaved={() => {
+        editingAssessmentId={editingAssessmentId}
+        onCancelEdit={onCancelEdit}
+        onSaved={(assessmentId) => {
           setIdempotencyKey(randomIdempotencyKey());
-          onSaved?.();
+          onSaved?.(assessmentId);
         }}
       />
     );
@@ -379,16 +400,20 @@ function ManualAnthropometricAssessmentForm({
   memberId,
   member,
   idempotencyKey,
+  editingAssessmentId,
   onSaved,
+  onCancelEdit,
 }: {
   memberId: string;
   member?: AssessmentComposerMember | null;
   idempotencyKey: string;
-  onSaved?: () => void;
+  editingAssessmentId?: string | null;
+  onSaved?: (assessmentId: string) => void;
+  onCancelEdit?: () => void;
 }) {
   const queryClient = useQueryClient();
   const ageFromBirthdate = calculateAge(member?.birthdate);
-  const [initialDraft] = useState(() => readAnthropometryDraft(memberId));
+  const [initialDraft] = useState(() => editingAssessmentId ? null : readAnthropometryDraft(memberId));
   const [hasUserChanges, setHasUserChanges] = useState(Boolean(initialDraft));
   const [assessmentDate, setAssessmentDate] = useState(initialDraft?.assessment_date ?? defaultDateTimeLocal);
   const [sex, setSex] = useState<SexForFormula>(
@@ -411,6 +436,51 @@ function ManualAnthropometricAssessmentForm({
   const [perimetry, setPerimetry] = useState<Record<string, string>>(initialDraft?.perimetry ?? {});
   const [observations, setObservations] = useState(initialDraft?.observations ?? "");
   const [preview, setPreview] = useState<AnthropometryPreview | null>(null);
+
+  const editingAssessmentQuery = useQuery({
+    queryKey: ["anthropometry", "detail", memberId, editingAssessmentId],
+    queryFn: () => assessmentService.getAnthropometry(memberId, editingAssessmentId ?? ""),
+    enabled: Boolean(editingAssessmentId),
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const assessment = editingAssessmentQuery.data;
+    if (!assessment || !editingAssessmentId) return;
+    const snapshot = asRecord(assessment.anthropometry_snapshot_json);
+    const inputs = asRecord(snapshot.inputs);
+    const snapshotMeasurements = asRecord(snapshot.measurements);
+    const restoredAttempts: Record<string, { first: string; second: string; third?: string }> = {};
+    const restoredPerimetry: Record<string, string> = {};
+
+    for (const [field, rawMeasurement] of Object.entries(snapshotMeasurements)) {
+      const measurement = asRecord(rawMeasurement);
+      const values = Array.isArray(measurement.attempts) ? measurement.attempts.map(String) : [];
+      restoredAttempts[field] = {
+        first: values[0] ?? "",
+        second: values[1] ?? values[0] ?? "",
+        third: values[2] ?? "",
+      };
+      if (EVOLUTION_PERIMETRY_FIELDS.some((item) => item.key === field)) {
+        restoredPerimetry[field] = String(measurement.consolidated_value ?? values[0] ?? "");
+      }
+    }
+
+    setAssessmentDate(toDateTimeLocal(assessment.assessment_date));
+    setSex((inputs.sex_used_for_formula ?? assessment.sex_used_for_formula ?? "male") as SexForFormula);
+    setAgeYears(String(inputs.age_used_for_formula ?? assessment.age_used_for_formula ?? ""));
+    setHeight(String(inputs.height_used_for_formula ?? assessment.height_used_for_formula ?? assessment.height_cm ?? ""));
+    setWeight(String(inputs.weight_used_for_formula ?? assessment.weight_used_for_formula ?? assessment.weight_kg ?? ""));
+    setProtocolKey(String(asRecord(snapshot.protocol).key ?? assessment.measurement_protocol ?? ""));
+    setAnthropometryEthnicity((inputs.anthropometry_ethnicity ?? "") as "white" | "black" | "asian" | "");
+    setAnthropometryMaturity((inputs.anthropometry_maturity ?? "") as "prepubertal" | "pubertal" | "postpubertal" | "");
+    setCalculateMuscleMass(Boolean(inputs.calculate_muscle_mass));
+    setAttempts(restoredAttempts);
+    setPerimetry(restoredPerimetry);
+    setObservations(assessment.observations ?? "");
+    setPreview(null);
+    setHasUserChanges(false);
+  }, [editingAssessmentId, editingAssessmentQuery.data]);
 
   useEffect(() => {
     if (!initialDraft) return;
@@ -521,15 +591,6 @@ function ManualAnthropometricAssessmentForm({
     }));
   }
 
-  function openPdfPopupSafely(): Window | null {
-    if (navigator.userAgent.toLowerCase().includes("jsdom")) return null;
-    try {
-      return window.open("", "_blank");
-    } catch {
-      return null;
-    }
-  }
-
   function buildPayload(): AnthropometryAssessmentInput {
     const measurements: AnthropometryAssessmentInput["measurements"] = {};
     const heightValue = toNumber(height);
@@ -598,25 +659,27 @@ function ManualAnthropometricAssessmentForm({
     onError: (error) => toast.error(anthropometryErrorMessage(error, "Nao foi possivel calcular a previa antropometrica.")),
   });
 
-  const createMutation = useMutation({
-    mutationFn: ({ payload, popup }: { payload: AnthropometryAssessmentInput; popup: Window | null }) =>
-      assessmentService.createAnthropometry(memberId, payload, idempotencyKey).then((assessment) => ({ assessment, popup })),
-    onSuccess: async ({ assessment, popup }) => {
+  const saveMutation = useMutation({
+    mutationFn: (payload: AnthropometryAssessmentInput) => {
+      if (editingAssessmentId) {
+        const expectedUpdatedAt = editingAssessmentQuery.data?.updated_at;
+        if (!expectedUpdatedAt) throw new AnthropometryClientValidationError("A avaliacao ainda esta sendo carregada para edicao.");
+        return assessmentService.updateAnthropometry(memberId, editingAssessmentId, {
+          ...payload,
+          expected_updated_at: expectedUpdatedAt,
+        });
+      }
+      return assessmentService.createAnthropometry(memberId, payload, idempotencyKey);
+    },
+    onSuccess: async (assessment) => {
       clearAnthropometryDraft(memberId);
       setHasUserChanges(false);
       await invalidateAssessmentQueries(queryClient, memberId);
-      try {
-        await assessmentService.openAnthropometryPdf(memberId, assessment.id, popup);
-      } catch {
-        popup?.close();
-        toast.error("A avaliacao foi salva, mas nao foi possivel gerar o PDF agora.");
-      }
       toast.success(anthropometryActuarToast(assessment));
-      onSaved?.();
+      onSaved?.(assessment.id);
     },
-    onError: (_error, variables) => {
-      variables?.popup?.close();
-      toast.error(anthropometryErrorMessage(_error, "Nao foi possivel salvar a avaliacao antropometrica."));
+    onError: (error) => {
+      toast.error(anthropometryErrorMessage(error, "Nao foi possivel salvar a avaliacao antropometrica."));
     },
   });
 
@@ -630,14 +693,14 @@ function ManualAnthropometricAssessmentForm({
 
   function handleConfirm() {
     try {
-      createMutation.mutate({ payload: buildValidatedPayload(), popup: openPdfPopupSafely() });
+      saveMutation.mutate(buildValidatedPayload());
     } catch (error) {
       toast.error(anthropometryErrorMessage(error, "Nao foi possivel salvar a avaliacao antropometrica."));
     }
   }
 
   return (
-    <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
+    <form className="space-y-4" onSubmit={(event) => event.preventDefault()} aria-busy={editingAssessmentQuery.isLoading || saveMutation.isPending}>
       <Card>
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-center gap-3">
@@ -646,7 +709,7 @@ function ManualAnthropometricAssessmentForm({
             </span>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Avaliacao antropometrica</p>
-              <h3 className="font-heading text-lg font-bold text-lovable-ink">Sem bioimpedancia</h3>
+              <h3 className="font-heading text-lg font-bold text-lovable-ink">{editingAssessmentId ? "Editar avaliacao sem bioimpedancia" : "Sem bioimpedancia"}</h3>
             </div>
           </div>
           <p className="text-sm text-lovable-ink-muted">
@@ -654,7 +717,7 @@ function ManualAnthropometricAssessmentForm({
             Agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis.
           </p>
           <p className="text-xs font-medium text-lovable-primary">
-            Rascunho salvo automaticamente nesta aba por ate 12 horas.
+            {editingAssessmentId ? "Resultados e origens serao recalculados pelo servidor ao salvar." : "Rascunho salvo automaticamente nesta aba por ate 12 horas."}
           </p>
         </CardContent>
       </Card>
@@ -880,6 +943,11 @@ function ManualAnthropometricAssessmentForm({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-3">
+        {editingAssessmentId && onCancelEdit ? (
+          <Button type="button" variant="ghost" onClick={onCancelEdit} disabled={saveMutation.isPending}>
+            Cancelar edicao
+          </Button>
+        ) : null}
         <Button type="button" variant="secondary" onClick={handlePreview} disabled={previewMutation.isPending || !protocolKey}>
           {previewMutation.isPending ? "Calculando..." : "Calcular previa"}
         </Button>
@@ -887,9 +955,9 @@ function ManualAnthropometricAssessmentForm({
           type="button"
           variant="primary"
           onClick={handleConfirm}
-          disabled={createMutation.isPending || !preview}
+          disabled={saveMutation.isPending || !preview || editingAssessmentQuery.isLoading}
         >
-          {createMutation.isPending ? "Salvando..." : "Confirmar avaliacao"}
+          {saveMutation.isPending ? "Salvando..." : editingAssessmentId ? "Salvar alteracoes" : "Confirmar avaliacao"}
         </Button>
       </div>
     </form>

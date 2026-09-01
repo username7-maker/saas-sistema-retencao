@@ -44,6 +44,7 @@ vi.mock("../services/assessmentService", () => ({
   assessmentService: {
     list: vi.fn(),
     openAnthropometryPdf: vi.fn(),
+    deleteAnthropometry: vi.fn(),
   },
 }));
 
@@ -200,7 +201,7 @@ function makeSettings(): ActuarSettings {
   };
 }
 
-function renderTab() {
+function renderTab(onEditAnthropometry?: (assessmentId: string) => void) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -211,7 +212,7 @@ function renderTab() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <MemberBodyCompositionTab memberId="member-1" memberName="Evelane" memberPhone="11999990000" />
+        <MemberBodyCompositionTab memberId="member-1" memberName="Evelane" memberPhone="11999990000" onEditAnthropometry={onEditAnthropometry} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -224,6 +225,7 @@ describe("MemberBodyCompositionTab", () => {
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(assessmentService.list).mockResolvedValue([]);
     vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
+    vi.mocked(assessmentService.deleteAnthropometry).mockResolvedValue(undefined);
     vi.mocked(bodyCompositionService.getActuarSyncStatus).mockResolvedValue(makeSyncStatus());
     vi.mocked(bodyCompositionService.delete).mockResolvedValue(undefined);
     vi.mocked(actuarSettingsService.getSettings).mockResolvedValue(makeSettings());
@@ -332,6 +334,33 @@ describe("MemberBodyCompositionTab", () => {
         popup,
       );
     });
+  });
+
+  it("formats full ISO dates and exposes report, edit and recoverable delete for anthropometry", async () => {
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
+    vi.mocked(assessmentService.list).mockResolvedValue([{
+      id: "anthropometry-iso",
+      assessment_date: "2026-08-28T13:18:00Z",
+      assessment_method: "manual_anthropometry",
+      measurement_protocol: "petroski_1995_female_18_51",
+      weight_kg: 79.5,
+    } as Awaited<ReturnType<typeof assessmentService.list>>[number]]);
+    const onEdit = vi.fn();
+
+    renderTab(onEdit);
+
+    expect(await screen.findByText("28/08/2026")).toBeInTheDocument();
+    expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Relatorio" })).toHaveAttribute(
+      "href",
+      "/assessments/members/member-1/anthropometry/anthropometry-iso/report",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    expect(onEdit).toHaveBeenCalledWith("anthropometry-iso");
+    fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
+    expect(screen.getByRole("dialog", { name: "Excluir avaliacao antropometrica" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Excluir do historico" }));
+    await waitFor(() => expect(assessmentService.deleteAnthropometry).toHaveBeenCalledWith("member-1", "anthropometry-iso"));
   });
 
   it("does not render the removed no-photo strategy surface", async () => {
@@ -472,21 +501,33 @@ describe("MemberBodyCompositionTab", () => {
 
   it("opens the device camera capture flow next to file upload", async () => {
     const stop = vi.fn();
-    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    const track = {
+      stop,
+      getCapabilities: () => ({}),
+      getSettings: () => ({ deviceId: "rear-camera" }),
+    };
+    const getUserMedia = vi.fn().mockResolvedValue({
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    });
     Object.defineProperty(navigator, "mediaDevices", {
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn().mockResolvedValue([]) },
       configurable: true,
     });
     renderTab();
 
     fireEvent.click(await screen.findByRole("button", { name: "Abrir camera para fotografar a bioimpedancia" }));
 
-    expect(screen.getByRole("dialog", { name: "Fotografar exame" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Scanner guiado da bioimpedancia" })).toBeInTheDocument();
     await waitFor(() => {
-      expect(getUserMedia).toHaveBeenCalledWith({
+      expect(getUserMedia).toHaveBeenCalledWith(expect.objectContaining({
         audio: false,
-        video: { facingMode: { ideal: "environment" } },
-      });
+        video: expect.objectContaining({
+          facingMode: { ideal: "environment" },
+          width: { ideal: 2560 },
+          height: { ideal: 1440 },
+        }),
+      }));
     });
     fireEvent.click(screen.getByRole("button", { name: "Fechar camera" }));
     expect(stop).toHaveBeenCalled();
