@@ -1,8 +1,9 @@
 # Status - 09.23
 
-Status: implementation and focused validation complete; production rollout blocked at backup gate.
+Status: implementation, encrypted logical backup and production rollout complete.
 
 Baseline commit: `ba66e31`.
+Production source commit: `805b3f0b819a1e70e7ed69b922e4a71002227f14`.
 
 Delivered locally:
 
@@ -23,11 +24,17 @@ Validation:
 - full backend: 1234 passed, 1 unrelated baseline failure in `test_body_composition_ai_service.py`;
 - full frontend: 206 passed, 7 unrelated baseline expectation failures; the audit spec also requires external URL variables.
 
-Rollout gate:
+Production rollout (2026-09-01):
 
 - Supabase project is `ACTIVE_HEALTHY`;
-- Railway API/worker and Vercel identities are linked and online;
-- logical backup is blocked because TCP connections to the Supabase pooler time out on ports 5432 and 6543 from this workstation;
-- the Free plan exposes no downloadable physical backup (`supabase backups list` returned no backup entries);
-- no database migration is required by this phase and no production data has been changed;
-- do not deploy until a logical backup succeeds from an allowed network or a managed backup is available.
+- the local network still filters outbound TCP 5432/6543, so the dump was executed from an ephemeral GitHub Actions runner over an allowed network;
+- logical backup contains validated `roles.sql`, `schema.sql` and `data.sql`, encrypted before artifact upload;
+- local encrypted archive SHA-256: `ECC65BD284D04176802620D379828FFD72134E036F2FDC74F7A3ABFBA491913A`;
+- temporary GitHub secrets, workflow runs, artifact and branch were removed after local validation;
+- Railway API deployment: `9fa14038-4901-4dea-ad6d-05bb6eb7166f` (`SUCCESS`);
+- Railway worker deployment: `367a106e-285c-4ac9-bb1d-bb731c09c2b7` (`SUCCESS`);
+- Vercel production deployment: `dpl_8miyZshfJDDsSSb87q9KdKetYAD3` (`READY`), aliased to `https://saas-frontend-pearl.vercel.app`;
+- API readiness is `200`, API and frontend expose the same production source SHA, and the worker startup log reports the same SHA;
+- anthropometry GET/PUT/DELETE/report endpoints reject anonymous access with `401`, while an unknown route returns `404`;
+- no new database migration was required and the smoke checks did not create, edit or delete client records;
+- authenticated UI smoke remains manual because no reusable authorized test session was stored on this workstation.
