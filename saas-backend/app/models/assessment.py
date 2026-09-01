@@ -35,6 +35,18 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("waist_hip_ratio IS NULL OR waist_hip_ratio > 0", name="assessment_whr_positive"),
         CheckConstraint("basal_metabolic_rate IS NULL OR basal_metabolic_rate > 0", name="assessment_bmr_positive"),
         CheckConstraint(
+            "basal_metabolic_rate_origin IS NULL OR basal_metabolic_rate_origin IN "
+            "('reported', 'schofield_hw_1985', 'mifflin_st_jeor_1990', 'lee_2000', "
+            "'poortmans_2005', 'legacy_unknown', 'unavailable')",
+            name="assessment_bmr_origin_valid",
+        ),
+        CheckConstraint(
+            "muscle_mass_origin IS NULL OR muscle_mass_origin IN "
+            "('reported', 'schofield_hw_1985', 'mifflin_st_jeor_1990', 'lee_2000', "
+            "'poortmans_2005', 'legacy_unknown', 'unavailable')",
+            name="assessment_muscle_origin_valid",
+        ),
+        CheckConstraint(
             "assessment_method IS NULL OR assessment_method IN ('manual_anthropometry', 'bioimpedance', 'hybrid', 'imported')",
             name="assessment_method_valid",
         ),
@@ -73,8 +85,10 @@ class Assessment(Base, TimestampMixin, SoftDeleteMixin):
     lean_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     fat_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     muscle_mass_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    muscle_mass_origin: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable", server_default="unavailable")
     waist_hip_ratio: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     basal_metabolic_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    basal_metabolic_rate_origin: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable", server_default="unavailable")
 
     assessment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     record_origin: Mapped[str | None] = mapped_column(String(32), nullable=True)

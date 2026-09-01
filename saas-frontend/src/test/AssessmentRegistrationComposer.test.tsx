@@ -52,11 +52,12 @@ describe("AssessmentRegistrationComposer", () => {
     expect(screen.queryByRole("option", { name: "Asiatico" })).not.toBeInTheDocument();
   });
 
-  it("adds Lee measurements without duplicating fields already required by the protocol", async () => {
+  it("adds Poortmans measurements for an eligible white child without duplicating fields", async () => {
     renderComposer();
     await screen.findByLabelText("Grupo etnico usado na formula");
 
     fireEvent.click(screen.getByRole("checkbox", { name: /calcular massa muscular/i }));
+    fireEvent.change(screen.getByLabelText("Grupo etnico usado na formula"), { target: { value: "white" } });
 
     expect(screen.getByLabelText("Braco direito relaxado - tentativa 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Coxa direita - tentativa 1")).toBeInTheDocument();
@@ -85,5 +86,31 @@ describe("AssessmentRegistrationComposer", () => {
     expect(screen.getByLabelText("Estagio maturacional")).toHaveValue("pubertal");
     expect(screen.getByLabelText("Dobra tricipital - tentativa 1")).toHaveValue("12,5");
     expect(screen.getByLabelText("Observacoes")).toHaveValue("Aluno em jejum.");
+  });
+
+  it("shows the backend-controlled TMB origin in the calculated preview", async () => {
+    vi.spyOn(assessmentService, "previewAnthropometry").mockResolvedValue({
+      assessment_method: "manual_anthropometry",
+      record_origin: "cordex",
+      protocol: { key: "slaughter_1988_boys_black_white_6_17", label: "Slaughter" },
+      formula_version: "schofield_hw_1985",
+      calculation_hash: "hash-1",
+      results: { basal_metabolic_rate: 1512 },
+      indicator_origins: { basal_metabolic_rate: "schofield_hw_1985" },
+      snapshot: { flags: [] },
+    });
+    renderComposer();
+
+    fireEvent.change(await screen.findByLabelText("Peso"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Grupo etnico usado na formula"), { target: { value: "white" } });
+    fireEvent.change(screen.getByLabelText("Estagio maturacional"), { target: { value: "pubertal" } });
+    fireEvent.change(screen.getByLabelText("Dobra tricipital - tentativa 1"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Dobra tricipital - tentativa 2"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Dobra subescapular - tentativa 1"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Dobra subescapular - tentativa 2"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+
+    expect(await screen.findByText("1512 kcal/dia")).toBeInTheDocument();
+    expect(screen.getByText("Origem: TMB por Schofield")).toBeInTheDocument();
   });
 });

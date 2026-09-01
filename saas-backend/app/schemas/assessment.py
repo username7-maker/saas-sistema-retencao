@@ -85,8 +85,26 @@ class AssessmentOut(BaseModel):
     lean_mass_kg: float | None
     fat_mass_kg: float | None = None
     muscle_mass_kg: float | None = None
+    muscle_mass_origin: Literal[
+        "reported",
+        "schofield_hw_1985",
+        "mifflin_st_jeor_1990",
+        "lee_2000",
+        "poortmans_2005",
+        "legacy_unknown",
+        "unavailable",
+    ] | None = None
     waist_hip_ratio: float | None = None
     basal_metabolic_rate: float | None = None
+    basal_metabolic_rate_origin: Literal[
+        "reported",
+        "schofield_hw_1985",
+        "mifflin_st_jeor_1990",
+        "lee_2000",
+        "poortmans_2005",
+        "legacy_unknown",
+        "unavailable",
+    ] | None = None
     assessment_method: str | None = None
     record_origin: str | None = None
     sex_used_for_formula: str | None = None

@@ -205,6 +205,13 @@ def test_checkin_commit_runs_after_clean_preflight(app, client, mock_owner, monk
         assert response.json()["imported"] == 1
         import_mock.assert_called_once()
         assert audit_calls[0]["action"] == "import_checkins_csv"
+        details = audit_calls[0]["details"]
+        assert details["filename"] == "Acessos.csv"
+        assert len(details["file_sha256"]) == 64
+        assert details["mapping"] == {"column_mappings": {}, "ignored_columns": []}
+        assert details["totals"]["imported"] == 1
+        assert "rows" not in details
+        assert "payload" not in details
         db.commit.assert_called_once()
     finally:
         app.dependency_overrides.clear()

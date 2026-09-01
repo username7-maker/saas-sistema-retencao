@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -21,13 +20,21 @@ from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_EVOLUTION_FIELDS,
 )
 from app.services.body_composition_actuar_sync_service import prepare_anthropometric_assessment_sync_attempt
+from app.services.body_composition_calculation_service import (
+    MUSCLE_REQUIRED_FIELDS,
+    ORIGIN_UNAVAILABLE,
+    CalculationResult,
+    calculate_basal_metabolic_rate,
+    calculate_muscle_mass as calculate_muscle_mass_result,
+    calculation_metadata,
+)
 from app.services.body_composition_protocols import calculate_protocol_body_fat, get_protocol, protocol_catalog
 from app.utils.localized_numbers import LocalizedNumberError, parse_localized_decimal
 
 
 ASSESSMENT_METHOD = "manual_anthropometry"
 RECORD_ORIGIN = "cordex"
-MEASUREMENT_POLICY_VERSION = "anthropometry-v2"
+MEASUREMENT_POLICY_VERSION = "anthropometry-v3"
 INDICATOR_MANUAL_MEASURED = "manual_measured"
 INDICATOR_ANTHROPOMETRY_CALCULATED = "anthropometry_calculated"
 INDICATOR_UNAVAILABLE = "unavailable"
@@ -36,15 +43,7 @@ _Q1 = Decimal("0.1")
 _Q2 = Decimal("0.01")
 _D100 = Decimal("100")
 _WARNING_ONLY_PROTOCOL_FLAGS = {"anthropometry_protocol_age_outside_range"}
-LEE_FORMULA_VERSION = "lee-2000-complete-v1"
-LEE_REQUIRED_FIELDS = {
-    "right_arm_relaxed_cm",
-    "right_thigh_cm",
-    "right_calf_cm",
-    "skinfold_triceps_mm",
-    "skinfold_thigh_mm",
-    "skinfold_calf_mm",
-}
+LEE_REQUIRED_FIELDS = set(MUSCLE_REQUIRED_FIELDS)
 
 _FIELD_LABELS = {
     "height_cm": "Altura",
@@ -117,11 +116,16 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
     for field in protocol.required_choice_fields:
         if data.get(field) not in allowed_choices.get(field, set()):
             _raise_unprocessable("anthropometry_choice_invalid", {"field": field})
-    if calculate_muscle_mass and ethnicity not in {"white", "black", "asian"}:
-        _raise_unprocessable("anthropometry_choice_invalid", {"field": "anthropometry_ethnicity"})
     raw_measurements = _as_dict(data.get("measurements") or {})
     required_fields = {"height_cm", "weight_kg", *protocol.required_fields}
-    if calculate_muscle_mass:
+    muscle_formula_eligible = (
+        calculate_muscle_mass
+        and (
+            (7 <= age_years <= 16 and ethnicity == "white")
+            or (age_years >= 18 and ethnicity in {"white", "black", "asian"})
+        )
+    )
+    if muscle_formula_eligible:
         required_fields.update(LEE_REQUIRED_FIELDS)
     consolidated_measurements = _consolidate_measurements(raw_measurements, required_fields=required_fields)
 
@@ -131,7 +135,7 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
         _raise_unprocessable("anthropometry_missing_required_measurement", {"field": "weight_kg"})
     if "height_cm" not in consolidated_measurements:
         _raise_unprocessable("anthropometry_missing_required_measurement", {"field": "height_cm"})
-    if calculate_muscle_mass:
+    if muscle_formula_eligible:
         for field in sorted(LEE_REQUIRED_FIELDS):
             if field not in consolidated_measurements:
                 _raise_unprocessable("anthropometry_missing_required_measurement", {"field": field})
@@ -165,26 +169,37 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
     lean_mass = _round2(weight - fat_mass)
     bmi = _calculate_bmi(height, weight)
     waist_hip_ratio = _calculate_waist_hip_ratio(consolidated_measurements)
-    basal_metabolic_rate = _calculate_mifflin_bmr(sex=sex, age_years=age_years, height_cm=height, weight_kg=weight)
-    muscle_mass = (
-        _calculate_lee_muscle_mass(
+    bmr_calculation = calculate_basal_metabolic_rate(
+        sex=sex,
+        age_years=age_years,
+        height_cm=height,
+        weight_kg=weight,
+    )
+    muscle_calculation = (
+        calculate_muscle_mass_result(
             sex=sex,
             age_years=age_years,
             height_cm=height,
-            ethnicity=str(ethnicity),
+            ethnicity=ethnicity,
             measurements=consolidated_measurements,
+            weight_kg=weight,
         )
         if calculate_muscle_mass
         else None
     )
-    muscle_flags: list[str] = []
-    if calculate_muscle_mass and age_years < 18:
-        muscle_flags.append("lee_age_extrapolation")
-    if calculate_muscle_mass and bmi >= Decimal("30"):
-        muscle_flags.append("lee_bmi_extrapolation")
-    formula_version = f"{MEASUREMENT_POLICY_VERSION}:{protocol.key}"
+    basal_metabolic_rate = bmr_calculation.value
+    muscle_mass = muscle_calculation.value if muscle_calculation is not None else None
+    muscle_flags = list(muscle_calculation.alerts) if muscle_calculation is not None else []
+    formula_parts = [MEASUREMENT_POLICY_VERSION, protocol.key]
+    if bmr_calculation.formula_version:
+        formula_parts.append(bmr_calculation.formula_version)
     if calculate_muscle_mass:
-        formula_version = f"{formula_version}:{LEE_FORMULA_VERSION}"
+        formula_parts.append(
+            muscle_calculation.formula_version
+            if muscle_calculation is not None and muscle_calculation.formula_version
+            else "muscle-unavailable"
+        )
+    formula_version = ":".join(formula_parts)
 
     unavailable_metrics = dict(_UNAVAILABLE_METRICS)
     if muscle_mass is not None:
@@ -213,13 +228,13 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
         "fat_mass_kg": INDICATOR_ANTHROPOMETRY_CALCULATED,
         "lean_mass_kg": INDICATOR_ANTHROPOMETRY_CALCULATED,
         "waist_hip_ratio": INDICATOR_ANTHROPOMETRY_CALCULATED if waist_hip_ratio is not None else INDICATOR_UNAVAILABLE,
-        "basal_metabolic_rate": INDICATOR_ANTHROPOMETRY_CALCULATED if basal_metabolic_rate is not None else INDICATOR_UNAVAILABLE,
+        "basal_metabolic_rate": bmr_calculation.origin,
         **{key: INDICATOR_UNAVAILABLE for key in unavailable_metrics},
-        "muscle_mass_kg": INDICATOR_ANTHROPOMETRY_CALCULATED if muscle_mass is not None else INDICATOR_UNAVAILABLE,
+        "muscle_mass_kg": muscle_calculation.origin if muscle_calculation is not None else ORIGIN_UNAVAILABLE,
     }
 
     snapshot = {
-        "schema_version": "anthropometry_snapshot_v2",
+        "schema_version": "anthropometry_snapshot_v3",
         "measurement_policy_version": MEASUREMENT_POLICY_VERSION,
         "assessment_method": ASSESSMENT_METHOD,
         "record_origin": RECORD_ORIGIN,
@@ -249,14 +264,13 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
         },
         "results": _snapshot_results(results),
         "indicator_origins": indicator_origins,
-        "muscle_mass_calculation": _lee_snapshot(
+        "basal_metabolic_rate_calculation": calculation_metadata(bmr_calculation),
+        "muscle_mass_calculation": _muscle_snapshot(
             enabled=calculate_muscle_mass,
-            result=muscle_mass,
+            calculation=muscle_calculation,
             ethnicity=str(ethnicity) if ethnicity else None,
             sex=sex,
             age_years=age_years,
-            measurements=consolidated_measurements,
-            flags=muscle_flags,
         ),
         "unavailable_metrics": unavailable_metrics,
         "flags": list(dict.fromkeys([*(protocol_result.get("flags") or []), *muscle_flags])),
@@ -284,6 +298,8 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
         },
         "formula_version": formula_version,
         "calculation_hash": calculation_hash,
+        "basal_metabolic_rate_origin": bmr_calculation.origin,
+        "muscle_mass_origin": muscle_calculation.origin if muscle_calculation is not None else ORIGIN_UNAVAILABLE,
         "results": results,
         "indicator_origins": indicator_origins,
         "snapshot": snapshot,
@@ -355,8 +371,10 @@ def create_anthropometric_assessment(
         lean_mass_kg=results["lean_mass_kg"],
         fat_mass_kg=results["fat_mass_kg"],
         muscle_mass_kg=results["muscle_mass_kg"],
+        muscle_mass_origin=preview["muscle_mass_origin"],
         waist_hip_ratio=results["waist_hip_ratio"],
         basal_metabolic_rate=results["basal_metabolic_rate"],
+        basal_metabolic_rate_origin=preview["basal_metabolic_rate_origin"],
         waist_cm=_round2(measurement_values.get("waist_cm")),
         hip_cm=_round2(measurement_values.get("hip_cm")),
         chest_cm=_round2(measurement_values.get("chest_cm")),
@@ -597,8 +615,10 @@ def build_bioimpedance_history_item(evaluation: Any, *, comparison_warning: str 
         lean_mass_kg=lean_mass,
         fat_mass_kg=getattr(evaluation, "body_fat_kg", None) or getattr(evaluation, "fat_mass_estimated_kg", None),
         muscle_mass_kg=getattr(evaluation, "muscle_mass_kg", None) or getattr(evaluation, "skeletal_muscle_kg", None),
+        muscle_mass_origin=getattr(evaluation, "muscle_mass_origin", None),
         waist_hip_ratio=getattr(evaluation, "waist_hip_ratio", None),
         basal_metabolic_rate=getattr(evaluation, "basal_metabolic_rate_kcal", None),
+        basal_metabolic_rate_origin=getattr(evaluation, "basal_metabolic_rate_origin", None),
         assessment_method="bioimpedance",
         record_origin="cordex",
         sex_used_for_formula=getattr(evaluation, "sex", None),
@@ -805,103 +825,57 @@ def _calculate_waist_hip_ratio(measurements: dict[str, dict[str, Any]]) -> Decim
     return _round2(waist / hip)
 
 
-def _calculate_mifflin_bmr(*, sex: str, age_years: int, height_cm: Decimal, weight_kg: Decimal) -> Decimal | None:
-    if age_years <= 0:
-        return None
-    sex_constant = Decimal("5") if sex == "male" else Decimal("-161")
-    return _round2(Decimal("10") * weight_kg + Decimal("6.25") * height_cm - Decimal("5") * Decimal(age_years) + sex_constant)
-
-
-def _calculate_lee_muscle_mass(
-    *,
-    sex: str,
-    age_years: int,
-    height_cm: Decimal,
-    ethnicity: str,
-    measurements: dict[str, dict[str, Any]],
-) -> Decimal:
-    pi = Decimal(str(math.pi))
-    arm = measurements["right_arm_relaxed_cm"]["decimal_value"]
-    thigh = measurements["right_thigh_cm"]["decimal_value"]
-    calf = measurements["right_calf_cm"]["decimal_value"]
-    triceps_cm = measurements["skinfold_triceps_mm"]["decimal_value"] / Decimal("10")
-    thigh_fold_cm = measurements["skinfold_thigh_mm"]["decimal_value"] / Decimal("10")
-    calf_fold_cm = measurements["skinfold_calf_mm"]["decimal_value"] / Decimal("10")
-    corrected_arm = arm - pi * triceps_cm
-    corrected_thigh = thigh - pi * thigh_fold_cm
-    corrected_calf = calf - pi * calf_fold_cm
-    if min(corrected_arm, corrected_thigh, corrected_calf) <= 0:
-        _raise_unprocessable("lee_corrected_circumference_invalid", {})
-    sex_coefficient = Decimal("1") if sex == "male" else Decimal("0")
-    ethnicity_coefficient = {
-        "asian": Decimal("-2.0"),
-        "black": Decimal("1.1"),
-        "white": Decimal("0"),
-    }[ethnicity]
-    height_m = height_cm / Decimal("100")
-    result = (
-        height_m
-        * (
-            Decimal("0.00744") * corrected_arm**2
-            + Decimal("0.00088") * corrected_thigh**2
-            + Decimal("0.00441") * corrected_calf**2
-        )
-        + Decimal("2.4") * sex_coefficient
-        - Decimal("0.048") * Decimal(age_years)
-        + ethnicity_coefficient
-        + Decimal("7.8")
-    )
-    if result <= 0:
-        _raise_unprocessable("lee_muscle_mass_invalid", {})
-    return _round2(result) or Decimal("0")
-
-
-def _lee_snapshot(
+def _muscle_snapshot(
     *,
     enabled: bool,
-    result: Decimal | None,
+    calculation: CalculationResult | None,
     ethnicity: str | None,
     sex: str,
     age_years: int,
-    measurements: dict[str, dict[str, Any]],
-    flags: list[str],
 ) -> dict[str, Any]:
-    if not enabled:
-        return {"enabled": False, "formula_version": None, "result_kg": None, "flags": []}
-    pi = Decimal(str(math.pi))
-
-    def corrected(circumference: str, skinfold: str) -> Decimal:
-        return measurements[circumference]["decimal_value"] - pi * measurements[skinfold]["decimal_value"] / Decimal("10")
-
-    return {
+    if not enabled or calculation is None:
+        return {
+            "enabled": False,
+            "origin": ORIGIN_UNAVAILABLE,
+            "formula_version": None,
+            "result_kg": None,
+            "flags": [],
+        }
+    metadata = calculation_metadata(calculation)
+    snapshot = {
         "enabled": True,
-        "formula_version": LEE_FORMULA_VERSION,
-        "formula": (
-            "height_m*(0.00744*CAG^2+0.00088*CTG^2+0.00441*CCG^2)"
-            "+2.4*sex-0.048*age+ethnicity+7.8"
-        ),
+        "origin": calculation.origin,
+        "formula_version": calculation.formula_version,
+        "formula": calculation.formula,
         "circumference_correction": "circumference_cm-pi*(skinfold_mm/10)",
         "measurement_side": "right",
         "sex_coefficient": "1" if sex == "male" else "0",
         "ethnicity": ethnicity,
-        "ethnicity_coefficient": {"asian": "-2.0", "black": "1.1", "white": "0"}.get(ethnicity),
         "age_years": age_years,
-        "coefficients": {
+        "age_range": calculation.age_range,
+        "corrected_circumferences_cm": metadata["corrected_circumferences_cm"],
+        "result_kg": metadata["result"],
+        "flags": list(calculation.alerts),
+    }
+    if calculation.origin == "lee_2000":
+        snapshot["ethnicity_coefficient"] = {"asian": "-2.0", "black": "1.1", "white": "0"}.get(ethnicity)
+        snapshot["coefficients"] = {
             "arm": "0.00744",
             "thigh": "0.00088",
             "calf": "0.00441",
             "sex": "2.4",
             "age": "-0.048",
             "constant": "7.8",
-        },
-        "corrected_circumferences_cm": {
-            "arm": _decimal_str(corrected("right_arm_relaxed_cm", "skinfold_triceps_mm")),
-            "thigh": _decimal_str(corrected("right_thigh_cm", "skinfold_thigh_mm")),
-            "calf": _decimal_str(corrected("right_calf_cm", "skinfold_calf_mm")),
-        },
-        "result_kg": _decimal_str(result),
-        "flags": flags,
-    }
+        }
+    elif calculation.origin == "poortmans_2005":
+        snapshot["coefficients"] = {
+            "arm": "0.0064",
+            "thigh": "0.0032",
+            "calf": "0.0015",
+            "sex": "2.56",
+            "age": "0.136",
+        }
+    return snapshot
 
 
 def _snapshot_measurement(value: dict[str, Any]) -> dict[str, Any]:

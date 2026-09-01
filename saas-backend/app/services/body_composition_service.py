@@ -24,6 +24,7 @@ from app.services.body_composition_actuar_sync_service import (
 from app.services.body_composition_ai_service import generate_body_composition_ai
 from app.services.body_composition_anthropometry_service import ANTHROPOMETRY_FIELDS
 from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
+from app.services.audit_service import log_audit_event
 from app.services.member_service import get_member_or_404
 
 BODY_COMPOSITION_MEASUREMENT_FIELDS = (
@@ -72,6 +73,7 @@ def create_body_composition_evaluation(
         payload.model_dump(),
         reviewer_user_id=reviewer_user_id,
         previous_evaluation=previous_evaluation,
+        explicit_fields=set(payload.model_fields_set),
     )
     _validate_body_composition_payload(payload)
     evaluation_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
@@ -157,9 +159,29 @@ def update_body_composition_evaluation(
         payload_values,
         reviewer_user_id=reviewer_user_id,
         previous_evaluation=previous_evaluation,
+        existing_evaluation=evaluation,
+        explicit_fields=set(payload.model_fields_set),
     )
     _validate_body_composition_payload(payload)
     update_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
+    manual_changes = _manual_calculation_metric_changes(
+        evaluation,
+        update_data,
+        explicit_fields=set(payload.model_fields_set),
+    )
+    if manual_changes:
+        log_audit_event(
+            db,
+            "body_composition_metric_manual_override",
+            "body_composition_evaluation",
+            gym_id=gym_id,
+            member_id=member_id,
+            entity_id=evaluation_id,
+            details={
+                "reviewer_user_id": str(reviewer_user_id) if reviewer_user_id else None,
+                "changes": manual_changes,
+            },
+        )
     for field, value in update_data.items():
         setattr(evaluation, field, value)
 
@@ -248,6 +270,41 @@ def _resolve_reviewed_manually(payload: BodyCompositionEvaluationCreate | BodyCo
     if source == "ocr_receipt":
         return bool(payload.reviewed_manually)
     return bool(payload.reviewed_manually)
+
+
+def _manual_calculation_metric_changes(
+    evaluation: BodyCompositionEvaluation,
+    update_data: dict,
+    *,
+    explicit_fields: set[str],
+) -> dict[str, dict[str, object]]:
+    changes: dict[str, dict[str, object]] = {}
+    for field, origin_field in (
+        ("basal_metabolic_rate_kcal", "basal_metabolic_rate_origin"),
+        ("muscle_mass_kg", "muscle_mass_origin"),
+    ):
+        if field not in explicit_fields or update_data.get(origin_field) != "reported":
+            continue
+        before = getattr(evaluation, field, None)
+        after = update_data.get(field)
+        if after is None or _same_metric_value(before, after):
+            continue
+        changes[field] = {
+            "before": float(before) if before is not None else None,
+            "after": float(after),
+            "origin_before": getattr(evaluation, origin_field, None) or "legacy_unknown",
+            "origin_after": "reported",
+        }
+    return changes
+
+
+def _same_metric_value(left: object, right: object) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        return abs(float(left) - float(right)) < 0.005
+    except (TypeError, ValueError):
+        return left == right
 
 
 def _preserve_existing_anthropometry_for_ocr_update(

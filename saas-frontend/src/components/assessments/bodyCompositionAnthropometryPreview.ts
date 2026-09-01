@@ -17,7 +17,7 @@ export interface AnthropometryPreviewInput {
   abdomenCm?: unknown;
   hipCm?: unknown;
   iliacCm?: unknown;
-  anthropometryEthnicity?: "white" | "black" | null;
+  anthropometryEthnicity?: "white" | "black" | "asian" | null;
   anthropometryMaturity?: "prepubertal" | "pubertal" | "postpubertal" | null;
   skinfoldChestMm?: unknown;
   skinfoldMidaxillaryMm?: unknown;

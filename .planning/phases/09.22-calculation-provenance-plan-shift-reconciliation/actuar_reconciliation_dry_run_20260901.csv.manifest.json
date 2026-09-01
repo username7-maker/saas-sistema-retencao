@@ -1,0 +1,38 @@
+{
+  "mode": "dry_run",
+  "plan_digest": "72577D2CFC4BCAB4FCDDF010FE472BC3A77AA954382529849AC9E31DCC152378",
+  "gym_id": "11111111-1111-1111-1111-111111111111",
+  "reference_at": "2026-08-31T11:01:00+00:00",
+  "files": [
+    {
+      "kind": "members",
+      "filename": "Todos os Clientes.xlsx",
+      "sha256": "D6F244CF5CCE1C56C16FE17231C725C2D9E36EA6DDA2B0BFD2F7039F3E8DF3EF",
+      "rows": 1427
+    },
+    {
+      "kind": "checkins",
+      "filename": "Acessos.xlsx",
+      "sha256": "00E3DDC39C7282160C017E32A87ABDA00A0E511D9C26F7A2B41E70A1CCE3D15A",
+      "rows": 4391
+    }
+  ],
+  "stats": {
+    "access_existing_duplicates": 0,
+    "access_match_ambiguous": 105,
+    "access_match_review": 919,
+    "access_match_unmatched": 3367,
+    "access_to_import": 0,
+    "clients_match_ambiguous": 20,
+    "clients_match_high": 882,
+    "clients_match_review": 59,
+    "clients_match_unmatched": 466,
+    "members_in_high_confidence_scope": 881,
+    "members_to_update": 631,
+    "plans_conflicting_rows": 1,
+    "plans_ignored_empty_or_generic": 47,
+    "plans_to_update": 223,
+    "report_rows": 2571,
+    "shifts_to_update": 502
+  }
+}

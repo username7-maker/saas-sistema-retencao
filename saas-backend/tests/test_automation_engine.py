@@ -1,13 +1,10 @@
-from datetime import date, datetime, timedelta, timezone
-from types import SimpleNamespace
 import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
-import pytest
-
-from app.models import MemberStatus, RiskLevel, TaskStatus
+from app.models import MemberStatus
 from app.models.automation_rule import AutomationAction, AutomationTrigger
 from app.services import automation_engine
-
 
 _PT_MONTH_LABELS = {
     1: "Janeiro",
@@ -31,6 +28,7 @@ class DummyDB:
         self.flushed = False
         self.committed = False
         self.values: list = []
+        self.last_query = None
 
     def add(self, obj):
         self.added.append(obj)
@@ -47,6 +45,7 @@ class DummyDB:
         return self.values.pop(0)
 
     def scalars(self, _query):
+        self.last_query = _query
         return self
 
     def all(self):
@@ -60,7 +59,7 @@ class DummyDB:
 
 
 def _today_birthday_label() -> str:
-    today = datetime.now(tz=timezone.utc).date()
+    today = datetime.now(tz=UTC).date()
     return f"{today.day} de {_PT_MONTH_LABELS[today.month]}"
 
 
@@ -85,7 +84,7 @@ def _make_member(
         risk_score=risk_score,
         nps_last_score=nps_last_score,
         assigned_user_id="user-1",
-        last_checkin_at=datetime.now(tz=timezone.utc) - timedelta(days=last_checkin_days_ago),
+        last_checkin_at=datetime.now(tz=UTC) - timedelta(days=last_checkin_days_ago),
         status=MemberStatus.ACTIVE,
         deleted_at=None,
     )
@@ -100,6 +99,7 @@ def _make_rule(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="rule-1",
+        gym_id=uuid.uuid4(),
         name="Test Rule",
         trigger_type=trigger_type,
         trigger_config=trigger_config or {"level": "red"},
@@ -371,6 +371,31 @@ def test_coerce_risk_level_fallback_to_default():
     assert automation_engine._coerce_risk_level("high") == "red"
 
 
+def test_automation_cooldown_uses_safe_defaults_and_explicit_override():
+    risk_rule = _make_rule(trigger_type=AutomationTrigger.RISK_LEVEL_CHANGE)
+    birthday_rule = _make_rule(trigger_type=AutomationTrigger.BIRTHDAY)
+    configured_rule = _make_rule(
+        trigger_type=AutomationTrigger.INACTIVITY_DAYS,
+        trigger_config={"days": 7, "cooldown_days": 14},
+    )
+
+    assert automation_engine._automation_cooldown_days(risk_rule) == 30
+    assert automation_engine._automation_cooldown_days(birthday_rule) == 1
+    assert automation_engine._automation_cooldown_days(configured_rule) == 14
+
+
+def test_matching_members_excludes_recent_rule_execution():
+    db = DummyDB()
+    db.values = [[]]
+    rule = _make_rule(trigger_type=AutomationTrigger.INACTIVITY_DAYS, trigger_config={"days": 7})
+
+    automation_engine._find_matching_members(db, rule)
+
+    compiled = str(db.last_query.compile())
+    assert "automation_execution_logs" in compiled
+    assert "automation_execution_logs.member_id = members.id" in compiled
+
+
 def test_execute_rule_send_whatsapp_supports_legacy_template_name_and_message(monkeypatch):
     db = DummyDB()
     member = _make_member()
@@ -476,7 +501,7 @@ def test_birthday_label_helper_accepts_imported_portuguese_months():
 
     assert automation_engine._birthday_label_matches_today(
         member,
-        datetime(2026, 3, 24, tzinfo=timezone.utc).date(),
+        datetime(2026, 3, 24, tzinfo=UTC).date(),
     ) is True
 
 

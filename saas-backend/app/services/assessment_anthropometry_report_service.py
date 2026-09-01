@@ -10,6 +10,8 @@ from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_EVOLUTION_FIELDS,
 )
 from app.services.body_composition_report_service import (
+    CALCULATION_ORIGIN_LABELS,
+    body_composition_origin_label,
     build_body_composition_premium_pdf_payload,
     build_body_composition_report_read,
 )
@@ -45,12 +47,19 @@ def build_anthropometric_report_payload(
             for item in report.score_breakdown
         ]
     _omit_unavailable_report_metrics(report, has_muscle_mass=has_muscle_mass)
-    extrapolation_flags = _lee_extrapolation_flags(assessment)
-    muscle_note = (
-        " A massa muscular esqueletica foi estimada pela equacao antropometrica de Lee et al. (2000)."
-        if has_muscle_mass
-        else " Massa muscular nao foi calculada nesta avaliacao."
+    muscle_origin = _assessment_metric_origin(
+        assessment,
+        origin_field="muscle_mass_origin",
+        value_field="muscle_mass_kg",
     )
+    bmr_origin = _assessment_metric_origin(
+        assessment,
+        origin_field="basal_metabolic_rate_origin",
+        value_field="basal_metabolic_rate",
+    )
+    extrapolation_flags = _lee_extrapolation_flags(assessment) if muscle_origin == "lee_2000" else []
+    muscle_note = _muscle_methodological_note(muscle_origin, has_value=has_muscle_mass)
+    bmr_note = _bmr_methodological_note(bmr_origin)
     extrapolation_note = (
         " O resultado de Lee e uma extrapolacao fora da populacao adulta nao obesa da validacao original."
         if extrapolation_flags
@@ -58,7 +67,7 @@ def build_anthropometric_report_payload(
     )
     report.methodological_note = (
         "Avaliacao antropometrica sem bioimpedancia. Os resultados sao estimativas por protocolo manual."
-        f"{muscle_note}{extrapolation_note} Massa muscular esqueletica, massa livre de gordura e massa magra sao conceitos distintos."
+        f"{muscle_note}{bmr_note}{extrapolation_note} Massa muscular esqueletica, massa livre de gordura e massa magra sao conceitos distintos."
         " Agua corporal, gordura visceral, massa ossea e idade metabolica nao foram inferidas."
     )
 
@@ -70,11 +79,22 @@ def build_anthropometric_report_payload(
             "formula_version": formula_version,
             "assessment_method": getattr(assessment, "assessment_method", "manual_anthropometry"),
             "record_origin": getattr(assessment, "record_origin", "cordex"),
-            "muscle_mass_formula": "Lee et al. (2000)" if has_muscle_mass else None,
+            "muscle_mass_origin": muscle_origin,
+            "muscle_mass_origin_label": body_composition_origin_label(
+                muscle_origin,
+                metric_key="muscle_mass_kg",
+            ),
+            "muscle_mass_formula": _origin_formula_name(muscle_origin),
             "muscle_mass_extrapolation_flags": extrapolation_flags,
+            "basal_metabolic_rate_origin": bmr_origin,
+            "basal_metabolic_rate_origin_label": body_composition_origin_label(
+                bmr_origin,
+                metric_key="basal_metabolic_rate_kcal",
+            ),
+            "basal_metabolic_rate_formula": _origin_formula_name(bmr_origin),
             "methodological_note": report.methodological_note,
             "client_footer_note": (
-                "Relatorio antropometrico informativo. Massa muscular, quando presente, e estimada por Lee et al. (2000); "
+                "Relatorio antropometrico informativo. A origem de TMB e massa muscular aparece junto de cada indicador; "
                 "massa livre de gordura continua sendo um indicador diferente."
             ),
             "composition_detail_subtitle": (
@@ -90,7 +110,7 @@ def build_anthropometric_report_payload(
     payload.parameters = parameters
     payload.cover_summary = (
         "Relatorio gerado a partir de medidas manuais e protocolo antropometrico. "
-        + ("Inclui massa muscular esqueletica estimada por Lee. " if has_muscle_mass else "")
+        + (_muscle_cover_summary(muscle_origin) if has_muscle_mass else "Massa muscular requer medicao valida. ")
         + "Campos exclusivos da bioimpedancia permanecem indisponiveis."
     )
     payload.footer_note = (
@@ -151,6 +171,11 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
         "lean_mass_kg": getattr(assessment, "lean_mass_kg", None),
         "fat_free_mass_kg": getattr(assessment, "lean_mass_kg", None),
         "muscle_mass_kg": getattr(assessment, "muscle_mass_kg", None),
+        "muscle_mass_origin": _assessment_metric_origin(
+            assessment,
+            origin_field="muscle_mass_origin",
+            value_field="muscle_mass_kg",
+        ),
         "skeletal_muscle_kg": None,
         "visceral_fat_level": None,
         "body_water_kg": None,
@@ -159,6 +184,11 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
         "inorganic_salt_kg": None,
         "waist_hip_ratio": getattr(assessment, "waist_hip_ratio", None),
         "basal_metabolic_rate_kcal": getattr(assessment, "basal_metabolic_rate", None),
+        "basal_metabolic_rate_origin": _assessment_metric_origin(
+            assessment,
+            origin_field="basal_metabolic_rate_origin",
+            value_field="basal_metabolic_rate",
+        ),
         "physical_age": None,
         "health_score": None,
         "target_weight_kg": None,
@@ -230,8 +260,6 @@ def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> 
         "waist_height_ratio": ("measurements", "Calculo"),
         "ffmi": ("measurements", "Calculo"),
         "bmi": ("measurements", "Calculo"),
-        "basal_metabolic_rate_kcal": ("measurements", "Calculo"),
-        "muscle_mass_kg": ("measurements", "Calculado por antropometria - Lee et al. (2000)"),
     }
     metric_sections = (
         "primary_cards",
@@ -248,19 +276,81 @@ def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> 
             if not isinstance(metric, dict):
                 continue
             key = str(metric.get("key") or "")
+            origin = str(metric.get("origin") or "")
+            origin_label = metric.get("origin_label") or body_composition_origin_label(origin, metric_key=key)
             source = source_by_key.get(key)
+            if key in {"muscle_mass_kg", "basal_metabolic_rate_kcal"} and origin_label:
+                source = (
+                    "measurements" if origin in {"reported", "legacy_unknown"} else "calculation",
+                    str(origin_label),
+                )
             if not source:
                 continue
             metric["source_group"] = source[0]
             metric["source_label"] = source[1]
             if key == "muscle_mass_kg":
-                metric["label"] = "Massa muscular esqueletica estimada - Lee et al. (2000)"
+                metric["label"] = "Massa muscular"
             elif key == "basal_metabolic_rate_kcal":
-                metric["label"] = "TMB estimada"
+                metric["label"] = "TMB"
                 metric["unit"] = "kcal/dia"
                 formatted = metric.get("formatted_value")
                 if isinstance(formatted, str):
                     metric["formatted_value"] = formatted.replace(" kcal", " kcal/dia")
+
+
+def _assessment_metric_origin(
+    assessment: Any,
+    *,
+    origin_field: str,
+    value_field: str,
+) -> str:
+    origin = str(getattr(assessment, origin_field, None) or "").strip()
+    if origin in CALCULATION_ORIGIN_LABELS:
+        return origin
+    return "unavailable" if getattr(assessment, value_field, None) is None else "legacy_unknown"
+
+
+def _origin_formula_name(origin: str) -> str | None:
+    return {
+        "schofield_hw_1985": "Schofield-HW (1985)",
+        "mifflin_st_jeor_1990": "Mifflin-St Jeor (1990)",
+        "lee_2000": "Lee et al. (2000)",
+        "poortmans_2005": "Poortmans et al. (2005)",
+    }.get(origin)
+
+
+def _muscle_methodological_note(origin: str, *, has_value: bool) -> str:
+    if not has_value or origin == "unavailable":
+        return " Massa muscular indisponivel: e necessaria uma medicao valida."
+    if origin == "reported":
+        return " A massa muscular foi medida ou informada no exame e o valor foi preservado."
+    if origin == "lee_2000":
+        return " A massa muscular esqueletica foi estimada pela equacao antropometrica de Lee et al. (2000)."
+    if origin == "poortmans_2005":
+        return " A massa muscular esqueletica foi estimada pela equacao pediatrica de Poortmans et al. (2005)."
+    return " A massa muscular e um valor historico cuja origem nao pode ser identificada com seguranca."
+
+
+def _bmr_methodological_note(origin: str) -> str:
+    if origin == "reported":
+        return " A TMB foi informada no exame e o valor foi preservado."
+    if origin == "schofield_hw_1985":
+        return " A TMB pediatrica foi estimada por Schofield-HW (1985), conforme sexo e idade."
+    if origin == "mifflin_st_jeor_1990":
+        return " A TMB adulta foi estimada por Mifflin-St Jeor (1990)."
+    if origin == "legacy_unknown":
+        return " A TMB e um valor historico cuja origem nao pode ser identificada com seguranca."
+    return " A TMB permanece indisponivel por falta de dados suficientes."
+
+
+def _muscle_cover_summary(origin: str) -> str:
+    if origin == "reported":
+        return "Inclui massa muscular medida ou informada no exame. "
+    if origin == "lee_2000":
+        return "Inclui massa muscular esqueletica estimada por Lee (2000). "
+    if origin == "poortmans_2005":
+        return "Inclui massa muscular esqueletica estimada por Poortmans (2005). "
+    return "Inclui massa muscular historica com origem nao identificada. "
 
 
 def _lee_extrapolation_flags(assessment: Any) -> list[str]:

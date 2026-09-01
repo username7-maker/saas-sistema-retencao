@@ -14,6 +14,7 @@ import {
   type AnthropometryProtocol,
 } from "../../services/assessmentService";
 import { parseLocalizedNumber } from "../../utils/localizedNumber";
+import { calculationOriginLabel } from "../../utils/calculationOrigins";
 
 type SexForFormula = "male" | "female";
 
@@ -115,7 +116,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SKIP_DYNAMIC_FIELDS = new Set(["height_cm", "weight_kg"]);
-const LEE_REQUIRED_FIELDS = [
+const MUSCLE_REQUIRED_FIELDS = [
   "right_arm_relaxed_cm",
   "right_thigh_cm",
   "right_calf_cm",
@@ -474,13 +475,20 @@ function ManualAnthropometricAssessmentForm({
     return protocolOptions.find((protocol) => protocol.key === protocolKey) ?? null;
   }, [protocolKey, protocolOptions]);
 
+  const muscleFormulaEligible = useMemo(() => {
+    const age = Number(ageYears);
+    if (!calculateMuscleMass || !Number.isFinite(age)) return false;
+    if (age >= 7 && age <= 16) return anthropometryEthnicity === "white";
+    return age >= 18 && ["white", "black", "asian"].includes(anthropometryEthnicity);
+  }, [ageYears, anthropometryEthnicity, calculateMuscleMass]);
+
   const dynamicFields = useMemo(() => {
     const fields = new Set<string>(selectedProtocol?.required_fields ?? []);
-    if (calculateMuscleMass) {
-      LEE_REQUIRED_FIELDS.forEach((field) => fields.add(field));
+    if (muscleFormulaEligible) {
+      MUSCLE_REQUIRED_FIELDS.forEach((field) => fields.add(field));
     }
     return Array.from(fields).filter((field) => !SKIP_DYNAMIC_FIELDS.has(field));
-  }, [calculateMuscleMass, selectedProtocol]);
+  }, [muscleFormulaEligible, selectedProtocol]);
 
   const requiresSlaughterEthnicity = selectedProtocol?.required_choice_fields?.includes("anthropometry_ethnicity") ?? false;
   const requiresMaturity = selectedProtocol?.required_choice_fields?.includes("anthropometry_maturity") ?? false;
@@ -642,7 +650,8 @@ function ManualAnthropometricAssessmentForm({
             </div>
           </div>
           <p className="text-sm text-lovable-ink-muted">
-            Massa muscular pode ser estimada opcionalmente por Lee. Agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis.
+            Massa muscular usa Lee em adultos ou Poortmans somente em criancas elegiveis de 7 a 16 anos. Fora das faixas validadas, a medicao e necessaria.
+            Agua corporal, gordura visceral, massa ossea e idade metabolica permanecem indisponiveis.
           </p>
           <p className="text-xs font-medium text-lovable-primary">
             Rascunho salvo automaticamente nesta aba por ate 12 horas.
@@ -752,7 +761,7 @@ function ManualAnthropometricAssessmentForm({
           <span>
             <span className="block text-sm font-semibold text-lovable-ink">Calcular massa muscular</span>
             <span className="mt-1 block text-xs text-lovable-ink-muted">
-              Usa Lee et al. (2000) com braco, coxa e panturrilha direitos corrigidos pelas respectivas dobras.
+              Em adultos, usa Lee et al. (2000). Dos 7 aos 16 anos, usa Poortmans apenas para alunos brancos elegiveis. O resultado sempre identifica a origem.
             </span>
           </span>
         </label>
@@ -842,15 +851,28 @@ function ManualAnthropometricAssessmentForm({
             <PreviewMetric label="Massa de gordura" value={preview.results.fat_mass_kg != null ? `${preview.results.fat_mass_kg} kg` : "-"} />
             <PreviewMetric label="Massa livre" value={preview.results.lean_mass_kg != null ? `${preview.results.lean_mass_kg} kg` : "-"} />
             <PreviewMetric label="RCQ" value={preview.results.waist_hip_ratio != null ? String(preview.results.waist_hip_ratio) : "-"} />
-            <PreviewMetric label="TMB estimada" value={preview.results.basal_metabolic_rate != null ? `${preview.results.basal_metabolic_rate} kcal/dia` : "-"} />
+            <PreviewMetric
+              label="TMB estimada"
+              value={preview.results.basal_metabolic_rate != null ? `${preview.results.basal_metabolic_rate} kcal/dia` : "-"}
+              helper={calculationOriginLabel(preview.indicator_origins.basal_metabolic_rate)}
+            />
             {calculateMuscleMass ? (
-              <PreviewMetric label="Massa muscular estimada" value={preview.results.muscle_mass_kg != null ? `${preview.results.muscle_mass_kg} kg` : "-"} />
+              <PreviewMetric
+                label="Massa muscular estimada"
+                value={preview.results.muscle_mass_kg != null ? `${preview.results.muscle_mass_kg} kg` : "-"}
+                helper={calculationOriginLabel(preview.indicator_origins.muscle_mass_kg)}
+              />
             ) : null}
           </div>
           {!calculateMuscleMass ? <p className="mt-3 text-sm font-medium text-lovable-ink">Massa muscular: calculo opcional nao selecionado</p> : null}
-          {Array.isArray(preview.snapshot.flags) && preview.snapshot.flags.some((flag) => String(flag).startsWith("lee_")) ? (
+          {Array.isArray(preview.snapshot.flags) && preview.snapshot.flags.includes("lee_bmi_extrapolation") ? (
             <p className="mt-3 text-xs font-medium text-yellow-300">
-              A estimativa de Lee esta fora da populacao adulta nao obesa usada na validacao original e deve ser interpretada como extrapolacao.
+              A estimativa de Lee está fora da população não obesa usada na validação original e deve ser interpretada com cautela.
+            </p>
+          ) : null}
+          {Array.isArray(preview.snapshot.flags) && preview.snapshot.flags.includes("muscle_measurement_required") ? (
+            <p className="mt-3 text-xs font-semibold text-amber-300">
+              Massa muscular não estimada: esta idade, população ou conjunto de medidas exige valor medido por bioimpedância/DXA.
             </p>
           ) : null}
           <p className="mt-1 text-xs text-lovable-ink-muted">Hash do calculo: {preview.calculation_hash}</p>
@@ -874,11 +896,12 @@ function ManualAnthropometricAssessmentForm({
   );
 }
 
-function PreviewMetric({ label, value }: { label: string; value: string }) {
+function PreviewMetric({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
     <div className="rounded-xl border border-lovable-border bg-lovable-surface px-3 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-lovable-ink-muted">{label}</p>
       <p className="mt-1 text-lg font-semibold text-lovable-ink">{value}</p>
+      {helper ? <p className="mt-1 text-xs text-lovable-ink-muted">Origem: {helper}</p> : null}
     </div>
   );
 }

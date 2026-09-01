@@ -11,6 +11,7 @@ import type {
   BodyCompositionEvaluationUpdate,
 } from "../types";
 import { api } from "./api";
+import { stripReadOnlyCalculationOrigins } from "../utils/calculationOrigins";
 import {
   BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE,
   ensureOcrResultMetadata,
@@ -185,7 +186,7 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.post<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition`,
-      payload,
+      stripReadOnlyCalculationOrigins(payload),
       { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);
@@ -199,7 +200,7 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.put<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}`,
-      payload,
+      stripReadOnlyCalculationOrigins(payload),
       { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);
@@ -213,7 +214,7 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionEvaluation> {
     const { data } = await api.post<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition/${evaluationId}/review`,
-      payload,
+      stripReadOnlyCalculationOrigins(payload),
       { params: { sync_actuar: options?.syncActuar ?? true } },
     );
     return normalizeBodyComposition(data);

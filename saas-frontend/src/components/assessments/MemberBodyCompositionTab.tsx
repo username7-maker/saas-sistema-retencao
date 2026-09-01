@@ -50,6 +50,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { PRODUCT_NAME } from "../../config/brand";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
 import { canDeleteBodyComposition, canManageActuarSync } from "../../utils/roleAccess";
+import { calculationOriginLabel } from "../../utils/calculationOrigins";
 import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
 import { Dialog } from "../ui2/Dialog";
@@ -159,7 +160,7 @@ const schema = z.object({
   body_fat_manual_review_completed: z.boolean().optional(),
   anthropometry_review_completed: z.boolean().optional(),
   measurement_protocol: z.string().optional().nullable(),
-  anthropometry_ethnicity: z.enum(["white", "black"]).optional().nullable(),
+  anthropometry_ethnicity: z.enum(["white", "black", "asian"]).optional().nullable(),
   anthropometry_maturity: z.enum(["prepubertal", "pubertal", "postpubertal"]).optional().nullable(),
   target_weight_kg: nullableNumberField,
   weight_control_kg: nullableNumberField,
@@ -947,6 +948,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   const focusEvaluation = editingEvaluationId
     ? evaluations?.find((evaluation) => evaluation.id === editingEvaluationId) ?? null
     : evaluations?.[0] ?? null;
+  const editingEvaluation = editingEvaluationId
+    ? evaluations?.find((evaluation) => evaluation.id === editingEvaluationId) ?? null
+    : null;
 
   const { data: syncStatus, isFetching: syncLoading } = useQuery({
     queryKey: ["body-composition-sync", memberId, focusEvaluation?.id],
@@ -1790,6 +1794,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                 helper={`Fonte: ${bodyFatSourceLabel(focusEvaluation.body_fat_used_source)}`}
               />
               <MetricCard label="Musculo esqueletico" value={fmt(focusEvaluation.skeletal_muscle_kg, " kg")} />
+              <MetricCard
+                label="Massa muscular"
+                value={fmt(focusEvaluation.muscle_mass_kg, " kg")}
+                helper={`Origem: ${calculationOriginLabel(focusEvaluation.muscle_mass_origin)}`}
+              />
+              <MetricCard
+                label="TMB"
+                value={fmt(focusEvaluation.basal_metabolic_rate_kcal, " kcal/dia")}
+                helper={`Origem: ${calculationOriginLabel(focusEvaluation.basal_metabolic_rate_origin)}`}
+              />
               <MetricCard label="Health score" value={fmt(focusEvaluation.health_score)} />
             </div>
           )}
@@ -2206,12 +2220,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                           />
                         </FormField>
                       ))}
-                      {(selectedProtocol.requiredChoiceFields ?? []).includes("anthropometry_ethnicity") ? (
-                        <FormField label="Grupo etnico usado na formula" error={errors.anthropometry_ethnicity?.message}>
+                      {selectedProtocol ? (
+                        <FormField label="Grupo etnico usado nas formulas" error={errors.anthropometry_ethnicity?.message}>
                           <Select aria-label="Grupo etnico para protocolo" defaultValue="" {...register("anthropometry_ethnicity")}>
                             <option value="">Selecione</option>
                             <option value="white">Branco</option>
                             <option value="black">Negro</option>
+                            <option
+                              value="asian"
+                              disabled={(selectedProtocol.requiredChoiceFields ?? []).includes("anthropometry_ethnicity")}
+                            >
+                              Asiatico (Lee adulto)
+                            </option>
                           </Select>
                         </FormField>
                       ) : null}
@@ -2306,6 +2326,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                   <div className="grid gap-3 md:grid-cols-2">
                     {section.fields.map((field) => {
                       const warning = highlightedWarnings.get(field.key);
+                      const calculationOrigin = field.key === "muscle_mass_kg"
+                        ? editingEvaluation?.muscle_mass_origin
+                        : field.key === "basal_metabolic_rate_kcal"
+                          ? editingEvaluation?.basal_metabolic_rate_origin
+                          : null;
                       const fieldSignal = field.calculated
                         ? null
                         : resolveBodyCompositionFieldSignal({
@@ -2340,6 +2365,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                             />
                             {field.description ? (
                               <p className="text-xs text-lovable-ink-muted">{field.description}</p>
+                            ) : null}
+                            {calculationOrigin ? (
+                              <p className="text-xs font-medium text-lovable-primary">
+                                Origem (somente leitura): {calculationOriginLabel(calculationOrigin)}
+                              </p>
                             ) : null}
                             {fieldSignal ? (
                               <p className={`text-xs ${fieldSignalTextClass(fieldSignal.tone)}`}>{fieldSignal.description}</p>
@@ -2739,6 +2769,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                           value={fmt((entry.evaluation[metric.field] as number | null | undefined) ?? null, metric.unit ?? "")}
                         />
                       ))}
+                      <Metric
+                        label="Massa muscular"
+                        value={fmt(entry.evaluation.muscle_mass_kg, " kg")}
+                        helper={calculationOriginLabel(entry.evaluation.muscle_mass_origin)}
+                      />
+                      <Metric
+                        label="TMB"
+                        value={fmt(entry.evaluation.basal_metabolic_rate_kcal, " kcal/dia")}
+                        helper={calculationOriginLabel(entry.evaluation.basal_metabolic_rate_origin)}
+                      />
                     </div>
                     {entry.evaluation.ai_coach_summary ? (
                       <p className="text-sm text-lovable-ink-muted">{entry.evaluation.ai_coach_summary}</p>
@@ -2784,9 +2824,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
                     <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
                       <Metric label="Peso" value={fmt(entry.assessment.weight_kg, " kg")} />
                       <Metric label="Gordura estimada" value={fmt(entry.assessment.body_fat_pct, "%")} />
-                      <Metric label="Massa muscular esqueletica" value={fmt(entry.assessment.muscle_mass_kg, " kg")} />
+                      <Metric
+                        label="Massa muscular esqueletica"
+                        value={fmt(entry.assessment.muscle_mass_kg, " kg")}
+                        helper={calculationOriginLabel(entry.assessment.muscle_mass_origin)}
+                      />
                       <Metric label="IMC" value={fmt(entry.assessment.bmi)} />
-                      <Metric label="TMB" value={fmt(entry.assessment.basal_metabolic_rate, " kcal/dia")} />
+                      <Metric
+                        label="TMB"
+                        value={fmt(entry.assessment.basal_metabolic_rate, " kcal/dia")}
+                        helper={calculationOriginLabel(entry.assessment.basal_metabolic_rate_origin)}
+                      />
                     </div>
                     {entry.assessment.comparison_warning ? (
                       <p className="text-xs text-lovable-ink-muted">{entry.assessment.comparison_warning}</p>
@@ -2844,11 +2892,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone }: 
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
     <div>
       <span className="text-xs text-lovable-ink-muted">{label}</span>
       <p className="font-semibold text-lovable-ink">{value}</p>
+      {helper ? <p className="text-xs text-lovable-ink-muted">Origem: {helper}</p> : null}
     </div>
   );
 }

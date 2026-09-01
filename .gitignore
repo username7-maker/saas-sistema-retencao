@@ -49,6 +49,7 @@ saas-backend/data/
 .planning/phases/**/*PILOT-SAMPLES*
 .planning/phases/**/*AUTOMATION-SMOKE-*
 .planning/phases/**/*WALKTHROUGH-*
+.planning/phases/**/actuar_reconciliation_*.csv
 .planning/phases/04.3-piloto-controlado/04.3-GATE-REPORT.md
 
 # --- SYSTEM / IDE ---

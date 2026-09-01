@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from fastapi import HTTPException
 
 
@@ -528,7 +530,8 @@ class TestBodyCompositionPremiumReportDomain:
             reviewer_user_id=uuid.uuid4(),
         )
 
-        assert payload["basal_metabolic_rate_kcal"] == 1350
+        assert payload["basal_metabolic_rate_kcal"] == pytest.approx(1350.25)
+        assert payload["basal_metabolic_rate_origin"] == "mifflin_st_jeor_1990"
 
     def test_resolve_persistence_fields_generates_quality_flags_and_reviewer(self):
         from app.services.body_composition_report_service import resolve_body_composition_persistence_fields
@@ -606,7 +609,8 @@ class TestBodyCompositionPremiumReportDomain:
             reviewer_user_id=uuid.uuid4(),
         )
 
-        assert payload["basal_metabolic_rate_kcal"] == 1320
+        assert payload["basal_metabolic_rate_kcal"] == pytest.approx(1320.25)
+        assert payload["basal_metabolic_rate_origin"] == "mifflin_st_jeor_1990"
 
     def test_generate_body_composition_insights_detects_fat_loss_with_muscle_stability(self):
         from app.services.body_composition_report_service import generate_body_composition_insights

@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import Integer, func, select
@@ -24,7 +24,6 @@ from app.services.notification_service import create_notification
 from app.services.whatsapp_service import get_gym_instance, render_template, send_whatsapp_sync
 from app.utils.birthday import birthday_label_matches_today
 from app.utils.email import send_email
-
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +78,7 @@ def execute_rule_for_member(
     rule: AutomationRule,
     member: Member,
 ) -> dict:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     action_type = rule.action_type
     action_config = rule.action_config or {}
     result = {"rule_id": str(rule.id), "member_id": str(member.id), "action": action_type, "status": "skipped"}
@@ -313,7 +312,7 @@ def run_automation_rules(db: Session, *, commit: bool = True) -> list[dict]:
 
 def _execute_lead_stale_rule(db: Session, rule: AutomationRule) -> list[dict]:
     """Executa regra LEAD_STALE criando tarefas/notificacoes para leads parados."""
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     config = rule.trigger_config
     action_type = rule.action_type
     action_config = rule.action_config
@@ -398,12 +397,25 @@ def _execute_lead_stale_rule(db: Session, rule: AutomationRule) -> list[dict]:
 def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
     trigger = rule.trigger_type
     config = rule.trigger_config
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
+
+    cooldown_cutoff = now - timedelta(days=_automation_cooldown_days(rule))
+    processed_recently = (
+        select(AutomationExecutionLog.id)
+        .where(
+            AutomationExecutionLog.gym_id == rule.gym_id,
+            AutomationExecutionLog.rule_id == rule.id,
+            AutomationExecutionLog.member_id == Member.id,
+            AutomationExecutionLog.created_at >= cooldown_cutoff,
+        )
+        .exists()
+    )
 
     base_stmt = select(Member).where(
         Member.deleted_at.is_(None),
         Member.status == MemberStatus.ACTIVE,
         Member.gym_id == rule.gym_id,
+        ~processed_recently,
     )
 
     if trigger == AutomationTrigger.RISK_LEVEL_CHANGE:
@@ -470,9 +482,10 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         streak_days = _coerce_int(config.get("streak_days", config.get("threshold_days")), default=7, minimum=1)
         # Find members who have checked in on at least streak_days distinct days
         # within the last streak_days days.
-        from app.models.checkin import Checkin
-        from sqlalchemy import distinct, cast
+        from sqlalchemy import cast, distinct
         from sqlalchemy.dialects.postgresql import DATE as PG_DATE
+
+        from app.models.checkin import Checkin
         cutoff = now - timedelta(days=streak_days)
         subq = (
             select(Checkin.member_id, func.count(distinct(cast(Checkin.checkin_at, PG_DATE))).label("days_count"))
@@ -486,6 +499,20 @@ def _find_matching_members(db: Session, rule: AutomationRule) -> list[Member]:
         ).all())
 
     return []
+
+
+def _automation_cooldown_days(rule: AutomationRule) -> int:
+    trigger_config = rule.trigger_config if isinstance(rule.trigger_config, dict) else {}
+    action_config = rule.action_config if isinstance(rule.action_config, dict) else {}
+    explicit = trigger_config.get("cooldown_days", action_config.get("cooldown_days"))
+    defaults = {
+        AutomationTrigger.BIRTHDAY: 1,
+        AutomationTrigger.CHECKIN_STREAK: 7,
+        AutomationTrigger.RISK_LEVEL_CHANGE: 30,
+        AutomationTrigger.INACTIVITY_DAYS: 30,
+        AutomationTrigger.NPS_SCORE: 30,
+    }
+    return _coerce_int(explicit, default=defaults.get(rule.trigger_type, 30), minimum=1)
 
 
 def _coerce_int(value: object, *, default: int, minimum: int | None = None) -> int:
@@ -523,13 +550,12 @@ def _render(template: str, vars: dict) -> str:
 
 
 def _build_template_vars(member: Member) -> dict:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     days_inactive = 0
     if member.last_checkin_at:
         ref = member.last_checkin_at
         if ref.tzinfo is None:
-            from datetime import timezone as tz
-            ref = ref.replace(tzinfo=tz.utc)
+            ref = ref.replace(tzinfo=UTC)
         days_inactive = max(0, (now - ref).days)
 
     return {

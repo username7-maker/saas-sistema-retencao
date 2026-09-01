@@ -71,6 +71,13 @@ function flagLabel(flag: BodyCompositionDataQualityFlag) {
   if (flag === "anthropometry_inconsistent") return "antropometria inconsistente";
   if (flag === "impossible_measurement_value") return "medida fora da faixa";
   if (flag === "abnormal_measurement_variation") return "variacao incomum de medidas";
+  if (flag === "muscle_measurement_required") return "massa muscular exige medicao";
+  if (flag === "muscle_measurements_incomplete") return "medidas musculares incompletas";
+  if (flag === "muscle_age_outside_validated_range") return "idade fora da faixa validada";
+  if (flag === "poortmans_population_not_validated") return "Poortmans nao validado para esta populacao";
+  if (flag === "lee_ethnicity_required") return "etnia necessaria para Lee";
+  if (flag === "lee_bmi_extrapolation") return "Lee fora da faixa de IMC validada";
+  if (flag === "bmr_age_outside_supported_range") return "TMB sem equacao para esta idade";
   return "revisao manual";
 }
 

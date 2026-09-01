@@ -1,5 +1,6 @@
 import { api } from "./api";
-import type { ActuarSyncQueueItem, AIAssistantPayload, RiskLevel } from "../types";
+import type { ActuarSyncQueueItem, AIAssistantPayload, CalculationOrigin, RiskLevel } from "../types";
+import { stripReadOnlyCalculationOrigins } from "../utils/calculationOrigins";
 
 function parseFilename(contentDisposition?: string, fallback = "avaliacao-antropometrica.pdf"): string {
   const match = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
@@ -45,6 +46,8 @@ export interface Assessment {
   muscle_mass_kg?: number | null;
   waist_hip_ratio?: number | null;
   basal_metabolic_rate?: number | null;
+  basal_metabolic_rate_origin?: CalculationOrigin | null;
+  muscle_mass_origin?: CalculationOrigin | null;
   assessment_method?: "manual_anthropometry" | "bioimpedance" | "hybrid" | "imported" | null;
   record_origin?: "cordex" | "legacy" | "actuar" | null;
   sex_used_for_formula?: "male" | "female" | null;
@@ -910,7 +913,10 @@ export const assessmentService = {
   },
 
   async create(memberId: string, payload: AssessmentCreateInput): Promise<Assessment> {
-    const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}`, payload);
+    const { data } = await api.post<Assessment>(
+      `/api/v1/assessments/members/${memberId}`,
+      stripReadOnlyCalculationOrigins(payload),
+    );
     return data;
   },
 
@@ -920,12 +926,17 @@ export const assessmentService = {
   },
 
   async previewAnthropometry(memberId: string, payload: AnthropometryAssessmentInput): Promise<AnthropometryPreview> {
-    const { data } = await api.post<AnthropometryPreview>(`/api/v1/assessments/members/${memberId}/anthropometry/preview`, payload);
+    const { data } = await api.post<AnthropometryPreview>(
+      `/api/v1/assessments/members/${memberId}/anthropometry/preview`,
+      stripReadOnlyCalculationOrigins(payload),
+    );
     return data;
   },
 
   async createAnthropometry(memberId: string, payload: AnthropometryAssessmentInput, idempotencyKey: string): Promise<Assessment> {
-    const { data } = await api.post<Assessment>(`/api/v1/assessments/members/${memberId}/anthropometry`, payload, {
+    const { data } = await api.post<Assessment>(
+      `/api/v1/assessments/members/${memberId}/anthropometry`,
+      stripReadOnlyCalculationOrigins(payload), {
       headers: { "Idempotency-Key": idempotencyKey },
     });
     return data;

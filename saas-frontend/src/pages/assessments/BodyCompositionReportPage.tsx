@@ -18,7 +18,9 @@ import type {
   BodyCompositionReportHeader,
   BodyCompositionSex,
   BodyCompositionTrend,
+  CalculationOrigin,
 } from "../../types";
+import { calculationOriginLabel } from "../../utils/calculationOrigins";
 
 const CORDEX_LOGO_SRC = "/brand/cordex-logo-report.png";
 const PROGYM_LOGO_SRC = "/progym-logo.png";
@@ -121,11 +123,24 @@ function metricReference(metric: BodyCompositionReferenceMetric): string {
   return `<= ${formatNumber(metric.reference_max)}${metric.unit ? ` ${metric.unit}` : ""}`;
 }
 
-function metricExplanation(key: string, context?: BodyCompositionBodyFatContext | null): string {
+interface ReportCalculationOrigins {
+  basal_metabolic_rate_origin?: CalculationOrigin | null;
+  muscle_mass_origin?: CalculationOrigin | null;
+}
+
+function metricExplanation(
+  key: string,
+  context?: BodyCompositionBodyFatContext | null,
+  origins?: ReportCalculationOrigins,
+): string {
   if (key === "body_fat_used_percent") {
     if (context?.used_source === "bioimpedance") return "Leitura de gordura informada pela bioimpedancia";
     if (context?.used_source === "manual_override") return "Percentual informado pelo profissional";
     return "Estimativa por protocolo de dobras e medidas";
+  }
+  if (key === "muscle_mass_kg") return calculationOriginLabel(origins?.muscle_mass_origin);
+  if (key === "basal_metabolic_rate_kcal" || key === "bmr") {
+    return calculationOriginLabel(origins?.basal_metabolic_rate_origin);
   }
   const labels: Record<string, string> = {
     bmi: "Indice entre peso e altura",
@@ -136,11 +151,9 @@ function metricExplanation(key: string, context?: BodyCompositionBodyFatContext 
     protein_kg: "Proteina informada no exame",
     inorganic_salt_kg: "Minerais informados no exame",
     skeletal_muscle_kg: "Musculo esqueletico informado",
-    muscle_mass_kg: "Massa muscular informada",
     fat_mass_estimated_kg: "Massa de gordura calculada pelo percentual oficial",
     fat_free_mass_kg: "Massa livre de gordura informada",
     lean_mass_estimated_kg: "Massa livre estimada pelo percentual oficial",
-    basal_metabolic_rate_kcal: "Metabolismo basal informado no exame",
     physical_age: "Idade fisica informada no exame",
   };
   return labels[key] ?? "Indicador de acompanhamento";
@@ -152,12 +165,22 @@ function bodyFatPanelDescription(source: string | null | undefined): string {
   return "Percentual estimado por dobras e medidas conforme o protocolo selecionado.";
 }
 
-function metricSource(metric: BodyCompositionReferenceMetric, context: BodyCompositionBodyFatContext | null): { group: "bioimpedance" | "measurements"; label: string } {
+function metricSource(
+  metric: BodyCompositionReferenceMetric,
+  context: BodyCompositionBodyFatContext | null,
+  origins?: ReportCalculationOrigins,
+): { group: "bioimpedance" | "measurements"; label: string } {
   const usedSource = context?.used_source ?? null;
   if (["body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"].includes(metric.key)) {
     if (usedSource === "bioimpedance") return { group: "bioimpedance", label: "Bioimpedancia" };
     if (usedSource === "manual_override") return { group: "measurements", label: "Manual" };
     return { group: "measurements", label: "Dobras e medidas" };
+  }
+  if (metric.key === "muscle_mass_kg") {
+    return { group: "measurements", label: calculationOriginLabel(origins?.muscle_mass_origin) };
+  }
+  if (metric.key === "basal_metabolic_rate_kcal" || metric.key === "bmr") {
+    return { group: "measurements", label: calculationOriginLabel(origins?.basal_metabolic_rate_origin) };
   }
   if (metric.key === "waist_hip_ratio") return { group: "measurements", label: "Medidas corporais" };
   return { group: "bioimpedance", label: "Bioimpedancia" };
@@ -275,12 +298,26 @@ function BodyCompositionReportPage() {
       <article className="clinical-web-document body-composition-report-document mx-auto max-w-[1180px] overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
         <div className="body-composition-report-content">
           <section className="clinical-web-page">
-            <ReportHeader header={report.header} physicalAge={metricValue(physicalAgeMetric)} bmr={metricValue(bmrMetric)} />
+            <ReportHeader
+              header={report.header}
+              physicalAge={metricValue(physicalAgeMetric)}
+              bmr={metricValue(bmrMetric)}
+              basalMetabolicRateOrigin={report.basal_metabolic_rate_origin}
+              muscleMassOrigin={report.muscle_mass_origin}
+            />
             <section className="clinical-web-page-grid">
               <SummaryCard score={reportScore} insight={leadInsight} />
-              <KeyIndicatorsTable metrics={keyIndicators} context={report.body_fat_context ?? null} />
+              <KeyIndicatorsTable
+                metrics={keyIndicators}
+                context={report.body_fat_context ?? null}
+                origins={report}
+              />
             </section>
-            <CompositionDetailGrid metrics={detailMetrics} context={report.body_fat_context ?? null} />
+            <CompositionDetailGrid
+              metrics={detailMetrics}
+              context={report.body_fat_context ?? null}
+              origins={report}
+            />
           </section>
 
           <section className="clinical-web-page">
@@ -305,10 +342,14 @@ function ReportHeader({
   header,
   physicalAge,
   bmr,
+  basalMetabolicRateOrigin,
+  muscleMassOrigin,
 }: {
   header: BodyCompositionReportHeader;
   physicalAge: string;
   bmr: string;
+  basalMetabolicRateOrigin?: CalculationOrigin | null;
+  muscleMassOrigin?: CalculationOrigin | null;
 }) {
   return (
     <header className="clinical-web-header">
@@ -324,11 +365,22 @@ function ReportHeader({
       </div>
       <section className="clinical-web-meta-grid">
         <MetaCell label="Altura" value={headerValue(header.height_cm, "cm")} />
+        <MetaCell label="Peso" value={headerValue(header.weight_kg, "kg")} prominent />
         <MetaCell label="Idade" value={headerValue(header.age_years, "anos")} />
         <MetaCell label="Sexo" value={sexLabel(header.sex)} />
         <MetaCell label="Idade fisica" value={physicalAge} />
         <MetaCell label="Metab. basal" value={bmr} />
         <MetaCell label="Data / hora" value={formatDateTime(header.measured_at)} />
+      </section>
+      <section className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Origem dos calculos">
+        <div className="rounded-lg border border-[#d8d2ca] bg-[#f7f4ef] px-4 py-3">
+          <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[#7c6250]">Origem da TMB</span>
+          <strong className="mt-1 block text-sm text-[#050505]">{calculationOriginLabel(basalMetabolicRateOrigin)}</strong>
+        </div>
+        <div className="rounded-lg border border-[#d8d2ca] bg-[#f7f4ef] px-4 py-3">
+          <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[#7c6250]">Origem da massa muscular</span>
+          <strong className="mt-1 block text-sm text-[#050505]">{calculationOriginLabel(muscleMassOrigin)}</strong>
+        </div>
       </section>
     </header>
   );
@@ -347,9 +399,9 @@ function ReportMiniHeader({ header }: { header: BodyCompositionReportHeader }) {
   );
 }
 
-function MetaCell({ label, value }: { label: string; value: string }) {
+function MetaCell({ label, value, prominent = false }: { label: string; value: string; prominent?: boolean }) {
   return (
-    <div className="clinical-web-meta-cell">
+    <div className={`clinical-web-meta-cell${prominent ? " clinical-web-meta-cell-prominent" : ""}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -381,7 +433,15 @@ function SummaryCard({ score, insight }: { score: string; insight: BodyCompositi
   );
 }
 
-function KeyIndicatorsTable({ metrics, context }: { metrics: BodyCompositionReferenceMetric[]; context: BodyCompositionBodyFatContext | null }) {
+function KeyIndicatorsTable({
+  metrics,
+  context,
+  origins,
+}: {
+  metrics: BodyCompositionReferenceMetric[];
+  context: BodyCompositionBodyFatContext | null;
+  origins: ReportCalculationOrigins;
+}) {
   if (metrics.length === 0) return null;
   return (
     <section className="clinical-web-section clinical-web-key-section">
@@ -404,7 +464,7 @@ function KeyIndicatorsTable({ metrics, context }: { metrics: BodyCompositionRefe
                   <span className={statusClass(metric.status)}>{statusLabel(metric.status)}</span>
                 </td>
                 <td>
-                  <span className="clinical-web-source-pill">{metricSource(metric, context).label}</span>
+                  <span className="clinical-web-source-pill">{metricSource(metric, context, origins).label}</span>
                 </td>
                 <td>
                   <strong>{metric.formatted_value}</strong>
@@ -419,7 +479,15 @@ function KeyIndicatorsTable({ metrics, context }: { metrics: BodyCompositionRefe
   );
 }
 
-function CompositionDetailGrid({ metrics, context }: { metrics: BodyCompositionReferenceMetric[]; context: BodyCompositionBodyFatContext | null }) {
+function CompositionDetailGrid({
+  metrics,
+  context,
+  origins,
+}: {
+  metrics: BodyCompositionReferenceMetric[];
+  context: BodyCompositionBodyFatContext | null;
+  origins: ReportCalculationOrigins;
+}) {
   if (metrics.length === 0) return null;
   return (
     <section className="clinical-web-section clinical-web-detail-section">
@@ -428,9 +496,9 @@ function CompositionDetailGrid({ metrics, context }: { metrics: BodyCompositionR
         {metrics.map((metric) => (
           <article key={metric.key} className="clinical-web-detail-item">
             <div>
-              <span>{metricSource(metric, context).label}</span>
+              <span>{metricSource(metric, context, origins).label}</span>
               <strong>{metric.label}</strong>
-              <small>{metricExplanation(metric.key, context)}</small>
+              <small>{metricExplanation(metric.key, context, origins)}</small>
             </div>
             <em>{metric.formatted_value}</em>
           </article>
@@ -518,12 +586,18 @@ function MeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; 
 
 function MeasurementBubble({ row }: { row: BodyCompositionMeasurementRow }) {
   const hasCurrent = row.current_value != null;
+  const hasPrevious = row.previous_value != null;
+  const comparison = hasCurrent && hasPrevious
+    ? `Anterior: ${row.formatted_previous}${row.formatted_delta !== "-" ? ` · ${row.formatted_delta}` : ""}`
+    : hasCurrent
+      ? "Primeira avaliação"
+      : "Sem medida atual";
   return (
     <article className="clinical-web-measurement-bubble">
       <span>{hasCurrent ? "Atual" : "Anterior"}</span>
       <strong>{row.label}</strong>
       <em>{hasCurrent ? row.formatted_current : row.formatted_previous}</em>
-      {hasCurrent && row.formatted_previous !== "-" ? <small>ant. {row.formatted_previous}</small> : null}
+      <small>{comparison}</small>
     </article>
   );
 }

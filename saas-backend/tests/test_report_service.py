@@ -201,7 +201,16 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
                         "formatted_current": "38 cm",
                         "formatted_previous": "37 cm",
                         "formatted_delta": "+1 cm",
-                    }
+                    },
+                    {
+                        "key": "waist_cm",
+                        "label": "Cintura",
+                        "current_value": 82,
+                        "previous_value": None,
+                        "formatted_current": "82 cm",
+                        "formatted_previous": "-",
+                        "formatted_delta": "-",
+                    },
                 ],
                 "history_series": [
                     {
@@ -242,6 +251,8 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Medidas/protocolo" in html
     assert "Bioimpedancia" in html
     assert "Medidas corporais" in html
+    assert "Anterior: 37 cm &middot; +1 cm" in html
+    assert "Primeira avaliacao" in html
     assert "Mapa corporal frontal masculino de medidas" in html
     assert 'data-report-asset="body-map"' in html
     assert "https://report-assets.local/body-map-front-male.png" in html
@@ -270,10 +281,12 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "clinical-cordex-logo" in html
     assert "clinical-progym-logo" in html
     weight_meta = html.index('<article class="clinical-meta-card clinical-meta-prominent">')
-    assert weight_meta < html.index("Altura")
+    assert html.index("Altura") < weight_meta < html.index("Idade")
     assert weight_meta < html.index('<section class="clinical-cover-evaluation-grid">')
     assert "84,5 kg" in html[weight_meta : weight_meta + 250]
-    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in html
+    assert "Data / hora" in html
+    assert "14/04/2026 10:00" in html
+    assert "grid-template-columns: repeat(7, minmax(0, 1fr))" in html
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 

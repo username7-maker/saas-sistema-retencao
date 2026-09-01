@@ -84,6 +84,8 @@ function makeEvaluation(): BodyCompositionEvaluation {
     visceral_fat_level: 7.2,
     bmi: 22.8,
     basal_metabolic_rate_kcal: 1420,
+    basal_metabolic_rate_origin: "mifflin_st_jeor_1990",
+    muscle_mass_origin: "reported",
     measurement_source: "composite_geneos",
     measurement_protocol: "geneos_composite",
     neck_cm: 33,
@@ -262,12 +264,16 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByText("Preencha pares direito/esquerdo para comparar.")).toBeInTheDocument();
     expect(screen.getByText("Previa antes de salvar")).toBeInTheDocument();
     expect(screen.getByText("Revisao manual do percentual concluida")).toBeInTheDocument();
+    expect(screen.getAllByText(/Medido pelo aparelho/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/TMB por Mifflin/).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Editar atual" }));
 
     await waitFor(() => {
       expect(screen.getByText("Braco contraido")).toBeInTheDocument();
     });
+    expect(screen.getByText("Origem (somente leitura): Medido pelo aparelho")).toBeInTheDocument();
+    expect(screen.getByText("Origem (somente leitura): TMB por Mifflin")).toBeInTheDocument();
   });
 
   it("deletes a bioimpedance evaluation only after explicit confirmation", async () => {
@@ -301,6 +307,8 @@ describe("MemberBodyCompositionTab", () => {
         muscle_mass_kg: 42.5,
         bmi: 31.56,
         basal_metabolic_rate: 1930,
+        basal_metabolic_rate_origin: "schofield_hw_1985",
+        muscle_mass_origin: "poortmans_2005",
       } as Awaited<ReturnType<typeof assessmentService.list>>[number],
     ]);
     const popup = {} as Window;
@@ -312,6 +320,8 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByText("Sem bioimpedancia")).toBeInTheDocument();
     expect(screen.getByText("10.31%")).toBeInTheDocument();
     expect(screen.getByText("1930 kcal/dia")).toBeInTheDocument();
+    expect(screen.getByText("Origem: Estimado por Poortmans")).toBeInTheDocument();
+    expect(screen.getByText("Origem: TMB por Schofield")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Abrir PDF premium" }));
 

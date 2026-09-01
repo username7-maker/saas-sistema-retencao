@@ -119,6 +119,35 @@ def _parse_ignored_columns(raw_value: str | None) -> list[str]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ignored_columns deve ser uma lista JSON")
     return [str(item) for item in parsed]
 
+
+def _successful_import_audit_details(
+    *,
+    content: bytes,
+    filename: str | None,
+    column_mappings: dict[str, str],
+    ignored_columns: list[str],
+    summary: ImportSummary,
+) -> dict:
+    """Aggregate-only import evidence. Never records source rows or PII."""
+
+    safe_filename = str(filename or "arquivo_sem_nome").replace("\\", "/").rsplit("/", 1)[-1]
+    return {
+        "filename": safe_filename,
+        "file_sha256": hashlib.sha256(content).hexdigest().upper(),
+        "mapping": {
+            "column_mappings": dict(sorted(column_mappings.items())),
+            "ignored_columns": sorted(ignored_columns),
+        },
+        "totals": {
+            "imported": summary.imported,
+            "updated_existing": summary.updated_existing,
+            "duplicates": summary.skipped_duplicates,
+            "ignored_rows": summary.ignored_rows,
+            "provisional_members_created": summary.provisional_members_created,
+            "errors": len(summary.errors),
+        },
+    }
+
 @router.post("/members", response_model=ImportSummary)
 @limiter.limit("5/minute")
 async def import_members_endpoint(
@@ -180,12 +209,13 @@ async def import_members_endpoint(
         action="import_members_csv",
         entity="members",
         user=current_user,
-        details={
-            "imported": summary.imported,
-            "updated_existing": summary.updated_existing,
-            "duplicates": summary.skipped_duplicates,
-            "errors": len(summary.errors),
-        },
+        details=_successful_import_audit_details(
+            content=content,
+            filename=file.filename,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+            summary=summary,
+        ),
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -295,13 +325,13 @@ async def import_checkins_endpoint(
         action="import_checkins_csv",
         entity="checkins",
         user=current_user,
-        details={
-            "imported": summary.imported,
-            "duplicates": summary.skipped_duplicates,
-            "ignored_rows": summary.ignored_rows,
-            "provisional_members_created": summary.provisional_members_created,
-            "errors": len(summary.errors),
-        },
+        details=_successful_import_audit_details(
+            content=content,
+            filename=file.filename,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+            summary=summary,
+        ),
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -367,13 +397,15 @@ async def import_assessments_endpoint(
     content = await file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+    parsed_mappings = _parse_mapping_dict(column_mappings)
+    parsed_ignored_columns = _parse_ignored_columns(ignored_columns)
     try:
         summary = import_assessments_csv(
             db,
             content,
             filename=file.filename,
-            column_mappings=_parse_mapping_dict(column_mappings),
-            ignored_columns=_parse_ignored_columns(ignored_columns),
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -383,12 +415,13 @@ async def import_assessments_endpoint(
         action="import_assessments_csv",
         entity="assessments",
         user=current_user,
-        details={
-            "imported": summary.imported,
-            "updated_existing": summary.updated_existing,
-            "duplicates": summary.skipped_duplicates,
-            "errors": len(summary.errors),
-        },
+        details=_successful_import_audit_details(
+            content=content,
+            filename=file.filename,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+            summary=summary,
+        ),
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -443,13 +476,15 @@ async def import_assessment_appointments_endpoint(
     content = await file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+    parsed_mappings = _parse_mapping_dict(column_mappings)
+    parsed_ignored_columns = _parse_ignored_columns(ignored_columns)
     try:
         summary = import_assessment_appointments_csv(
             db,
             content,
             filename=file.filename,
-            column_mappings=_parse_mapping_dict(column_mappings),
-            ignored_columns=_parse_ignored_columns(ignored_columns),
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -459,11 +494,13 @@ async def import_assessment_appointments_endpoint(
         action="import_assessment_appointments_csv",
         entity="assessment_appointments",
         user=current_user,
-        details={
-            "imported": summary.imported,
-            "duplicates": summary.skipped_duplicates,
-            "errors": len(summary.errors),
-        },
+        details=_successful_import_audit_details(
+            content=content,
+            filename=file.filename,
+            column_mappings=parsed_mappings,
+            ignored_columns=parsed_ignored_columns,
+            summary=summary,
+        ),
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )

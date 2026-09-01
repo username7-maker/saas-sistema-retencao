@@ -28,7 +28,16 @@ OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 BodyCompositionSex = Literal["male", "female"]
-AnthropometryEthnicity = Literal["white", "black"]
+AnthropometryEthnicity = Literal["white", "black", "asian"]
+CalculationOrigin = Literal[
+    "reported",
+    "schofield_hw_1985",
+    "mifflin_st_jeor_1990",
+    "lee_2000",
+    "poortmans_2005",
+    "legacy_unknown",
+    "unavailable",
+]
 AnthropometryMaturity = Literal["prepubertal", "pubertal", "postpubertal"]
 BodyFatMeasurementSource = Literal["bioimpedance", "manual_anthropometry", "composite_geneos", "manual_override"]
 PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_composite", "manual_override"]
@@ -50,6 +59,18 @@ BodyCompositionDataQualityFlag = Literal[
     "anthropometry_protocol_manual_only",
     "anthropometry_protocol_mismatch",
     "anthropometry_protocol_age_outside_range",
+    "bmr_inputs_incomplete",
+    "bmr_inputs_invalid",
+    "bmr_age_outside_supported_range",
+    "muscle_inputs_incomplete",
+    "muscle_measurement_required",
+    "muscle_measurements_incomplete",
+    "muscle_age_outside_validated_range",
+    "poortmans_population_not_validated",
+    "lee_ethnicity_required",
+    "lee_bmi_extrapolation",
+    "corrected_circumference_invalid",
+    "muscle_calculation_invalid",
 ]
 
 BODY_COMPOSITION_NUMERIC_INPUT_FIELDS = (
@@ -329,6 +350,8 @@ class BodyCompositionEvaluationRead(BodyCompositionEvaluationBase):
     gym_id: UUID
     member_id: UUID
     reviewer_user_id: UUID | None
+    basal_metabolic_rate_origin: CalculationOrigin | None = None
+    muscle_mass_origin: CalculationOrigin | None = None
     data_quality_flags_json: list[BodyCompositionDataQualityFlag] | None
     ai_coach_summary: str | None
     ai_member_friendly_summary: str | None
@@ -375,6 +398,8 @@ class BodyCompositionMetricCardRead(BaseModel):
     value: float | int | None = None
     unit: str | None = None
     formatted_value: str
+    origin: str | None = None
+    origin_label: str | None = None
     delta_absolute: float | None = None
     delta_percent: float | None = None
     trend: BodyCompositionTrend = "insufficient"
@@ -386,6 +411,8 @@ class BodyCompositionReferenceMetricRead(BaseModel):
     value: float | int | None = None
     unit: str | None = None
     formatted_value: str
+    origin: str | None = None
+    origin_label: str | None = None
     reference_min: float | None = None
     reference_max: float | None = None
     status: BodyCompositionRangeStatus = "unknown"
@@ -455,6 +482,10 @@ class BodyCompositionComparisonRowRead(BaseModel):
     current_value: float | int | None = None
     previous_formatted: str
     current_formatted: str
+    previous_origin: str | None = None
+    previous_origin_label: str | None = None
+    current_origin: str | None = None
+    current_origin_label: str | None = None
     difference_absolute: float | None = None
     difference_percent: float | None = None
     trend: BodyCompositionTrend = "insufficient"
@@ -465,6 +496,8 @@ class BodyCompositionHistoryPointRead(BaseModel):
     measured_at: datetime
     evaluation_date: date
     value: float | int | None = None
+    origin: str | None = None
+    origin_label: str | None = None
 
 
 class BodyCompositionHistorySeriesRead(BaseModel):
@@ -486,6 +519,8 @@ class BodyCompositionReportRead(BaseModel):
     header: BodyCompositionReportHeaderRead
     current_evaluation_id: UUID
     previous_evaluation_id: UUID | None = None
+    basal_metabolic_rate_origin: CalculationOrigin | None = None
+    muscle_mass_origin: CalculationOrigin | None = None
     reviewed_manually: bool
     parsing_confidence: float | None = None
     data_quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)

@@ -1367,7 +1367,15 @@ export type ActuarSyncJobStatus = "pending" | "processing" | "synced" | "failed"
 export type ActuarSyncAttemptStatus = "started" | "succeeded" | "failed";
 export type OcrWarningSeverity = "warning" | "critical";
 export type BodyCompositionSex = "male" | "female";
-export type AnthropometryEthnicity = "white" | "black";
+export type CalculationOrigin =
+  | "reported"
+  | "schofield_hw_1985"
+  | "mifflin_st_jeor_1990"
+  | "lee_2000"
+  | "poortmans_2005"
+  | "legacy_unknown"
+  | "unavailable";
+export type AnthropometryEthnicity = "white" | "black" | "asian";
 export type AnthropometryMaturity = "prepubertal" | "pubertal" | "postpubertal";
 export type BodyFatMeasurementSource = "bioimpedance" | "manual_anthropometry" | "composite_geneos" | "manual_override";
 export type PreferredBodyFatSource = "bioimpedance" | "anthropometry" | "geneos_composite" | "manual_override";
@@ -1388,7 +1396,19 @@ export type BodyCompositionDataQualityFlag =
   | "abnormal_measurement_variation"
   | "anthropometry_protocol_manual_only"
   | "anthropometry_protocol_mismatch"
-  | "anthropometry_protocol_age_outside_range";
+  | "anthropometry_protocol_age_outside_range"
+  | "bmr_inputs_incomplete"
+  | "bmr_inputs_invalid"
+  | "bmr_age_outside_supported_range"
+  | "muscle_inputs_incomplete"
+  | "muscle_measurement_required"
+  | "muscle_measurements_incomplete"
+  | "muscle_age_outside_validated_range"
+  | "poortmans_population_not_validated"
+  | "lee_ethnicity_required"
+  | "lee_bmi_extrapolation"
+  | "corrected_circumference_invalid"
+  | "muscle_calculation_invalid";
 export type BodyCompositionTrend = "up" | "down" | "stable" | "insufficient";
 export type BodyCompositionRangeStatus = "low" | "adequate" | "monitor" | "high" | "unknown";
 export type BodyCompositionInsightTone = "positive" | "warning" | "neutral";
@@ -1535,6 +1555,8 @@ export interface BodyCompositionReport {
   reviewed_manually: boolean;
   parsing_confidence: number | null;
   data_quality_flags: BodyCompositionDataQualityFlag[];
+  basal_metabolic_rate_origin?: CalculationOrigin | null;
+  muscle_mass_origin?: CalculationOrigin | null;
   body_fat_context?: BodyCompositionBodyFatContext | null;
   score_total?: number | null;
   score_breakdown?: BodyCompositionScoreBreakdownItem[];
@@ -1845,6 +1867,8 @@ export interface BodyCompositionEvaluation {
   visceral_fat_level: number | null;
   bmi: number | null;
   basal_metabolic_rate_kcal: number | null;
+  basal_metabolic_rate_origin?: CalculationOrigin | null;
+  muscle_mass_origin?: CalculationOrigin | null;
   neck_cm?: number | null;
   shoulders_cm?: number | null;
   chest_cm?: number | null;

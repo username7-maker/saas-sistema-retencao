@@ -1,4 +1,5 @@
 import type { Assessment } from "../../services/assessmentService";
+import { calculationOriginLabel } from "../../utils/calculationOrigins";
 
 interface AssessmentTimelineProps {
   assessments: Assessment[];
@@ -33,6 +34,14 @@ export function AssessmentTimeline({ assessments }: AssessmentTimelineProps) {
               <p>Força: {assessment.strength_score ?? "-"}</p>
               <p>Flexibilidade: {assessment.flexibility_score ?? "-"}</p>
               <p>Cardio: {assessment.cardio_score ?? "-"}</p>
+              <p>
+                Massa muscular: {assessment.muscle_mass_kg ?? "-"} kg
+                <span className="block">Origem: {calculationOriginLabel(assessment.muscle_mass_origin)}</span>
+              </p>
+              <p>
+                TMB: {assessment.basal_metabolic_rate ?? "-"} kcal/dia
+                <span className="block">Origem: {calculationOriginLabel(assessment.basal_metabolic_rate_origin)}</span>
+              </p>
             </div>
             {assessment.ai_analysis && (
               <p className="mt-2 rounded-lg border border-lovable-border bg-lovable-surface px-3 py-2 text-xs text-lovable-ink-muted">

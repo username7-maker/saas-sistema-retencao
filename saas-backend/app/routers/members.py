@@ -101,7 +101,7 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/members", tags=["members"])
-BODY_COMPOSITION_PDF_LAYOUT_VERSION = "clinical-a4-sidebar-fit-2026-04-15b"
+BODY_COMPOSITION_PDF_LAYOUT_VERSION = "clinical-a4-weight-comparison-2026-09-01"
 
 
 class PreferredShiftSyncResult(BaseModel):

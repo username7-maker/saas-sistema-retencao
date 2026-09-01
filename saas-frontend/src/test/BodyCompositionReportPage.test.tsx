@@ -31,6 +31,8 @@ function makeReport(): BodyCompositionReport {
     reviewed_manually: true,
     parsing_confidence: 0.91,
     data_quality_flags: [],
+    basal_metabolic_rate_origin: "mifflin_st_jeor_1990",
+    muscle_mass_origin: "lee_2000",
     body_fat_context: {
       bioimpedance_raw_percent: 31.2,
       anthropometric_percent: 23.8,
@@ -66,6 +68,18 @@ function makeReport(): BodyCompositionReport {
         formatted_previous: "85 cm",
         formatted_delta: "-3 cm",
       },
+      {
+        key: "neck_cm",
+        label: "Pescoco",
+        current_value: 38,
+        previous_value: null,
+        delta: null,
+        unit: "cm",
+        used_for_body_fat_calculation: false,
+        formatted_current: "38 cm",
+        formatted_previous: "-",
+        formatted_delta: "-",
+      },
     ],
     primary_cards: [
       { key: "weight", label: "Peso", value: 84.5, unit: "kg", formatted_value: "84.5 kg", delta_absolute: -1.2, delta_percent: -1.4, trend: "down" },
@@ -81,6 +95,7 @@ function makeReport(): BodyCompositionReport {
       { key: "body_water_percent", label: "Agua corporal (%)", value: 51.2, unit: "%", formatted_value: "51.2%", reference_min: null, reference_max: null, status: "unknown", hint: null },
       { key: "protein_kg", label: "Proteina", value: 17.7, unit: "kg", formatted_value: "17.7 kg", reference_min: 16, reference_max: 19, status: "adequate", hint: null },
       { key: "skeletal_muscle_kg", label: "Musculo esqueletico", value: 35.6, unit: "kg", formatted_value: "35.6 kg", reference_min: 28, reference_max: 38, status: "adequate", hint: null },
+      { key: "muscle_mass_kg", label: "Massa muscular", value: 36.2, unit: "kg", formatted_value: "36.2 kg", reference_min: null, reference_max: null, status: "unknown", hint: null },
     ],
     muscle_fat_metrics: [
       { key: "weight", label: "Peso", value: 84.5, unit: "kg", formatted_value: "84.5 kg", reference_min: 65, reference_max: 80, status: "high", hint: null },
@@ -203,9 +218,15 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByRole("button", { name: "Resumo do aluno" })).toBeInTheDocument();
     expect(screen.getByText("Leitura da avaliacao")).toBeInTheDocument();
     expect(document.querySelector(".clinical-web-score-card strong")).toHaveTextContent("71");
+    expect(document.querySelector(".clinical-web-meta-grid")).toHaveTextContent("Peso84,5 kg");
+    expect(document.querySelector(".clinical-web-meta-cell-prominent")).toHaveTextContent("Peso84,5 kg");
+    expect(screen.getByText("Anterior: 85 cm · -3 cm")).toBeInTheDocument();
+    expect(screen.getByText("Primeira avaliação")).toBeInTheDocument();
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
     expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
+    expect(screen.getAllByText("TMB por Mifflin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Estimado por Lee").length).toBeGreaterThan(0);
   });
 
   it("opens the complete technical pdf through the authenticated service", async () => {

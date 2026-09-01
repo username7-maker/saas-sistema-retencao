@@ -1279,12 +1279,17 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
       </header>
 
       <section class="clinical-meta-grid">
-        {_render_body_meta_block("Peso", weight_header_value, prominent=True)}
         {_render_body_meta_block("Altura", _body_header_value(header.get("height_cm"), "cm"))}
+        {_render_body_meta_block("Peso", weight_header_value, prominent=True)}
         {_render_body_meta_block("Idade", _body_header_value(header.get("age_years"), "anos"))}
         {_render_body_meta_block("Sexo", _body_sex_label(header.get("sex")))}
         {_render_body_meta_block("Idade fisica", _body_metric_formatted(physical_age_metric) if physical_age_metric else "-")}
-        {_render_body_meta_block("Metab. basal", _body_metric_formatted(bmr_metric) if bmr_metric else "-", last=True)}
+        {_render_body_meta_block(
+            "Metab. basal",
+            _body_metric_formatted(bmr_metric) if bmr_metric else "-",
+            hint=_body_metric_origin_label(bmr_metric),
+        )}
+        {_render_body_meta_block("Data / hora", measured_label, last=True)}
       </section>
 
       {f'<section class="clinical-flags">{flags_html}</section>' if flags_html else ''}
@@ -1662,8 +1667,8 @@ def _render_body_client_history(
             f"""
             <tr>
               <td>{escape(str(row.get("label") or "-"))}</td>
-              <td>{escape(str(row.get("previous_formatted") or "-"))}</td>
-              <td>{escape(str(row.get("current_formatted") or "-"))}</td>
+              <td>{escape(str(row.get("previous_formatted") or "-"))}{_render_body_history_origin(row.get("previous_origin_label"))}</td>
+              <td>{escape(str(row.get("current_formatted") or "-"))}{_render_body_history_origin(row.get("current_origin_label"))}</td>
               <td>{escape(_format_body_delta(row))}</td>
             </tr>
             """
@@ -1886,23 +1891,26 @@ def _render_body_measurement_pdf_section(rows: Sequence[dict[str, Any]], sex: An
 
 
 def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
-    value = row.get("formatted_current") if row.get("current_value") is not None else row.get("formatted_previous")
-    caption = "Atual" if row.get("current_value") is not None else "Anterior"
+    has_current = row.get("current_value") is not None
+    has_previous = row.get("previous_value") is not None
+    value = row.get("formatted_current") if has_current else row.get("formatted_previous")
+    caption = "Atual" if has_current else "Anterior"
     previous = str(row.get("formatted_previous") or "-")
     delta = str(row.get("formatted_delta") or "-")
-    detail_parts = []
-    if previous not in {"", "-"} and row.get("current_value") is not None:
-        detail_parts.append(f"ant. {previous}")
-    if delta not in {"", "-"}:
-        detail_parts.append(delta)
-    detail = " | ".join(detail_parts)
+    if has_current and has_previous:
+        delta_detail = f" &middot; {escape(delta)}" if delta not in {"", "-"} else ""
+        comparison = f"Anterior: {escape(previous)}{delta_detail}"
+    elif has_current:
+        comparison = "Primeira avaliacao"
+    else:
+        comparison = "Sem medida atual"
     side_class = "bubble-left" if side == "left" else "bubble-right"
     return f"""
     <article class="clinical-measurement-bubble {side_class}">
       <span>{escape(caption)}</span>
       <strong>{escape(str(row.get("label") or "-"))}</strong>
       <em>{escape(str(value or "-"))}</em>
-      {f'<small>{escape(detail)}</small>' if detail else ''}
+      <small>{comparison}</small>
     </article>
     """
 
@@ -2156,6 +2164,11 @@ def _render_body_band_row(metric: dict[str, Any]) -> str:
 
 def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[str, str]:
     key = str(metric.get("key") or "")
+    origin = str(metric.get("origin") or "")
+    origin_label = _body_metric_origin_label(metric)
+    if origin_label:
+        group = "bioimpedance" if origin in {"reported", "legacy_unknown"} else "calculation"
+        return (group, origin_label)
     used_source = str(_read_value(body_fat_context, "used_source") or "")
     if key in {"body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"}:
         if used_source == "bioimpedance":
@@ -2173,6 +2186,9 @@ def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[
 
 
 def _body_indicator_source_label(metric: dict[str, Any]) -> str:
+    origin_label = _body_metric_origin_label(metric)
+    if origin_label:
+        return origin_label
     key = str(metric.get("key") or "")
     if key == "bmi":
         return "Calculo do sistema"
@@ -2282,11 +2298,13 @@ def _render_body_history_row(series: dict[str, Any], columns: Sequence[str]) -> 
         point = points.get(column)
         if point and point.get("value") is not None:
             value = _coerce_float(point.get("value"))
+            origin_html = _render_body_history_origin(point.get("origin_label"))
             cells.append(
                 f"""
                 <div class="clinical-history-cell">
                   <span class="clinical-history-dot"></span>
                   <strong>{escape(f"{value:.1f}".replace('.', ','))}</strong>
+                  {origin_html}
                 </div>
                 """
             )
@@ -2416,6 +2434,19 @@ def _body_metric_formatted(metric: dict[str, Any] | None) -> str:
     if not metric:
         return "--"
     return str(metric.get("formatted_value") or metric.get("value") or "--")
+
+
+def _body_metric_origin_label(metric: dict[str, Any] | None) -> str:
+    if not metric:
+        return ""
+    return str(metric.get("origin_label") or "").strip()
+
+
+def _render_body_history_origin(value: Any) -> str:
+    label = str(value or "").strip()
+    if not label:
+        return ""
+    return f'<small class="clinical-history-origin">{escape(label)}</small>'
 
 
 def _body_metric_reference(metric: dict[str, Any]) -> str:
@@ -2609,7 +2640,14 @@ def _truncate_body_text(value: str, limit: int) -> str:
     return value[: max(limit - 3, 0)].rstrip(" ,;:-") + "..."
 
 
-def _render_body_meta_block(label: str, value: str, *, last: bool = False, prominent: bool = False) -> str:
+def _render_body_meta_block(
+    label: str,
+    value: str,
+    *,
+    hint: str | None = None,
+    last: bool = False,
+    prominent: bool = False,
+) -> str:
     classes = ""
     if prominent:
         classes += " clinical-meta-prominent"
@@ -2619,6 +2657,7 @@ def _render_body_meta_block(label: str, value: str, *, last: bool = False, promi
     <article class="clinical-meta-card{classes}">
       <span>{escape(label)}</span>
       <strong>{escape(value)}</strong>
+      {f'<small>{escape(hint)}</small>' if hint else ''}
     </article>
     """
 
@@ -2789,6 +2828,13 @@ def _body_composition_report_css() -> str:
         font-size: 13px;
         line-height: 1.15;
         word-break: break-word;
+      }
+      .clinical-meta-card small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 6.5px;
+        line-height: 1.15;
       }
       .clinical-flags {
         display: flex;
@@ -3311,6 +3357,14 @@ def _body_composition_report_css() -> str:
         font-size: 11px;
         line-height: 1;
       }
+      .clinical-history-origin {
+        display: block;
+        margin-top: 2px;
+        color: #7b8798;
+        font-size: 6.2px;
+        line-height: 1.15;
+        white-space: normal;
+      }
       .clinical-history-cell-empty {
         background: repeating-linear-gradient(
           45deg,
@@ -3800,9 +3854,17 @@ def _body_composition_report_css() -> str:
         background: #1185a6;
         border-radius: 999px;
       }
-      .clinical-measurement-bubble span,
-      .clinical-measurement-bubble small {
+      .clinical-measurement-bubble span {
         display: none;
+      }
+      .clinical-measurement-bubble small {
+        grid-column: 1 / -1;
+        display: block;
+        margin-top: -2px;
+        color: #718096;
+        font-size: 6.6px;
+        line-height: 1.15;
+        white-space: nowrap;
       }
       .clinical-measurement-bubble strong {
         margin-top: 0;
@@ -4070,7 +4132,7 @@ def _body_composition_report_css() -> str:
         letter-spacing: 0.24em;
       }
       .clinical-meta-grid {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(7, minmax(0, 1fr));
         margin-top: 18px;
         border-radius: 8px;
         overflow: hidden;
@@ -4187,6 +4249,9 @@ def _body_composition_report_css() -> str:
         font-weight: 700;
         text-transform: uppercase;
       }
+      .clinical-history-simple-table td .clinical-history-origin {
+        text-align: right;
+      }
       .clinical-key-table td:nth-child(2),
       .clinical-key-table td:nth-child(5),
       .clinical-history-simple-table td:nth-child(n+2),
@@ -4293,9 +4358,17 @@ def _body_composition_report_css() -> str:
         background: #ffffff;
         padding: 4px 7px;
       }
-      .clinical-measurement-bubble span,
-      .clinical-measurement-bubble small {
+      .clinical-measurement-bubble span {
         display: none;
+      }
+      .clinical-measurement-bubble small {
+        grid-column: 1 / -1;
+        display: block;
+        margin-top: -1px;
+        color: #718096;
+        font-size: 6.3px;
+        line-height: 1.1;
+        white-space: nowrap;
       }
       .clinical-measurement-bubble strong {
         font-size: 7.8px;

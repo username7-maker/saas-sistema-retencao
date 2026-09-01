@@ -27,6 +27,13 @@ from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_EVOLUTION_FIELDS,
     resolve_body_fat_fields,
 )
+from app.services.body_composition_calculation_service import (
+    ORIGIN_LEGACY_UNKNOWN,
+    ORIGIN_REPORTED,
+    ORIGIN_UNAVAILABLE,
+    calculate_basal_metabolic_rate as calculate_bmr_result,
+    calculate_muscle_mass as calculate_muscle_mass_result,
+)
 from app.services.premium_report_service import (
     PremiumReportAction,
     PremiumReportBranding,
@@ -127,6 +134,41 @@ _HISTORY_DEFS = (
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("visceral_fat_level", "Gordura visceral", None),
 )
+CALCULATION_ORIGIN_LABELS: dict[str, str] = {
+    "reported": "Medido/informado no exame",
+    "schofield_hw_1985": "TMB estimada por Schofield-HW (1985)",
+    "mifflin_st_jeor_1990": "TMB estimada por Mifflin-St Jeor (1990)",
+    "lee_2000": "Massa muscular estimada por Lee (2000)",
+    "poortmans_2005": "Massa muscular estimada por Poortmans (2005)",
+    "legacy_unknown": "Valor historico - origem nao identificada",
+    "unavailable": "Indisponivel",
+}
+
+_ORIGIN_FIELDS_BY_METRIC = {
+    "basal_metabolic_rate_kcal": "basal_metabolic_rate_origin",
+    "muscle_mass_kg": "muscle_mass_origin",
+}
+
+
+def body_composition_origin_label(origin: Any, *, metric_key: str | None = None) -> str | None:
+    """Return the public PT-BR provenance label used by API reports and PDFs."""
+
+    normalized = str(origin or "").strip()
+    if not normalized:
+        return None
+    if normalized == "unavailable" and metric_key == "muscle_mass_kg":
+        return "Indisponivel - medicao necessaria"
+    return CALCULATION_ORIGIN_LABELS.get(normalized, "Origem nao identificada")
+
+
+def _metric_origin(evaluation: Any, key: str) -> str | None:
+    field = _ORIGIN_FIELDS_BY_METRIC.get(key)
+    if field is None:
+        return None
+    origin = str(getattr(evaluation, field, None) or "").strip()
+    if origin in CALCULATION_ORIGIN_LABELS:
+        return origin
+    return "unavailable" if _read_metric_float(evaluation, key) is None else "legacy_unknown"
 
 
 def build_body_composition_quality_flags(
@@ -158,8 +200,29 @@ def resolve_body_composition_persistence_fields(
     *,
     reviewer_user_id: Any = None,
     previous_evaluation: Any | None = None,
+    existing_evaluation: Any | None = None,
+    explicit_fields: set[str] | None = None,
 ) -> dict[str, Any]:
     data = dict(values)
+    supplied_fields = set(values) if explicit_fields is None else set(explicit_fields)
+    calculation_values = dict(data)
+    for field in (
+        "sex",
+        "age_years",
+        "height_cm",
+        "weight_kg",
+        "anthropometry_ethnicity",
+        "right_arm_relaxed_cm",
+        "right_thigh_cm",
+        "right_calf_cm",
+        "skinfold_triceps_mm",
+        "skinfold_thigh_mm",
+        "skinfold_calf_mm",
+    ):
+        if field not in supplied_fields:
+            previous_value = _read_value(existing_evaluation, field)
+            if previous_value is not None:
+                calculation_values[field] = previous_value
     calculated_body_water_percent = calculate_body_water_percent(
         weight_kg=data.get("weight_kg"),
         body_water_kg=data.get("body_water_kg"),
@@ -178,14 +241,43 @@ def resolve_body_composition_persistence_fields(
         data["lean_mass_kg"] = fat_free_mass
 
     data = resolve_body_fat_fields(data, previous_values=previous_evaluation)
-    calculated_bmr = calculate_basal_metabolic_rate(
-        sex=data.get("sex"),
-        age_years=data.get("age_years"),
-        height_cm=data.get("height_cm"),
-        weight_kg=data.get("weight_kg"),
+    bmr_calculation = calculate_bmr_result(
+        sex=calculation_values.get("sex"),
+        age_years=calculation_values.get("age_years"),
+        height_cm=calculation_values.get("height_cm"),
+        weight_kg=calculation_values.get("weight_kg"),
     )
-    if data.get("basal_metabolic_rate_kcal") in (None, "") and calculated_bmr is not None:
-        data["basal_metabolic_rate_kcal"] = calculated_bmr
+    bmr_value, bmr_origin = _resolve_metric_precedence(
+        field="basal_metabolic_rate_kcal",
+        origin_field="basal_metabolic_rate_origin",
+        data=data,
+        previous=existing_evaluation,
+        supplied_fields=supplied_fields,
+        calculation_value=bmr_calculation.value,
+        calculation_origin=bmr_calculation.origin,
+    )
+    data["basal_metabolic_rate_kcal"] = bmr_value
+    data["basal_metabolic_rate_origin"] = bmr_origin
+
+    muscle_calculation = calculate_muscle_mass_result(
+        sex=calculation_values.get("sex"),
+        age_years=calculation_values.get("age_years"),
+        height_cm=calculation_values.get("height_cm"),
+        weight_kg=calculation_values.get("weight_kg"),
+        ethnicity=calculation_values.get("anthropometry_ethnicity"),
+        measurements=calculation_values,
+    )
+    muscle_value, muscle_origin = _resolve_metric_precedence(
+        field="muscle_mass_kg",
+        origin_field="muscle_mass_origin",
+        data=data,
+        previous=existing_evaluation,
+        supplied_fields=supplied_fields,
+        calculation_value=muscle_calculation.value,
+        calculation_origin=muscle_calculation.origin,
+    )
+    data["muscle_mass_kg"] = muscle_value
+    data["muscle_mass_origin"] = muscle_origin
 
     measured_at = data.get("measured_at")
     evaluation_date = data.get("evaluation_date")
@@ -210,11 +302,12 @@ def resolve_body_composition_persistence_fields(
         data["reviewer_user_id"] = None
 
     anthropometry_flags = list(data.get("data_quality_flags_json") or [])
+    calculation_flags = [*bmr_calculation.alerts, *muscle_calculation.alerts]
     data["data_quality_flags_json"] = list(dict.fromkeys(anthropometry_flags + build_body_composition_quality_flags(
         data,
         parsing_confidence=parsing_confidence,
         needs_review=needs_review or not reviewed_manually,
-    )))
+    ) + calculation_flags))
     return data
 
 
@@ -226,16 +319,65 @@ def calculate_body_water_percent(*, weight_kg: Any, body_water_kg: Any) -> float
     return round((body_water / weight) * 100, 1)
 
 
-def calculate_basal_metabolic_rate(*, sex: Any, age_years: Any, height_cm: Any, weight_kg: Any) -> int | None:
-    age = _maybe_float(age_years)
-    height = _maybe_float(height_cm)
-    weight = _maybe_float(weight_kg)
-    if sex not in {"male", "female"} or age is None or height is None or weight is None:
+def calculate_basal_metabolic_rate(*, sex: Any, age_years: Any, height_cm: Any, weight_kg: Any) -> float | None:
+    result = calculate_bmr_result(sex=sex, age_years=age_years, height_cm=height_cm, weight_kg=weight_kg)
+    return float(result.value) if result.value is not None else None
+
+
+def _resolve_metric_precedence(
+    *,
+    field: str,
+    origin_field: str,
+    data: dict[str, Any],
+    previous: Any | None,
+    supplied_fields: set[str],
+    calculation_value: Any,
+    calculation_origin: str,
+) -> tuple[Any, str]:
+    incoming = data.get(field)
+    previous_value = _read_value(previous, field)
+    previous_origin = _read_value(previous, origin_field)
+    if previous_value not in (None, "") and previous_origin in (None, ""):
+        previous_origin = ORIGIN_LEGACY_UNKNOWN
+
+    was_explicitly_supplied = field in supplied_fields
+    changed_explicit_value = (
+        was_explicitly_supplied
+        and incoming not in (None, "")
+        and previous_value not in (None, "")
+        and not _same_numeric_value(incoming, previous_value)
+    )
+    if changed_explicit_value:
+        return incoming, ORIGIN_REPORTED
+
+    if previous_value not in (None, "") and previous_origin in {ORIGIN_REPORTED, ORIGIN_LEGACY_UNKNOWN}:
+        return previous_value, str(previous_origin)
+
+    if incoming not in (None, "") and previous_value in (None, "") and was_explicitly_supplied:
+        return incoming, ORIGIN_REPORTED
+
+    if calculation_value is not None:
+        return calculation_value, calculation_origin
+
+    if previous_value not in (None, ""):
+        return previous_value, str(previous_origin or ORIGIN_LEGACY_UNKNOWN)
+    return None, ORIGIN_UNAVAILABLE
+
+
+def _read_value(value: Any, field: str) -> Any:
+    if value is None:
         return None
-    if age <= 0 or height <= 0 or weight <= 0:
-        return None
-    sex_offset = 5 if sex == "male" else -161
-    return round((10 * weight) + (6.25 * height) - (5 * age) + sex_offset)
+    if isinstance(value, dict):
+        return value.get(field)
+    return getattr(value, field, None)
+
+
+def _same_numeric_value(left: Any, right: Any) -> bool:
+    left_number = _maybe_float(left)
+    right_number = _maybe_float(right)
+    if left_number is None or right_number is None:
+        return left == right
+    return abs(left_number - right_number) < 0.005
 
 
 def build_body_composition_report_read(
@@ -270,6 +412,8 @@ def build_body_composition_report_read(
         header=header,
         current_evaluation_id=evaluation.id,
         previous_evaluation_id=previous.id if previous else None,
+        basal_metabolic_rate_origin=_metric_origin(evaluation, "basal_metabolic_rate_kcal"),
+        muscle_mass_origin=_metric_origin(evaluation, "muscle_mass_kg"),
         reviewed_manually=bool(getattr(evaluation, "reviewed_manually", False)),
         parsing_confidence=_read_float(evaluation, "parsing_confidence") or _read_float(evaluation, "ocr_confidence"),
         data_quality_flags=_public_body_composition_flags(getattr(evaluation, "data_quality_flags_json", None) or []),
@@ -741,12 +885,15 @@ def _build_metric_card(
     previous_value = _read_metric_float(previous, key) if previous else None
     absolute = _delta(current_value, previous_value)
     percent = _delta_percent(current_value, previous_value)
+    origin = _metric_origin(current, key)
     return BodyCompositionMetricCardRead(
         key=key,
         label=label,
         value=current_value,
         unit=unit,
         formatted_value=_format_value(current_value, unit),
+        origin=origin,
+        origin_label=body_composition_origin_label(origin, metric_key=key),
         delta_absolute=absolute,
         delta_percent=percent,
         trend=_trend(absolute),
@@ -772,12 +919,15 @@ def _build_reference_metric(
         hint = f"Meta < {_format_value(reference_max, None)}"
         if value is not None and value <= reference_max:
             position_label = "dentro da meta"
+    origin = _metric_origin(evaluation, key)
     return BodyCompositionReferenceMetricRead(
         key=key,
         label=label,
         value=value,
         unit=unit,
         formatted_value=_format_value(value, unit),
+        origin=origin,
+        origin_label=body_composition_origin_label(origin, metric_key=key),
         reference_min=reference_min,
         reference_max=reference_max,
         status=status,
@@ -797,6 +947,8 @@ def _build_comparison_row(
     previous_value = _read_metric_float(previous, key) if previous else None
     absolute = _delta(current_value, previous_value)
     percent = _delta_percent(current_value, previous_value)
+    current_origin = _metric_origin(current, key)
+    previous_origin = _metric_origin(previous, key) if previous else None
     return BodyCompositionComparisonRowRead(
         key=key,
         label=label,
@@ -805,6 +957,10 @@ def _build_comparison_row(
         current_value=current_value,
         previous_formatted=_format_value(previous_value, unit),
         current_formatted=_format_value(current_value, unit),
+        previous_origin=previous_origin,
+        previous_origin_label=body_composition_origin_label(previous_origin, metric_key=key),
+        current_origin=current_origin,
+        current_origin_label=body_composition_origin_label(current_origin, metric_key=key),
         difference_absolute=absolute,
         difference_percent=percent,
         trend=_trend(absolute),
@@ -827,6 +983,8 @@ def _build_history_series(
                 measured_at=_measured_at(item),
                 evaluation_date=item.evaluation_date,
                 value=_read_metric_float(item, key),
+                origin=_metric_origin(item, key),
+                origin_label=body_composition_origin_label(_metric_origin(item, key), metric_key=key),
             )
             for item in history
         ],

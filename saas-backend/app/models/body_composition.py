@@ -62,6 +62,18 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
         CheckConstraint(f"source IN {BODY_COMPOSITION_SOURCES}", name="bce_source_valid"),
         CheckConstraint(f"actuar_sync_mode IN {ACTUAR_SYNC_MODES}", name="bce_actuar_sync_mode_valid"),
         CheckConstraint(f"actuar_sync_status IN {ACTUAR_SYNC_STATUSES}", name="bce_actuar_sync_status_valid"),
+        CheckConstraint(
+            "basal_metabolic_rate_origin IS NULL OR basal_metabolic_rate_origin IN "
+            "('reported', 'schofield_hw_1985', 'mifflin_st_jeor_1990', 'lee_2000', "
+            "'poortmans_2005', 'legacy_unknown', 'unavailable')",
+            name="bce_bmr_origin_valid",
+        ),
+        CheckConstraint(
+            "muscle_mass_origin IS NULL OR muscle_mass_origin IN "
+            "('reported', 'schofield_hw_1985', 'mifflin_st_jeor_1990', 'lee_2000', "
+            "'poortmans_2005', 'legacy_unknown', 'unavailable')",
+            name="bce_muscle_origin_valid",
+        ),
         Index("ix_bce_gym_member_date", "gym_id", "member_id", "evaluation_date"),
         Index("ix_bce_member_id", "member_id"),
         Index("ix_bce_gym_sync_status", "gym_id", "actuar_sync_status"),
@@ -114,10 +126,12 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     # Legacy compatibility field kept for existing data and older screens.
     lean_mass_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     muscle_mass_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    muscle_mass_origin: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable", server_default="unavailable")
     body_water_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     visceral_fat_level: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
     bmi: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     basal_metabolic_rate_kcal: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    basal_metabolic_rate_origin: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable", server_default="unavailable")
     neck_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     shoulders_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     chest_cm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
