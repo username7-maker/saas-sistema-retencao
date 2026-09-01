@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_name: str = PRODUCT_NAME
     api_prefix: str = "/api/v1"
     environment: str = "development"
+    release_sha: str = "dev"
     debug: bool = False
     enable_scheduler: bool = False
     enable_scheduler_in_api: bool = False

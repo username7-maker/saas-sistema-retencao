@@ -88,6 +88,13 @@ _UNAVAILABLE_METRICS = {
 _PERIMETRY_EVOLUTION_FIELDS = tuple(
     dict.fromkeys((*ANTHROPOMETRY_CALCULATION_FIELDS, *ANTHROPOMETRY_EVOLUTION_FIELDS))
 )
+_ANTHROPOMETRY_LADDER_SOURCES = {
+    "anthropometry_training_delivery_check_d8",
+    "anthropometry_feedback_d14",
+    "anthropometry_rebooking_contact_d75",
+    "anthropometry_reassessment_due_d90",
+}
+_OPEN_TASK_STATUSES = {TaskStatus.TODO, TaskStatus.DOING}
 
 
 def list_supported_anthropometry_protocols() -> list[dict[str, Any]]:
@@ -425,6 +432,221 @@ def create_anthropometric_assessment(
     return assessment
 
 
+def update_anthropometric_assessment(
+    db: Session,
+    *,
+    member_id: UUID,
+    assessment_id: UUID,
+    editor_id: UUID,
+    gym_id: UUID,
+    payload: Any,
+    expected_updated_at: datetime,
+    commit: bool = True,
+) -> tuple[Assessment, dict[str, Any]]:
+    member = db.scalar(
+        select(Member)
+        .where(Member.id == member_id, Member.gym_id == gym_id, Member.deleted_at.is_(None))
+        .with_for_update()
+    )
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
+    assessment = db.scalar(
+        select(Assessment)
+        .where(
+            Assessment.id == assessment_id,
+            Assessment.gym_id == gym_id,
+            Assessment.member_id == member_id,
+            Assessment.assessment_method == ASSESSMENT_METHOD,
+            Assessment.deleted_at.is_(None),
+        )
+        .with_for_update()
+    )
+    if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avaliacao antropometrica nao encontrada")
+    if _normalize_datetime(assessment.updated_at) != _normalize_datetime(expected_updated_at):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "anthropometry_edit_conflict", "message": "A avaliacao foi alterada por outro usuario."},
+        )
+
+    before = anthropometry_audit_snapshot(assessment)
+    data = _as_dict(payload)
+    preview = preview_anthropometric_assessment(data, member=member)
+    assessment_date = _normalize_datetime(data.get("assessment_date"))
+    snapshot = dict(preview["snapshot"])
+    snapshot["responsible_user_id"] = str(editor_id)
+    snapshot["confirmed_at"] = datetime.now(tz=timezone.utc).isoformat()
+    snapshot["calculation_hash"] = preview["calculation_hash"]
+    _apply_anthropometric_preview(
+        assessment,
+        preview=preview,
+        snapshot=snapshot,
+        assessment_date=assessment_date,
+        observations=data.get("observations"),
+    )
+    extra = dict(assessment.extra_data or {})
+    sync_state = dict(extra.get("actuar_sync") or {})
+    sync_state.update(
+        {
+            "sync_status": "manual_sync_required",
+            "last_error_code": "manual_anthropometry_update_required",
+            "last_error_message": "Atualizacao manual correspondente precisa ser confirmada no Actuar.",
+        }
+    )
+    extra["actuar_sync"] = sync_state
+    assessment.extra_data = extra
+    ensure_anthropometry_ladder_tasks(
+        db,
+        member=member,
+        assessment=assessment,
+        evaluator_id=assessment.evaluator_id or editor_id,
+        commit=False,
+    )
+    ensure_anthropometry_actuar_follow_up(
+        db,
+        member=member,
+        assessment=assessment,
+        action="update",
+        assigned_to_user_id=editor_id,
+    )
+    if commit:
+        db.commit()
+        db.refresh(assessment)
+    else:
+        db.flush()
+    return assessment, before
+
+
+def delete_anthropometric_assessment(
+    db: Session,
+    *,
+    member_id: UUID,
+    assessment_id: UUID,
+    deleted_by_user_id: UUID,
+    gym_id: UUID,
+    commit: bool = True,
+) -> tuple[Assessment, dict[str, Any]]:
+    member = db.scalar(
+        select(Member).where(Member.id == member_id, Member.gym_id == gym_id, Member.deleted_at.is_(None)).with_for_update()
+    )
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
+    assessment = db.scalar(
+        select(Assessment)
+        .where(
+            Assessment.id == assessment_id,
+            Assessment.gym_id == gym_id,
+            Assessment.member_id == member_id,
+            Assessment.assessment_method == ASSESSMENT_METHOD,
+            Assessment.deleted_at.is_(None),
+        )
+        .with_for_update()
+    )
+    if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avaliacao antropometrica nao encontrada")
+    before = anthropometry_audit_snapshot(assessment)
+    now = datetime.now(tz=timezone.utc)
+    _cancel_open_anthropometry_tasks(db, assessment_id=assessment.id, cancelled_at=now)
+    ensure_anthropometry_actuar_follow_up(
+        db,
+        member=member,
+        assessment=assessment,
+        action="delete",
+        assigned_to_user_id=deleted_by_user_id,
+    )
+    extra = dict(assessment.extra_data or {})
+    extra["deleted_by_user_id"] = str(deleted_by_user_id)
+    extra["deleted_reason"] = "user_requested_recoverable_delete"
+    extra["actuar_sync"] = {
+        **dict(extra.get("actuar_sync") or {}),
+        "sync_status": "manual_sync_required",
+        "last_error_code": "manual_anthropometry_delete_required",
+        "last_error_message": "Exclusao manual correspondente precisa ser confirmada no Actuar.",
+    }
+    assessment.extra_data = extra
+    assessment.deleted_at = now
+    invalidate_dashboard_cache("tasks")
+    if commit:
+        db.commit()
+        db.refresh(assessment)
+    else:
+        db.flush()
+    return assessment, before
+
+
+def anthropometry_audit_snapshot(assessment: Assessment) -> dict[str, Any]:
+    snapshot = dict(assessment.anthropometry_snapshot_json or {})
+    inputs = dict(snapshot.get("inputs") or {})
+    measurements = dict(snapshot.get("measurements") or {})
+    return {
+        "assessment_date": assessment.assessment_date.isoformat(),
+        "measurement_protocol": assessment.measurement_protocol,
+        "formula_version": assessment.formula_version,
+        "calculation_hash": assessment.calculation_hash,
+        "observations": assessment.observations,
+        "inputs": inputs,
+        "measurements": measurements,
+        "results": dict(snapshot.get("results") or {}),
+    }
+
+
+def _apply_anthropometric_preview(
+    assessment: Assessment,
+    *,
+    preview: dict[str, Any],
+    snapshot: dict[str, Any],
+    assessment_date: datetime,
+    observations: str | None,
+) -> None:
+    results = preview["results"]
+    measurement_values = {
+        key: Decimal(str(value["consolidated_value"]))
+        for key, value in snapshot["measurements"].items()
+        if value.get("consolidated_value") is not None
+    }
+    assessment.assessment_date = assessment_date
+    assessment.next_assessment_due = (assessment_date + timedelta(days=90)).date()
+    assessment.height_cm = _round2(measurement_values.get("height_cm"))
+    assessment.weight_kg = _round2(measurement_values.get("weight_kg"))
+    assessment.bmi = results["bmi"]
+    assessment.body_fat_pct = results["body_fat_pct"]
+    assessment.lean_mass_kg = results["lean_mass_kg"]
+    assessment.fat_mass_kg = results["fat_mass_kg"]
+    assessment.muscle_mass_kg = results["muscle_mass_kg"]
+    assessment.muscle_mass_origin = preview["muscle_mass_origin"]
+    assessment.waist_hip_ratio = results["waist_hip_ratio"]
+    assessment.basal_metabolic_rate = results["basal_metabolic_rate"]
+    assessment.basal_metabolic_rate_origin = preview["basal_metabolic_rate_origin"]
+    assessment.waist_cm = _round2(measurement_values.get("waist_cm"))
+    assessment.hip_cm = _round2(measurement_values.get("hip_cm"))
+    assessment.chest_cm = _round2(measurement_values.get("chest_cm"))
+    assessment.arm_cm = _round2(
+        measurement_values.get("arm_cm")
+        or measurement_values.get("right_arm_relaxed_cm")
+        or measurement_values.get("right_arm_flexed_cm")
+    )
+    assessment.thigh_cm = _round2(measurement_values.get("thigh_cm") or measurement_values.get("right_thigh_cm"))
+    assessment.observations = observations
+    assessment.sex_used_for_formula = snapshot["inputs"]["sex_used_for_formula"]
+    assessment.age_used_for_formula = int(snapshot["inputs"]["age_used_for_formula"])
+    assessment.height_used_for_formula = _round2(Decimal(snapshot["inputs"]["height_used_for_formula"]))
+    assessment.weight_used_for_formula = _round2(Decimal(snapshot["inputs"]["weight_used_for_formula"]))
+    assessment.measurement_protocol = preview["protocol"]["key"]
+    assessment.formula_version = preview["formula_version"]
+    assessment.calculation_hash = preview["calculation_hash"]
+    assessment.anthropometry_snapshot_json = snapshot
+    extra = dict(assessment.extra_data or {})
+    extra.update(
+        {
+            "assessment_method": ASSESSMENT_METHOD,
+            "record_origin": RECORD_ORIGIN,
+            "unavailable_metrics": snapshot["unavailable_metrics"],
+            "perimetry_evolution": _extract_perimetry_evolution_values(measurement_values),
+        }
+    )
+    assessment.extra_data = extra
+
+
 def ensure_anthropometry_ladder_tasks(
     db: Session,
     *,
@@ -505,6 +727,25 @@ def ensure_anthropometry_ladder_tasks(
             )
         )
         if existing is not None:
+            if existing.status in _OPEN_TASK_STATUSES:
+                existing.assigned_to_user_id = existing.assigned_to_user_id or evaluator_id
+                existing.title = spec["title"]
+                existing.description = spec["description"]
+                existing.priority = spec["priority"]
+                existing.due_date = spec["due_date"]
+                existing.suggested_message = spec["suggested_message"]
+                existing_extra = dict(existing.extra_data or {})
+                existing_extra.update(
+                    {
+                        **base_extra,
+                        "source": spec["source"],
+                        "day_offset": spec["day_offset"],
+                        "technical_ladder_step": spec["technical_ladder_step"],
+                        "primary_action_label": "Agendar reavaliacao" if spec["day_offset"] >= 75 else "Registrar acompanhamento",
+                        "work_queue_visible_from": spec["due_date"].isoformat(),
+                    }
+                )
+                existing.extra_data = existing_extra
             created_or_existing.append(existing)
             continue
         extra_data = {
@@ -536,6 +777,97 @@ def ensure_anthropometry_ladder_tasks(
     else:
         db.flush()
     return created_or_existing
+
+
+def ensure_anthropometry_actuar_follow_up(
+    db: Session,
+    *,
+    member: Member,
+    assessment: Assessment,
+    action: str,
+    assigned_to_user_id: UUID | None,
+) -> Task:
+    if action not in {"update", "delete"}:
+        raise ValueError("Unsupported anthropometry Actuar follow-up action")
+    source = f"anthropometry_actuar_{action}_required"
+    now = datetime.now(tz=timezone.utc)
+    existing = db.scalar(
+        select(Task).where(
+            Task.gym_id == assessment.gym_id,
+            Task.member_id == member.id,
+            Task.deleted_at.is_(None),
+            Task.status.in_(tuple(_OPEN_TASK_STATUSES)),
+            Task.extra_data["source"].astext == source,
+            Task.extra_data["assessment_id"].astext == str(assessment.id),
+        )
+    )
+    verb = "Atualizar" if action == "update" else "Excluir"
+    title = f"{verb} avaliacao antropometrica no Actuar - {member.full_name}"
+    description = (
+        "O registro foi atualizado no Cordex e precisa da mesma alteracao manual no Actuar."
+        if action == "update"
+        else "O registro foi excluido de forma recuperavel no Cordex e precisa ser excluido manualmente no Actuar."
+    )
+    extra_data = {
+        "domain": "trainer",
+        "source": source,
+        "assessment_id": str(assessment.id),
+        "assessment_source_id": str(assessment.id),
+        "assessment_source_type": ASSESSMENT_METHOD,
+        "assessment_method": ASSESSMENT_METHOD,
+        "record_origin": RECORD_ORIGIN,
+        "manual_actuar_action": action,
+        "primary_action_label": f"Confirmar no Actuar: {verb.lower()}",
+        "work_queue_visible_from": now.isoformat(),
+    }
+    if existing is not None:
+        existing.title = title
+        existing.description = description
+        existing.priority = TaskPriority.HIGH
+        existing.due_date = now
+        existing.assigned_to_user_id = existing.assigned_to_user_id or assigned_to_user_id
+        existing.extra_data = {**dict(existing.extra_data or {}), **extra_data}
+        return existing
+    task = Task(
+        gym_id=assessment.gym_id,
+        member_id=member.id,
+        assigned_to_user_id=assigned_to_user_id,
+        title=title,
+        description=description,
+        priority=TaskPriority.HIGH,
+        status=TaskStatus.TODO,
+        kanban_column=TaskStatus.TODO.value,
+        due_date=now,
+        extra_data=extra_data,
+    )
+    db.add(task)
+    return task
+
+
+def _cancel_open_anthropometry_tasks(db: Session, *, assessment_id: UUID, cancelled_at: datetime) -> None:
+    tasks = list(
+        db.scalars(
+            select(Task).where(
+                Task.deleted_at.is_(None),
+                Task.status.in_(tuple(_OPEN_TASK_STATUSES)),
+                Task.extra_data["assessment_id"].astext == str(assessment_id),
+            )
+        ).all()
+    )
+    for task in tasks:
+        if task.status not in _OPEN_TASK_STATUSES:
+            continue
+        source = str((task.extra_data or {}).get("source") or "")
+        if source not in _ANTHROPOMETRY_LADDER_SOURCES and source != "anthropometry_actuar_update_required":
+            continue
+        task.status = TaskStatus.CANCELLED
+        task.kanban_column = TaskStatus.CANCELLED.value
+        task.completed_at = cancelled_at
+        task.extra_data = {
+            **dict(task.extra_data or {}),
+            "cancelled_reason": "anthropometric_assessment_deleted",
+            "cancelled_at": cancelled_at.isoformat(),
+        }
 
 
 def get_anthropometric_assessment_or_404(

@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, Sequence
 
+from app.schemas.body_composition import BodyCompositionReportRead
 from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_CALCULATION_FIELDS,
     ANTHROPOMETRY_EVOLUTION_FIELDS,
@@ -18,15 +19,12 @@ from app.services.body_composition_report_service import (
 from app.services.premium_report_service import PremiumReportPayload, render_premium_report_pdf
 
 
-def build_anthropometric_report_payload(
+def build_anthropometric_report_read(
     member: Any,
     assessment: Any,
     *,
     history: Sequence[Any] | None = None,
-    generated_by: str | None = None,
-) -> PremiumReportPayload:
-    protocol_key = getattr(assessment, "measurement_protocol", None)
-    formula_version = getattr(assessment, "formula_version", None)
+) -> BodyCompositionReportRead:
     current = _assessment_to_report_evaluation(assessment)
     raw_history = list(history or [])
     if not any(str(getattr(item, "id", "")) == str(getattr(assessment, "id", "")) for item in raw_history):
@@ -70,6 +68,31 @@ def build_anthropometric_report_payload(
         f"{muscle_note}{bmr_note}{extrapolation_note} Massa muscular esqueletica, massa livre de gordura e massa magra sao conceitos distintos."
         " Agua corporal, gordura visceral, massa ossea e idade metabolica nao foram inferidas."
     )
+    return report
+
+
+def build_anthropometric_report_payload(
+    member: Any,
+    assessment: Any,
+    *,
+    history: Sequence[Any] | None = None,
+    generated_by: str | None = None,
+) -> PremiumReportPayload:
+    protocol_key = getattr(assessment, "measurement_protocol", None)
+    formula_version = getattr(assessment, "formula_version", None)
+    report = build_anthropometric_report_read(member, assessment, history=history)
+    has_muscle_mass = getattr(assessment, "muscle_mass_kg", None) is not None
+    muscle_origin = _assessment_metric_origin(
+        assessment,
+        origin_field="muscle_mass_origin",
+        value_field="muscle_mass_kg",
+    )
+    bmr_origin = _assessment_metric_origin(
+        assessment,
+        origin_field="basal_metabolic_rate_origin",
+        value_field="basal_metabolic_rate",
+    )
+    extrapolation_flags = _lee_extrapolation_flags(assessment) if muscle_origin == "lee_2000" else []
 
     payload = build_body_composition_premium_pdf_payload(report, technical=False)
     parameters = dict(payload.parameters)

@@ -323,6 +323,10 @@ class AnthropometryAssessmentInput(BaseModel):
     observations: str | None = None
 
 
+class AnthropometryAssessmentUpdate(AnthropometryAssessmentInput):
+    expected_updated_at: datetime
+
+
 class AnthropometryPreviewOut(BaseModel):
     assessment_method: Literal["manual_anthropometry"]
     record_origin: Literal["cordex"]

@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -260,7 +260,8 @@ app.include_router(autopilot.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
+def health_check(response: Response) -> dict[str, str]:
+    response.headers["X-Cordex-Release"] = settings.release_sha
     return {"status": "ok"}
 
 
@@ -288,7 +289,7 @@ def readiness_check() -> JSONResponse:
             "cache": {"status": cache_status},
         }
     status_code = 200 if healthy else 503
-    return JSONResponse(status_code=status_code, content=payload)
+    return JSONResponse(status_code=status_code, content=payload, headers={"X-Cordex-Release": settings.release_sha})
 
 
 def _extract_websocket_auth_token(message: str) -> str | None:

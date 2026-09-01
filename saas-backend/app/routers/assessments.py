@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import RoleEnum, User
-from app.schemas import PaginatedResponse
+from app.schemas import APIMessage, PaginatedResponse
 from app.schemas.assessment import (
     AssessmentActionOut,
     AssessmentBenchmarkOut,
@@ -20,6 +20,7 @@ from app.schemas.assessment import (
     AssessmentMiniOut,
     AssessmentOut,
     AnthropometryAssessmentInput,
+    AnthropometryAssessmentUpdate,
     AnthropometryPreviewOut,
     AnthropometryProtocolOut,
     AssessmentQueueResolutionOut,
@@ -36,7 +37,7 @@ from app.schemas.assessment import (
     TrainingPlanCreate,
     TrainingPlanOut,
 )
-from app.schemas.body_composition import ActuarSyncQueueItemRead
+from app.schemas.body_composition import ActuarSyncQueueItemRead, BodyCompositionReportRead
 from app.services.assessment_analytics_service import get_assessments_dashboard, get_assessments_queue
 from app.services.body_composition_actuar_sync_service import list_actuar_sync_queue
 from app.services.assessment_goals_service import (
@@ -62,13 +63,19 @@ from app.services.assessment_service import (
     list_assessments,
     update_assessment_queue_resolution,
 )
-from app.services.assessment_anthropometry_report_service import generate_anthropometric_assessment_pdf
+from app.services.assessment_anthropometry_report_service import (
+    build_anthropometric_report_read,
+    generate_anthropometric_assessment_pdf,
+)
 from app.services.assessment_anthropometry_service import (
+    anthropometry_audit_snapshot,
     create_anthropometric_assessment,
+    delete_anthropometric_assessment,
     get_anthropometric_assessment_or_404,
     list_anthropometric_assessment_report_history,
     list_supported_anthropometry_protocols,
     preview_anthropometric_assessment,
+    update_anthropometric_assessment,
 )
 from app.services.audit_service import log_audit_event
 from app.services.member_service import get_member_or_404 as get_member_scoped
@@ -382,6 +389,118 @@ def create_anthropometry_endpoint(
     db.commit()
     db.refresh(assessment)
     return AssessmentOut.model_validate(assessment)
+
+
+@router.get("/members/{member_id}/anthropometry/{assessment_id}", response_model=AssessmentOut)
+def get_anthropometry_endpoint(
+    member_id: UUID,
+    assessment_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
+) -> AssessmentOut:
+    _ensure_anthropometry_feature_enabled()
+    assessment = get_anthropometric_assessment_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        assessment_id=assessment_id,
+    )
+    return AssessmentOut.model_validate(assessment)
+
+
+@router.put("/members/{member_id}/anthropometry/{assessment_id}", response_model=AssessmentOut)
+def update_anthropometry_endpoint(
+    request: Request,
+    member_id: UUID,
+    assessment_id: UUID,
+    payload: AnthropometryAssessmentUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_WRITE_ROLES))],
+) -> AssessmentOut:
+    _ensure_anthropometry_feature_enabled()
+    assessment, before = update_anthropometric_assessment(
+        db,
+        member_id=member_id,
+        assessment_id=assessment_id,
+        editor_id=current_user.id,
+        gym_id=current_user.gym_id,
+        payload=payload,
+        expected_updated_at=payload.expected_updated_at,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="anthropometric_assessment_updated",
+        entity="assessment",
+        user=current_user,
+        member_id=member_id,
+        entity_id=assessment.id,
+        details={"before": before, "after": anthropometry_audit_snapshot(assessment)},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    db.refresh(assessment)
+    return AssessmentOut.model_validate(assessment)
+
+
+@router.delete("/members/{member_id}/anthropometry/{assessment_id}", response_model=APIMessage)
+def delete_anthropometry_endpoint(
+    request: Request,
+    member_id: UUID,
+    assessment_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> APIMessage:
+    _ensure_anthropometry_feature_enabled()
+    assessment, before = delete_anthropometric_assessment(
+        db,
+        member_id=member_id,
+        assessment_id=assessment_id,
+        deleted_by_user_id=current_user.id,
+        gym_id=current_user.gym_id,
+        commit=False,
+    )
+    context = get_request_context(request)
+    log_audit_event(
+        db,
+        action="anthropometric_assessment_deleted",
+        entity="assessment",
+        user=current_user,
+        member_id=member_id,
+        entity_id=assessment.id,
+        details={"recoverable": True, "before": before},
+        ip_address=context["ip_address"],
+        user_agent=context["user_agent"],
+        flush=False,
+    )
+    db.commit()
+    return APIMessage(message="Avaliacao antropometrica excluida de forma recuperavel")
+
+
+@router.get("/members/{member_id}/anthropometry/{assessment_id}/report", response_model=BodyCompositionReportRead)
+def get_anthropometry_report_endpoint(
+    member_id: UUID,
+    assessment_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(*ASSESSMENT_READ_ROLES))],
+) -> BodyCompositionReportRead:
+    _ensure_anthropometry_feature_enabled()
+    member = get_member_scoped(db, member_id, gym_id=current_user.gym_id)
+    assessment = get_anthropometric_assessment_or_404(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+        assessment_id=assessment_id,
+    )
+    history = list_anthropometric_assessment_report_history(
+        db,
+        gym_id=current_user.gym_id,
+        member_id=member_id,
+    )
+    return build_anthropometric_report_read(member, assessment, history=history)
 
 
 @router.get("/members/{member_id}/{assessment_id}/pdf")
