@@ -52,3 +52,32 @@
 - Authenticated smoke with real webcam photos remains an operational check in
   the logged-in pilot session because this workstation has no reusable test
   session or anonymized receipt fixture.
+
+## Tezewa receipt remediation - 2026-09-03
+
+- Backend parser regression suite: 30 passed; Ruff passed for changed backend
+  source files.
+- Frontend OCR/workspace regression subset: 21 passed; ESLint completed with no
+  errors (two pre-existing Method OS hook warnings); production build passed.
+- A user-provided Tezewa receipt was processed transiently with production AI
+  configuration. The image, receipt identifier and raw text were not copied to
+  fixtures, logs or persistent storage.
+- The real receipt check accepted 26 structured values after adding support for
+  narrow-paper line wrapping, `Woman`, `Fat free`, `Body moisture`, `Basal
+  metabolism` and unitless device labels.
+- The receipt still required one intentional confirmation: printed/read values
+  of 65.1 kg, 158 cm and BMI 23.1 are mathematically inconsistent. The system
+  did not fabricate a replacement and reduced the UI to one friendly review
+  instruction.
+- Vision detail is high. The dedicated request timeout is 45 seconds with no
+  hidden SDK retries; a successful real-image read completed in under 30
+  seconds during validation.
+- Technical warning lists, raw OCR text, provider errors and timing details are
+  no longer shown in the professor workflow.
+- Remediation source commit: `6302cd93c907d96e9581d2f8b9ecd16fcb857d55`.
+- Railway API deployment: `b1025208-fa09-4856-81da-545fa97fbed8` (`SUCCESS`).
+- Railway worker deployment: `9080bf2b-b672-4a40-9452-8902051ec78b` (`SUCCESS`).
+- Vercel deployment: `dpl_5qSXUUBe3SkQisfMmdw2Xed3hkV3` (`READY`).
+- Pilot alias, frontend bundle, API health response and worker startup all
+  expose the same remediation source SHA.
+- No database migration or client-data mutation was performed.
