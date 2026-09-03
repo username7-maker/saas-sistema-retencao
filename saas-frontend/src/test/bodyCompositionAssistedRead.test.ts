@@ -196,8 +196,7 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(result.assistedError).toBe(quotaMessage);
   });
 
-  it("calls parse-image directly when forced assisted read is requested and local OCR fails first", async () => {
-    vi.mocked(readBodyCompositionFromImage).mockRejectedValue(new Error("Falha ao carregar imagem para OCR"));
+  it("calls parse-image immediately for an assisted read without starting local OCR", async () => {
     vi.mocked(api.post).mockResolvedValue({
       data: localResult({
         values: {
@@ -211,16 +210,92 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
         fallback_used: true,
       }),
     });
+    const stages: string[] = [];
 
     const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile(), {
       forceAssisted: true,
+      evaluationDate: "2026-09-03",
+      onStage: (stage) => stages.push(stage),
     });
 
     expect(api.post).toHaveBeenCalledTimes(1);
+    expect(readBodyCompositionFromImage).not.toHaveBeenCalled();
+    const body = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(body.get("evaluation_date")).toBe("2026-09-03");
+    expect(body.get("local_ocr_result")).toBeNull();
+    expect(stages).toEqual(expect.arrayContaining(["uploading", "reading_ai", "validating"]));
     expect(result.localResult).toBeNull();
     expect(result.assistedAttempted).toBe(true);
     expect(result.assistedUsed).toBe(true);
     expect(result.result.engine).toBe("ai_assisted");
     expect(result.result.values.weight_kg).toBe(84.5);
+  });
+
+  it("uses local OCR only after assisted reading fails and drops position-inferred values", async () => {
+    vi.mocked(api.post)
+      .mockRejectedValueOnce(new Error("Assistive endpoint offline"))
+      .mockResolvedValueOnce({
+        data: localResult({
+          values: {
+            weight_kg: 14.41,
+            body_fat_kg: 19.46,
+            body_fat_percent: 23,
+          },
+          warnings: [{
+            field: "weight_kg",
+            message: "Peso foi inferido pela ordem esperada do recibo. Revisar manualmente.",
+            severity: "warning",
+          }],
+          engine: "local",
+          fallback_used: false,
+        }),
+      });
+    vi.mocked(readBodyCompositionFromImage).mockResolvedValue(localResult({
+      values: {
+        weight_kg: 14.41,
+        body_fat_kg: 19.46,
+        body_fat_percent: 23,
+      },
+      warnings: [{
+        field: "weight_kg",
+        message: "Peso foi inferido pela ordem esperada do recibo. Revisar manualmente.",
+        severity: "warning",
+      }],
+    }));
+    const stages: string[] = [];
+
+    const result = await bodyCompositionService.readWithAssistedFallback("member-1", makeFile(), {
+      forceAssisted: true,
+      onStage: (stage) => stages.push(stage),
+    });
+
+    expect(api.post).toHaveBeenCalledTimes(2);
+    expect(readBodyCompositionFromImage).toHaveBeenCalledTimes(1);
+    expect(result.result.values.weight_kg).toBeUndefined();
+    expect(result.result.field_metadata?.weight_kg).toMatchObject({
+      origin: "local_ocr",
+      state: "unavailable",
+    });
+    expect(result.assistedError).toBe("Assistive endpoint offline");
+    expect(stages).toContain("reading_local");
+    const fallbackBody = vi.mocked(api.post).mock.calls[1][1] as FormData;
+    const transportedLocal = JSON.parse(String(fallbackBody.get("local_ocr_result")));
+    expect(transportedLocal.values.weight_kg).toBeUndefined();
+  });
+
+  it("does not run local OCR after an authentication failure", async () => {
+    const authenticationError = Object.assign(new Error("Unauthorized"), {
+      isAxiosError: true,
+      response: { status: 401 },
+    });
+    vi.mocked(api.post).mockRejectedValue(authenticationError);
+
+    await expect(bodyCompositionService.readWithAssistedFallback("member-1", makeFile(), {
+      forceAssisted: true,
+      evaluationDate: "2026-09-03",
+    })).rejects.toThrow("Unauthorized");
+
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(readBodyCompositionFromImage).not.toHaveBeenCalled();
   });
 });

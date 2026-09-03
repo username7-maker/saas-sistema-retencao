@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.assistant import AIAssistantPayload
 
-
 EvaluationSource = Literal["tezewa", "manual", "ocr_receipt", "device_import", "actuar_sync"]
 ActuarSyncMode = Literal["disabled", "http_api", "csv_export", "assisted_rpa", "local_bridge"]
 ActuarSyncStatus = Literal[
@@ -28,6 +27,17 @@ OcrWarningSeverity = Literal["warning", "critical"]
 BodyCompositionDeviceProfile = Literal["tezewa_receipt_v1"]
 BodyCompositionOcrEngine = Literal["local", "ai_assisted", "ai_fallback", "hybrid"]
 BodyCompositionSex = Literal["male", "female"]
+BodyCompositionFieldOrigin = Literal[
+    "ai_image",
+    "member_profile",
+    "derived",
+    "manual",
+    "previous_assessment",
+    "local_ocr",
+]
+BodyCompositionFieldState = Literal["accepted", "suggested", "conflict", "unavailable"]
+BodyCompositionValidationSeverity = Literal["warning", "critical"]
+BodyCompositionProcessingEngine = Literal["ai_image", "local_ocr"]
 AnthropometryEthnicity = Literal["white", "black", "asian"]
 CalculationOrigin = Literal[
     "reported",
@@ -200,9 +210,37 @@ class BodyCompositionImageOcrPayload(BaseModel):
     needs_review: bool = False
 
 
+class BodyCompositionFieldMetadata(BaseModel):
+    origin: BodyCompositionFieldOrigin
+    state: BodyCompositionFieldState
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    label: str | None = None
+    evidence: str | None = None
+    suggested_value: str | int | float | None = None
+
+
+class BodyCompositionValidationIssue(BaseModel):
+    code: str
+    severity: BodyCompositionValidationSeverity
+    fields: list[str] = Field(default_factory=list)
+    message: str
+
+
+class BodyCompositionImageProcessing(BaseModel):
+    primary_engine: BodyCompositionProcessingEngine = "ai_image"
+    fallback_used: bool = False
+    duration_ms: int = Field(default=0, ge=0)
+    provider: str | None = None
+    image_width: int | None = Field(default=None, ge=1)
+    image_height: int | None = Field(default=None, ge=1)
+
+
 class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
     engine: BodyCompositionOcrEngine
     fallback_used: bool = False
+    field_metadata: dict[str, BodyCompositionFieldMetadata] = Field(default_factory=dict)
+    validation_issues: list[BodyCompositionValidationIssue] = Field(default_factory=list)
+    processing: BodyCompositionImageProcessing = Field(default_factory=BodyCompositionImageProcessing)
 
 
 class BodyCompositionEvaluationBase(BaseModel):

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -9,24 +9,23 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_request_context, require_roles
 from app.core.cache import invalidate_dashboard_cache
+from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import BodyCompositionEvaluation, Member, MemberStatus, RiskLevel, RoleEnum, User
 from app.schemas import (
     APIMessage,
     MemberCreate,
-    MemberOut,
-    MemberUpdate,
     MemberNoteCreate,
     MemberNoteOut,
     MemberOperationalProfileOut,
-    OnboardingScoreSnapshotOut,
+    MemberOut,
+    MemberUpdate,
     OnboardingScoreOut,
+    OnboardingScoreSnapshotOut,
     PaginatedResponse,
     RiskRecalculationRequestOut,
 )
-from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.schemas.body_composition import (
     ActuarManualSyncConfirmInput,
     ActuarMemberLinkRead,
@@ -35,25 +34,26 @@ from app.schemas.body_composition import (
     BodyCompositionEvaluationCreate,
     BodyCompositionEvaluationRead,
     BodyCompositionEvaluationReviewInput,
+    BodyCompositionEvaluationUpdate,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionKommoDispatchRead,
     BodyCompositionManualSyncSummaryRead,
     BodyCompositionReportRead,
     BodyCompositionWhatsAppDispatchRead,
-    BodyCompositionEvaluationUpdate,
 )
+from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
+from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.audit_service import log_audit_event
 from app.services.body_composition_actuar_sync_service import (
     confirm_manual_actuar_sync,
     create_body_composition_sync_job,
     get_body_composition_evaluation_or_404,
-    get_body_composition_sync_status,
     get_body_composition_manual_sync_summary,
+    get_body_composition_sync_status,
     schedule_body_composition_sync_retry,
     upsert_body_composition_actuar_link,
 )
-from app.services.body_composition_image_parse_service import parse_body_composition_image
 from app.services.body_composition_delivery_service import (
     build_body_composition_report_payload,
     generate_body_composition_pdf,
@@ -62,6 +62,7 @@ from app.services.body_composition_delivery_service import (
     send_body_composition_kommo_salesbot,
     send_body_composition_whatsapp_summary,
 )
+from app.services.body_composition_image_parse_service import parse_body_composition_image
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     delete_body_composition_evaluation,
@@ -71,8 +72,13 @@ from app.services.body_composition_service import (
     serialize_body_composition_evaluations,
     update_body_composition_evaluation,
 )
-from app.services.ai_assistant_service import build_onboarding_assistant
 from app.services.kommo_service import KommoSalesbotDispatchError, KommoServiceError
+from app.services.member_intelligence_service import get_member_intelligence_context
+from app.services.member_operational_profile_service import (
+    build_member_operational_profile,
+    create_member_note,
+    list_member_notes,
+)
 from app.services.member_service import (
     create_member,
     get_member_or_404,
@@ -81,12 +87,6 @@ from app.services.member_service import (
     reconcile_member_last_checkin,
     soft_delete_member,
     update_member,
-)
-from app.services.member_intelligence_service import get_member_intelligence_context
-from app.services.member_operational_profile_service import (
-    build_member_operational_profile,
-    create_member_note,
-    list_member_notes,
 )
 from app.services.member_timeline_service import get_member_timeline
 from app.services.onboarding_score_service import calculate_onboarding_score
@@ -500,15 +500,35 @@ async def parse_body_composition_image_endpoint(
     file: UploadFile = File(...),
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
+    evaluation_date: date | None = Form(default=None),
 ) -> BodyCompositionImageParseResultRead:
-    get_member_or_404(db, member_id, gym_id=current_user.gym_id)
-    parsed_local_ocr = BodyCompositionImageOcrPayload.model_validate_json(local_ocr_result) if local_ocr_result else None
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    parsed_local_ocr = (
+        BodyCompositionImageOcrPayload.model_validate_json(local_ocr_result) if local_ocr_result else None
+    )
+    previous_stmt = select(BodyCompositionEvaluation).where(
+        BodyCompositionEvaluation.gym_id == current_user.gym_id,
+        BodyCompositionEvaluation.member_id == member_id,
+    )
+    if evaluation_date is not None:
+        previous_stmt = previous_stmt.where(BodyCompositionEvaluation.evaluation_date < evaluation_date)
+    previous_evaluation = db.scalar(
+        previous_stmt.order_by(
+            BodyCompositionEvaluation.evaluation_date.desc(),
+            BodyCompositionEvaluation.created_at.desc(),
+        ).limit(1)
+    )
     image_bytes = await file.read()
     return parse_body_composition_image(
         image_bytes=image_bytes,
         media_type=file.content_type,
         device_profile=device_profile,
         local_ocr_result=parsed_local_ocr,
+        evaluation_date=evaluation_date,
+        member_birthdate=getattr(member, "birthdate", None),
+        member_sex=getattr(member, "sex_for_clinical_calculation", None),
+        member_height_cm=getattr(member, "height_cm", None),
+        previous_weight_kg=getattr(previous_evaluation, "weight_kg", None),
     )
 
 
@@ -520,6 +540,7 @@ async def parse_body_composition_ocr_endpoint(
     file: UploadFile = File(...),
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
+    evaluation_date: date | None = Form(default=None),
 ) -> BodyCompositionImageParseResultRead:
     return await parse_body_composition_image_endpoint(
         member_id=member_id,
@@ -528,6 +549,7 @@ async def parse_body_composition_ocr_endpoint(
         file=file,
         device_profile=device_profile,
         local_ocr_result=local_ocr_result,
+        evaluation_date=evaluation_date,
     )
 
 

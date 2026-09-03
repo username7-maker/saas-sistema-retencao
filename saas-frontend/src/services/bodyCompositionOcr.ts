@@ -3,6 +3,40 @@ import { parseTezewaReceiptV1 } from "./bodyCompositionOcrProfiles/tezewaReceipt
 export type BodyCompositionDeviceProfile = "tezewa_receipt_v1";
 export type BodyCompositionOcrWarningSeverity = "warning" | "critical";
 export type BodyCompositionOcrEngine = "local" | "ai_assisted" | "ai_fallback" | "hybrid";
+export type BodyCompositionOcrFieldOrigin =
+  | "ai_image"
+  | "member_profile"
+  | "derived"
+  | "manual"
+  | "previous_assessment"
+  | "local_ocr";
+export type BodyCompositionOcrFieldState = "accepted" | "suggested" | "conflict" | "unavailable";
+export type BodyCompositionReadStage = "uploading" | "reading_ai" | "validating" | "reading_local";
+
+export interface BodyCompositionOcrFieldMetadata {
+  origin: BodyCompositionOcrFieldOrigin;
+  state: BodyCompositionOcrFieldState;
+  confidence: number | null;
+  label?: string | null;
+  evidence: string | null;
+  suggested_value: string | number | null;
+}
+
+export interface BodyCompositionValidationIssue {
+  code: string;
+  severity: BodyCompositionOcrWarningSeverity;
+  fields: string[];
+  message: string;
+}
+
+export interface BodyCompositionOcrProcessing {
+  primary_engine: "ai_image" | "local_ocr";
+  fallback_used: boolean;
+  duration_ms: number;
+  provider?: string | null;
+  image_width?: number | null;
+  image_height?: number | null;
+}
 
 export interface BodyCompositionRangeValue {
   min: number | null;
@@ -56,6 +90,9 @@ export interface BodyCompositionOcrResult {
   needs_review: boolean;
   engine?: BodyCompositionOcrEngine;
   fallback_used?: boolean;
+  field_metadata?: Record<string, BodyCompositionOcrFieldMetadata>;
+  validation_issues?: BodyCompositionValidationIssue[];
+  processing?: BodyCompositionOcrProcessing;
 }
 
 type Parser = (rawText: string) => BodyCompositionOcrResult;

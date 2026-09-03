@@ -3,7 +3,11 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from datetime import datetime
+import re
+import struct
+import unicodedata
+from datetime import date, datetime
+from time import perf_counter
 from typing import Any
 
 import anthropic
@@ -15,18 +19,20 @@ from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.schemas.body_composition import (
     BodyCompositionDeviceProfile,
+    BodyCompositionFieldMetadata,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
+    BodyCompositionImageProcessing,
     BodyCompositionOcrValues,
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
+    BodyCompositionValidationIssue,
 )
 from app.services.body_composition_report_service import (
     build_body_composition_quality_flags,
     calculate_body_water_percent,
 )
 from app.utils.claude import _parse_claude_json
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +44,55 @@ SUPPORTED_MEDIA_TYPES = {
 }
 MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024
 KEY_FIELDS = ("weight_kg", "body_fat_kg", "body_fat_percent", "waist_hip_ratio")
-INT_FIELDS = {"physical_age", "health_score"}
+INT_FIELDS = {"age_years", "physical_age", "health_score"}
+TEXT_FIELDS = {"measured_at"}
+DEMOGRAPHIC_FIELDS = {"age_years", "sex", "height_cm"}
+AI_EVIDENCE_CRITICAL_FIELDS = {"weight_kg", "bmi"}
+POSITIONAL_INFERENCE_MARKERS = ("inferido pela ordem", "inferida pela ordem", "ordem esperada")
+MIN_EVIDENCE_CONFIDENCE = 0.65
+FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
+    "evaluation_date": ("date", "data"),
+    "measured_at": ("date", "data", "time", "hora"),
+    "age_years": ("age", "idade"),
+    "sex": ("sex", "sexo", "gender", "genero"),
+    "height_cm": ("height", "altura", "estatura"),
+    "weight_kg": ("weight", "peso"),
+    "body_fat_kg": ("body fat", "gordura corporal", "massa de gordura"),
+    "body_fat_percent": ("body fat ratio", "body fat rate", "percentual de gordura", "gordura corporal"),
+    "waist_hip_ratio": ("waist-hip", "waist hip", "cintura-quadril", "cintura quadril"),
+    "fat_free_mass_kg": ("fat-free mass", "fat free mass", "massa livre de gordura"),
+    "inorganic_salt_kg": ("inorganic salt", "sal inorganico", "minerais"),
+    "muscle_mass_kg": ("muscle mass", "massa muscular"),
+    "protein_kg": ("protein", "proteina"),
+    "body_water_kg": ("body water", "body moisture", "agua corporal"),
+    "lean_mass_kg": ("lean mass", "massa magra"),
+    "visceral_fat_level": ("visceral fat", "gordura visceral"),
+    "bmi": ("bmi", "imc"),
+    "basal_metabolic_rate_kcal": ("bmr", "basal metabolic", "metabolismo basal", "tmb"),
+    "skeletal_muscle_kg": ("skeletal muscle", "musculo esqueletico", "massa muscular esqueletica"),
+    "target_weight_kg": ("target weight", "peso alvo", "peso meta"),
+    "weight_control_kg": ("weight control", "controle de peso"),
+    "muscle_control_kg": ("muscle control", "controle muscular"),
+    "fat_control_kg": ("fat control", "controle de gordura"),
+    "total_energy_kcal": ("total energy", "energy consumption", "energia total", "consumo de energia"),
+    "physical_age": ("physical age", "idade fisica"),
+    "health_score": ("health score", "pontuacao de saude", "score de saude"),
+}
+KG_FIELDS = {
+    "weight_kg",
+    "body_fat_kg",
+    "fat_free_mass_kg",
+    "inorganic_salt_kg",
+    "muscle_mass_kg",
+    "protein_kg",
+    "body_water_kg",
+    "lean_mass_kg",
+    "skeletal_muscle_kg",
+    "target_weight_kg",
+    "weight_control_kg",
+    "muscle_control_kg",
+    "fat_control_kg",
+}
 NUMERIC_FIELDS = (
     "weight_kg",
     "body_fat_kg",
@@ -124,10 +178,11 @@ class _BodyCompositionVisionResponse(BaseModel):
     ranges: dict[str, BodyCompositionRangeValue] = Field(default_factory=dict)
     warnings: list[BodyCompositionOcrWarning] = Field(default_factory=list)
     needs_review: bool = False
+    field_metadata: dict[str, BodyCompositionFieldMetadata] = Field(default_factory=dict)
 
 
 def _build_values_template() -> str:
-    template = {field_name: None for field_name in BodyCompositionOcrValues.model_fields}
+    template = dict.fromkeys(BodyCompositionOcrValues.model_fields)
     return json.dumps(template, ensure_ascii=False)
 
 
@@ -143,7 +198,7 @@ def _build_vision_prompt(
 ) -> str:
     local_hint = _build_local_hint(local_ocr_result)
     provider_instruction = (
-        "Retorne APENAS JSON com chaves: device_model, values, ranges, warnings, needs_review.\n"
+        "Retorne APENAS JSON com chaves: device_model, values, ranges, warnings, needs_review, field_metadata.\n"
         if provider_name == "claude"
         else "Retorne APENAS os campos estruturados solicitados.\n"
     )
@@ -154,7 +209,14 @@ def _build_vision_prompt(
         "Regras obrigatorias:\n"
         "- use a imagem como fonte de verdade; o OCR local e apenas pista auxiliar\n"
         "- nao invente valores; se estiver em duvida, use null e adicione warning\n"
-        "- percorra todo o recibo; nao pare nos campos principais e cubra composicao corporal, metabolismo, comprehensive evaluation e controles\n"
+        "- para CADA valor nao nulo, field_metadata deve conter label, evidence e confidence entre 0 e 1\n"
+        "- label e o rotulo exato identificado junto ao numero; evidence e o trecho curto "
+        "visivel que sustenta a leitura\n"
+        "- suggested_value em field_metadata deve repetir exatamente o valor extraido em values\n"
+        "- se label ou evidence nao estiverem legiveis, retorne null em values para esse campo\n"
+        "- jamais use Physical age/Idade fisica como age_years; esse rotulo pertence somente a physical_age\n"
+        "- percorra todo o recibo; nao pare nos campos principais e cubra composicao corporal, "
+        "metabolismo, comprehensive evaluation e controles\n"
         "- values deve conter TODAS as chaves esperadas do sistema, mesmo quando o valor for null\n"
         "- diferencie obrigatoriamente body_fat_kg de body_fat_percent\n"
         "- body_fat_kg corresponde a 'Body fat (kg)'\n"
@@ -172,6 +234,9 @@ def _build_vision_prompt(
         "Campos esperados em values:\n"
         f"{_build_field_guide_text()}\n"
         f"Template obrigatorio de values: {_build_values_template()}\n"
+        "Formato de field_metadata: {\"weight_kg\": {\"origin\": \"ai_image\", "
+        "\"state\": \"accepted\", \"confidence\": 0.98, \"label\": \"Weight (kg)\", "
+        "\"evidence\": \"Weight (kg) 84.5\", \"suggested_value\": 84.5}}\n"
         f"- dica opcional do OCR local: {json.dumps(local_hint, ensure_ascii=False)}\n"
         "Responda em portugues do Brasil."
     )
@@ -183,34 +248,63 @@ def parse_body_composition_image(
     media_type: str | None,
     device_profile: str,
     local_ocr_result: BodyCompositionImageOcrPayload | None = None,
+    evaluation_date: date | None = None,
+    member_birthdate: date | None = None,
+    member_sex: str | None = None,
+    member_height_cm: Any = None,
+    previous_weight_kg: Any = None,
 ) -> BodyCompositionImageParseResultRead:
+    started_at = perf_counter()
     normalized_device_profile = _normalize_device_profile(device_profile)
     normalized_media_type = _validate_image_payload(image_bytes, media_type)
     provider = _resolve_image_ai_provider()
+    image_width, image_height = _read_image_dimensions(image_bytes, normalized_media_type)
 
-    local_payload = BodyCompositionImageOcrPayload.model_validate(local_ocr_result.model_dump()) if local_ocr_result else None
+    local_payload = (
+        BodyCompositionImageOcrPayload.model_validate(local_ocr_result.model_dump()) if local_ocr_result else None
+    )
 
     if not _image_ai_available(provider):
-        return _build_local_only_result(
+        result = _build_local_only_result(
             local_payload,
             "Leitura assistida por IA indisponivel; mantivemos a leitura local com revisao manual obrigatoria.",
             normalized_device_profile,
         )
+        if settings.body_composition_image_ai_validation_enabled:
+            result = _validate_ai_first_result(
+                result,
+                extraction_origin="local_ocr",
+                evaluation_date=evaluation_date,
+                member_birthdate=member_birthdate,
+                member_sex=member_sex,
+                member_height_cm=member_height_cm,
+                previous_weight_kg=previous_weight_kg,
+            )
+        return _complete_parse_request(
+            result,
+            started_at=started_at,
+            provider=provider,
+            image_width=image_width,
+            image_height=image_height,
+        )
 
     try:
+        provider_local_hint = (
+            None if settings.body_composition_image_ai_validation_enabled else local_payload
+        )
         if provider == "openai":
             ai_payload = _parse_with_openai_vision(
                 image_bytes=image_bytes,
                 media_type=normalized_media_type,
                 device_profile=normalized_device_profile,
-                local_ocr_result=local_payload,
+                local_ocr_result=provider_local_hint,
             )
         else:
             ai_payload = _parse_with_claude_vision(
                 image_bytes=image_bytes,
                 media_type=normalized_media_type,
                 device_profile=normalized_device_profile,
-                local_ocr_result=local_payload,
+                local_ocr_result=provider_local_hint,
             )
         if provider == "claude":
             claude_circuit_breaker.record_success()
@@ -218,18 +312,55 @@ def parse_body_composition_image(
         if provider == "claude":
             claude_circuit_breaker.record_failure()
         failure_message, failure_severity = _classify_assisted_read_failure(exc)
-        logger.exception(
-            "Falha na leitura assistida de bioimpedancia com provedor %s. Mantendo OCR local quando possivel.",
-            provider or "indisponivel",
+        logger.warning(
+            "body_composition_image_ai_failed provider=%s error_type=%s local_fallback=%s",
+            provider or "unavailable",
+            type(exc).__name__,
+            local_payload is not None,
         )
-        return _build_local_only_result(
+        result = _build_local_only_result(
             local_payload,
             failure_message,
             normalized_device_profile,
             severity=failure_severity,
         )
+        if settings.body_composition_image_ai_validation_enabled:
+            result = _validate_ai_first_result(
+                result,
+                extraction_origin="local_ocr",
+                evaluation_date=evaluation_date,
+                member_birthdate=member_birthdate,
+                member_sex=member_sex,
+                member_height_cm=member_height_cm,
+                previous_weight_kg=previous_weight_kg,
+            )
+        return _complete_parse_request(
+            result,
+            started_at=started_at,
+            provider=provider,
+            image_width=image_width,
+            image_height=image_height,
+        )
 
-    return _merge_parse_results(local_payload, ai_payload)
+    if settings.body_composition_image_ai_validation_enabled:
+        result = _validate_ai_first_result(
+            ai_payload,
+            extraction_origin="ai_image",
+            evaluation_date=evaluation_date,
+            member_birthdate=member_birthdate,
+            member_sex=member_sex,
+            member_height_cm=member_height_cm,
+            previous_weight_kg=previous_weight_kg,
+        )
+    else:
+        result = _merge_parse_results(local_payload, ai_payload)
+    return _complete_parse_request(
+        result,
+        started_at=started_at,
+        provider=provider,
+        image_width=image_width,
+        image_height=image_height,
+    )
 
 
 def _resolve_image_ai_provider() -> str | None:
@@ -264,11 +395,21 @@ def _parse_with_openai_vision(
     response = client.chat.completions.create(
         model=settings.openai_vision_model,
         temperature=0,
-        response_format={"type": "json_object"},
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "body_composition_receipt",
+                "strict": False,
+                "schema": _BodyCompositionVisionResponse.model_json_schema(),
+            },
+        },
         messages=[
             {
                 "role": "system",
-                "content": "Extraia os dados estruturados de bioimpedancia com alta precisao e sem inventar valores. Responda somente JSON valido.",
+                "content": (
+                    "Extraia os dados estruturados de bioimpedancia com alta precisao e sem inventar valores. "
+                    "Responda somente JSON valido."
+                ),
             },
             {
                 "role": "user",
@@ -311,6 +452,9 @@ def _parse_with_claude_vision(
         "\"values\": "
         f"{_build_values_template()}, "
         "\"ranges\": {\"weight_kg\": {\"min\": 61.7, \"max\": 75.5}}, "
+        "\"field_metadata\": {\"weight_kg\": {\"origin\": \"ai_image\", \"state\": \"accepted\", "
+        "\"confidence\": 0.98, \"label\": \"Weight (kg)\", \"evidence\": \"Weight (kg) 84.5\", "
+        "\"suggested_value\": 84.5}}, "
         "\"warnings\": [], "
         "\"needs_review\": false"
         "}\n"
@@ -342,7 +486,9 @@ def _parse_with_claude_vision(
         ],
     )
     response_text = "\n".join(
-        block.text for block in response.content if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+        block.text
+        for block in response.content
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
     ).strip()
     parsed = _parse_claude_json(response_text)
     return _normalize_ai_payload(parsed, device_profile=device_profile, local_ocr_result=local_ocr_result)
@@ -357,6 +503,7 @@ def _normalize_ai_payload(
     values_source = payload.get("values") if isinstance(payload.get("values"), dict) else payload
     ranges_source = payload.get("ranges")
     warnings_source = payload.get("warnings")
+    metadata_source = payload.get("field_metadata")
 
     normalized_values = _normalize_values(values_source)
     normalized_values["body_water_percent"] = None
@@ -368,18 +515,24 @@ def _normalize_ai_payload(
         for warning in _normalize_warnings(warnings_source)
         if warning.field != "body_water_percent"
     ]
+    field_metadata = _normalize_field_metadata(metadata_source)
+    field_metadata.pop("body_water_percent", None)
+    confidence = _initial_ai_confidence(values, field_metadata)
 
     return BodyCompositionImageParseResultRead(
         device_profile=device_profile,
-        device_model=_normalize_string(payload.get("device_model")) or (local_ocr_result.device_model if local_ocr_result else None),
+        device_model=_normalize_string(payload.get("device_model"))
+        or (local_ocr_result.device_model if local_ocr_result else None),
         values=values,
         ranges=ranges,
         warnings=warnings,
-        confidence=0.94,
+        confidence=confidence,
         raw_text=local_ocr_result.raw_text if local_ocr_result else "",
         needs_review=bool(payload.get("needs_review", False)),
         engine="ai_assisted",
         fallback_used=False,
+        field_metadata=field_metadata,
+        validation_issues=[],
     )
 
 
@@ -393,6 +546,7 @@ def _merge_parse_results(
     merged_values = BodyCompositionOcrValues()
     merged_ranges: dict[str, BodyCompositionRangeValue] = {}
     warnings: list[BodyCompositionOcrWarning] = []
+    field_metadata: dict[str, BodyCompositionFieldMetadata] = {}
     ai_used_fields: set[str] = set()
     local_used_fields: set[str] = set()
 
@@ -406,8 +560,14 @@ def _merge_parse_results(
 
         if source == "ai":
             ai_used_fields.add(field_name)
+            if field_name in ai_result.field_metadata:
+                field_metadata[field_name] = ai_result.field_metadata[field_name]
             warnings.extend(_warnings_for_field(ai_result.warnings, field_name))
-            if local_value is not None and ai_value is not None and not _values_close(field_name, ai_value, local_value):
+            if (
+                local_value is not None
+                and ai_value is not None
+                and not _values_close(field_name, ai_value, local_value)
+            ):
                 warnings.append(
                     BodyCompositionOcrWarning(
                         field=field_name,
@@ -417,6 +577,12 @@ def _merge_parse_results(
                 )
         elif source == "local":
             local_used_fields.add(field_name)
+            field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="local_ocr",
+                state="suggested" if local_field_warnings else "accepted",
+                confidence=local_result.confidence,
+                evidence=None,
+            )
             warnings.extend(_warnings_for_field(local_result.warnings, field_name))
             if ai_value is None and local_value is not None and field_name in KEY_FIELDS:
                 warnings.append(
@@ -440,7 +606,7 @@ def _merge_parse_results(
         warnings=warnings,
         ai_used_count=len(ai_used_fields),
         local_used_count=len(local_used_fields),
-        local_confidence=local_result.confidence,
+        local_confidence=ai_result.confidence,
     )
 
     return _finalize_parse_result(
@@ -455,6 +621,8 @@ def _merge_parse_results(
             needs_review=ai_result.needs_review or local_result.needs_review,
             engine=engine,
             fallback_used=engine == "hybrid",
+            field_metadata=field_metadata,
+            validation_issues=list(ai_result.validation_issues),
         )
     )
 
@@ -486,6 +654,15 @@ def _build_local_only_result(
             needs_review=True,
             engine="local",
             fallback_used=False,
+            field_metadata={
+                field_name: BodyCompositionFieldMetadata(
+                    origin="local_ocr",
+                    state="suggested" if _warnings_for_field(warnings, field_name) else "accepted",
+                    confidence=local_result.confidence,
+                )
+                for field_name in BodyCompositionOcrValues.model_fields
+                if getattr(local_result.values, field_name, None) is not None
+            },
         )
     )
 
@@ -506,15 +683,30 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
     deduped_warnings = _dedupe_warnings(
         [warning for warning in result.warnings if warning.field != "body_water_percent"]
     )
-    needs_review = any(item.severity == "critical" for item in deduped_warnings) or result.needs_review or result.confidence < 0.85
-    confidence = _compute_confidence(
-        engine=result.engine,
-        warnings=deduped_warnings,
-        ai_used_count=sum(1 for field in KEY_FIELDS if getattr(result.values, field, None) is not None),
-        local_used_count=0,
-        local_confidence=result.confidence,
-        preserve_baseline=result.engine == "local",
-    )
+    field_metadata = dict(result.field_metadata)
+    if values.body_water_percent is not None:
+        field_metadata["body_water_percent"] = BodyCompositionFieldMetadata(
+            origin="derived",
+            state="accepted",
+            confidence=1.0,
+        )
+    if settings.body_composition_image_ai_validation_enabled:
+        confidence = result.confidence
+        needs_review = any(issue.severity == "critical" for issue in result.validation_issues)
+    else:
+        needs_review = (
+            any(item.severity == "critical" for item in deduped_warnings)
+            or result.needs_review
+            or result.confidence < 0.85
+        )
+        confidence = _compute_confidence(
+            engine=result.engine,
+            warnings=deduped_warnings,
+            ai_used_count=sum(1 for field in KEY_FIELDS if getattr(result.values, field, None) is not None),
+            local_used_count=0,
+            local_confidence=result.confidence,
+            preserve_baseline=result.engine == "local",
+        )
     return BodyCompositionImageParseResultRead(
         device_profile=result.device_profile,
         device_model=result.device_model,
@@ -531,7 +723,621 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
         needs_review=needs_review,
         engine=result.engine,
         fallback_used=result.fallback_used,
+        field_metadata=field_metadata,
+        validation_issues=result.validation_issues,
+        processing=result.processing,
     )
+
+
+def _validate_ai_first_result(
+    result: BodyCompositionImageParseResultRead,
+    *,
+    extraction_origin: str,
+    evaluation_date: date | None,
+    member_birthdate: date | None,
+    member_sex: str | None,
+    member_height_cm: Any,
+    previous_weight_kg: Any,
+) -> BodyCompositionImageParseResultRead:
+    """Apply deterministic safeguards without sending member data to the AI provider."""
+    values = result.values.model_copy(deep=True)
+    field_metadata = dict(result.field_metadata)
+    issues = list(result.validation_issues)
+    warnings = list(result.warnings)
+    for warning in warnings:
+        if warning.severity != "critical":
+            continue
+        _append_issue(
+            issues,
+            code="ai_provider_critical_warning" if extraction_origin == "ai_image" else "local_ocr_critical_warning",
+            severity="critical",
+            fields=[warning.field] if warning.field else [],
+            message=warning.message,
+        )
+
+    if extraction_origin == "ai_image":
+        _discard_unsupported_ai_values(values, field_metadata, issues)
+    else:
+        _discard_positional_local_values(values, field_metadata, warnings, issues)
+        for field_name in BodyCompositionOcrValues.model_fields:
+            if getattr(values, field_name, None) is None:
+                continue
+            field_metadata.setdefault(
+                field_name,
+                BodyCompositionFieldMetadata(
+                    origin="local_ocr",
+                    state="suggested",
+                    confidence=result.confidence,
+                ),
+            )
+
+    selected_date = evaluation_date or _parse_date(values.evaluation_date) or date.today()
+    if evaluation_date is None:
+        _append_issue(
+            issues,
+            code="evaluation_date_not_provided",
+            severity="warning",
+            fields=["evaluation_date"],
+            message="A data da avaliacao nao foi enviada; confirme a data antes de salvar.",
+        )
+    values.evaluation_date = selected_date.isoformat()
+    field_metadata["evaluation_date"] = BodyCompositionFieldMetadata(
+        origin="manual" if evaluation_date is not None else "derived",
+        state="accepted" if evaluation_date is not None else "suggested",
+        confidence=1.0 if evaluation_date is not None else 0.7,
+    )
+
+    _apply_canonical_age(
+        values,
+        field_metadata,
+        issues,
+        member_birthdate=member_birthdate,
+        evaluation_date=selected_date,
+    )
+    _apply_canonical_sex(values, field_metadata, issues, member_sex=member_sex)
+    _apply_canonical_height(values, field_metadata, issues, member_height_cm=member_height_cm)
+    _validate_bmi_consistency(values, field_metadata, issues)
+    _validate_previous_weight(values, field_metadata, issues, previous_weight_kg=previous_weight_kg)
+
+    for field_name in BodyCompositionOcrValues.model_fields:
+        field_metadata.setdefault(
+            field_name,
+            BodyCompositionFieldMetadata(
+                origin="ai_image" if extraction_origin == "ai_image" else "local_ocr",
+                state="unavailable",
+            ),
+        )
+
+    warnings.extend(_issues_as_legacy_warnings(issues))
+    critical = any(issue.severity == "critical" for issue in issues)
+    confidence = _validated_confidence(field_metadata, issues)
+    validated = result.model_copy(
+        update={
+            "values": values,
+            "warnings": _dedupe_warnings(warnings),
+            "confidence": confidence,
+            "needs_review": critical,
+            "field_metadata": field_metadata,
+            "validation_issues": _dedupe_issues(issues),
+        }
+    )
+    return _finalize_parse_result(validated)
+
+
+def _discard_unsupported_ai_values(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+) -> None:
+    for field_name in BodyCompositionOcrValues.model_fields:
+        value = getattr(values, field_name, None)
+        if value is None or field_name == "body_water_percent":
+            continue
+        metadata = field_metadata.get(field_name)
+        label = (metadata.label or "").strip() if metadata else ""
+        evidence = (metadata.evidence or "").strip() if metadata else ""
+        if not _is_plausible(field_name, value):
+            setattr(values, field_name, None)
+            field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="ai_image",
+                state="unavailable",
+                confidence=metadata.confidence if metadata else None,
+                label=label or None,
+                evidence=evidence or None,
+            )
+            _append_issue(
+                issues,
+                code="ai_value_out_of_range",
+                severity="critical" if field_name in AI_EVIDENCE_CRITICAL_FIELDS else "warning",
+                fields=[field_name],
+                message=f"{field_name} foi descartado porque esta fora da faixa aceita.",
+            )
+            continue
+        age_uses_physical_label = field_name == "age_years" and _is_physical_age_label(label, evidence)
+        if age_uses_physical_label:
+            setattr(values, field_name, None)
+            field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="ai_image",
+                state="conflict",
+                confidence=metadata.confidence if metadata else None,
+                label=label or None,
+                evidence=evidence or None,
+                suggested_value=value,
+            )
+            _append_issue(
+                issues,
+                code="physical_age_used_as_chronological_age",
+                severity="critical",
+                fields=["age_years", "physical_age"],
+                message="Idade fisica nao pode ser usada como idade cronologica.",
+            )
+            continue
+        metadata_error = _ai_metadata_validation_error(field_name, value, metadata)
+        if metadata_error is not None:
+            setattr(values, field_name, None)
+            field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="ai_image",
+                state="unavailable",
+                confidence=metadata.confidence if metadata else None,
+                label=label or None,
+                evidence=evidence or None,
+            )
+            _append_issue(
+                issues,
+                code=metadata_error,
+                severity="critical" if field_name in AI_EVIDENCE_CRITICAL_FIELDS else "warning",
+                fields=[field_name],
+                message=f"{field_name} foi descartado porque a evidencia da imagem nao confirmou o valor.",
+            )
+            continue
+        confidence = metadata.confidence if metadata and metadata.confidence is not None else 0.0
+        state = "accepted" if confidence >= MIN_EVIDENCE_CONFIDENCE else "suggested"
+        field_metadata[field_name] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state=state,
+            confidence=confidence,
+            label=label,
+            evidence=evidence,
+            suggested_value=value,
+        )
+        if state == "suggested":
+            _append_issue(
+                issues,
+                code="ai_field_low_confidence",
+                severity="critical" if field_name in AI_EVIDENCE_CRITICAL_FIELDS else "warning",
+                fields=[field_name],
+                message=f"A leitura de {field_name} possui baixa confianca e precisa ser conferida.",
+            )
+
+
+def _ai_metadata_validation_error(
+    field_name: str,
+    value: Any,
+    metadata: BodyCompositionFieldMetadata | None,
+) -> str | None:
+    if metadata is None or not metadata.label or not metadata.evidence:
+        return "ai_value_without_evidence"
+    if not _label_matches_field(field_name, metadata.label):
+        return "ai_label_field_mismatch"
+    if not _metadata_value_matches(field_name, value, metadata.suggested_value):
+        return "ai_metadata_value_mismatch"
+    if not _evidence_supports_value(field_name, value, metadata.evidence):
+        return "ai_evidence_value_mismatch"
+    return None
+
+
+def _label_matches_field(field_name: str, label: str) -> bool:
+    normalized = _normalize_label_text(label)
+    aliases = FIELD_LABEL_ALIASES.get(field_name)
+    if not aliases or not any(alias in normalized for alias in aliases):
+        return False
+    if field_name == "age_years" and any(marker in normalized for marker in ("physical", "fisica", "metabolic")):
+        return False
+    if field_name == "physical_age" and not any(marker in normalized for marker in ("physical", "fisica")):
+        return False
+    if field_name in KG_FIELDS and "kg" not in normalized:
+        return False
+    if field_name == "height_cm" and "cm" not in normalized:
+        return False
+    if field_name == "body_fat_percent" and not any(
+        marker in normalized for marker in ("%", "percent", "ratio", "taxa")
+    ):
+        return False
+    if field_name in {"basal_metabolic_rate_kcal", "total_energy_kcal"} and "kcal" not in normalized:
+        return False
+    return True
+
+
+def _metadata_value_matches(field_name: str, value: Any, metadata_value: Any) -> bool:
+    if metadata_value is None:
+        return False
+    if field_name == "evaluation_date":
+        return _normalize_date_string(value) == _normalize_date_string(metadata_value)
+    if field_name == "measured_at":
+        return _normalize_datetime_string(value) == _normalize_datetime_string(metadata_value)
+    if field_name == "sex":
+        return _normalize_sex_value(value) == _normalize_sex_value(metadata_value)
+    return _values_close(field_name, value, metadata_value)
+
+
+def _evidence_supports_value(field_name: str, value: Any, evidence: str) -> bool:
+    if field_name == "evaluation_date":
+        target = _normalize_date_string(value)
+        date_tokens = re.findall(r"\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}", evidence)
+        return bool(target and any(_normalize_date_string(token) == target for token in date_tokens))
+    if field_name == "measured_at":
+        normalized = _normalize_datetime_string(value)
+        return bool(normalized and normalized[:10] in evidence.replace("/", "-"))
+    if field_name == "sex":
+        normalized_sex = _normalize_sex_value(value)
+        normalized_evidence = _normalize_label_text(evidence)
+        expected = ("male", "masculino") if normalized_sex == "male" else ("female", "feminino")
+        return any(alias in normalized_evidence for alias in expected)
+
+    expected_value = _coerce_float(value)
+    if expected_value is None:
+        return False
+    numeric_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", evidence)
+    return any(
+        candidate is not None and _values_close(field_name, expected_value, candidate)
+        for token in numeric_tokens
+        if (candidate := _coerce_float(token)) is not None
+    )
+
+
+def _normalize_label_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(character for character in decomposed if not unicodedata.combining(character)).lower().strip()
+
+
+def _discard_positional_local_values(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    warnings: list[BodyCompositionOcrWarning],
+    issues: list[BodyCompositionValidationIssue],
+) -> None:
+    for warning in warnings:
+        message = (warning.message or "").lower()
+        if not warning.field or not any(marker in message for marker in POSITIONAL_INFERENCE_MARKERS):
+            continue
+        if warning.field not in BodyCompositionOcrValues.model_fields:
+            continue
+        setattr(values, warning.field, None)
+        field_metadata[warning.field] = BodyCompositionFieldMetadata(
+            origin="local_ocr",
+            state="unavailable",
+        )
+        _append_issue(
+            issues,
+            code="local_positional_inference_discarded",
+            severity="warning",
+            fields=[warning.field],
+            message=f"{warning.field} foi descartado porque dependia apenas da posicao no recibo.",
+        )
+
+
+def _apply_canonical_age(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+    *,
+    member_birthdate: date | None,
+    evaluation_date: date,
+) -> None:
+    photo_age = values.age_years
+    photo_metadata = field_metadata.get("age_years")
+    canonical_age = _age_on_date(member_birthdate, evaluation_date)
+    if canonical_age is None:
+        values.age_years = None
+        field_metadata["age_years"] = _canonical_metadata_with_suggestion(
+            origin="manual",
+            state="conflict",
+            photo_metadata=photo_metadata,
+            suggested_value=photo_age,
+        )
+        _append_issue(
+            issues,
+            code="age_manual_confirmation_required",
+            severity="critical",
+            fields=["age_years"],
+            message="Cadastre a data de nascimento ou confirme a idade manualmente.",
+        )
+        return
+
+    values.age_years = canonical_age
+    state = "accepted"
+    if photo_age is not None and photo_age != canonical_age:
+        state = "conflict"
+        _append_issue(
+            issues,
+            code="age_profile_conflict",
+            severity="critical",
+            fields=["age_years"],
+            message="A idade lida na foto diverge da idade calculada pela data de nascimento.",
+        )
+    field_metadata["age_years"] = _canonical_metadata_with_suggestion(
+        origin="derived",
+        state=state,
+        photo_metadata=photo_metadata,
+        suggested_value=photo_age,
+        confidence=1.0,
+    )
+
+
+def _apply_canonical_sex(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+    *,
+    member_sex: str | None,
+) -> None:
+    photo_sex = _normalize_sex_value(values.sex)
+    photo_metadata = field_metadata.get("sex")
+    canonical_sex = _normalize_sex_value(member_sex)
+    if canonical_sex is None:
+        values.sex = None
+        field_metadata["sex"] = _canonical_metadata_with_suggestion(
+            origin="manual",
+            state="conflict",
+            photo_metadata=photo_metadata,
+            suggested_value=photo_sex,
+        )
+        _append_issue(
+            issues,
+            code="sex_manual_confirmation_required",
+            severity="critical",
+            fields=["sex"],
+            message="O sexo para calculo nao esta definido no cadastro e precisa ser confirmado.",
+        )
+        return
+
+    values.sex = canonical_sex
+    state = "accepted"
+    if photo_sex is not None and photo_sex != canonical_sex:
+        state = "conflict"
+        _append_issue(
+            issues,
+            code="sex_profile_conflict",
+            severity="critical",
+            fields=["sex"],
+            message="O sexo identificado na foto diverge do cadastro do aluno.",
+        )
+    field_metadata["sex"] = _canonical_metadata_with_suggestion(
+        origin="member_profile",
+        state=state,
+        photo_metadata=photo_metadata,
+        suggested_value=photo_sex,
+        confidence=1.0,
+    )
+
+
+def _apply_canonical_height(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+    *,
+    member_height_cm: Any,
+) -> None:
+    photo_height = _coerce_float(values.height_cm)
+    photo_metadata = field_metadata.get("height_cm")
+    profile_height = _coerce_float(member_height_cm)
+    if not _is_plausible("height_cm", profile_height):
+        profile_height = None
+
+    if profile_height is None:
+        values.height_cm = None
+        field_metadata["height_cm"] = _canonical_metadata_with_suggestion(
+            origin="manual",
+            state="conflict",
+            photo_metadata=photo_metadata,
+            suggested_value=photo_height,
+        )
+        _append_issue(
+            issues,
+            code="height_manual_confirmation_required",
+            severity="critical",
+            fields=["height_cm"],
+            message="A altura do cadastro esta ausente ou invalida e precisa ser confirmada.",
+        )
+        return
+
+    values.height_cm = profile_height
+    state = "accepted"
+    if photo_height is not None and abs(photo_height - profile_height) > 2:
+        state = "conflict"
+        _append_issue(
+            issues,
+            code="height_profile_conflict",
+            severity="critical",
+            fields=["height_cm"],
+            message="A altura lida na foto diverge mais de 2 cm da altura cadastrada.",
+        )
+    field_metadata["height_cm"] = _canonical_metadata_with_suggestion(
+        origin="member_profile",
+        state=state,
+        photo_metadata=photo_metadata,
+        suggested_value=photo_height,
+        confidence=1.0,
+    )
+
+
+def _validate_bmi_consistency(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+) -> None:
+    weight = _coerce_float(values.weight_kg)
+    height = _coerce_float(values.height_cm)
+    printed_bmi = _coerce_float(values.bmi)
+    if weight is None or height is None or printed_bmi is None or height <= 0:
+        return
+    calculated_bmi = weight / ((height / 100) ** 2)
+    tolerance = max(0.5, abs(printed_bmi) * 0.02)
+    if abs(printed_bmi - calculated_bmi) <= tolerance:
+        return
+    for field_name in ("weight_kg", "height_cm", "bmi"):
+        metadata = field_metadata.get(field_name)
+        if metadata:
+            field_metadata[field_name] = metadata.model_copy(update={"state": "conflict"})
+    _append_issue(
+        issues,
+        code="bmi_consistency_conflict",
+        severity="critical",
+        fields=["weight_kg", "height_cm", "bmi"],
+        message="Peso, altura e IMC nao conferem entre si e precisam ser revisados.",
+    )
+
+
+def _validate_previous_weight(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+    *,
+    previous_weight_kg: Any,
+) -> None:
+    weight = _coerce_float(values.weight_kg)
+    previous_weight = _coerce_float(previous_weight_kg)
+    if weight is None or previous_weight is None or previous_weight <= 0:
+        return
+    if abs(weight - previous_weight) / previous_weight <= 0.2:
+        return
+    _append_issue(
+        issues,
+        code="weight_previous_variation",
+        severity="warning",
+        fields=["weight_kg"],
+        message="O peso variou mais de 20% em relacao a avaliacao anterior; confira antes de salvar.",
+    )
+
+
+def _canonical_metadata_with_suggestion(
+    *,
+    origin: str,
+    state: str,
+    photo_metadata: BodyCompositionFieldMetadata | None,
+    suggested_value: Any,
+    confidence: float | None = None,
+) -> BodyCompositionFieldMetadata:
+    return BodyCompositionFieldMetadata(
+        origin=origin,
+        state=state,
+        confidence=confidence,
+        label=photo_metadata.label if photo_metadata else None,
+        evidence=photo_metadata.evidence if photo_metadata else None,
+        suggested_value=suggested_value,
+    )
+
+
+def _age_on_date(birthdate: date | None, evaluation_date: date) -> int | None:
+    if not isinstance(birthdate, date) or birthdate > evaluation_date:
+        return None
+    years = evaluation_date.year - birthdate.year
+    if (evaluation_date.month, evaluation_date.day) < (birthdate.month, birthdate.day):
+        years -= 1
+    return years if 1 <= years <= 119 else None
+
+
+def _is_physical_age_label(label: str, evidence: str) -> bool:
+    text = f"{label} {evidence}".lower()
+    return "physical age" in text or "idade fis" in text
+
+
+def _append_issue(
+    issues: list[BodyCompositionValidationIssue],
+    *,
+    code: str,
+    severity: str,
+    fields: list[str],
+    message: str,
+) -> None:
+    issues.append(
+        BodyCompositionValidationIssue(
+            code=code,
+            severity=severity,
+            fields=fields,
+            message=message,
+        )
+    )
+
+
+def _issues_as_legacy_warnings(
+    issues: list[BodyCompositionValidationIssue],
+) -> list[BodyCompositionOcrWarning]:
+    return [
+        BodyCompositionOcrWarning(
+            field=issue.fields[0] if len(issue.fields) == 1 else None,
+            message=issue.message,
+            severity=issue.severity,
+        )
+        for issue in issues
+    ]
+
+
+def _dedupe_issues(issues: list[BodyCompositionValidationIssue]) -> list[BodyCompositionValidationIssue]:
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    deduped: list[BodyCompositionValidationIssue] = []
+    for issue in issues:
+        key = (issue.code, tuple(issue.fields))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(issue)
+    return deduped
+
+
+def _validated_confidence(
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+) -> float:
+    evidence_scores = [
+        metadata.confidence
+        for metadata in field_metadata.values()
+        if metadata.origin == "ai_image" and metadata.confidence is not None and metadata.state != "unavailable"
+    ]
+    baseline = sum(evidence_scores) / len(evidence_scores) if evidence_scores else 0.5
+    critical_count = sum(issue.severity == "critical" for issue in issues)
+    warning_count = len(issues) - critical_count
+    return max(0.2, round(min(0.99, baseline - critical_count * 0.08 - warning_count * 0.02), 2))
+
+
+def _complete_parse_request(
+    result: BodyCompositionImageParseResultRead,
+    *,
+    started_at: float,
+    provider: str | None,
+    image_width: int | None,
+    image_height: int | None,
+) -> BodyCompositionImageParseResultRead:
+    duration_ms = max(0, round((perf_counter() - started_at) * 1000))
+    local_result = result.engine == "local"
+    processing = BodyCompositionImageProcessing(
+        primary_engine="local_ocr" if local_result else "ai_image",
+        fallback_used=local_result,
+        duration_ms=duration_ms,
+        provider=provider,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    completed = result.model_copy(update={"processing": processing})
+    populated_fields = sorted(
+        field_name
+        for field_name in BodyCompositionOcrValues.model_fields
+        if getattr(completed.values, field_name, None) is not None
+    )
+    issue_codes = sorted({issue.code for issue in completed.validation_issues})
+    logger.info(
+        "body_composition_image_parse_complete provider=%s engine=%s fallback=%s duration_ms=%s "
+        "image_width=%s image_height=%s fields=%s issue_codes=%s",
+        provider or "unavailable",
+        processing.primary_engine,
+        processing.fallback_used,
+        duration_ms,
+        image_width,
+        image_height,
+        ",".join(populated_fields),
+        ",".join(issue_codes),
+    )
+    return completed
 
 
 def _classify_assisted_read_failure(exc: Exception) -> tuple[str, str]:
@@ -575,11 +1381,11 @@ def _compute_confidence(
     if preserve_baseline:
         base = local_confidence
     elif engine == "ai_assisted":
-        base = 0.94 if ai_used_count >= 4 else 0.88
+        base = local_confidence
     elif engine == "ai_fallback":
-        base = 0.94 if ai_used_count >= 4 else 0.88
+        base = local_confidence
     elif engine == "hybrid":
-        base = 0.9 if ai_used_count >= 3 else 0.84
+        base = min(0.95, local_confidence)
         if local_used_count > ai_used_count:
             base -= 0.05
     else:
@@ -622,7 +1428,10 @@ def _choose_range(
     return None
 
 
-def _warnings_for_field(warnings: list[BodyCompositionOcrWarning], field_name: str | None) -> list[BodyCompositionOcrWarning]:
+def _warnings_for_field(
+    warnings: list[BodyCompositionOcrWarning],
+    field_name: str | None,
+) -> list[BodyCompositionOcrWarning]:
     return [warning for warning in warnings if warning.field == field_name]
 
 
@@ -669,7 +1478,10 @@ def _validate_image_payload(image_bytes: bytes, media_type: str | None) -> str:
     if not image_bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo de imagem vazio")
     if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Imagem excede o limite de 8 MB")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Imagem excede o limite de 8 MB",
+        )
 
     normalized = SUPPORTED_MEDIA_TYPES.get((media_type or "").lower())
     if not normalized:
@@ -697,11 +1509,98 @@ def _normalize_values(source: Any) -> dict[str, Any]:
         if field_name == "evaluation_date":
             normalized[field_name] = _normalize_date_string(raw_value)
             continue
+        if field_name == "sex":
+            normalized[field_name] = _normalize_sex_value(raw_value)
+            continue
+        if field_name in TEXT_FIELDS:
+            normalized[field_name] = _normalize_datetime_string(raw_value)
+            continue
         if field_name in INT_FIELDS:
             normalized[field_name] = _coerce_int(raw_value)
             continue
         normalized[field_name] = _coerce_float(raw_value)
     return normalized
+
+
+def _read_image_dimensions(image_bytes: bytes, media_type: str) -> tuple[int | None, int | None]:
+    """Read common image dimensions without decoding or retaining the image."""
+    try:
+        if media_type == "image/png" and image_bytes.startswith(b"\x89PNG\r\n\x1a\n") and len(image_bytes) >= 24:
+            return struct.unpack(">II", image_bytes[16:24])
+        if media_type == "image/jpeg" and image_bytes.startswith(b"\xff\xd8"):
+            offset = 2
+            while offset + 9 <= len(image_bytes):
+                if image_bytes[offset] != 0xFF:
+                    offset += 1
+                    continue
+                marker = image_bytes[offset + 1]
+                offset += 2
+                if marker in {0xD8, 0xD9}:
+                    continue
+                if offset + 2 > len(image_bytes):
+                    break
+                segment_length = int.from_bytes(image_bytes[offset : offset + 2], "big")
+                if segment_length < 2 or offset + segment_length > len(image_bytes):
+                    break
+                if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                    height = int.from_bytes(image_bytes[offset + 3 : offset + 5], "big")
+                    width = int.from_bytes(image_bytes[offset + 5 : offset + 7], "big")
+                    return width or None, height or None
+                offset += segment_length
+    except (IndexError, struct.error, ValueError):
+        return None, None
+    return None, None
+
+
+def _normalize_field_metadata(source: Any) -> dict[str, BodyCompositionFieldMetadata]:
+    payload = source if isinstance(source, dict) else {}
+    normalized: dict[str, BodyCompositionFieldMetadata] = {}
+    for field_name, raw_metadata in payload.items():
+        if field_name not in BodyCompositionOcrValues.model_fields or not isinstance(raw_metadata, dict):
+            continue
+        label = _truncate_evidence(raw_metadata.get("label"))
+        evidence = _truncate_evidence(raw_metadata.get("evidence"))
+        confidence = _coerce_float(raw_metadata.get("confidence"))
+        if confidence is not None:
+            confidence = max(0.0, min(1.0, confidence))
+        normalized[field_name] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted" if confidence is not None and confidence >= MIN_EVIDENCE_CONFIDENCE else "suggested",
+            confidence=confidence,
+            label=label,
+            evidence=evidence,
+            suggested_value=_normalize_metadata_value(field_name, raw_metadata.get("suggested_value")),
+        )
+    return normalized
+
+
+def _normalize_metadata_value(field_name: str, value: Any) -> str | int | float | None:
+    if field_name == "evaluation_date":
+        return _normalize_date_string(value)
+    if field_name == "measured_at":
+        return _normalize_datetime_string(value)
+    if field_name == "sex":
+        return _normalize_sex_value(value)
+    if field_name in INT_FIELDS:
+        return _coerce_int(value)
+    return _coerce_float(value)
+
+
+def _initial_ai_confidence(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+) -> float:
+    scores = [
+        metadata.confidence
+        for field_name, metadata in field_metadata.items()
+        if getattr(values, field_name, None) is not None
+        and metadata.confidence is not None
+        and metadata.label
+        and metadata.evidence
+    ]
+    if not scores:
+        return 0.5
+    return max(0.2, round(min(0.99, sum(scores) / len(scores)), 2))
 
 
 def _normalize_ranges(source: Any) -> dict[str, BodyCompositionRangeValue]:
@@ -750,12 +1649,49 @@ def _normalize_date_string(value: Any) -> str | None:
     return None
 
 
+def _parse_date(value: Any) -> date | None:
+    normalized = _normalize_date_string(value)
+    return date.fromisoformat(normalized) if normalized else None
+
+
+def _normalize_datetime_string(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = _normalize_string(value)
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        return None
+
+
+def _normalize_sex_value(value: Any) -> str | None:
+    normalized = (_normalize_string(value) or "").lower()
+    aliases = {
+        "male": "male",
+        "masculino": "male",
+        "m": "male",
+        "female": "female",
+        "feminino": "female",
+        "f": "female",
+    }
+    return aliases.get(normalized)
+
+
+def _truncate_evidence(value: Any, limit: int = 160) -> str | None:
+    text = _normalize_string(value)
+    if not text:
+        return None
+    return text[:limit]
+
+
 def _coerce_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     text = str(value).strip().replace(",", ".")
     if not text:
@@ -770,7 +1706,7 @@ def _coerce_int(value: Any) -> int | None:
     numeric = _coerce_float(value)
     if numeric is None:
         return None
-    return int(round(numeric))
+    return round(numeric)
 
 
 def _normalize_string(value: Any) -> str | None:
@@ -785,6 +1721,10 @@ def _is_plausible(field_name: str, value: Any) -> bool:
         return False
     if field_name == "evaluation_date":
         return _normalize_date_string(value) is not None
+    if field_name == "measured_at":
+        return _normalize_datetime_string(value) is not None
+    if field_name == "sex":
+        return _normalize_sex_value(value) is not None
 
     numeric = _coerce_float(value)
     if numeric is None:

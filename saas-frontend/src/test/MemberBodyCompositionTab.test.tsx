@@ -580,11 +580,71 @@ describe("MemberBodyCompositionTab", () => {
       expect(bodyCompositionService.readWithAssistedFallback).toHaveBeenCalledWith("member-1", expect.any(File), {
         deviceProfile: "tezewa_receipt_v1",
         forceAssisted: false,
+        evaluationDate: "2026-04-14",
+        onStage: expect.any(Function),
       });
     });
     expect(screen.getByDisplayValue("33")).toBeInTheDocument();
     expect(screen.getByDisplayValue("54")).toBeInTheDocument();
     expect(screen.getByDisplayValue("84.5")).toBeInTheDocument();
+  });
+
+  it("invalidates critical review state when the selected photo changes", async () => {
+    vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
+      localResult: null,
+      result: {
+        device_profile: "tezewa_receipt_v1",
+        device_model: "Tezewa",
+        values: { weight_kg: 84.5, height_cm: 168, bmi: 31 },
+        ranges: {},
+        warnings: [],
+        confidence: 0.72,
+        raw_text: "",
+        needs_review: true,
+        engine: "ai_assisted",
+        fallback_used: false,
+        field_metadata: {
+          weight_kg: {
+            origin: "ai_image", state: "conflict", confidence: 0.95, evidence: null, suggested_value: null,
+          },
+          height_cm: {
+            origin: "member_profile", state: "conflict", confidence: 1, evidence: null, suggested_value: null,
+          },
+          bmi: {
+            origin: "ai_image", state: "conflict", confidence: 0.95, evidence: null, suggested_value: null,
+          },
+        },
+        validation_issues: [{
+          code: "bmi_consistency_conflict",
+          severity: "critical",
+          fields: ["weight_kg", "height_cm", "bmi"],
+          message: "Peso, altura e IMC nao conferem entre si e precisam ser revisados.",
+        }],
+      },
+      fallbackReasons: [],
+      assistedAttempted: true,
+      assistedUsed: true,
+      assistedError: null,
+    });
+
+    renderTab();
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["photo-a"], "photo-a.jpg", { type: "image/jpeg" })] },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Tentar leitura assistida (IA)" }));
+
+    expect(await screen.findByRole("alert", { name: "Conferencia de campos criticos" })).toBeInTheDocument();
+
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["photo-b"], "photo-b.jpg", { type: "image/jpeg" })] },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert", { name: "Conferencia de campos criticos" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("img", { name: "Foto selecionada para leitura: photo-b.jpg" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salvar bioimpedancia" })).toBeDisabled();
   });
 
   it("opens the summary pdf through the authenticated service instead of navigating to /api directly", async () => {

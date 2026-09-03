@@ -37,7 +37,11 @@ import { bodyCompositionService } from "../../services/bodyCompositionService";
 import {
   calculateBodyWaterPercent,
   type BodyCompositionOcrEngine,
+  type BodyCompositionOcrFieldOrigin,
+  type BodyCompositionOcrFieldState,
+  type BodyCompositionReadStage,
   type BodyCompositionOcrResult,
+  type BodyCompositionValidationIssue,
 } from "../../services/bodyCompositionOcr";
 import type {
   BodyCompositionEvaluation,
@@ -182,7 +186,14 @@ type BodyCompositionSessionDraft = {
   values: FormData;
   source: EvaluationSource;
   reviewed_manually: boolean;
+  field_origins?: Record<string, BodyCompositionDisplayFieldOrigin>;
+  ocr_result?: BodyCompositionOcrResult | null;
+  ocr_metadata?: OcrMetadataState;
+  ocr_read_session?: OcrReadSessionState;
+  resolved_critical_issues?: string[];
 };
+
+type BodyCompositionDisplayFieldOrigin = BodyCompositionOcrFieldOrigin | "draft";
 
 const BODY_COMPOSITION_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -338,6 +349,89 @@ const EMPTY_OCR_READ_SESSION: OcrReadSessionState = {
   assistedAttempted: false,
   assistedError: null,
 };
+
+function sanitizeOcrResultForDraft(result: BodyCompositionOcrResult | null): BodyCompositionOcrResult | null {
+  if (!result) return null;
+  return {
+    ...result,
+    raw_text: "",
+    field_metadata: result.field_metadata
+      ? Object.fromEntries(Object.entries(result.field_metadata).map(([field, metadata]) => [
+          field,
+          { ...metadata, evidence: null },
+        ]))
+      : undefined,
+  };
+}
+
+function recoveredLegacyOcrDraftResult(): BodyCompositionOcrResult {
+  return {
+    device_profile: "tezewa_receipt_v1",
+    values: {},
+    ranges: {},
+    warnings: [],
+    confidence: 0,
+    raw_text: "",
+    needs_review: true,
+    engine: "local",
+    fallback_used: false,
+    validation_issues: [{
+      code: "recovered_ocr_draft_requires_new_read",
+      severity: "critical",
+      fields: [],
+      message: "Este rascunho veio de uma leitura antiga sem validacao por campo. Execute novamente a leitura assistida.",
+    }],
+  };
+}
+
+const DEMOGRAPHIC_FIELDS = new Set(["age_years", "sex", "height_cm"]);
+
+function validationIssueKey(issue: BodyCompositionValidationIssue): string {
+  return `${issue.code}:${[...issue.fields].sort().join(",")}`;
+}
+
+function fieldOriginLabel(origin: BodyCompositionDisplayFieldOrigin): string {
+  if (origin === "ai_image") return "IA da foto";
+  if (origin === "member_profile") return "Cadastro";
+  if (origin === "derived") return "Calculado";
+  if (origin === "manual") return "Manual";
+  if (origin === "previous_assessment") return "Avaliacao salva";
+  if (origin === "local_ocr") return "OCR local";
+  return "Rascunho recuperado";
+}
+
+function fieldOriginTone(
+  origin: BodyCompositionDisplayFieldOrigin,
+  state?: BodyCompositionOcrFieldState,
+): "success" | "warning" | "neutral" {
+  if (state === "conflict" || state === "suggested" || state === "unavailable") return "warning";
+  if (origin === "ai_image" || origin === "member_profile" || origin === "derived") return "success";
+  return "neutral";
+}
+
+function hasDisplayValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function buildFieldOrigins(
+  values: Record<string, unknown>,
+  origin: BodyCompositionDisplayFieldOrigin,
+): Record<string, BodyCompositionDisplayFieldOrigin> {
+  return Object.fromEntries(
+    Object.entries(values)
+      .filter(([key, value]) => key !== "evaluation_date" && hasDisplayValue(value))
+      .map(([key]) => [key, origin]),
+  );
+}
+
+function readStageLabel(stage: BodyCompositionReadStage | null, assisted: boolean): string {
+  if (!assisted) return stage === "reading_local" ? "Lendo..." : "Ler foto";
+  if (stage === "uploading") return "Enviando...";
+  if (stage === "reading_ai") return "Lendo com IA...";
+  if (stage === "validating") return "Validando...";
+  if (stage === "reading_local") return "Usando OCR local...";
+  return "Tentar leitura assistida (IA)";
+}
 
 const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDef[] }> = [
   {
@@ -884,8 +978,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrPreviewUrl, setOcrPreviewUrl] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrFileNeedsRead, setOcrFileNeedsRead] = useState(false);
+  const [ocrReadStage, setOcrReadStage] = useState<BodyCompositionReadStage | null>(null);
+  const [activeReadMode, setActiveReadMode] = useState<"local" | "assisted" | null>(null);
   const [ocrResult, setOcrResult] = useState<BodyCompositionOcrResult | null>(null);
   const [ocrReadSession, setOcrReadSession] = useState<OcrReadSessionState>(EMPTY_OCR_READ_SESSION);
+  const [fieldOrigins, setFieldOrigins] = useState<Record<string, BodyCompositionDisplayFieldOrigin>>({});
+  const [resolvedCriticalIssues, setResolvedCriticalIssues] = useState<string[]>([]);
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
   const [reportReadyEvaluationId, setReportReadyEvaluationId] = useState<string | null>(null);
   const [evaluationToDelete, setEvaluationToDelete] = useState<BodyCompositionEvaluation | null>(null);
@@ -894,6 +993,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const ocrFileRef = useRef<File | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
   const recoveredDraftMemberRef = useRef<string | null>(null);
 
@@ -972,6 +1072,22 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const watchedWeightKg = watch("weight_kg");
   const watchedBodyWaterKg = watch("body_water_kg");
 
+  function selectOcrFile(file: File | null) {
+    ocrFileRef.current = file;
+    setOcrFile(file);
+    setOcrFileNeedsRead(Boolean(file));
+    // A leitura pertence exatamente ao arquivo que a originou. Ao trocar a
+    // imagem, descarte todo o estado transitório para que valores e conflitos
+    // da foto anterior nunca sejam apresentados como se viessem da nova foto.
+    setOcrResult(null);
+    setOcrReadSession(EMPTY_OCR_READ_SESSION);
+    setResolvedCriticalIssues([]);
+    setOcrMetadata(EMPTY_OCR_METADATA);
+    setOcrReadStage(null);
+    setActiveReadMode(null);
+    setValue("ocr_source_file_ref", null, { shouldDirty: false });
+  }
+
   useEffect(() => {
     setValue(
       "body_water_percent",
@@ -981,13 +1097,20 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }, [setValue, watchedBodyWaterKg, watchedWeightKg]);
 
   function resetEditor(evaluation?: BodyCompositionEvaluation | null) {
-    reset(buildDefaultValues(evaluation));
+    const nextValues = buildDefaultValues(evaluation);
+    reset(nextValues);
     setCurrentSource((evaluation?.source as EvaluationSource | undefined) ?? "manual");
     setReviewedManually(evaluation?.reviewed_manually ?? true);
     setOcrMetadata(buildOcrMetadata(evaluation));
+    ocrFileRef.current = null;
     setOcrFile(null);
+    setOcrFileNeedsRead(false);
     setOcrResult(null);
     setOcrReadSession(EMPTY_OCR_READ_SESSION);
+    setOcrReadStage(null);
+    setActiveReadMode(null);
+    setResolvedCriticalIssues([]);
+    setFieldOrigins(evaluation ? buildFieldOrigins(nextValues as Record<string, unknown>, "previous_assessment") : {});
     setEditingEvaluationId(evaluation?.id ?? null);
     setReportReadyEvaluationId(evaluation?.id ?? null);
   }
@@ -1272,6 +1395,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const watchedAnthropometryReviewCompleted = watch("anthropometry_review_completed");
   const watchedFormValues = watch();
   const selectedProtocol = getBodyCompositionProtocol(watchedMeasurementProtocol);
+  const criticalValidationIssues = useMemo(
+    () => (ocrResult?.validation_issues ?? []).filter((issue) => issue.severity === "critical"),
+    [ocrResult],
+  );
+  const unresolvedCriticalIssues = useMemo(
+    () => criticalValidationIssues.filter((issue) => !resolvedCriticalIssues.includes(validationIssueKey(issue))),
+    [criticalValidationIssues, resolvedCriticalIssues],
+  );
 
   useEffect(() => {
     if (!selectedProtocol?.sex || selectedSex === selectedProtocol.sex) return;
@@ -1288,6 +1419,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     reset({ ...buildDefaultValues(null), ...draft.values });
     setCurrentSource(draft.source);
     setReviewedManually(draft.reviewed_manually);
+    const restoredOcrResult = draft.ocr_result
+      ?? (draft.source === "ocr_receipt" ? recoveredLegacyOcrDraftResult() : null);
+    setOcrResult(restoredOcrResult);
+    setOcrMetadata(draft.ocr_metadata ?? EMPTY_OCR_METADATA);
+    setOcrReadSession(draft.ocr_read_session ?? EMPTY_OCR_READ_SESSION);
+    setResolvedCriticalIssues(draft.resolved_critical_issues ?? []);
+    setFieldOrigins(
+      draft.field_origins
+        ?? buildFieldOrigins(draft.values as Record<string, unknown>, "draft"),
+    );
     toast.success("Rascunho desta avaliacao foi recuperado nesta aba. Revise e salve quando estiver pronto.");
   }, [isLoading, memberId, reset]);
 
@@ -1297,9 +1438,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
 
     if (!hasNumericValue(watchedAgeYears) && hasNumericValue(latestEvaluation.age_years)) {
       setValue("age_years", latestEvaluation.age_years, { shouldDirty: false, shouldValidate: true });
+      setFieldOrigins((current) => ({ ...current, age_years: "previous_assessment" }));
     }
     if (!selectedSex && latestEvaluation.sex) {
       setValue("sex", latestEvaluation.sex, { shouldDirty: false, shouldValidate: true });
+      setFieldOrigins((current) => ({ ...current, sex: "previous_assessment" }));
     }
   }, [evaluations, isDirty, memberId, selectedSex, setValue, watchedAgeYears]);
 
@@ -1311,10 +1454,29 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         values: watchedFormValues,
         source: currentSource,
         reviewed_manually: reviewedManually,
+        field_origins: fieldOrigins,
+        ocr_result: sanitizeOcrResultForDraft(ocrResult),
+        ocr_metadata: { ...ocrMetadata, raw_ocr_text: null },
+        ocr_read_session: {
+          ...ocrReadSession,
+          localResult: sanitizeOcrResultForDraft(ocrReadSession.localResult),
+        },
+        resolved_critical_issues: resolvedCriticalIssues,
       });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [currentSource, isDirty, memberId, reviewedManually, watchedFormValues]);
+  }, [
+    currentSource,
+    fieldOrigins,
+    isDirty,
+    memberId,
+    ocrMetadata,
+    ocrReadSession,
+    ocrResult,
+    resolvedCriticalIssues,
+    reviewedManually,
+    watchedFormValues,
+  ]);
 
   const selectedProtocolRequiredFields = useMemo(
     () => (selectedProtocol?.requiredFields ?? []).flatMap((field) => {
@@ -1545,30 +1707,76 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     };
   }
 
+  function resolveCriticalIssue(issue: BodyCompositionValidationIssue) {
+    const key = validationIssueKey(issue);
+    setResolvedCriticalIssues((current) => (current.includes(key) ? current : [...current, key]));
+  }
+
+  function markFieldAsManual(field: string, value: unknown) {
+    setFieldOrigins((current) => ({ ...current, [field]: "manual" }));
+    if (!hasDisplayValue(value)) return;
+    for (const issue of criticalValidationIssues) {
+      // Uma edição isolada resolve apenas conflitos de um único campo.
+      // Inconsistências compostas (peso + altura + IMC) exigem uma confirmação
+      // explícita do conjunto exibido.
+      if (issue.fields.length === 1 && issue.fields.includes(field)) resolveCriticalIssue(issue);
+    }
+  }
+
+  function selectHeightResolution(issue: BodyCompositionValidationIssue, usePhotoSuggestion: boolean) {
+    const metadata = ocrResult?.field_metadata?.height_cm;
+    if (usePhotoSuggestion && metadata?.suggested_value != null) {
+      const suggestedHeight = Number(metadata.suggested_value);
+      if (Number.isFinite(suggestedHeight)) {
+        setValue("height_cm", suggestedHeight, { shouldDirty: true, shouldValidate: true });
+        setFieldOrigins((current) => ({ ...current, height_cm: "manual" }));
+      }
+    } else {
+      setFieldOrigins((current) => ({ ...current, height_cm: "member_profile" }));
+    }
+    resolveCriticalIssue(issue);
+  }
+
+  function fieldOriginPill(field: string): ReactNode {
+    const metadata = ocrResult?.field_metadata?.[field];
+    const origin = fieldOrigins[field] ?? metadata?.origin;
+    if (!origin) return null;
+    const stillConflicted = unresolvedCriticalIssues.some((issue) => issue.fields.includes(field));
+    const state = stillConflicted ? metadata?.state : undefined;
+    return <StatusPill tone={fieldOriginTone(origin, state)}>{fieldOriginLabel(origin)}</StatusPill>;
+  }
+
   function fillFromOcr(result: BodyCompositionOcrResult, file: File) {
     const existingValues = getValues();
     const values = result.values;
     const rawValues = values as Record<string, unknown>;
+    const nextOrigins: Record<string, BodyCompositionDisplayFieldOrigin> = {};
     const numericKeys = Object.keys(values).filter(
       (key) => key !== "evaluation_date" && key !== "measured_at" && key !== "sex",
     ) as NumericFieldKey[];
     for (const key of numericKeys) {
       const value = rawValues[key];
-      if (typeof value === "number") {
-        setValue(key, value);
+      const metadata = result.field_metadata?.[key];
+      if (DEMOGRAPHIC_FIELDS.has(key) && !metadata) continue;
+      if (metadata?.state === "suggested" || metadata?.state === "unavailable") continue;
+      if (typeof value === "number" && Number.isFinite(value)) {
+        setValue(key, value, { shouldDirty: true, shouldValidate: true });
+        nextOrigins[key] = metadata?.origin
+          ?? (result.engine === "local" ? "local_ocr" : "ai_image");
       }
     }
-    setValue(
-      "evaluation_date",
-      values.evaluation_date
-        ?? values.measured_at?.slice(0, 10)
-        ?? existingValues.evaluation_date
-        ?? new Date().toISOString().split("T")[0],
-    );
-    if (values.sex) {
-      setValue("sex", values.sex);
+    // The date selected by the professor is canonical. The date printed in the
+    // photo must never silently change the context used to derive age.
+    setValue("evaluation_date", existingValues.evaluation_date ?? new Date().toISOString().split("T")[0]);
+    const sexMetadata = result.field_metadata?.sex;
+    if (values.sex && sexMetadata && sexMetadata.state !== "suggested" && sexMetadata.state !== "unavailable") {
+      setValue("sex", values.sex, { shouldDirty: true, shouldValidate: true });
+      nextOrigins.sex = sexMetadata.origin;
     }
     setValue("ocr_source_file_ref", `local://${file.name}`);
+    setFieldOrigins((current) => ({ ...current, ...nextOrigins }));
+    setResolvedCriticalIssues([]);
+    setOcrFileNeedsRead(false);
     setCurrentSource("ocr_receipt");
     setReviewedManually(false);
     setReportReadyEvaluationId(null);
@@ -1586,6 +1794,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }
 
   function submitBodyComposition(data: FormData, syncActuar: boolean) {
+    if (ocrFileNeedsRead) {
+      toast.error("Leia a imagem selecionada antes de salvar ou remova o arquivo para continuar manualmente.");
+      return;
+    }
+    if (unresolvedCriticalIssues.length > 0) {
+      toast.error("Resolva a conferencia dos campos criticos antes de salvar a bioimpedancia.");
+      return;
+    }
     if (currentSource === "ocr_receipt" && !reviewedManually) {
       toast.error("Confirme a revisao humana dos campos OCR antes de salvar a bioimpedancia.");
       return;
@@ -1599,6 +1815,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       values: data,
       source: currentSource,
       reviewed_manually: reviewedManually,
+      field_origins: fieldOrigins,
     });
     saveMutation.mutate({ payload: buildPayload(data), syncActuar });
   }
@@ -1617,12 +1834,31 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       return;
     }
 
+    const requestedFile = ocrFile;
+    const requestedEvaluationDate = getValues("evaluation_date");
     setOcrLoading(true);
+    setActiveReadMode(forceAssisted ? "assisted" : "local");
+    setOcrReadStage(forceAssisted ? "uploading" : "reading_local");
     try {
-      const readOutcome = await bodyCompositionService.readWithAssistedFallback(memberId, ocrFile, {
+      const readOutcome = await bodyCompositionService.readWithAssistedFallback(memberId, requestedFile, {
         deviceProfile: "tezewa_receipt_v1",
         forceAssisted,
+        evaluationDate: requestedEvaluationDate,
+        onStage: setOcrReadStage,
       });
+      if (getValues("evaluation_date") !== requestedEvaluationDate) {
+        toast.error("A data da avaliacao mudou durante a leitura. Tente novamente para recalcular a idade com seguranca.", {
+          duration: 8000,
+        });
+        return;
+      }
+      if (ocrFileRef.current !== requestedFile) {
+        toast.error("A imagem mudou durante a leitura. Tente novamente com a foto que esta na tela.", {
+          duration: 8000,
+        });
+        return;
+      }
+      setOcrReadStage("validating");
       setOcrReadSession({
         localResult: readOutcome.localResult,
         fallbackReasons: readOutcome.fallbackReasons,
@@ -1630,7 +1866,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         assistedError: readOutcome.assistedError,
       });
       setOcrResult(readOutcome.result);
-      fillFromOcr(readOutcome.result, ocrFile);
+      fillFromOcr(readOutcome.result, requestedFile);
 
       if (readOutcome.assistedError) {
         toast.error(`${readOutcome.assistedError} Revise os campos reconhecidos antes de salvar.`, { duration: 8000 });
@@ -1645,6 +1881,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       toast.error("Falha ao ler a imagem. O preenchimento manual continua disponivel.");
     } finally {
       setOcrLoading(false);
+      setOcrReadStage(null);
+      setActiveReadMode(null);
     }
   }
 
@@ -1661,7 +1899,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }
 
   const ocrEngine = ocrResult?.engine ?? null;
-  const localOcrText = ocrReadSession.localResult?.raw_text ?? ocrResult?.raw_text ?? null;
+  const localOcrText = ocrReadSession.localResult?.raw_text
+    ?? (ocrResult?.engine === "local" ? ocrResult.raw_text : null);
   const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
   function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
@@ -1669,6 +1908,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       shouldDirty: true,
       shouldValidate: true,
     });
+    markFieldAsManual(key, rawValue);
   }
 
   return (
@@ -1676,7 +1916,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       <GuidedDocumentScanner
         open={cameraOpen}
         onClose={() => setCameraOpen(false)}
-        onConfirm={(file) => setOcrFile(file)}
+        onConfirm={selectOcrFile}
       />
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1832,7 +2072,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">Leitura da foto</p>
                     <p className="text-xs text-lovable-ink-muted">
-                      Profile ativo: <strong>tezewa_receipt_v1</strong>. O OCR preenche os campos e o professor confirma antes de salvar.
+                      Profile ativo: <strong>tezewa_receipt_v1</strong>. A IA le a foto e o professor confirma antes de salvar.
                     </p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1853,7 +2093,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     type="file"
                     accept={SUPPORTED_OCR_IMAGE_ACCEPT}
                     capture="environment"
-                    onChange={(event) => setOcrFile(event.target.files?.[0] ?? null)}
+                    onChange={(event) => selectOcrFile(event.target.files?.[0] ?? null)}
                   />
                   <Button
                     type="button"
@@ -1866,11 +2106,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   </Button>
                   <Button type="button" variant="ghost" onClick={() => void handleReadPhoto()} disabled={!ocrFile || ocrLoading}>
                     <ScanText size={14} />
-                    {ocrLoading ? "Lendo..." : "Ler foto"}
+                    {ocrLoading && activeReadMode === "local" ? readStageLabel(ocrReadStage, false) : "Ler foto"}
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => void handleReadPhoto(true)} disabled={!ocrFile || ocrLoading}>
                     <Sparkles size={14} />
-                    {ocrLoading ? "Processando..." : "Tentar leitura assistida (IA)"}
+                    {ocrLoading && activeReadMode === "assisted"
+                      ? readStageLabel(ocrReadStage, true)
+                      : "Tentar leitura assistida (IA)"}
                   </Button>
                 </div>
                 {ocrFile ? (
@@ -1882,9 +2124,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                         className="max-h-72 w-full object-contain"
                       />
                     ) : null}
-                    <p className="border-t border-lovable-border px-3 py-2 text-xs text-lovable-ink-muted">
-                      Imagem pronta para leitura: {ocrFile.name}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 border-t border-lovable-border px-3 py-2 text-xs text-lovable-ink-muted">
+                      <span>Imagem pronta para leitura: {ocrFile.name}</span>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => selectOcrFile(null)}>
+                        <X size={12} />
+                        Remover imagem
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-lovable-ink-muted">
@@ -1919,6 +2165,70 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     ))}
                   </div>
                 ) : null}
+                {unresolvedCriticalIssues.length > 0 ? (
+                  <div
+                    role="alert"
+                    aria-label="Conferencia de campos criticos"
+                    className="mt-3 rounded-xl border border-lovable-danger/40 bg-lovable-danger/10 p-3 text-xs text-lovable-ink"
+                  >
+                    <p className="font-semibold text-lovable-danger">Confira antes de salvar</p>
+                    <p className="mt-1 text-lovable-ink-muted">
+                      A IA encontrou uma divergencia que precisa de uma confirmacao rapida do professor.
+                    </p>
+                    <div className="mt-3 space-y-3">
+                      {unresolvedCriticalIssues.map((issue) => {
+                        const heightMetadata = issue.fields.includes("height_cm")
+                          ? ocrResult?.field_metadata?.height_cm
+                          : null;
+                        const currentHeight = watchedFormValues.height_cm;
+                        const hasHeightProfileChoice = Boolean(
+                          issue.code === "height_profile_conflict"
+                          && heightMetadata?.suggested_value != null
+                          && hasDisplayValue(currentHeight),
+                        );
+                        const hasHeightManualSuggestion = Boolean(
+                          issue.code === "height_manual_confirmation_required"
+                          && heightMetadata?.suggested_value != null,
+                        );
+                        const allDisplayedValuesAvailable = issue.fields.every((field) => {
+                          const value = (watchedFormValues as Record<string, unknown>)[field];
+                          return !(field in watchedFormValues) || hasDisplayValue(value);
+                        });
+                        return (
+                          <div key={validationIssueKey(issue)} className="rounded-lg border border-lovable-danger/20 bg-lovable-surface p-3">
+                            <p className="font-semibold">{issue.message}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {hasHeightProfileChoice ? (
+                                <>
+                                  <Button type="button" size="sm" variant="secondary" onClick={() => selectHeightResolution(issue, false)}>
+                                    Manter altura do cadastro ({String(currentHeight)} cm)
+                                  </Button>
+                                  <Button type="button" size="sm" variant="secondary" onClick={() => selectHeightResolution(issue, true)}>
+                                    Usar altura da foto ({String(heightMetadata?.suggested_value)} cm)
+                                  </Button>
+                                </>
+                              ) : hasHeightManualSuggestion ? (
+                                <Button type="button" size="sm" variant="secondary" onClick={() => selectHeightResolution(issue, true)}>
+                                  Confirmar altura da foto ({String(heightMetadata?.suggested_value)} cm)
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={!allDisplayedValuesAvailable}
+                                  onClick={() => resolveCriticalIssue(issue)}
+                                >
+                                  Confirmar valores exibidos
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
                 {assistedReadSummary ? (
                   <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink">
                     <p className="font-semibold">Resumo da leitura assistida</p>
@@ -1935,11 +2245,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     ) : null}
                   </div>
                 ) : null}
-                {currentSource === "ocr_receipt" ? (
+                {ocrResult?.processing ? (
                   <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <StatusPill tone="success">IA revisou</StatusPill>
-                    <StatusPill tone="neutral">OCR local</StatusPill>
-                    <StatusPill tone="warning">Incerto</StatusPill>
+                    <StatusPill tone={ocrResult.processing.primary_engine === "ai_image" ? "success" : "neutral"}>
+                      {ocrResult.processing.primary_engine === "ai_image" ? "IA da foto" : "OCR local"}
+                    </StatusPill>
+                    <StatusPill tone="neutral">{(Math.max(0, ocrResult.processing.duration_ms) / 1000).toFixed(1)}s</StatusPill>
                   </div>
                 ) : null}
                 {localOcrText ? (
@@ -1956,18 +2267,39 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                 <FormField label="Data da avaliacao" error={errors.evaluation_date?.message} required>
                   <Input type="date" {...register("evaluation_date")} />
                 </FormField>
-                <FormField label="Idade no exame" error={errors.age_years?.message}>
-                  <Input type="text" inputMode="numeric" placeholder="" autoComplete="off" {...register("age_years")} />
+                <FormField
+                  label={<span className="flex flex-wrap items-center gap-2"><span>Idade no exame</span>{fieldOriginPill("age_years")}</span>}
+                  error={errors.age_years?.message}
+                >
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder=""
+                    autoComplete="off"
+                    {...register("age_years", { onChange: (event) => markFieldAsManual("age_years", event.target.value) })}
+                  />
                 </FormField>
-                <FormField label="Sexo" error={errors.sex?.message}>
-                  <Select defaultValue="" {...register("sex")}>
+                <FormField
+                  label={<span className="flex flex-wrap items-center gap-2"><span>Sexo</span>{fieldOriginPill("sex")}</span>}
+                  error={errors.sex?.message}
+                >
+                  <Select defaultValue="" {...register("sex", { onChange: (event) => markFieldAsManual("sex", event.target.value) })}>
                     <option value="">Nao informado</option>
                     <option value="male">Masculino</option>
                     <option value="female">Feminino</option>
                   </Select>
                 </FormField>
-                <FormField label="Altura (cm)" error={errors.height_cm?.message}>
-                  <Input type="text" inputMode="decimal" placeholder="" autoComplete="off" {...register("height_cm")} />
+                <FormField
+                  label={<span className="flex flex-wrap items-center gap-2"><span>Altura (cm)</span>{fieldOriginPill("height_cm")}</span>}
+                  error={errors.height_cm?.message}
+                >
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder=""
+                    autoComplete="off"
+                    {...register("height_cm", { onChange: (event) => markFieldAsManual("height_cm", event.target.value) })}
+                  />
                 </FormField>
               </div>
 
@@ -2240,12 +2572,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <div className="grid gap-3 md:grid-cols-2">
                     {section.fields.map((field) => {
                       const warning = highlightedWarnings.get(field.key);
+                      const trackedOrigin = fieldOrigins[field.key] ?? ocrResult?.field_metadata?.[field.key]?.origin;
                       const calculationOrigin = field.key === "muscle_mass_kg"
                         ? editingEvaluation?.muscle_mass_origin
                         : field.key === "basal_metabolic_rate_kcal"
                           ? editingEvaluation?.basal_metabolic_rate_origin
                           : null;
-                      const fieldSignal = field.calculated
+                      const fieldSignal = field.calculated || trackedOrigin
                         ? null
                         : resolveBodyCompositionFieldSignal({
                             fieldKey: field.key,
@@ -2262,6 +2595,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                             <span className="flex flex-wrap items-center gap-2">
                               <span>{field.label}</span>
                               {field.calculated ? <StatusPill tone="neutral">Calculado</StatusPill> : null}
+                              {trackedOrigin ? fieldOriginPill(field.key) : null}
                               {fieldSignal ? <StatusPill tone={fieldSignal.tone}>{fieldSignal.label}</StatusPill> : null}
                             </span>
                           }
@@ -2275,7 +2609,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                               className={warningTone(warning)}
                               autoComplete="off"
                               readOnly={field.calculated}
-                              {...register(field.key)}
+                              {...register(field.key, {
+                                onChange: (event) => markFieldAsManual(field.key, event.target.value),
+                              })}
                             />
                             {field.description ? (
                               <p className="text-xs text-lovable-ink-muted">{field.description}</p>
@@ -2319,14 +2655,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={saveMutation.isPending}
+                    disabled={saveMutation.isPending || unresolvedCriticalIssues.length > 0 || ocrFileNeedsRead}
                     onClick={() => void handleSubmit((data) => submitBodyComposition(data, false))()}
                   >
                     <Save size={14} />
                     Salvar apenas no sistema
                   </Button>
                 ) : null}
-                <Button type="submit" variant="primary" disabled={saveMutation.isPending}>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={saveMutation.isPending || unresolvedCriticalIssues.length > 0 || ocrFileNeedsRead}
+                >
                   {editingEvaluationId ? <Save size={14} /> : <ImageUp size={14} />}
                   {saveButtonLabel}
                 </Button>

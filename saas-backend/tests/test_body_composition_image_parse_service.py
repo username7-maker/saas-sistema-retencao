@@ -1,17 +1,18 @@
 import uuid
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.schemas.body_composition import (
+    BodyCompositionFieldMetadata,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionOcrValues,
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
 )
-
 
 MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 
@@ -90,7 +91,267 @@ def _ai_parse_result_with_extra_values() -> BodyCompositionImageParseResultRead:
     return payload
 
 
+def _strict_ai_result(
+    *,
+    age_years: int = 40,
+    sex: str = "male",
+    height_cm: float = 180,
+    weight_kg: float = 81,
+    bmi: float = 25,
+    body_water_kg: float | None = 45,
+) -> BodyCompositionImageParseResultRead:
+    values = BodyCompositionOcrValues(
+        age_years=age_years,
+        sex=sex,
+        height_cm=height_cm,
+        weight_kg=weight_kg,
+        bmi=bmi,
+        body_water_kg=body_water_kg,
+    )
+    metadata = {
+        "age_years": BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Age",
+            evidence=f"Age {age_years}",
+            suggested_value=age_years,
+        ),
+        "sex": BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Sex",
+            evidence=f"Sex {'Male' if sex == 'male' else 'Female'}",
+            suggested_value=sex,
+        ),
+        "height_cm": BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Height (cm)",
+            evidence=f"Height (cm) {height_cm}",
+            suggested_value=height_cm,
+        ),
+        "weight_kg": BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Weight (kg)",
+            evidence=f"Weight (kg) {weight_kg}",
+            suggested_value=weight_kg,
+        ),
+        "bmi": BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="BMI",
+            evidence=f"BMI {bmi}",
+            suggested_value=bmi,
+        ),
+    }
+    if body_water_kg is not None:
+        metadata["body_water_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Body water (kg)",
+            evidence=f"Body water (kg) {body_water_kg}",
+            suggested_value=body_water_kg,
+        )
+    return BodyCompositionImageParseResultRead(
+        device_profile="tezewa_receipt_v1",
+        values=values,
+        confidence=0.95,
+        engine="ai_assisted",
+        field_metadata=metadata,
+    )
+
+
+def _validate_strict(
+    result: BodyCompositionImageParseResultRead,
+    *,
+    evaluation_date: date = date(2026, 9, 3),
+    member_birthdate: date | None = date(1986, 9, 3),
+    member_sex: str | None = "male",
+    member_height_cm: float | None = 180,
+    previous_weight_kg: float | None = 80,
+) -> BodyCompositionImageParseResultRead:
+    from app.services.body_composition_image_parse_service import _validate_ai_first_result
+
+    with patch(
+        "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",
+        True,
+    ):
+        return _validate_ai_first_result(
+            result,
+            extraction_origin="ai_image",
+            evaluation_date=evaluation_date,
+            member_birthdate=member_birthdate,
+            member_sex=member_sex,
+            member_height_cm=member_height_cm,
+            previous_weight_kg=previous_weight_kg,
+        )
+
+
 class TestImageParseService:
+    def test_strict_parse_keeps_member_context_out_of_provider_request(self):
+        with patch(
+            "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",
+            True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.settings.openai_api_key",
+            "test-openai-key",
+        ), patch(
+            "app.services.body_composition_image_parse_service._image_ai_available",
+            return_value=True,
+        ), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            return_value=_strict_ai_result(),
+        ) as mock_provider:
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                local_ocr_result=_local_ocr_payload(),
+                evaluation_date=date(2026, 9, 3),
+                member_birthdate=date(1986, 9, 3),
+                member_sex="male",
+                member_height_cm=180,
+                previous_weight_kg=80,
+            )
+
+        assert mock_provider.call_args.kwargs["local_ocr_result"] is None
+        assert result.values.age_years == 40
+        assert result.values.sex == "male"
+        assert result.values.height_cm == 180
+        assert result.processing.primary_engine == "ai_image"
+
+    def test_strict_mode_derives_age_on_birthday_and_day_before(self):
+        on_birthday = _validate_strict(
+            _strict_ai_result(age_years=40),
+            evaluation_date=date(2026, 9, 3),
+            member_birthdate=date(1986, 9, 3),
+        )
+        before_birthday = _validate_strict(
+            _strict_ai_result(age_years=39),
+            evaluation_date=date(2026, 9, 2),
+            member_birthdate=date(1986, 9, 3),
+        )
+
+        assert on_birthday.values.age_years == 40
+        assert before_birthday.values.age_years == 39
+        assert on_birthday.field_metadata["age_years"].origin == "derived"
+
+    def test_strict_mode_requires_manual_age_when_birthdate_is_missing(self):
+        result = _validate_strict(_strict_ai_result(), member_birthdate=None)
+
+        assert result.values.age_years is None
+        assert result.field_metadata["age_years"].origin == "manual"
+        assert any(issue.code == "age_manual_confirmation_required" for issue in result.validation_issues)
+
+    def test_strict_mode_never_uses_physical_age_as_chronological_age(self):
+        payload = _strict_ai_result(age_years=26)
+        payload.field_metadata["age_years"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.99,
+            label="Physical age",
+            evidence="Physical age 26",
+            suggested_value=26,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.age_years == 40
+        assert any(issue.code == "physical_age_used_as_chronological_age" for issue in result.validation_issues)
+
+    def test_strict_mode_discards_ai_value_without_evidence(self):
+        payload = _strict_ai_result()
+        payload.field_metadata["weight_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.99,
+            label="Weight (kg)",
+            evidence=None,
+            suggested_value=81,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.weight_kg is None
+        assert result.field_metadata["weight_kg"].state == "unavailable"
+        assert any(issue.code == "ai_value_without_evidence" for issue in result.validation_issues)
+
+    def test_missing_photo_age_evidence_does_not_block_derived_profile_age(self):
+        payload = _strict_ai_result()
+        payload.field_metadata["age_years"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.99,
+            label="Age",
+            evidence=None,
+            suggested_value=40,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.age_years == 40
+        issue = next(issue for issue in result.validation_issues if issue.code == "ai_value_without_evidence")
+        assert issue.severity == "warning"
+        assert result.needs_review is False
+
+    def test_strict_mode_accepts_two_centimeter_height_delta_and_blocks_above_it(self):
+        accepted = _validate_strict(_strict_ai_result(height_cm=182), member_height_cm=180)
+        conflicted = _validate_strict(_strict_ai_result(height_cm=182.1), member_height_cm=180)
+
+        assert accepted.values.height_cm == 180
+        assert not any(issue.code == "height_profile_conflict" for issue in accepted.validation_issues)
+        assert conflicted.values.height_cm == 180
+        assert conflicted.field_metadata["height_cm"].suggested_value == 182.1
+        assert any(issue.code == "height_profile_conflict" for issue in conflicted.validation_issues)
+
+    def test_strict_mode_requires_manual_height_when_profile_is_invalid(self):
+        result = _validate_strict(_strict_ai_result(height_cm=178), member_height_cm=80)
+
+        assert result.values.height_cm is None
+        assert result.field_metadata["height_cm"].origin == "manual"
+        assert result.field_metadata["height_cm"].suggested_value == 178
+        assert any(issue.code == "height_manual_confirmation_required" for issue in result.validation_issues)
+
+    def test_strict_mode_validates_bmi_with_configured_tolerance(self):
+        accepted = _validate_strict(_strict_ai_result(weight_kg=81, height_cm=180, bmi=25.5))
+        conflicted = _validate_strict(_strict_ai_result(weight_kg=81, height_cm=180, bmi=25.6))
+
+        assert not any(issue.code == "bmi_consistency_conflict" for issue in accepted.validation_issues)
+        bmi_issue = next(issue for issue in conflicted.validation_issues if issue.code == "bmi_consistency_conflict")
+        assert bmi_issue.fields == ["weight_kg", "height_cm", "bmi"]
+        assert bmi_issue.severity == "critical"
+
+    def test_strict_mode_warns_only_above_twenty_percent_previous_weight_change(self):
+        boundary = _validate_strict(
+            _strict_ai_result(weight_kg=120, bmi=37.04),
+            previous_weight_kg=100,
+        )
+        above = _validate_strict(
+            _strict_ai_result(weight_kg=120.1, bmi=37.07),
+            previous_weight_kg=100,
+        )
+
+        assert not any(issue.code == "weight_previous_variation" for issue in boundary.validation_issues)
+        warning = next(issue for issue in above.validation_issues if issue.code == "weight_previous_variation")
+        assert warning.severity == "warning"
+        assert above.values.weight_kg == 120.1
+
+    def test_strict_mode_marks_calculated_water_percentage_as_derived(self):
+        result = _validate_strict(_strict_ai_result(weight_kg=90, bmi=27.78, body_water_kg=45))
+
+        assert result.values.body_water_percent == 50
+        assert result.field_metadata["body_water_percent"].origin == "derived"
+        assert result.field_metadata["body_water_percent"].state == "accepted"
+
     def test_prefers_openai_provider_when_available(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
             "app.services.body_composition_image_parse_service._parse_with_openai_vision",
@@ -295,6 +556,42 @@ class TestImageParseRoute:
 
             assert response.status_code == 200
             assert response.json()["values"]["weight_kg"] == 84.5
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_passes_selected_date_and_member_context_to_local_validation(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        previous = SimpleNamespace(weight_kg=78)
+        mock_db = make_mock_db(scalar_returns=previous)
+        member = SimpleNamespace(
+            id=MEMBER_ID,
+            gym_id=mock_owner.gym_id,
+            birthdate=date(1986, 9, 3),
+            sex_for_clinical_calculation="male",
+            height_cm=180,
+        )
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch("app.routers.members.get_member_or_404", return_value=member), patch(
+                "app.routers.members.parse_body_composition_image",
+                return_value=_ai_parse_result(),
+            ) as mock_parse:
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/parse-image",
+                    data={"device_profile": "tezewa_receipt_v1", "evaluation_date": "2026-09-03"},
+                    files={"file": ("receipt.jpg", b"fake-image", "image/jpeg")},
+                )
+
+            assert response.status_code == 200
+            call = mock_parse.call_args.kwargs
+            assert call["evaluation_date"] == date(2026, 9, 3)
+            assert call["member_birthdate"] == date(1986, 9, 3)
+            assert call["member_sex"] == "male"
+            assert call["member_height_cm"] == 180
+            assert call["previous_weight_kg"] == 78
         finally:
             app.dependency_overrides.clear()
 

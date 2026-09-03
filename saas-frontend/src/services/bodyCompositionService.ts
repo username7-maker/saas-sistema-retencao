@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 import type {
   ActuarMemberLink,
   BodyCompositionActuarSyncStatus,
@@ -18,6 +20,7 @@ import {
   getBodyCompositionAiFallbackReasons,
   readBodyCompositionFromImage,
   type BodyCompositionDeviceProfile,
+  type BodyCompositionReadStage,
   type BodyCompositionOcrResult,
 } from "./bodyCompositionOcr";
 
@@ -85,8 +88,17 @@ function normalizeBodyComposition(payload: BodyCompositionEvaluation): BodyCompo
   return normalized;
 }
 
-function stripLocalOcrTransportMetadata(result: BodyCompositionOcrResult): Omit<BodyCompositionOcrResult, "engine" | "fallback_used"> {
-  const { engine: _engine, fallback_used: _fallbackUsed, ...payload } = ensureOcrResultMetadata(result);
+function stripLocalOcrTransportMetadata(
+  result: BodyCompositionOcrResult,
+): Omit<BodyCompositionOcrResult, "engine" | "fallback_used" | "field_metadata" | "validation_issues" | "processing"> {
+  const {
+    engine: _engine,
+    fallback_used: _fallbackUsed,
+    field_metadata: _fieldMetadata,
+    validation_issues: _validationIssues,
+    processing: _processing,
+    ...payload
+  } = ensureOcrResultMetadata(result);
   return payload;
 }
 
@@ -157,6 +169,54 @@ export interface BodyCompositionAssistedReadResult {
   assistedAttempted: boolean;
   assistedUsed: boolean;
   assistedError: string | null;
+}
+
+interface BodyCompositionImageParseOptions {
+  evaluationDate?: string | null;
+  onStage?: (stage: BodyCompositionReadStage) => void;
+}
+
+const POSITIONAL_INFERENCE_PATTERNS = ["ordem esperada do recibo", "linha vizinha"];
+
+function withoutUnsafeLocalInferences(result: BodyCompositionOcrResult): BodyCompositionOcrResult {
+  const unsafeFields = new Set(
+    result.warnings
+      .filter((warning) => (
+        warning.field
+        && POSITIONAL_INFERENCE_PATTERNS.some((pattern) => warning.message.toLowerCase().includes(pattern))
+      ))
+      .map((warning) => String(warning.field)),
+  );
+  if (unsafeFields.size === 0) return result;
+
+  const values = { ...result.values } as Record<string, unknown>;
+  const fieldMetadata = { ...(result.field_metadata ?? {}) };
+  for (const field of unsafeFields) {
+    delete values[field];
+    fieldMetadata[field] = {
+      origin: "local_ocr",
+      state: "unavailable",
+      confidence: null,
+      evidence: null,
+      suggested_value: null,
+    };
+  }
+
+  return {
+    ...result,
+    values,
+    field_metadata: fieldMetadata,
+    needs_review: true,
+  } as BodyCompositionOcrResult;
+}
+
+function shouldUseLocalOcrFallback(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return false;
+  if (error instanceof Error && error.name === "AbortError") return false;
+  if (!isAxiosError(error)) return true;
+  if (error.code === "ERR_CANCELED") return false;
+  const status = error.response?.status;
+  return status == null || status === 429 || status >= 500;
 }
 
 export const bodyCompositionService = {
@@ -300,18 +360,35 @@ export const bodyCompositionService = {
     file: File,
     localOcrResult?: BodyCompositionOcrResult | null,
     deviceProfile: BodyCompositionDeviceProfile = BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE,
+    options: BodyCompositionImageParseOptions = {},
   ): Promise<BodyCompositionOcrResult> {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("device_profile", deviceProfile);
+    if (options.evaluationDate) {
+      formData.append("evaluation_date", options.evaluationDate);
+    }
     if (localOcrResult) {
       formData.append("local_ocr_result", JSON.stringify(stripLocalOcrTransportMetadata(localOcrResult)));
     }
 
-    const { data } = await api.post<BodyCompositionOcrResult>(
+    options.onStage?.("uploading");
+    const request = api.post<BodyCompositionOcrResult>(
       `/api/v1/members/${memberId}/body-composition/parse-image`,
       formData,
+      {
+        onUploadProgress: (event) => {
+          if (event.total == null || event.loaded >= event.total) {
+            options.onStage?.("reading_ai");
+          }
+        },
+      },
     );
+    // The request has started. Browsers that do not expose upload progress still
+    // get an honest processing state without delaying the operation artificially.
+    options.onStage?.("reading_ai");
+    const { data } = await request;
+    options.onStage?.("validating");
     return ensureOcrResultMetadata(data, data.engine ?? "local", Boolean(data.fallback_used));
   },
 
@@ -416,6 +493,8 @@ export const bodyCompositionService = {
     options?: {
       deviceProfile?: BodyCompositionDeviceProfile;
       forceAssisted?: boolean;
+      evaluationDate?: string | null;
+      onStage?: (stage: BodyCompositionReadStage) => void;
     },
   ): Promise<BodyCompositionAssistedReadResult> {
     const deviceProfile = options?.deviceProfile ?? BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE;
@@ -424,8 +503,75 @@ export const bodyCompositionService = {
     let fallbackReasons: string[] = [];
     let localOcrError: Error | null = null;
 
+    if (forceAssisted) {
+      try {
+        const assistedResult = await bodyCompositionService.parseImage(memberId, file, null, deviceProfile, {
+          evaluationDate: options?.evaluationDate,
+          onStage: options?.onStage,
+        });
+        const safeResult = assistedResult.engine === "local"
+          ? withoutUnsafeLocalInferences(assistedResult)
+          : assistedResult;
+        const assistedUsed = safeResult.engine !== "local" || Boolean(safeResult.fallback_used);
+        const assistedWarning = safeResult.warnings.find(
+          (warning) => warning.field == null && warning.message.toLowerCase().includes("leitura assistida"),
+        );
+        return {
+          localResult: null,
+          result: safeResult,
+          fallbackReasons: [],
+          assistedAttempted: true,
+          assistedUsed,
+          assistedError: assistedUsed ? null : assistedWarning?.message ?? null,
+        };
+      } catch (error) {
+        if (!shouldUseLocalOcrFallback(error)) throw error;
+        const assistedMessage = error instanceof Error ? error.message : "Leitura assistida indisponivel no momento.";
+        options?.onStage?.("reading_local");
+        try {
+          const fallbackLocalResult = withoutUnsafeLocalInferences(
+            ensureOcrResultMetadata(await readBodyCompositionFromImage(file, deviceProfile), "local", true),
+          );
+          // Reenvie o fallback ao backend para aplicar idade/sexo/altura
+          // canônicos e a consistência peso-altura-IMC. O navegador não possui
+          // contexto suficiente para validar esses campos com segurança.
+          const validatedFallback = await bodyCompositionService.parseImage(
+            memberId,
+            file,
+            fallbackLocalResult,
+            deviceProfile,
+            {
+              evaluationDate: options?.evaluationDate,
+              onStage: options?.onStage,
+            },
+          );
+          const safeValidatedFallback = validatedFallback.engine === "local"
+            ? withoutUnsafeLocalInferences(validatedFallback)
+            : validatedFallback;
+          const assistedUsed = safeValidatedFallback.engine !== "local" || Boolean(safeValidatedFallback.fallback_used);
+          const assistedWarning = safeValidatedFallback.warnings.find(
+            (warning) => warning.field == null && warning.message.toLowerCase().includes("leitura assistida"),
+          );
+          return {
+            localResult: fallbackLocalResult,
+            result: safeValidatedFallback,
+            fallbackReasons: ["A leitura assistida falhou; o OCR local seguro foi usado como contingencia."],
+            assistedAttempted: true,
+            assistedUsed,
+            assistedError: assistedUsed ? null : assistedWarning?.message ?? assistedMessage,
+          };
+        } catch (localError) {
+          const localMessage = localError instanceof Error ? localError.message : "OCR local indisponivel.";
+          throw new Error(`${assistedMessage} OCR local tambem falhou: ${localMessage}`);
+        }
+      }
+    }
+
     try {
-      localResult = ensureOcrResultMetadata(await readBodyCompositionFromImage(file, deviceProfile), "local", false);
+      options?.onStage?.("reading_local");
+      localResult = withoutUnsafeLocalInferences(
+        ensureOcrResultMetadata(await readBodyCompositionFromImage(file, deviceProfile), "local", false),
+      );
       fallbackReasons = getBodyCompositionAiFallbackReasons(localResult);
     } catch (error) {
       localOcrError = error instanceof Error ? error : new Error("Falha ao carregar imagem para OCR");
@@ -449,7 +595,10 @@ export const bodyCompositionService = {
     }
 
     try {
-      const assistedResult = await bodyCompositionService.parseImage(memberId, file, localResult, deviceProfile);
+      const assistedResult = await bodyCompositionService.parseImage(memberId, file, localResult, deviceProfile, {
+        evaluationDate: options?.evaluationDate,
+        onStage: options?.onStage,
+      });
       const assistedUsed = assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used);
       const assistedWarning = assistedResult.warnings.find(
         (warning) => warning.field == null && warning.message.toLowerCase().includes("leitura assistida"),
