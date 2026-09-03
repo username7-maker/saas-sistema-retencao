@@ -35,4 +35,20 @@
 
 ## Pilot rollout
 
-Pending commit, Railway API/worker deployment, Vercel deployment and smoke.
+- Production source commit: `b272f5cf2f61e07e32ba89ca8483b067601e155c`.
+- Railway API deployment: `098cf6fe-93f6-45db-aa26-d55e2d9faf13` (`SUCCESS`).
+- Railway worker deployment: `880c371f-5c10-46f3-be20-6b4a6ccb58b7` (`SUCCESS`).
+- Vercel deployment: `dpl_8qAt9AASwyKKu3edfmf7q4bqq2Sg` (`READY`).
+- Pilot alias: `https://saas-frontend-pearl.vercel.app`.
+- API `/health/ready`: HTTP 200 with the expected release SHA.
+- Frontend root and assessment report route: HTTP 200; the production bundle
+  contains the same release SHA.
+- Anonymous `parse-image` request: HTTP 401, confirming the protected boundary.
+- Worker startup log reports the same release SHA and the scheduler started.
+- `BODY_COMPOSITION_IMAGE_AI_VALIDATION_ENABLED=true` is active for API and
+  worker in the pilot environment.
+- No database migration ran and no client evaluation was created, edited,
+  deleted or recalculated during rollout/smoke.
+- Authenticated smoke with real webcam photos remains an operational check in
+  the logged-in pilot session because this workstation has no reusable test
+  session or anonymized receipt fixture.
