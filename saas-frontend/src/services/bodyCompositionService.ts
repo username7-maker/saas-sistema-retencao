@@ -176,6 +176,7 @@ interface BodyCompositionImageParseOptions {
   onStage?: (stage: BodyCompositionReadStage) => void;
 }
 
+const BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS = 75_000;
 const POSITIONAL_INFERENCE_PATTERNS = ["ordem esperada do recibo", "linha vizinha"];
 
 function withoutUnsafeLocalInferences(result: BodyCompositionOcrResult): BodyCompositionOcrResult {
@@ -377,6 +378,7 @@ export const bodyCompositionService = {
       `/api/v1/members/${memberId}/body-composition/parse-image`,
       formData,
       {
+        timeout: BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS,
         onUploadProgress: (event) => {
           if (event.total == null || event.loaded >= event.total) {
             options.onStage?.("reading_ai");

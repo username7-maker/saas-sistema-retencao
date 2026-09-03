@@ -221,8 +221,10 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(api.post).toHaveBeenCalledTimes(1);
     expect(readBodyCompositionFromImage).not.toHaveBeenCalled();
     const body = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    const requestConfig = vi.mocked(api.post).mock.calls[0][2] as { timeout?: number };
     expect(body.get("evaluation_date")).toBe("2026-09-03");
     expect(body.get("local_ocr_result")).toBeNull();
+    expect(requestConfig.timeout).toBe(75_000);
     expect(stages).toEqual(expect.arrayContaining(["uploading", "reading_ai", "validating"]));
     expect(result.localResult).toBeNull();
     expect(result.assistedAttempted).toBe(true);
