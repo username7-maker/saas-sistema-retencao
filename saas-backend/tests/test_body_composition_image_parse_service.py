@@ -245,8 +245,25 @@ class TestImageParseService:
         assert before_birthday.values.age_years == 39
         assert on_birthday.field_metadata["age_years"].origin == "derived"
 
-    def test_strict_mode_requires_manual_age_when_birthdate_is_missing(self):
+    def test_strict_mode_uses_evidenced_photo_age_when_birthdate_is_missing(self):
         result = _validate_strict(_strict_ai_result(), member_birthdate=None)
+
+        assert result.values.age_years == 40
+        assert result.field_metadata["age_years"].origin == "ai_image"
+        assert not any(issue.code == "age_manual_confirmation_required" for issue in result.validation_issues)
+
+    def test_strict_mode_requires_manual_age_without_birthdate_or_photo_evidence(self):
+        payload = _strict_ai_result()
+        payload.field_metadata["age_years"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.99,
+            label="Age",
+            evidence=None,
+            suggested_value=40,
+        )
+
+        result = _validate_strict(payload, member_birthdate=None)
 
         assert result.values.age_years is None
         assert result.field_metadata["age_years"].origin == "manual"
@@ -313,13 +330,20 @@ class TestImageParseService:
         assert conflicted.field_metadata["height_cm"].suggested_value == 182.1
         assert any(issue.code == "height_profile_conflict" for issue in conflicted.validation_issues)
 
-    def test_strict_mode_requires_manual_height_when_profile_is_invalid(self):
+    def test_strict_mode_uses_evidenced_photo_height_when_profile_is_invalid(self):
         result = _validate_strict(_strict_ai_result(height_cm=178), member_height_cm=80)
 
-        assert result.values.height_cm is None
-        assert result.field_metadata["height_cm"].origin == "manual"
+        assert result.values.height_cm == 178
+        assert result.field_metadata["height_cm"].origin == "ai_image"
         assert result.field_metadata["height_cm"].suggested_value == 178
-        assert any(issue.code == "height_manual_confirmation_required" for issue in result.validation_issues)
+        assert not any(issue.code == "height_manual_confirmation_required" for issue in result.validation_issues)
+
+    def test_strict_mode_uses_evidenced_photo_sex_when_profile_is_missing(self):
+        result = _validate_strict(_strict_ai_result(sex="female"), member_sex=None)
+
+        assert result.values.sex == "female"
+        assert result.field_metadata["sex"].origin == "ai_image"
+        assert not any(issue.code == "sex_manual_confirmation_required" for issue in result.validation_issues)
 
     def test_strict_mode_validates_bmi_with_configured_tolerance(self):
         accepted = _validate_strict(_strict_ai_result(weight_kg=81, height_cm=180, bmi=25.5))
@@ -351,6 +375,136 @@ class TestImageParseService:
         assert result.values.body_water_percent == 50
         assert result.field_metadata["body_water_percent"].origin == "derived"
         assert result.field_metadata["body_water_percent"].state == "accepted"
+
+    def test_strict_mode_accepts_unambiguous_device_labels_without_printed_units(self):
+        payload = _strict_ai_result(weight_kg=90, bmi=27.78, body_water_kg=45)
+        payload.values.basal_metabolic_rate_kcal = 1880
+        payload.values.skeletal_muscle_kg = 38.2
+        payload.field_metadata["body_water_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Body moisture",
+            evidence="Body moisture 45",
+            suggested_value=45,
+        )
+        payload.field_metadata["basal_metabolic_rate_kcal"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Basic metabolism",
+            evidence="Basic metabolism 1880",
+            suggested_value=1880,
+        )
+        payload.field_metadata["skeletal_muscle_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.95,
+            label="Skeletal muscle",
+            evidence="Skeletal muscle 38.2",
+            suggested_value=38.2,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.body_water_kg == 45
+        assert result.values.basal_metabolic_rate_kcal == 1880
+        assert result.values.skeletal_muscle_kg == 38.2
+        rejected_fields = {
+            issue.fields[0]
+            for issue in result.validation_issues
+            if issue.code == "ai_label_field_mismatch" and issue.fields
+        }
+        assert not {"body_water_kg", "basal_metabolic_rate_kcal", "skeletal_muscle_kg"} & rejected_fields
+
+    def test_strict_mode_supports_real_tezewa_narrow_receipt_labels(self):
+        """Covers the receipt structure without retaining its identifier or image."""
+        payload = _strict_ai_result(
+            age_years=44,
+            sex="female",
+            height_cm=158,
+            weight_kg=65.1,
+            bmi=26.1,
+            body_water_kg=35.8,
+        )
+        payload.values.measured_at = "2026-08-25T08:18:00"
+        payload.values.body_fat_kg = 21.12
+        payload.values.body_fat_percent = 32.4
+        payload.values.waist_hip_ratio = 0.86
+        payload.values.fat_free_mass_kg = 44.0
+        payload.values.inorganic_salt_kg = 2.9
+        payload.values.muscle_mass_kg = 23.4
+        payload.values.protein_kg = 10.0
+        payload.values.visceral_fat_level = 7.0
+        payload.values.basal_metabolic_rate_kcal = 1366
+        payload.values.skeletal_muscle_kg = 25.7
+        payload.values.target_weight_kg = 58.1
+        payload.values.weight_control_kg = -7.0
+        payload.values.muscle_control_kg = -2.1
+        payload.values.fat_control_kg = -4.9
+        payload.values.total_energy_kcal = 2185.6
+        payload.values.physical_age = 44
+        payload.values.health_score = 72
+
+        def metadata(label: str, evidence: str, value: object) -> BodyCompositionFieldMetadata:
+            return BodyCompositionFieldMetadata(
+                origin="ai_image",
+                state="accepted",
+                confidence=0.95,
+                label=label,
+                evidence=evidence,
+                suggested_value=value,
+            )
+
+        payload.field_metadata.update(
+            {
+                "age_years": metadata("Age", "Age: 44", 44),
+                "sex": metadata("Sex", "Sex: Woman", "female"),
+                "height_cm": metadata("Height", "Height: 158cm", 158),
+                "weight_kg": metadata("Weight", "Weight: 65.1kg", 65.1),
+                "measured_at": metadata("Test time", "Test time: 2026-08-25 08:18", "2026-08-25T08:18:00"),
+                "body_fat_kg": metadata("Body fat (kg)", "Body fat (kg) 21.12", 21.12),
+                "body_fat_percent": metadata("Body fat ratio", "Body fat ratio (%) 32.4", 32.4),
+                "waist_hip_ratio": metadata("Waist hip", "Waist hip 0.86", 0.86),
+                "fat_free_mass_kg": metadata("Fat free", "Fat free 44.0 (kg)", 44.0),
+                "inorganic_salt_kg": metadata("Inorganic salt", "Inorganic salt 2.9", 2.9),
+                "muscle_mass_kg": metadata("Muscle mass", "Muscle mass (kg) 23.4", 23.4),
+                "protein_kg": metadata("Protein", "Protein (kg) 10.0", 10.0),
+                "body_water_kg": metadata("(kg)", "(kg) Body moisture 35.8", 35.8),
+                "visceral_fat_level": metadata("Visceral fat", "Visceral fat 7.0", 7.0),
+                "basal_metabolic_rate_kcal": metadata("Basal metabolism", "Basal metabolism 1366", 1366),
+                "bmi": metadata("BMI", "BMI 26.1", 26.1),
+                "skeletal_muscle_kg": metadata("Skeletal muscle", "Skeletal muscle 25.7", 25.7),
+                "target_weight_kg": metadata("Target weight", "Target weight (kg) 58.1kg", 58.1),
+                "weight_control_kg": metadata("Weight control", "Weight control (kg) -7.0kg", -7.0),
+                "muscle_control_kg": metadata("Muscle control", "Muscle control (kg) -2.1kg", -2.1),
+                "fat_control_kg": metadata("Fat control", "Fat control (kg) -4.9kg", -4.9),
+                "total_energy_kcal": metadata("Total energy consumption", "Total energy consumption 2185.6", 2185.6),
+                "physical_age": metadata("Physical age", "Physical age 44", 44),
+                "health_score": metadata("Health score", "Health score 72", 72),
+            }
+        )
+
+        result = _validate_strict(
+            payload,
+            evaluation_date=date(2026, 8, 25),
+            member_birthdate=None,
+            member_sex=None,
+            member_height_cm=None,
+            previous_weight_kg=None,
+        )
+
+        assert result.values.age_years == 44
+        assert result.values.physical_age == 44
+        assert result.values.sex == "female"
+        assert result.values.height_cm == 158
+        assert result.values.weight_kg == 65.1
+        assert result.values.bmi == 26.1
+        assert result.values.fat_free_mass_kg == 44.0
+        assert result.values.body_water_kg == 35.8
+        assert result.values.basal_metabolic_rate_kcal == 1366
+        assert result.values.skeletal_muscle_kg == 25.7
+        assert result.needs_review is False
 
     def test_prefers_openai_provider_when_available(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(

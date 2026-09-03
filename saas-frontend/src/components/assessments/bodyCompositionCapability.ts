@@ -94,8 +94,8 @@ export function resolveReadCapability(input: ReadCapabilityInput): CapabilityBan
       tone: "warning",
       title: "OCR local mantido com revisao manual",
       description: input.assistedError
-        ? `A tentativa assistida falhou (${input.assistedError}) e o piloto manteve o OCR local para conferencia humana.`
-        : "O piloto manteve o OCR local nesta execucao e espera revisao manual antes de salvar.",
+        ? "A leitura por IA não terminou. Confira os campos preenchidos ou tente novamente."
+        : "Confira os campos preenchidos antes de salvar.",
     };
   }
 

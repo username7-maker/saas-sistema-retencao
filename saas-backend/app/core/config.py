@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     body_composition_image_ai_validation_enabled: bool = False
     anthropometric_assessment_v1: bool = True
     claude_vision_model: str = "claude-3-5-sonnet-latest"
-    body_composition_image_ai_timeout_seconds: int = 20
+    body_composition_image_ai_timeout_seconds: int = 45
 
     whatsapp_api_url: str = ""
     whatsapp_api_token: str = ""

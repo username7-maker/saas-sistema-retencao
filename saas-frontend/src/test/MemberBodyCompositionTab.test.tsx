@@ -597,7 +597,11 @@ describe("MemberBodyCompositionTab", () => {
         device_model: "Tezewa",
         values: { weight_kg: 84.5, height_cm: 168, bmi: 31 },
         ranges: {},
-        warnings: [],
+        warnings: [{
+          field: "body_water_kg",
+          severity: "warning",
+          message: "body_water_kg foi descartado porque a evidencia da imagem nao confirmou o valor.",
+        }],
         confidence: 0.72,
         raw_text: "",
         needs_review: true,
@@ -635,6 +639,9 @@ describe("MemberBodyCompositionTab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Tentar leitura assistida (IA)" }));
 
     expect(await screen.findByRole("alert", { name: "Conferencia de campos criticos" })).toBeInTheDocument();
+    expect(screen.getByText("Confira o peso, a altura e o IMC destacados.")).toBeInTheDocument();
+    expect(screen.queryByText(/body_water_kg/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Peso, altura e IMC nao conferem/)).not.toBeInTheDocument();
 
     fireEvent.change(fileInput, {
       target: { files: [new File(["photo-b"], "photo-b.jpg", { type: "image/jpeg" })] },

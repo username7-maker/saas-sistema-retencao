@@ -51,7 +51,7 @@ AI_EVIDENCE_CRITICAL_FIELDS = {"weight_kg", "bmi"}
 POSITIONAL_INFERENCE_MARKERS = ("inferido pela ordem", "inferida pela ordem", "ordem esperada")
 MIN_EVIDENCE_CONFIDENCE = 0.65
 FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
-    "evaluation_date": ("date", "data"),
+    "evaluation_date": ("date", "data", "test time", "hora do teste"),
     "measured_at": ("date", "data", "time", "hora"),
     "age_years": ("age", "idade"),
     "sex": ("sex", "sexo", "gender", "genero"),
@@ -60,7 +60,14 @@ FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
     "body_fat_kg": ("body fat", "gordura corporal", "massa de gordura"),
     "body_fat_percent": ("body fat ratio", "body fat rate", "percentual de gordura", "gordura corporal"),
     "waist_hip_ratio": ("waist-hip", "waist hip", "cintura-quadril", "cintura quadril"),
-    "fat_free_mass_kg": ("fat-free mass", "fat free mass", "massa livre de gordura"),
+    "fat_free_mass_kg": (
+        "fat-free mass",
+        "fat free mass",
+        "fat-free weight",
+        "fat free weight",
+        "fat free",
+        "massa livre de gordura",
+    ),
     "inorganic_salt_kg": ("inorganic salt", "sal inorganico", "minerais"),
     "muscle_mass_kg": ("muscle mass", "massa muscular"),
     "protein_kg": ("protein", "proteina"),
@@ -68,7 +75,15 @@ FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
     "lean_mass_kg": ("lean mass", "massa magra"),
     "visceral_fat_level": ("visceral fat", "gordura visceral"),
     "bmi": ("bmi", "imc"),
-    "basal_metabolic_rate_kcal": ("bmr", "basal metabolic", "metabolismo basal", "tmb"),
+    "basal_metabolic_rate_kcal": (
+        "bmr",
+        "basic metabolism",
+        "basal metabolism",
+        "basal metabolic",
+        "metabolic rate",
+        "metabolismo basal",
+        "tmb",
+    ),
     "skeletal_muscle_kg": ("skeletal muscle", "musculo esqueletico", "massa muscular esqueletica"),
     "target_weight_kg": ("target weight", "peso alvo", "peso meta"),
     "weight_control_kg": ("weight control", "controle de peso"),
@@ -77,21 +92,6 @@ FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
     "total_energy_kcal": ("total energy", "energy consumption", "energia total", "consumo de energia"),
     "physical_age": ("physical age", "idade fisica"),
     "health_score": ("health score", "pontuacao de saude", "score de saude"),
-}
-KG_FIELDS = {
-    "weight_kg",
-    "body_fat_kg",
-    "fat_free_mass_kg",
-    "inorganic_salt_kg",
-    "muscle_mass_kg",
-    "protein_kg",
-    "body_water_kg",
-    "lean_mass_kg",
-    "skeletal_muscle_kg",
-    "target_weight_kg",
-    "weight_control_kg",
-    "muscle_control_kg",
-    "fat_control_kg",
 }
 NUMERIC_FIELDS = (
     "weight_kg",
@@ -127,17 +127,17 @@ FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
     ("body_fat_kg", "Body fat (kg)"),
     ("body_fat_percent", "Body fat ratio (%) ou percentual de gordura"),
     ("waist_hip_ratio", "Waist-Hip Ratio"),
-    ("fat_free_mass_kg", "Fat-free mass (kg)"),
+    ("fat_free_mass_kg", "Fat-free mass (kg) ou Fat free weight (kg)"),
     ("inorganic_salt_kg", "Inorganic salt (kg)"),
     ("muscle_mass_kg", "Muscle mass (kg)"),
     ("protein_kg", "Protein (kg)"),
-    ("body_water_kg", "Body water (kg)"),
+    ("body_water_kg", "Body water (kg) ou Body moisture, mesmo quando (kg) estiver na linha anterior"),
     ("lean_mass_kg", "Lean mass (kg), quando existir nessa versao do recibo"),
     ("body_water_percent", "campo derivado pelo sistema; deve permanecer null na extracao"),
     ("visceral_fat_level", "Visceral fat"),
     ("bmi", "BMI"),
-    ("basal_metabolic_rate_kcal", "BMR ou basal metabolic rate (kcal)"),
-    ("skeletal_muscle_kg", "Skeletal muscle (kg)"),
+    ("basal_metabolic_rate_kcal", "BMR, Basic metabolism ou Basal metabolism (kcal)"),
+    ("skeletal_muscle_kg", "Skeletal muscle (kg), ainda que a unidade nao esteja ao lado do rotulo"),
     ("target_weight_kg", "Target weight (kg)"),
     ("weight_control_kg", "Weight control (kg)"),
     ("muscle_control_kg", "Muscle control (kg)"),
@@ -215,6 +215,19 @@ def _build_vision_prompt(
         "- suggested_value em field_metadata deve repetir exatamente o valor extraido em values\n"
         "- se label ou evidence nao estiverem legiveis, retorne null em values para esse campo\n"
         "- jamais use Physical age/Idade fisica como age_years; esse rotulo pertence somente a physical_age\n"
+        "- Age e Physical age sao campos distintos mesmo quando imprimem o mesmo numero\n"
+        "- neste recibo estreito, um rotulo ou sua unidade pode continuar na linha seguinte; una somente linhas "
+        "consecutivas que formem um rotulo conhecido, sem associar pela posicao\n"
+        "- exemplos do layout: 'Fat free / (kg) / weight' significa fat_free_mass_kg; "
+        "'(kg) / Body moisture' significa body_water_kg\n"
+        "- 'Basal metabolism' significa basal_metabolic_rate_kcal e 'Skeletal muscle' significa "
+        "skeletal_muscle_kg, mesmo sem a unidade impressa ao lado\n"
+        "- normalize Man/Male para male e Woman/Female para female\n"
+        "- antes de concluir, confira se Weight, Height e BMI impressos obedecem aproximadamente "
+        "BMI = Weight / Height_m^2; se um algarismo de qualquer um desses tres campos estiver visualmente "
+        "ambiguo (por exemplo 3/6 ou 5/6), reinspecione o glifo na imagem e use a coerencia apenas para "
+        "desempatar uma leitura visual plausivel; "
+        "nunca fabrique ou corrija um valor somente pela formula\n"
         "- percorra todo o recibo; nao pare nos campos principais e cubra composicao corporal, "
         "metabolismo, comprehensive evaluation e controles\n"
         "- values deve conter TODAS as chaves esperadas do sistema, mesmo quando o valor for null\n"
@@ -375,6 +388,7 @@ def _create_openai_client(*, timeout_seconds: int | None = None) -> OpenAI:
     return OpenAI(
         api_key=settings.openai_api_key,
         timeout=timeout_seconds or settings.openai_timeout_seconds,
+        max_retries=0,
     )
 
 
@@ -419,6 +433,7 @@ def _parse_with_openai_vision(
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
+                            "detail": "high",
                         },
                     },
                 ],
@@ -917,7 +932,7 @@ def _ai_metadata_validation_error(
 ) -> str | None:
     if metadata is None or not metadata.label or not metadata.evidence:
         return "ai_value_without_evidence"
-    if not _label_matches_field(field_name, metadata.label):
+    if not _label_matches_field(field_name, metadata.label, metadata.evidence):
         return "ai_label_field_mismatch"
     if not _metadata_value_matches(field_name, value, metadata.suggested_value):
         return "ai_metadata_value_mismatch"
@@ -926,24 +941,23 @@ def _ai_metadata_validation_error(
     return None
 
 
-def _label_matches_field(field_name: str, label: str) -> bool:
+def _label_matches_field(field_name: str, label: str, evidence: str = "") -> bool:
     normalized = _normalize_label_text(label)
+    normalized_with_evidence = _normalize_label_text(f"{label} {evidence}")
     aliases = FIELD_LABEL_ALIASES.get(field_name)
-    if not aliases or not any(alias in normalized for alias in aliases):
+    if not aliases or not any(alias in normalized_with_evidence for alias in aliases):
         return False
     if field_name == "age_years" and any(marker in normalized for marker in ("physical", "fisica", "metabolic")):
         return False
     if field_name == "physical_age" and not any(marker in normalized for marker in ("physical", "fisica")):
         return False
-    if field_name in KG_FIELDS and "kg" not in normalized:
+    if field_name == "muscle_mass_kg" and "skeletal" in normalized:
         return False
-    if field_name == "height_cm" and "cm" not in normalized:
+    if field_name == "body_fat_kg" and "%" in normalized_with_evidence:
         return False
     if field_name == "body_fat_percent" and not any(
-        marker in normalized for marker in ("%", "percent", "ratio", "taxa")
+        marker in normalized_with_evidence for marker in ("%", "percent", "ratio", "taxa")
     ):
-        return False
-    if field_name in {"basal_metabolic_rate_kcal", "total_energy_kcal"} and "kcal" not in normalized:
         return False
     return True
 
@@ -971,7 +985,11 @@ def _evidence_supports_value(field_name: str, value: Any, evidence: str) -> bool
     if field_name == "sex":
         normalized_sex = _normalize_sex_value(value)
         normalized_evidence = _normalize_label_text(evidence)
-        expected = ("male", "masculino") if normalized_sex == "male" else ("female", "feminino")
+        expected = (
+            ("male", "man", "masculino", "homem")
+            if normalized_sex == "male"
+            else ("female", "woman", "feminino", "mulher")
+        )
         return any(alias in normalized_evidence for alias in expected)
 
     expected_value = _coerce_float(value)
@@ -1028,6 +1046,21 @@ def _apply_canonical_age(
     photo_metadata = field_metadata.get("age_years")
     canonical_age = _age_on_date(member_birthdate, evaluation_date)
     if canonical_age is None:
+        if (
+            photo_age is not None
+            and photo_metadata is not None
+            and photo_metadata.origin == "ai_image"
+            and photo_metadata.state == "accepted"
+        ):
+            values.age_years = photo_age
+            field_metadata["age_years"] = _canonical_metadata_with_suggestion(
+                origin="ai_image",
+                state="accepted",
+                photo_metadata=photo_metadata,
+                suggested_value=photo_age,
+                confidence=photo_metadata.confidence,
+            )
+            return
         values.age_years = None
         field_metadata["age_years"] = _canonical_metadata_with_suggestion(
             origin="manual",
@@ -1075,6 +1108,21 @@ def _apply_canonical_sex(
     photo_metadata = field_metadata.get("sex")
     canonical_sex = _normalize_sex_value(member_sex)
     if canonical_sex is None:
+        if (
+            photo_sex is not None
+            and photo_metadata is not None
+            and photo_metadata.origin == "ai_image"
+            and photo_metadata.state == "accepted"
+        ):
+            values.sex = photo_sex
+            field_metadata["sex"] = _canonical_metadata_with_suggestion(
+                origin="ai_image",
+                state="accepted",
+                photo_metadata=photo_metadata,
+                suggested_value=photo_sex,
+                confidence=photo_metadata.confidence,
+            )
+            return
         values.sex = None
         field_metadata["sex"] = _canonical_metadata_with_suggestion(
             origin="manual",
@@ -1125,6 +1173,21 @@ def _apply_canonical_height(
         profile_height = None
 
     if profile_height is None:
+        if (
+            photo_height is not None
+            and photo_metadata is not None
+            and photo_metadata.origin == "ai_image"
+            and photo_metadata.state == "accepted"
+        ):
+            values.height_cm = photo_height
+            field_metadata["height_cm"] = _canonical_metadata_with_suggestion(
+                origin="ai_image",
+                state="accepted",
+                photo_metadata=photo_metadata,
+                suggested_value=photo_height,
+                confidence=photo_metadata.confidence,
+            )
+            return
         values.height_cm = None
         field_metadata["height_cm"] = _canonical_metadata_with_suggestion(
             origin="manual",
@@ -1670,10 +1733,16 @@ def _normalize_sex_value(value: Any) -> str | None:
     normalized = (_normalize_string(value) or "").lower()
     aliases = {
         "male": "male",
+        "man": "male",
+        "men": "male",
         "masculino": "male",
+        "homem": "male",
         "m": "male",
         "female": "female",
+        "woman": "female",
+        "women": "female",
         "feminino": "female",
+        "mulher": "female",
         "f": "female",
     }
     return aliases.get(normalized)

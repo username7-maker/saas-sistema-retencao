@@ -390,6 +390,19 @@ function validationIssueKey(issue: BodyCompositionValidationIssue): string {
   return `${issue.code}:${[...issue.fields].sort().join(",")}`;
 }
 
+function validationIssueMessage(issue: BodyCompositionValidationIssue): string {
+  if (issue.code === "bmi_consistency_conflict") return "Confira o peso, a altura e o IMC destacados.";
+  if (issue.code === "height_profile_conflict") return "Escolha qual altura deve ser usada nesta avaliação.";
+  if (issue.code === "sex_profile_conflict") return "Confira o sexo destacado antes de salvar.";
+  if (issue.code === "age_profile_conflict" || issue.code === "physical_age_used_as_chronological_age") {
+    return "Confira a idade destacada antes de salvar.";
+  }
+  if (issue.code === "recovered_ocr_draft_requires_new_read") {
+    return "Faça novamente a leitura desta foto antes de salvar.";
+  }
+  return "Confira os campos destacados antes de salvar.";
+}
+
 function fieldOriginLabel(origin: BodyCompositionDisplayFieldOrigin): string {
   if (origin === "ai_image") return "IA da foto";
   if (origin === "member_profile") return "Cadastro";
@@ -949,26 +962,6 @@ function ocrEngineLabel(engine?: BodyCompositionOcrEngine | null): string | null
   if (engine === "ai_assisted") return "Leitura assistida por IA";
   if (engine === "ai_fallback") return "Leitura assistida por IA";
   if (engine === "hybrid") return "Leitura hibrida";
-  return null;
-}
-
-function buildAssistedReadSummary(
-  result: BodyCompositionOcrResult | null,
-  session: OcrReadSessionState,
-): string | null {
-  if (!result && !session.assistedAttempted) return null;
-  if (result?.engine === "hybrid") {
-    return "OCR local veio ambiguo; combinamos o OCR local com a leitura assistida por IA para cobrir os campos do exame com revisao final.";
-  }
-  if (result?.engine === "ai_assisted") {
-    return "A imagem foi lida diretamente pela IA assistida e os campos reconhecidos do exame vieram estruturados para revisao final.";
-  }
-  if (result?.engine === "ai_fallback") {
-    return "A leitura assistida por IA prevaleceu nos campos do exame porque a foto estava dificil para o OCR local.";
-  }
-  if (session.assistedAttempted) {
-    return "Tentamos uma leitura assistida, mas mantivemos o OCR local nesta execucao. Revise manualmente os campos destacados.";
-  }
   return null;
 }
 
@@ -1899,9 +1892,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }
 
   const ocrEngine = ocrResult?.engine ?? null;
-  const localOcrText = ocrReadSession.localResult?.raw_text
-    ?? (ocrResult?.engine === "local" ? ocrResult.raw_text : null);
-  const assistedReadSummary = buildAssistedReadSummary(ocrResult, ocrReadSession);
 
   function setQuickProtocolNumber(key: NumericFieldKey, rawValue: string) {
     setValue(key, rawValue as never, {
@@ -2158,11 +2148,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <p className="font-semibold">{readCapability.title}</p>
                   <p className="mt-1 text-xs">{readCapability.description}</p>
                 </div>
-                {ocrMetadata.ocr_warnings_json.length > 0 ? (
+                {ocrMetadata.ocr_warnings_json.length > 0 && unresolvedCriticalIssues.length === 0 ? (
                   <div className="mt-3 rounded-xl border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-xs text-lovable-warning">
-                    {ocrMetadata.ocr_warnings_json.map((warning, index) => (
-                      <p key={`${warning.field}-${index}`}>- {warning.message}</p>
-                    ))}
+                    Alguns campos não ficaram nítidos na foto. Confira apenas os campos destacados antes de salvar.
                   </div>
                 ) : null}
                 {unresolvedCriticalIssues.length > 0 ? (
@@ -2171,9 +2159,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     aria-label="Conferencia de campos criticos"
                     className="mt-3 rounded-xl border border-lovable-danger/40 bg-lovable-danger/10 p-3 text-xs text-lovable-ink"
                   >
-                    <p className="font-semibold text-lovable-danger">Confira antes de salvar</p>
+                    <p className="font-semibold text-lovable-danger">Revise os campos destacados</p>
                     <p className="mt-1 text-lovable-ink-muted">
-                      A IA encontrou uma divergencia que precisa de uma confirmacao rapida do professor.
+                      Falta somente uma confirmação rápida antes de salvar.
                     </p>
                     <div className="mt-3 space-y-3">
                       {unresolvedCriticalIssues.map((issue) => {
@@ -2196,7 +2184,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                         });
                         return (
                           <div key={validationIssueKey(issue)} className="rounded-lg border border-lovable-danger/20 bg-lovable-surface p-3">
-                            <p className="font-semibold">{issue.message}</p>
+                            <p className="font-semibold">{validationIssueMessage(issue)}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {hasHeightProfileChoice ? (
                                 <>
@@ -2228,38 +2216,6 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                       })}
                     </div>
                   </div>
-                ) : null}
-                {assistedReadSummary ? (
-                  <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink">
-                    <p className="font-semibold">Resumo da leitura assistida</p>
-                    <p className="mt-1 text-lovable-ink-muted">{assistedReadSummary}</p>
-                    {ocrReadSession.fallbackReasons.length > 0 ? (
-                      <div className="mt-2 space-y-1 text-lovable-ink-muted">
-                        {ocrReadSession.fallbackReasons.map((reason) => (
-                          <p key={reason}>- {reason}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                    {ocrReadSession.assistedError ? (
-                      <p className="mt-2 text-lovable-danger">Falha da leitura assistida: {ocrReadSession.assistedError}</p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {ocrResult?.processing ? (
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <StatusPill tone={ocrResult.processing.primary_engine === "ai_image" ? "success" : "neutral"}>
-                      {ocrResult.processing.primary_engine === "ai_image" ? "IA da foto" : "OCR local"}
-                    </StatusPill>
-                    <StatusPill tone="neutral">{(Math.max(0, ocrResult.processing.duration_ms) / 1000).toFixed(1)}s</StatusPill>
-                  </div>
-                ) : null}
-                {localOcrText ? (
-                  <details className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
-                    <summary className="cursor-pointer font-semibold">
-                      {ocrReadSession.assistedAttempted ? "Texto OCR local" : "Texto OCR normalizado"}
-                    </summary>
-                    <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap">{localOcrText}</pre>
-                  </details>
                 ) : null}
               </section>
 
