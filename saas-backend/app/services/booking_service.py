@@ -134,6 +134,7 @@ def process_booking_reminders(db: Session) -> dict[str, int]:
         instance = get_gym_instance(db, gym_id)
         result = send_whatsapp_sync(
             db,
+            gym_id=gym_id,
             phone=phone,
             message=reminder_text,
             instance=instance,
@@ -142,7 +143,7 @@ def process_booking_reminders(db: Session) -> dict[str, int]:
             direction="outbound",
             event_type="booking_reminder",
         )
-        if result.status in {"sent", "skipped"}:
+        if result.status == "sent":
             booking.reminder_sent_at = now
             db.add(booking)
             sent += 1
@@ -250,6 +251,7 @@ def _send_booking_confirmation_whatsapp(db: Session, lead: Lead, booking: LeadBo
     instance = get_gym_instance(db, lead.gym_id)
     send_whatsapp_sync(
         db,
+        gym_id=lead.gym_id,
         phone=phone,
         message=message,
         instance=instance,

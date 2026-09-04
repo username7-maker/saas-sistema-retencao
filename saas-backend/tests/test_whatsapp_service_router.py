@@ -44,6 +44,7 @@ def test_manual_send_uses_gym_instance(authed_client):
         id=GYM_ID,
         whatsapp_instance="gym_xyz789",
         whatsapp_status="connected",
+        whatsapp_outbound_enabled=True,
     )
     fake_log = SimpleNamespace(
         id=uuid.uuid4(),
@@ -62,7 +63,9 @@ def test_manual_send_uses_gym_instance(authed_client):
         error_detail=None,
         provider_message_id=None,
     )
-    with patch("app.routers.automations.send_whatsapp_sync", return_value=fake_log) as mock_send:
+    with patch("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", True), patch(
+        "app.routers.automations.send_whatsapp_sync", return_value=fake_log
+    ) as mock_send:
         response = client.post(
             "/api/v1/automations/whatsapp/send",
             json={"phone": "11999990001", "message": "Oi"},

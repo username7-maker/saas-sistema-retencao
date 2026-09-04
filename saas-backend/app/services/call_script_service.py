@@ -39,43 +39,8 @@ def get_call_script(db: Session, lead_id: UUID) -> dict[str, Any]:
     objections = _known_objections_from_brief(brief)
     fallback = _fallback_script(lead, brief, objections)
 
-    if not settings.claude_api_key:
-        dashboard_cache.set(cache_key, fallback, ttl=CALL_SCRIPT_CACHE_TTL_SECONDS)
-        return fallback
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        prompt = (
-            "Voce e um closer de SaaS B2B para academias. "
-            "Retorne JSON com opening, qualification_questions, presentation_points, objections, closing e quick_responses. "
-            "opening e closing devem ser curtos. qualification_questions e presentation_points devem ter 2 ou 3 itens. "
-            "quick_responses precisa ter chaves preco, sistema, tempo.\n"
-            f"Briefing consolidado: {brief}\n"
-        )
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=settings.claude_max_tokens,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        parsed = _parse_ai_json(response.content[0].text.strip())
-        result = {
-            "lead_id": lead.id,
-            "opening": parsed.get("opening") or fallback["opening"],
-            "qualification_questions": parsed.get("qualification_questions") or fallback["qualification_questions"],
-            "presentation_points": parsed.get("presentation_points") or fallback["presentation_points"],
-            "objections": parsed.get("objections") or fallback["objections"],
-            "closing": parsed.get("closing") or fallback["closing"],
-            "quick_responses": parsed.get("quick_responses") or fallback["quick_responses"],
-        }
-        dashboard_cache.set(cache_key, result, ttl=CALL_SCRIPT_CACHE_TTL_SECONDS)
-        return result
-    except Exception:
-        logger.exception("Falha ao gerar call script com Claude")
-        dashboard_cache.set(cache_key, fallback, ttl=CALL_SCRIPT_CACHE_TTL_SECONDS)
-        return fallback
+    dashboard_cache.set(cache_key, fallback, ttl=CALL_SCRIPT_CACHE_TTL_SECONDS)
+    return fallback
 
 
 def register_call_event(
@@ -187,6 +152,7 @@ def execute_lead_proposal_dispatch_job(
         instance = get_gym_instance(db, lead.gym_id)
         whatsapp_log = send_whatsapp_sync(
             db,
+            gym_id=lead.gym_id,
             phone=lead.phone,
             message="Sua proposta foi enviada por email. Se quiser, eu tambem posso te explicar os numeros na call.",
             instance=instance,

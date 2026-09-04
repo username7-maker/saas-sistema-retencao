@@ -102,6 +102,7 @@ class TestGenerateAndSendWeeklyBriefing:
         mock_scalars = MagicMock()
         mock_scalars.all.return_value = [user]
         db.scalars.return_value = mock_scalars
+        mock_whatsapp.return_value = SimpleNamespace(status="sent")
 
         from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
         result = generate_and_send_weekly_briefing(db, gym_id=uuid.uuid4())

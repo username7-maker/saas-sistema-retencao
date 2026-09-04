@@ -11,6 +11,7 @@ import {
 import toast from "react-hot-toast";
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from "../ui2";
+import { useAuth } from "../../hooks/useAuth";
 import {
   whatsappConnectionService,
   type WhatsAppStatus,
@@ -22,6 +23,7 @@ const POLL_MS = 3000;
 const QR_TIMEOUT_MS = 120_000;
 
 export function WhatsAppConnectionTab() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -147,12 +149,25 @@ export function WhatsAppConnectionTab() {
         phone: null,
         connected_at: null,
         instance: previous?.instance ?? null,
+        outbound_enabled: false,
+        global_outbound_enabled: previous?.global_outbound_enabled ?? false,
       }));
       toast.success("WhatsApp desconectado.");
     } catch {
       toast.error("Erro ao desconectar o WhatsApp.");
     }
   }, [stopPolling]);
+
+  const handleOutboundToggle = useCallback(async () => {
+    if (!status) return;
+    try {
+      const updated = await whatsappConnectionService.setOutbound(!status.outbound_enabled);
+      setStatus(updated);
+      toast.success(updated.outbound_enabled ? "Envios habilitados para a academia." : "Envios bloqueados para a academia.");
+    } catch {
+      toast.error("Não foi possível alterar a liberação de envios.");
+    }
+  }, [status]);
 
   const handleRefreshQR = useCallback(async () => {
     setPhase("loading");
@@ -192,6 +207,11 @@ export function WhatsAppConnectionTab() {
 
       <CardContent className="space-y-6">
         <StatusIndicator status={status?.status ?? "disconnected"} phone={status?.phone} />
+        <div className={`rounded-xl border p-3 text-sm ${status?.outbound_enabled && status?.global_outbound_enabled ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300" : "border-amber-500/20 bg-amber-500/8 text-amber-200"}`}>
+          {status?.outbound_enabled && status?.global_outbound_enabled
+            ? "Envios liberados para esta academia."
+            : "Envios bloqueados. Conectar um número não libera disparos automaticamente."}
+        </div>
 
         {(phase === "idle" || phase === "error") && (
           <div className="flex flex-col gap-4">
@@ -282,6 +302,17 @@ export function WhatsAppConnectionTab() {
               <PhoneOff size={14} />
               Desconectar WhatsApp
             </Button>
+            {user?.role === "owner" ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleOutboundToggle()}
+                className="w-fit"
+                disabled={!status?.global_outbound_enabled && !status?.outbound_enabled}
+              >
+                {status?.outbound_enabled ? "Bloquear envios" : "Habilitar envios"}
+              </Button>
+            ) : null}
           </div>
         )}
       </CardContent>

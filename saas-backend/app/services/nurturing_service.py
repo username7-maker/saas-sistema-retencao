@@ -270,6 +270,7 @@ def handle_incoming_whatsapp_webhook(
     )
     send_result = send_whatsapp_sync(
         db,
+        gym_id=sequence.gym_id,
         phone=message["phone"],
         message=response["response_text"],
         instance=get_gym_instance(db, sequence.gym_id),
@@ -282,7 +283,7 @@ def handle_incoming_whatsapp_webhook(
     db.commit()
     return {
         "processed": True,
-        "detail": "Objecao detectada e respondida" if send_result.status in {"sent", "skipped"} else "Objecao detectada",
+        "detail": "Objecao detectada e respondida" if send_result.status == "sent" else "Objecao detectada; envio nao confirmado",
     }
 
 
@@ -406,6 +407,7 @@ def _handle_whatsapp_ai_agent(
         agent_response=agent_outcome.response,
         inbound_phone=message["phone"],
         instance=get_gym_instance(db, gym_id),
+        gym_id=gym_id,
         member_id=member.id if member else None,
         lead_id=sequence.lead_id if sequence else None,
     )
@@ -480,6 +482,7 @@ def _dispatch_step(db: Session, sequence: NurturingSequence) -> bool:
         message = _whatsapp_message_for_step(sequence, step)
         result = send_whatsapp_sync(
             db,
+            gym_id=sequence.gym_id,
             phone=sequence.prospect_whatsapp,
             message=message,
             instance=instance,
@@ -488,7 +491,7 @@ def _dispatch_step(db: Session, sequence: NurturingSequence) -> bool:
             direction="outbound",
             event_type=f"nurturing_d{step}",
         )
-        return result.status in {"sent", "skipped"}
+        return result.status == "sent"
 
     subject, body = _email_for_step(sequence, step)
     if not subject:
@@ -622,15 +625,7 @@ def _whatsapp_message_for_step(sequence: NurturingSequence, step: int) -> str:
             f"{weekly_lost_estimate} alunos por semana. Quer ver o plano de recuperacao? {settings.public_booking_url}"
         ),
     }
-    return _claude_or_fallback(
-        prompt=(
-            "Escreva uma mensagem curta de WhatsApp para um prospect de academia. "
-            f"Passo D{step}. Nome: {sequence.prospect_name}. "
-            f"Alunos em risco: {at_risk}. Total de alunos: {total_members}. MRR em risco: {mrr_at_risk}. "
-            f"Link de agenda: {settings.public_booking_url}."
-        ),
-        fallback=fallback.get(step, fallback[0]),
-    )
+    return fallback.get(step, fallback[0])
 
 
 def _email_for_step(sequence: NurturingSequence, step: int) -> tuple[str, str]:
@@ -646,14 +641,7 @@ def _email_for_step(sequence: NurturingSequence, step: int) -> tuple[str, str]:
             f"No seu caso, existem {at_risk} alunos em risco e R$ {mrr_at_risk:,.2f} em risco mensal.\n\n"
             f"Se quiser, te mostramos em 15 min: {settings.public_booking_url}\n"
         )
-        return subject, _claude_or_fallback(
-            prompt=(
-                "Escreva email comercial curto para academia, com tom consultivo e CTA para demo de 15 min. "
-                f"Porte: {gym_size}; Nome: {sequence.prospect_name}; Alunos em risco: {at_risk}; "
-                f"MRR em risco: {mrr_at_risk}; Link: {settings.public_booking_url}."
-            ),
-            fallback=body,
-        )
+        return subject, body
 
     if step == 5:
         subject = "Convite: demonstracao de 15 minutos com os dados da sua academia"
@@ -663,35 +651,9 @@ def _email_for_step(sequence: NurturingSequence, step: int) -> tuple[str, str]:
             f"Agenda: {settings.public_booking_url}\n\n"
             "A apresentacao leva 15 minutos."
         )
-        return subject, _claude_or_fallback(
-            prompt=(
-                "Escreva email de convite para demo de 15 minutos, objetivo e direto. "
-                f"Nome: {sequence.prospect_name}. Link de agenda: {settings.public_booking_url}."
-            ),
-            fallback=body,
-        )
+        return subject, body
 
     return "", ""
-
-
-def _claude_or_fallback(*, prompt: str, fallback: str) -> str:
-    if not settings.claude_api_key:
-        return fallback
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=settings.claude_max_tokens,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text.strip()
-        return text[:1200] or fallback
-    except Exception:
-        logger.exception("Falha no Claude, usando fallback da regua")
-        return fallback
 
 
 def _resolve_public_gym_id() -> UUID:

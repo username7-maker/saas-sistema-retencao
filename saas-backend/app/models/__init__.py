@@ -43,6 +43,7 @@ from app.models.member_consent_record import MemberConsentRecord
 from app.models.member_note import MemberNote
 from app.models.member_risk_history import MemberRiskHistory
 from app.models.message_log import MessageLog
+from app.models.message_composer import GymMessageTemplateOverride, MessageCompositionRequest
 from app.models.method_os import (
     ClientMethodConfig,
     HumanAction,
@@ -114,6 +115,8 @@ __all__ = [
     "MemberRiskHistory",
     "MemberStatus",
     "MessageLog",
+    "GymMessageTemplateOverride",
+    "MessageCompositionRequest",
     "MethodReport",
     "MovementVideoReview",
     "NPSResponse",

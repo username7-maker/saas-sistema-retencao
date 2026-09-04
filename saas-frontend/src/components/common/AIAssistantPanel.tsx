@@ -15,8 +15,8 @@ interface AIAssistantPanelProps {
 
 export function AIAssistantPanel({
   assistant,
-  title = "IA recomenda",
-  subtitle = "Contexto, proxima acao e mensagem sugerida para executar melhor.",
+  title = "Recomendacao operacional",
+  subtitle = "Contexto, proxima acao e mensagem pronta para a equipe revisar.",
   compact = false,
   className = "",
 }: AIAssistantPanelProps) {
@@ -141,7 +141,7 @@ export function AIAssistantPanel({
 
         {assistantData.suggested_message ? (
           <div className="rounded-xl border border-lovable-primary/20 bg-lovable-primary-soft/40 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">Mensagem sugerida</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lovable-ink-muted">Mensagem pronta</p>
             <p className="mt-2 text-sm leading-relaxed text-lovable-ink">{assistantData.suggested_message}</p>
           </div>
         ) : null}

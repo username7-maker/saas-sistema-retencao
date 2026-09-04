@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models import Lead, LeadStage, Member, MemberStatus, Task
-from app.services.ai_prompt_registry_service import generate_specialist_text, prompt_metadata
+from app.services.ai_prompt_registry_service import AiInvocationContext, generate_specialist_text, prompt_metadata
 from app.services.autopilot_safety_service import contains_sensitive_text
 
 
@@ -39,7 +40,8 @@ def generate_operational_message_draft(
     task: Task | None = None,
     context: dict[str, Any] | None = None,
     max_output_chars: int = 520,
-    allow_ai: bool = True,
+    allow_ai: bool = False,
+    invocation_context: AiInvocationContext | None = None,
 ) -> OperationalMessageDraft:
     """Generate a supervised operational message draft, falling back safely."""
 
@@ -82,7 +84,7 @@ def generate_operational_message_draft(
             {
                 "message_source": "template_safe",
                 "blocked_reasons": [],
-                "ai_skipped_reason": "high_volume_list_endpoint",
+                "ai_skipped_reason": "explicit_user_action_required",
             }
         )
         return OperationalMessageDraft(
@@ -106,6 +108,7 @@ def generate_operational_message_draft(
         user_prompt=user_prompt,
         fallback_text=fallback_text,
         max_output_chars=max_output_chars,
+        invocation_context=invocation_context,
     )
     message_source = "template_safe" if result.used_fallback else "ai_specialist"
     metadata = dict(result.metadata)
@@ -193,7 +196,7 @@ def _build_user_prompt(
     task: Task | None,
     context: dict[str, Any],
 ) -> str:
-    identity = _subject_identity(member=member, lead=lead)
+    identity = _redact_sensitive_identifiers(_subject_identity(member=member, lead=lead))
     lines = [
         "Melhore a mensagem abaixo para uso supervisionado pela equipe.",
         "Regras: ate 3 frases, sem promessas, sem pressao, sem inventar fatos, sem autoenvio.",
@@ -201,18 +204,13 @@ def _build_user_prompt(
         f"Pessoa: {identity}.",
     ]
     if task is not None:
-        lines.extend(
-            [
-                f"Tarefa: {task.title}.",
-                f"Descricao da tarefa: {task.description or 'sem descricao'}.",
-            ]
-        )
+        lines.append(f"Tarefa: {_redact_sensitive_identifiers(task.title)}.")
     if member is not None:
         lines.extend(
             [
                 f"Status do aluno: {getattr(member.status, 'value', member.status)}.",
                 f"Plano: {member.plan_name or 'nao informado'}.",
-                f"Risco: {getattr(getattr(member, 'risk_level', None), 'value', None) or 'sem risco'} / {int(member.risk_score or 0)}.",
+                f"Faixa de risco: {getattr(getattr(member, 'risk_level', None), 'value', None) or 'sem risco'}.",
                 f"Estagio de retencao: {getattr(member, 'retention_stage', None) or 'nao informado'}.",
                 f"Ultimo check-in: {_format_datetime(getattr(member, 'last_checkin_at', None))}.",
             ]
@@ -229,22 +227,33 @@ def _build_user_prompt(
             continue
         if key in {"metadata", "raw", "payload"}:
             continue
-        lines.append(f"{key}: {value}")
+        lines.append(f"{key}: {_redact_sensitive_identifiers(str(value))}")
     lines.extend(
         [
             "Mensagem base:",
-            base_message,
+            _redact_sensitive_identifiers(base_message),
             "Retorne somente a mensagem final, sem titulo e sem explicacao.",
         ]
     )
     return "\n".join(lines)
 
 
+def _redact_sensitive_identifiers(value: str) -> str:
+    """Remove direct contact/document identifiers before a communication prompt."""
+    redacted = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "[email removido]", value)
+    redacted = re.sub(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", "[documento removido]", redacted)
+    redacted = re.sub(
+        r"(?<!\d)(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}(?!\d)", "[telefone removido]", redacted
+    )
+    return redacted
+
+
 def _subject_identity(*, member: Member | None, lead: Lead | None) -> str:
     subject = member or lead
     if subject is None:
         return "sem pessoa vinculada"
-    return getattr(subject, "full_name", None) or "sem nome"
+    full_name = getattr(subject, "full_name", None) or ""
+    return full_name.split()[0] if full_name.strip() else "sem nome"
 
 
 def _format_datetime(value: datetime | None) -> str:

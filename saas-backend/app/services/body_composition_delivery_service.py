@@ -49,6 +49,7 @@ def send_body_composition_whatsapp_summary(
     pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
     return send_whatsapp_document_sync(
         db,
+        gym_id=gym_id,
         phone=member.phone,
         caption=message,
         file_bytes=pdf_bytes,

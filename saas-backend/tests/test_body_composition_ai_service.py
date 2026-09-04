@@ -10,7 +10,7 @@ def _evaluation(**overrides):
         "id": "eval-1",
         "evaluation_date": date(2026, 3, 17),
         "weight_kg": 84.5,
-        "body_fat_kg": 19.46,
+        "fat_mass_estimated_kg": 19.46,
         "body_fat_percent": 23.0,
         "body_fat_used_percent": 23.0,
         "body_fat_used_source": "bioimpedance",
@@ -23,7 +23,7 @@ def _evaluation(**overrides):
         "health_score": 62,
         "measured_ranges_json": {
             "weight_kg": {"min": 61.7, "max": 75.5},
-            "body_fat_kg": {"min": 7.55, "max": 14.41},
+            "fat_mass_estimated_kg": {"min": 7.55, "max": 14.41},
             "body_fat_used_percent": {"min": 11.0, "max": 21.0},
             "body_fat_percent": {"min": 11.0, "max": 21.0},
             "visceral_fat_level": {"min": 1.0, "max": 5.0},
@@ -56,7 +56,7 @@ def test_generate_body_composition_ai_fallback_is_safe_and_structured():
 
     assert result["training_focus"]["primary_goal"] == "reducao_de_gordura"
     assert "percentual de gordura estimado acima da faixa" in result["risk_flags"]
-    assert "gordura corporal em kg acima da faixa" in result["risk_flags"]
+    assert "massa de gordura estimada acima da faixa" in result["risk_flags"]
     assert "diagnostico" not in result["coach_summary"].lower()
     assert "doenca" not in result["coach_summary"].lower()
     assert "medicamento" not in result["coach_summary"].lower()

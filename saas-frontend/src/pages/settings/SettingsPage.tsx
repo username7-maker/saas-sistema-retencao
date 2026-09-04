@@ -16,6 +16,7 @@ import { MovementVideoSettingsTab } from "../../components/settings/MovementVide
 import { PersonalAiSettingsTab } from "../../components/settings/PersonalAiSettingsTab";
 import { StudentPersonalAiSettingsTab } from "../../components/settings/StudentPersonalAiSettingsTab";
 import { WhatsAppConnectionTab } from "../../components/settings/WhatsAppConnectionTab";
+import { MessageTemplatesSettingsTab } from "../../components/settings/MessageTemplatesSettingsTab";
 import { UserAvatar } from "../../components/common/UserAvatar";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui2";
 
@@ -323,6 +324,7 @@ export function SettingsPage() {
   const canManagePersonalAi = user?.role === "owner" || user?.role === "manager";
   const canManageMovementVideo = user?.role === "owner" || user?.role === "manager";
   const canManageStudentPersonalAi = user?.role === "owner" || user?.role === "manager";
+  const canManageMessages = user?.role === "owner" || user?.role === "manager";
 
   return (
     <section className="space-y-6">
@@ -336,6 +338,7 @@ export function SettingsPage() {
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="security">Seguranca</TabsTrigger>
           {canManageWhatsapp ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
+          {canManageMessages ? <TabsTrigger value="messages">Mensagens</TabsTrigger> : null}
           {canManageActuar ? <TabsTrigger value="actuar">Actuar</TabsTrigger> : null}
           {canManageKommo ? <TabsTrigger value="kommo">Kommo</TabsTrigger> : null}
           {canManageAutopilot ? <TabsTrigger value="autopilot">Autopilot</TabsTrigger> : null}
@@ -378,6 +381,12 @@ export function SettingsPage() {
         {canManageWhatsapp ? (
           <TabsContent value="whatsapp">
             <WhatsAppConnectionTab />
+          </TabsContent>
+        ) : null}
+
+        {canManageMessages ? (
+          <TabsContent value="messages">
+            <MessageTemplatesSettingsTab />
           </TabsContent>
         ) : null}
 

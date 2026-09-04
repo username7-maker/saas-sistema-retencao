@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.routers.whatsapp import (
     WhatsAppAgentReplyIn,
     connect_whatsapp,
+    disconnect_whatsapp,
     get_webhook_setup_status,
     whatsapp_agent_reply,
     whatsapp_webhook,
@@ -42,18 +43,20 @@ def test_connect_whatsapp_enqueues_webhook_setup_without_query_secret(monkeypatc
     monkeypatch.setattr("app.routers.whatsapp.settings.public_backend_url", "https://api.example.com")
     monkeypatch.setattr("app.routers.whatsapp.settings.whatsapp_webhook_token", "webhook-secret")
     monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: gym)
+
     def fake_ensure_instance(*_args, **kwargs):
         ensure_calls.append(kwargs)
         return "gym_instance"
 
     monkeypatch.setattr("app.routers.whatsapp.ensure_instance", fake_ensure_instance)
-    monkeypatch.setattr("app.routers.whatsapp.get_qr_code", lambda *_args, **_kwargs: {"status": "connecting", "qrcode": "data:image/png;base64,abc"})
+    monkeypatch.setattr(
+        "app.routers.whatsapp.get_qr_code",
+        lambda *_args, **_kwargs: {"status": "connecting", "qrcode": "data:image/png;base64,abc"},
+    )
     job_id = uuid4()
     monkeypatch.setattr(
         "app.routers.whatsapp.enqueue_whatsapp_webhook_setup_job",
-        lambda *_args, **kwargs: (
-            queued_jobs.append(kwargs) or (SimpleNamespace(id=job_id, status="pending"), True)
-        ),
+        lambda *_args, **kwargs: (queued_jobs.append(kwargs) or (SimpleNamespace(id=job_id, status="pending"), True)),
     )
 
     result = connect_whatsapp(db=db, current_user=current_user)
@@ -104,6 +107,54 @@ def test_get_webhook_setup_status_returns_serialized_job(monkeypatch):
     assert response.job_id == job_id
     assert response.job_type == "whatsapp_webhook_setup"
     assert response.result == {"configured": True}
+
+
+def test_disconnect_keeps_instance_until_provider_confirms(monkeypatch):
+    gym = SimpleNamespace(
+        id=uuid4(),
+        whatsapp_instance="gym_instance",
+        whatsapp_status="connected",
+        whatsapp_phone="5511***9999",
+        whatsapp_connected_at=datetime.now(tz=timezone.utc),
+        whatsapp_outbound_enabled=True,
+    )
+    db = MagicMock()
+    current_user = SimpleNamespace(gym_id=gym.id)
+    monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: gym)
+    monkeypatch.setattr("app.routers.whatsapp.disconnect_instance", lambda *_args, **_kwargs: False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        disconnect_whatsapp(db=db, current_user=current_user)
+
+    assert exc_info.value.status_code == 409
+    assert gym.whatsapp_instance == "gym_instance"
+    assert gym.whatsapp_phone == "5511***9999"
+    assert gym.whatsapp_outbound_enabled is False
+    assert gym.whatsapp_status == "error"
+    db.commit.assert_called_once()
+
+
+def test_disconnect_clears_instance_after_provider_confirms(monkeypatch):
+    gym = SimpleNamespace(
+        id=uuid4(),
+        whatsapp_instance="gym_instance",
+        whatsapp_status="connected",
+        whatsapp_phone="5511***9999",
+        whatsapp_connected_at=datetime.now(tz=timezone.utc),
+        whatsapp_outbound_enabled=True,
+    )
+    db = MagicMock()
+    current_user = SimpleNamespace(gym_id=gym.id)
+    monkeypatch.setattr("app.routers.whatsapp._get_gym", lambda *_args, **_kwargs: gym)
+    monkeypatch.setattr("app.routers.whatsapp.disconnect_instance", lambda *_args, **_kwargs: True)
+
+    disconnect_whatsapp(db=db, current_user=current_user)
+
+    assert gym.whatsapp_instance is None
+    assert gym.whatsapp_phone is None
+    assert gym.whatsapp_outbound_enabled is False
+    assert gym.whatsapp_status == "disconnected"
+    db.commit.assert_called_once()
 
 
 def test_get_webhook_setup_status_rejects_missing_or_wrong_type(monkeypatch):

@@ -295,6 +295,7 @@ def execute_public_diagnosis_job(
     instance = get_gym_instance(db, gym_id)
     wa_log = send_whatsapp_sync(
         db,
+        gym_id=gym_id,
         phone=payload["whatsapp"],
         message=wa_text,
         instance=instance,

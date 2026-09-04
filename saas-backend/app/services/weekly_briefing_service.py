@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import settings  # Stable extension seam; weekly communication stays deterministic.
 from app.models import Checkin, Member, MemberStatus, RiskLevel, User
 from app.models.enums import RoleEnum
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_sync
@@ -40,14 +40,16 @@ def generate_and_send_weekly_briefing(db: Session, gym_id: UUID) -> dict:
     sent_count = 0
     for user in recipients:
         try:
-            send_whatsapp_sync(
+            result = send_whatsapp_sync(
                 db,
+                gym_id=gym_id,
                 phone=user.phone,
                 message=briefing_text,
                 instance=instance,
                 template_name="weekly_briefing",
             )
-            sent_count += 1
+            if result.status == "sent":
+                sent_count += 1
         except Exception:
             logger.exception("Falha ao enviar briefing para user %s", user.id)
 
@@ -122,37 +124,7 @@ def _delta_pct(previous: int, current: int) -> float:
 
 
 def _generate_briefing_text(metrics: dict) -> str:
-    if settings.claude_api_key:
-        try:
-            return _generate_ai_briefing(metrics)
-        except Exception:
-            logger.exception("Fallback para briefing regra-based")
-
     return _generate_rule_based_briefing(metrics)
-
-
-def _generate_ai_briefing(metrics: dict) -> str:
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=settings.claude_api_key)
-    prompt = (
-        "Voce e o assistente de inteligencia de uma academia. "
-        "Gere um briefing semanal executivo em portugues brasileiro, tom profissional e direto, "
-        "maximo 200 palavras. Use emojis de forma moderada. "
-        "Dados da semana:\n"
-        f"- Check-ins: {metrics['checkins_this_week']} (variacao: {metrics['checkins_delta_pct']:+.1f}% vs semana anterior)\n"
-        f"- Novos alunos em risco: {metrics['new_at_risk']}\n"
-        f"- MRR em risco (alunos vermelhos): R$ {metrics['mrr_at_risk']:,.2f}\n"
-        f"- Total de alunos ativos: {metrics['total_active']}\n"
-        "Destaque os pontos positivos e negativos. Termine com 1-2 recomendacoes acionaveis."
-    )
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=500,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()[:1000]
 
 
 def _generate_rule_based_briefing(metrics: dict) -> str:

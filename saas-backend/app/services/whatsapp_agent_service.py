@@ -119,6 +119,7 @@ def dispatch_whatsapp_agent_response(
     agent_response: dict[str, Any] | None,
     inbound_phone: str,
     instance: str | None,
+    gym_id: UUID,
     member_id: UUID | None = None,
     lead_id: UUID | None = None,
 ) -> WhatsAppAgentOutcome:
@@ -145,6 +146,7 @@ def dispatch_whatsapp_agent_response(
 
     result = send_whatsapp_sync(
         db,
+        gym_id=gym_id,
         phone=recipient,
         message=message,
         instance=instance,

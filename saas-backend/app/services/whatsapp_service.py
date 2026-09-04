@@ -148,7 +148,9 @@ def get_gym_instance(db: Session, gym_id: UUID | str | None) -> str | None:
     instance_name = getattr(gym, "whatsapp_instance", None)
     status = getattr(gym, "whatsapp_status", None)
 
-    if not gym or not instance_name:
+    if not settings.whatsapp_outbound_enabled:
+        return None
+    if not gym or not instance_name or not getattr(gym, "whatsapp_outbound_enabled", False):
         return None
     if status != "connected":
         logger.warning(
@@ -220,6 +222,31 @@ def _mark_log(log_entry: MessageLog, *, status: str, error: str | None = None, e
     log_entry.extra_data = extra_data or {}
 
 
+def _outbound_allowed(db: Session, *, gym_id: UUID | None, instance: str | None) -> tuple[bool, str]:
+    """Central kill switch. Every outbound path must pass through this check."""
+    if not settings.whatsapp_outbound_enabled:
+        return False, "global_outbound_disabled"
+    from app.models.gym import Gym
+
+    gym = db.get(Gym, gym_id) if gym_id else None
+    if gym is None and instance:
+        gym = db.scalar(select(Gym).where(Gym.whatsapp_instance == instance))
+    if gym is None:
+        return False, "gym_not_resolved"
+    if not gym.whatsapp_outbound_enabled:
+        return False, "gym_outbound_disabled"
+    return True, "enabled"
+
+
+def _block_outbound(log_entry: MessageLog, reason: str, *, instance: str | None, delivery_kind: str = "text") -> None:
+    _mark_log(
+        log_entry,
+        status="blocked",
+        error="WhatsApp outbound disabled",
+        extra_data={"blocked_reason": reason, "instance_used": instance, "delivery_kind": delivery_kind},
+    )
+
+
 def _data_uri_from_bytes(file_bytes: bytes, mime_type: str) -> str:
     encoded = b64encode(file_bytes).decode("ascii")
     return f"data:{mime_type};base64,{encoded}"
@@ -272,6 +299,7 @@ async def send_whatsapp_message(
     direction: str | None = "outbound",
     event_type: str | None = None,
     provider_message_id: str | None = None,
+    gym_id: UUID | None = None,
 ) -> MessageLog:
     formatted_phone, log_entry = _build_message_log(
         db=db,
@@ -284,7 +312,13 @@ async def send_whatsapp_message(
         direction=direction,
         event_type=event_type,
         provider_message_id=provider_message_id,
+        gym_id=gym_id,
     )
+    allowed, blocked_reason = _outbound_allowed(db, gym_id=gym_id, instance=instance)
+    if not allowed:
+        _block_outbound(log_entry, blocked_reason, instance=instance)
+        db.flush()
+        return log_entry
     resolved = resolve_instance(instance)
 
     if not resolved:
@@ -392,45 +426,14 @@ def suggest_whatsapp_template(db: Session, member_id: UUID) -> dict:
 
     message = render_template(template_name, variables)
 
-    if settings.claude_api_key:
-        try:
-            message = _personalize_template_with_ai(member, message, days_inactive)
-        except Exception:
-            logger.exception("Falha ao personalizar template com IA")
-
     return {
         "member_id": str(member.id),
         "member_name": member.full_name,
         "phone": member.phone,
         "template_name": template_name,
         "suggested_message": message,
-        "source": "ai" if settings.claude_api_key else "rule",
+        "source": "template_default",
     }
-
-
-def _personalize_template_with_ai(member: Member, base_message: str, days_inactive: int | None) -> str:
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=settings.claude_api_key)
-    prompt = (
-        "Voce e um assistente de retencao de uma academia. "
-        "Personalize a mensagem de WhatsApp abaixo mantendo o mesmo tom e objetivo. "
-        "Maximo 200 caracteres. Tom profissional e amigavel. Nao use emoji em excesso.\n\n"
-        f"Aluno: {member.full_name}\n"
-        f"Plano: {member.plan_name}\n"
-        f"Risco: {member.risk_level.value}\n"
-        f"Dias inativo: {days_inactive or 'desconhecido'}\n"
-        f"NPS: {member.nps_last_score}\n\n"
-        f"Mensagem base: {base_message}\n"
-    )
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=200,
-        temperature=0.3,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    result = response.content[0].text.strip()
-    return result[:500] if result else base_message
 
 
 def send_whatsapp_sync(
@@ -461,6 +464,11 @@ def send_whatsapp_sync(
         provider_message_id=provider_message_id,
         gym_id=gym_id,
     )
+    allowed, blocked_reason = _outbound_allowed(db, gym_id=gym_id, instance=instance)
+    if not allowed:
+        _block_outbound(log_entry, blocked_reason, instance=instance)
+        db.flush()
+        return log_entry
     resolved = resolve_instance(instance)
 
     if not resolved:
@@ -547,6 +555,7 @@ def send_whatsapp_document_sync(
     direction: str | None = "outbound",
     event_type: str | None = "document",
     provider_message_id: str | None = None,
+    gym_id: UUID | None = None,
 ) -> MessageLog:
     formatted_phone, log_entry = _build_message_log(
         db=db,
@@ -559,7 +568,13 @@ def send_whatsapp_document_sync(
         direction=direction,
         event_type=event_type,
         provider_message_id=provider_message_id,
+        gym_id=gym_id,
     )
+    allowed, blocked_reason = _outbound_allowed(db, gym_id=gym_id, instance=instance)
+    if not allowed:
+        _block_outbound(log_entry, blocked_reason, instance=instance, delivery_kind="document")
+        db.flush()
+        return log_entry
     resolved = resolve_instance(instance)
 
     if not resolved:

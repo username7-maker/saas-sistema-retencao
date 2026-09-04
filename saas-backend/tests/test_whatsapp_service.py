@@ -83,9 +83,10 @@ def test_resolve_instance_none_fallback_enabled(monkeypatch):
     assert resolve_instance(None) == "global_default"
 
 
-def test_get_gym_instance_connected():
+def test_get_gym_instance_connected(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", True)
     db = MagicMock()
-    db.get.return_value = SimpleNamespace(whatsapp_instance="gym_abc", whatsapp_status="connected")
+    db.get.return_value = SimpleNamespace(whatsapp_instance="gym_abc", whatsapp_status="connected", whatsapp_outbound_enabled=True)
     assert get_gym_instance(db, uuid.uuid4()) == "gym_abc"
 
 
@@ -116,19 +117,22 @@ def test_get_gym_instance_gym_not_found():
 def _mock_db_send():
     db = MagicMock()
     db.scalar.return_value = 0
+    db.get.return_value = SimpleNamespace(whatsapp_outbound_enabled=True)
     return db
 
 
-def test_send_skips_without_instance(monkeypatch):
+def test_send_blocks_when_global_outbound_is_disabled(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", False)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", False)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
     log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance=None)
-    assert log.status == "skipped"
-    assert log.extra_data["instance_source"] == "none"
+    assert log.status == "blocked"
+    assert log.extra_data["blocked_reason"] == "global_outbound_disabled"
 
 
 def test_send_uses_gym_instance_in_url(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", True)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_rate_limit_per_hour", 100)
@@ -136,7 +140,7 @@ def test_send_uses_gym_instance_in_url(monkeypatch):
         response = MagicMock(status_code=200)
         response.raise_for_status = MagicMock()
         mock_client.return_value.__enter__.return_value.post.return_value = response
-        log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance="gym_abc123")
+        log = send_whatsapp_sync(_mock_db_send(), gym_id=uuid.uuid4(), phone="11999999999", message="Oi", instance="gym_abc123")
     url = mock_client.return_value.__enter__.return_value.post.call_args[0][0]
     assert "gym_abc123" in url
     assert log.extra_data["instance_used"] == "gym_abc123"
@@ -144,6 +148,7 @@ def test_send_uses_gym_instance_in_url(monkeypatch):
 
 
 def test_send_global_fallback_logged(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", True)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_allow_global_fallback", True)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_instance", "global_default")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
@@ -153,11 +158,12 @@ def test_send_global_fallback_logged(monkeypatch):
         response = MagicMock(status_code=200)
         response.raise_for_status = MagicMock()
         mock_client.return_value.__enter__.return_value.post.return_value = response
-        log = send_whatsapp_sync(_mock_db_send(), phone="11999999999", message="Oi", instance=None)
+        log = send_whatsapp_sync(_mock_db_send(), gym_id=uuid.uuid4(), phone="11999999999", message="Oi", instance=None)
     assert log.extra_data["instance_source"] == "global_fallback"
 
 
 def test_send_document_uses_send_media_endpoint(monkeypatch):
+    monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_outbound_enabled", True)
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_url", "http://evo.test")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_api_token", "tok")
     monkeypatch.setattr("app.services.whatsapp_service.settings.whatsapp_rate_limit_per_hour", 100)
@@ -167,6 +173,7 @@ def test_send_document_uses_send_media_endpoint(monkeypatch):
         mock_client.return_value.__enter__.return_value.post.return_value = response
         log = send_whatsapp_document_sync(
             _mock_db_send(),
+            gym_id=uuid.uuid4(),
             phone="11999999999",
             caption="Resumo da bioimpedancia",
             file_bytes=b"%PDF-1.4 fake",

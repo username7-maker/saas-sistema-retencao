@@ -36,6 +36,7 @@ class Gym(Base, TimestampMixin):
     whatsapp_status: Mapped[str] = mapped_column(String(30), nullable=False, default="disconnected")
     whatsapp_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     whatsapp_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    whatsapp_outbound_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     actuar_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     actuar_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actuar_username: Mapped[str | None] = mapped_column(String(120), nullable=True)

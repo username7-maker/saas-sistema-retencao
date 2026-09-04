@@ -111,7 +111,7 @@ def test_sales_brief_missing_lead_returns_404():
     assert exc.value.status_code == 404
 
 
-def test_sales_brief_ai_arguments_are_cached(monkeypatch):
+def test_sales_brief_uses_cached_template_without_ai(monkeypatch):
     from app.services import sales_brief_service
 
     lead = SimpleNamespace(id=uuid4(), full_name="Lead Cache", source="public_diagnostico", stage=LeadStage.PROPOSAL)
@@ -145,7 +145,7 @@ def test_sales_brief_ai_arguments_are_cached(monkeypatch):
 
     assert first["next_step"] == "enviar_proposta_apos_call"
     assert second["next_step"] == "enviar_proposta_apos_call"
-    assert calls["count"] == 1
+    assert calls["count"] == 0
 
 
 def test_whatsapp_message_with_known_objection_generates_auto_response(monkeypatch):

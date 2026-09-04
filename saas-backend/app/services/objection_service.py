@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import settings  # Kept as a stable test/extension seam; communication stays deterministic.
 from app.models import Lead, LeadStage, NurturingSequence, ObjectionResponse
 from app.schemas.objection import ObjectionResponseUpdate
 
@@ -74,34 +74,6 @@ def _render_template(template: str, context: dict[str, Any]) -> str:
         return template
 
 
-def _personalize_with_claude(base_response: str, message_text: str, context: dict[str, Any]) -> str:
-    if not settings.claude_api_key:
-        return base_response
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        prompt = (
-            "Voce e um SDR de SaaS B2B para academias. Personalize a resposta abaixo "
-            "de forma curta (max 120 palavras), profissional e objetiva. "
-            "Mantenha a proposta central da resposta base.\n"
-            f"Mensagem do prospect: {message_text}\n"
-            f"Contexto: {context}\n"
-            f"Resposta base: {base_response}\n"
-        )
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=settings.claude_max_tokens,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()[:1200] or base_response
-    except Exception:
-        logger.exception("Falha ao personalizar resposta de objecao com Claude")
-        return base_response
-
-
 def generate_objection_response(
     db: Session,
     *,
@@ -122,13 +94,11 @@ def generate_objection_response(
     matched = _keyword_match(message_text, objections)
     if matched:
         base_response = _render_template(matched.response_template, merged_context)
-        personalized = _personalize_with_claude(base_response, message_text, merged_context)
-        source = "keyword_ai" if settings.claude_api_key else "keyword_rule"
         return {
             "matched": True,
             "objection_id": matched.id,
-            "response_text": personalized,
-            "source": source,
+            "response_text": base_response,
+            "source": "keyword_rule",
         }
 
     generic = (

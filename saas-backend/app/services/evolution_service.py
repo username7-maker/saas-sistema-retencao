@@ -178,6 +178,12 @@ def disconnect_instance(instance: str) -> bool:
                     response = client.request(method, f"{_base()}{path}", headers=_headers())
                     if response.status_code in (200, 201, 202, 204, 404):
                         success = True
+                    # Evolution 2.3.7 can return 500 after closing the socket while
+                    # cleaning its Prisma rows. ConnectionState is the source of truth.
+                    elif "logout" in path and response.status_code == 500:
+                        if get_connection_status(instance).get("state") != "open":
+                            success = True
+                            break
                     elif response.status_code not in (400, 405):
                         logger.warning(
                             "Evolution retornou %s ao resetar instancia %s em %s %s",

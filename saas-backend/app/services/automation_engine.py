@@ -744,6 +744,7 @@ def _send_member_whatsapp(
     instance = get_gym_instance(db, member.gym_id)
     log = send_whatsapp_sync(
         db,
+        gym_id=member.gym_id,
         phone=member.phone,
         message=message,
         instance=instance,

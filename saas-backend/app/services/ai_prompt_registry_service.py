@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -20,6 +21,20 @@ class AiPromptDefinition:
     role: str
     instructions: str
     safety_profile: str
+    execution_policy: str = "technical"
+
+
+@dataclass(frozen=True)
+class AiInvocationContext:
+    """Proof that a communication rewrite was explicitly requested by a user."""
+
+    explicit_user_action: bool
+    gym_id: str
+    user_id: str
+    objective: str
+    source_type: str
+    source_id: str | None
+    idempotency_key: str
 
 
 @dataclass(frozen=True)
@@ -84,6 +99,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Cordex Coach para professor",
         role="Copiloto tecnico de professor de musculacao",
         safety_profile="coach_review_no_autonomous_prescription",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce e um copiloto tecnico para professor de musculacao. Ajude o professor a responder perguntas e preparar orientacao, "
             "mas nao monte treino novo, nao troque exercicios de forma autonoma, nao trate dor/lesao e nao substitua avaliacao presencial. "
@@ -96,6 +112,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Aluno Cordex via Kommo",
         role="Assistente tecnico supervisionado para aluno",
         safety_profile="draft_only_student_safe",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce prepara um rascunho supervisionado para responder aluno por Kommo. Seja curto, seguro e acolhedor. "
             "Nao prescreva treino novo, dieta, suplemento ou ajuste de carga como ordem final. Se houver dor, lesao, cancelamento, "
@@ -108,6 +125,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Cordex Agent de atendimento Kommo",
         role="Agente de atendimento de academia",
         safety_profile="draft_only_support_sensitive_escalation",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce e um agente de atendimento de academia em modo rascunho. Classifique intencao, considere contexto do aluno "
             "e prepare resposta curta para humano revisar na Kommo. Nunca envie autonomamente. Cancelamento, reclamacao, opt-out, "
@@ -132,6 +150,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Copy de retencao",
         role="Especialista em mensagens de retencao para academias",
         safety_profile="draft_only_retention_no_pressure_no_sensitive",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce melhora rascunhos de retencao para alunos de academia. Escreva mensagem curta, humana e especifica ao estagio: "
             "atencao, recuperacao, reativacao 30+, escalacao ou base fria. Nao use culpa, ameaca, promessa de resultado ou pressao. "
@@ -144,6 +163,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Copy de task operacional",
         role="Especialista em mensagens operacionais de academia",
         safety_profile="draft_only_task_contextual_no_sensitive",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce transforma uma tarefa operacional em uma mensagem curta para aluno ou lead, mantendo clareza, contexto e tom humano. "
             "Nao invente fatos, nao prometa resultado, nao faca diagnostico e nao avance em cancelamento, reclamacao, opt-out, dor, lesao ou contestacao financeira."
@@ -155,6 +175,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Copy de onboarding D0-D30",
         role="Especialista em ativacao de aluno novo de academia",
         safety_profile="draft_only_onboarding_light_no_sales_pressure",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce escreve mensagens leves de onboarding para ajudar o aluno novo a criar rotina nos primeiros 30 dias. "
             "O tom deve ser acolhedor, pratico e sem pressao comercial. Foque em remover barreiras, confirmar proximo passo e chamar para apoio humano."
@@ -166,6 +187,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Copy financeira neutra",
         role="Especialista em comunicacao financeira segura para academias",
         safety_profile="draft_only_finance_neutral_no_threat",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce prepara mensagens financeiras neutras, educadas e sem ameaca. Nao use cobranca agressiva, vergonha, urgencia artificial ou linguagem juridica. "
             "Se houver contestacao, 'ja paguei', cancelamento ou pedido de humano, a mensagem deve ser bloqueada para atendimento humano."
@@ -177,6 +199,7 @@ PROMPT_REGISTRY: dict[str, AiPromptDefinition] = {
         title="Copy comercial",
         role="Especialista em follow-up comercial de academia",
         safety_profile="draft_only_sales_contextual_no_spam",
+        execution_policy="communication_on_demand",
         instructions=(
             "Voce melhora mensagens comerciais para leads de academia. Seja curto, consultivo e especifico ao proximo passo. "
             "Nao prometa resultado, nao pressione compra e nao continue contato se houver opt-out ou pedido de humano."
@@ -209,6 +232,7 @@ def prompt_metadata(
         "prompt_version": prompt.version,
         "model": model or specialist_model(),
         "safety_profile": prompt.safety_profile,
+        "execution_policy": prompt.execution_policy,
         "generated_at": (generated_at or datetime.now(tz=timezone.utc)).isoformat(),
         "fallback_used": fallback_used,
     }
@@ -231,7 +255,14 @@ def generate_specialist_text(
     user_prompt: str,
     fallback_text: str,
     max_output_chars: int = 1200,
+    invocation_context: AiInvocationContext | None = None,
 ) -> AiPromptResult:
+    prompt = get_prompt_definition(prompt_key)
+    if prompt.execution_policy == "communication_on_demand" and not _valid_explicit_invocation(invocation_context):
+        metadata = prompt_metadata(prompt_key, model="deterministic_on_demand_guard", fallback_used=True)
+        metadata.update({"ai_skipped_reason": "explicit_user_action_required", "duration_ms": 0, "input_tokens": 0, "output_tokens": 0})
+        return AiPromptResult(text=fallback_text[:max_output_chars], metadata=metadata, used_fallback=True)
+
     model = specialist_model()
     if not settings.openai_api_key:
         return AiPromptResult(
@@ -240,6 +271,7 @@ def generate_specialist_text(
             used_fallback=True,
         )
 
+    started_at = time.perf_counter()
     try:
         client = OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds)
         response = client.responses.create(
@@ -252,18 +284,44 @@ def generate_specialist_text(
         text = _extract_response_text(response).strip()
         if not text:
             raise RuntimeError("Resposta vazia do modelo especialista.")
+        usage = getattr(response, "usage", None)
+        metadata = prompt_metadata(prompt_key, model=model, fallback_used=False)
+        metadata.update(
+            {
+                "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+                "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+            }
+        )
         return AiPromptResult(
             text=text[:max_output_chars],
-            metadata=prompt_metadata(prompt_key, model=model, fallback_used=False),
+            metadata=metadata,
             used_fallback=False,
         )
     except Exception:
         logger.exception("Falha ao gerar texto especialista com prompt %s. Usando fallback.", prompt_key)
+        metadata = prompt_metadata(prompt_key, model=model, fallback_used=True)
+        metadata.update({"duration_ms": int((time.perf_counter() - started_at) * 1000), "input_tokens": 0, "output_tokens": 0})
         return AiPromptResult(
             text=fallback_text[:max_output_chars],
-            metadata=prompt_metadata(prompt_key, model=model, fallback_used=True),
+            metadata=metadata,
             used_fallback=True,
         )
+
+
+def _valid_explicit_invocation(context: AiInvocationContext | None) -> bool:
+    if context is None or not context.explicit_user_action:
+        return False
+    return all(
+        str(value or "").strip()
+        for value in (
+            context.gym_id,
+            context.user_id,
+            context.objective,
+            context.source_type,
+            context.idempotency_key,
+        )
+    )
 
 
 def _extract_response_text(response) -> str:

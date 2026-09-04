@@ -187,6 +187,7 @@ def send_whatsapp_endpoint(
     instance = get_gym_instance(db, current_user.gym_id)
     log = send_whatsapp_sync(
         db,
+        gym_id=current_user.gym_id,
         phone=payload.phone,
         message=message,
         instance=instance,

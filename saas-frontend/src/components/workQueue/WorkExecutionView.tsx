@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { EmptyState, SkeletonList } from "../ui";
 import { Badge, Button, Input, Textarea, cn } from "../ui2";
 import { MemberIntelligenceMiniCard } from "../common/MemberIntelligenceMiniCard";
+import { MessageImprovementPreview } from "../common/MessageImprovementPreview";
 import { useAuth } from "../../hooks/useAuth";
 import {
   workQueueService,
@@ -175,12 +176,21 @@ function messageBadge(item: WorkQueueItem): { label: string; variant: "info" | "
     return { label: "Bloqueado por seguranca", variant: "warning" };
   }
   if (item.message_source === "ai_specialist" || (item.prompt_key && !item.message_fallback_used)) {
-    return { label: "Mensagem por IA", variant: "success" };
+    return { label: "Melhorada com IA", variant: "success" };
   }
   if (item.suggested_message) {
-    return { label: "Template seguro", variant: "neutral" };
+    return { label: "Mensagem pronta", variant: "neutral" };
   }
   return null;
+}
+
+function templateKeyForItem(item: WorkQueueItem): string {
+  if (item.domain === "retention") return "retention.reengagement";
+  if (item.domain === "onboarding") return "onboarding.checkin";
+  if (item.domain === "finance") return "finance.overdue";
+  if (item.domain === "commercial") return "commercial.followup";
+  if (item.domain === "assessment" || item.domain === "trainer") return "assessment.followup";
+  return "support.reply";
 }
 
 function requiresPreparationBeforeOutcome(item: WorkQueueItem): boolean {
@@ -466,18 +476,6 @@ export function WorkExecutionView({
     onError: (error) => toast.error(getHttpDetail(error)),
   });
 
-  const regenerateMessageMutation = useMutation({
-    mutationFn: ({ item }: { item: WorkQueueItem }) => workQueueService.regenerateMessage(item.source_type, item.source_id),
-    onSuccess: (result) => {
-      setSelectedKey(itemKey(result.item));
-      void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
-      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      void queryClient.invalidateQueries({ queryKey: ["ai-triage"] });
-      toast.success(result.detail || "Rascunho regenerado.");
-    },
-    onError: (error) => toast.error(getHttpDetail(error)),
-  });
-
   function selectItem(item: WorkQueueItem) {
     setSelectedKey(itemKey(item));
     setConfirmingKey(null);
@@ -500,14 +498,12 @@ export function WorkExecutionView({
     executeMutation.isPending ||
     outcomeMutation.isPending ||
     commentMutation.isPending ||
-    sendAndWaitMutation.isPending ||
-    regenerateMessageMutation.isPending;
+    sendAndWaitMutation.isPending;
   const selectedRequiresConfirmation = selectedItem?.requires_confirmation && confirmingKey === itemKey(selectedItem);
   const selectedWhatsAppUrl = selectedItem ? buildWhatsAppUrl(selectedItem) : null;
   const selectedTelUrl = selectedItem ? buildTelUrl(selectedItem) : null;
   const isFinanceItem = selectedItem?.domain === "finance";
   const isTechnicalTrainerItem = selectedItem?.domain === "trainer" && Boolean(selectedItem.technical_ladder_step);
-  const canRegenerateMessage = userRole === "owner" || userRole === "manager" || userRole === "receptionist";
   const selectedOutcomeRequiresPreparation = selectedItem ? requiresPreparationBeforeOutcome(selectedItem) : false;
   const outcomeButtonDisabled = isMutating || selectedOutcomeRequiresPreparation;
   const selectedShiftDiagnostic = selectedItem ? getPreferredShiftDiagnostic(selectedItem) : null;
@@ -813,16 +809,18 @@ export function WorkExecutionView({
                       Bloqueios: {selectedItem.message_blocked_reasons?.join(", ")}
                     </p>
                   ) : null}
-                  {canRegenerateMessage && ["task", "ai_triage"].includes(selectedItem.source_type) ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="mt-3"
-                      onClick={() => regenerateMessageMutation.mutate({ item: selectedItem })}
-                      disabled={isMutating}
-                    >
-                      Regenerar rascunho
-                    </Button>
+                  {selectedItem.source_type === "task" && selectedItem.suggested_message ? (
+                    <MessageImprovementPreview
+                      sourceType="task"
+                      sourceId={selectedItem.source_id}
+                      templateKey={templateKeyForItem(selectedItem)}
+                      objective={selectedItem.primary_action_label}
+                      baseMessage={selectedItem.suggested_message}
+                      onApplied={() => {
+                        void queryClient.invalidateQueries({ queryKey: ["work-queue"] });
+                        void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+                      }}
+                    />
                   ) : null}
                 </div>
 

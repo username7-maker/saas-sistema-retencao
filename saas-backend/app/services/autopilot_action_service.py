@@ -356,6 +356,7 @@ def _execute_whatsapp_action(
     db.add(action)
     log = send_whatsapp_sync(
         db,
+        gym_id=action.gym_id,
         phone=phone,
         message=action.message_body,
         instance=get_gym_instance(db, action.gym_id),

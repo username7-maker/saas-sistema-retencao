@@ -1,6 +1,7 @@
 """
 Endpoints de gerenciamento da conexao WhatsApp por academia.
 """
+
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -43,6 +44,12 @@ class WhatsAppStatusOut(BaseModel):
     phone: str | None
     connected_at: datetime | None
     instance: str | None
+    outbound_enabled: bool
+    global_outbound_enabled: bool
+
+
+class WhatsAppOutboundIn(BaseModel):
+    enabled: bool
 
 
 class QRCodeOut(BaseModel):
@@ -96,12 +103,7 @@ def _extract_instance_name(body: dict) -> str:
     if isinstance(raw_instance, str):
         return raw_instance
     if isinstance(raw_instance, dict):
-        return (
-            raw_instance.get("instanceName")
-            or raw_instance.get("name")
-            or raw_instance.get("instance")
-            or ""
-        )
+        return raw_instance.get("instanceName") or raw_instance.get("name") or raw_instance.get("instance") or ""
     return body.get("instanceName", "") or ""
 
 
@@ -121,11 +123,7 @@ def _verify_agent_service_token(
 ) -> None:
     configured_token = (settings.cordex_agent_service_token or "").strip()
     provided_token = x_cordex_agent_token or _extract_bearer_token(authorization)
-    if (
-        not configured_token
-        or not provided_token
-        or not secrets.compare_digest(provided_token, configured_token)
-    ):
+    if not configured_token or not provided_token or not secrets.compare_digest(provided_token, configured_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid agent service token")
 
 
@@ -181,6 +179,7 @@ def connect_whatsapp(
     )
     gym.whatsapp_instance = instance
     gym.whatsapp_status = "connecting"
+    gym.whatsapp_outbound_enabled = False
     db.add(gym)
 
     job_id: str | None = None
@@ -278,6 +277,35 @@ def get_status(
         phone=gym.whatsapp_phone,
         connected_at=gym.whatsapp_connected_at,
         instance=gym.whatsapp_instance,
+        outbound_enabled=gym.whatsapp_outbound_enabled,
+        global_outbound_enabled=settings.whatsapp_outbound_enabled,
+    )
+
+
+@router.patch("/outbound", response_model=WhatsAppStatusOut)
+def update_outbound_status(
+    payload: WhatsAppOutboundIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(RoleEnum.OWNER)),
+) -> WhatsAppStatusOut:
+    gym = _get_gym(db, current_user.gym_id)
+    if payload.enabled:
+        if not settings.whatsapp_outbound_enabled:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Envios estão desativados globalmente")
+        if not gym.whatsapp_instance or get_connection_status(gym.whatsapp_instance).get("state") != "open":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Conecte e confirme o WhatsApp antes de habilitar envios"
+            )
+    gym.whatsapp_outbound_enabled = payload.enabled
+    db.add(gym)
+    db.commit()
+    return WhatsAppStatusOut(
+        status=gym.whatsapp_status,
+        phone=gym.whatsapp_phone,
+        connected_at=gym.whatsapp_connected_at,
+        instance=gym.whatsapp_instance,
+        outbound_enabled=gym.whatsapp_outbound_enabled,
+        global_outbound_enabled=settings.whatsapp_outbound_enabled,
     )
 
 
@@ -290,15 +318,28 @@ def disconnect_whatsapp(
     if gym.whatsapp_instance:
         disconnected = disconnect_instance(gym.whatsapp_instance)
         if not disconnected:
+            # Keep the instance reference until Evolution confirms that the
+            # session is no longer open. Losing this pointer would make a
+            # connected credential invisible to the operator while it could
+            # still receive/send outside Cordex.
+            gym.whatsapp_outbound_enabled = False
+            gym.whatsapp_status = "error"
+            db.add(gym)
+            db.commit()
             logger.warning(
-                "Gym %s: Evolution nao confirmou reset da instancia %s; proximo connect criara instancia nova.",
+                "Gym %s: Evolution nao confirmou o encerramento da instancia %s.",
                 gym.id,
                 gym.whatsapp_instance,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="O envio foi bloqueado, mas o provedor ainda nao confirmou a desconexao. Tente novamente.",
             )
     gym.whatsapp_instance = None
     gym.whatsapp_status = "disconnected"
     gym.whatsapp_phone = None
     gym.whatsapp_connected_at = None
+    gym.whatsapp_outbound_enabled = False
     db.add(gym)
     db.commit()
 
@@ -348,11 +389,7 @@ async def whatsapp_webhook(
 ) -> dict:
     configured_token = (settings.whatsapp_webhook_token or "").strip()
     provided_token = x_webhook_token or _extract_bearer_token(authorization)
-    if (
-        not configured_token
-        or not provided_token
-        or not secrets.compare_digest(provided_token, configured_token)
-    ):
+    if not configured_token or not provided_token or not secrets.compare_digest(provided_token, configured_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook token")
 
     body = await request.json()
@@ -377,15 +414,14 @@ async def whatsapp_webhook(
 
         if mapped == "connected":
             phone = (
-                data.get("instance", {}).get("owner", "")
-                or data.get("ownerJid", "")
-                or data.get("wuid", "")
+                data.get("instance", {}).get("owner", "") or data.get("ownerJid", "") or data.get("wuid", "")
             ).split("@")[0] or None
             gym.whatsapp_phone = phone
             gym.whatsapp_connected_at = datetime.now(tz=timezone.utc)
         elif mapped == "disconnected":
             gym.whatsapp_phone = None
             gym.whatsapp_connected_at = None
+            gym.whatsapp_outbound_enabled = False
 
         db.add(gym)
         db.commit()

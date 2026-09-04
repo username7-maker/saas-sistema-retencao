@@ -62,6 +62,7 @@ class Settings(BaseSettings):
 
     whatsapp_api_url: str = ""
     whatsapp_api_token: str = ""
+    whatsapp_outbound_enabled: bool = False
     public_backend_url: str = ""
     whatsapp_instance: str = "default"
     whatsapp_allow_global_fallback: bool = False

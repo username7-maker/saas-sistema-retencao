@@ -200,42 +200,8 @@ def _generate_cached_sales_ai(lead: Lead, diagnosis: dict[str, Any], history: li
 
     objections = _extract_known_objections(lead)
     fallback = _fallback_sales_ai(lead, diagnosis, objections)
-    if not settings.claude_api_key:
-        dashboard_cache.set(cache_key, fallback, ttl=SALES_BRIEF_CACHE_TTL_SECONDS)
-        return fallback
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        prompt = (
-            "Voce e um closer de SaaS B2B para academias. "
-            "Retorne JSON com campos arguments e next_step. "
-            "arguments deve ser uma lista com exatamente 3 itens, cada um com title, body, usage. "
-            "O title deve ter no maximo 8 palavras. "
-            "Use dados reais do prospect.\n"
-            f"Lead: nome={lead.full_name}, origem={lead.source}, stage={lead.stage.value}\n"
-            f"Diagnostico: {diagnosis}\n"
-            f"Historico recente: {history[-8:]}\n"
-            f"Objecoes conhecidas: {objections}\n"
-        )
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=settings.claude_max_tokens,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        parsed = _parse_ai_json(response.content[0].text.strip())
-        result = {
-            "arguments": parsed.get("arguments") or fallback["arguments"],
-            "next_step": parsed.get("next_step") or fallback["next_step"],
-        }
-        dashboard_cache.set(cache_key, result, ttl=SALES_BRIEF_CACHE_TTL_SECONDS)
-        return result
-    except Exception:
-        logger.exception("Falha ao gerar sales brief com Claude")
-        dashboard_cache.set(cache_key, fallback, ttl=SALES_BRIEF_CACHE_TTL_SECONDS)
-        return fallback
+    dashboard_cache.set(cache_key, fallback, ttl=SALES_BRIEF_CACHE_TTL_SECONDS)
+    return fallback
 
 
 def _fallback_sales_ai(lead: Lead, diagnosis: dict[str, Any], objections: list[str]) -> dict[str, Any]:

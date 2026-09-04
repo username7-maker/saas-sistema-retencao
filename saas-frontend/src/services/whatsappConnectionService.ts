@@ -5,6 +5,8 @@ export interface WhatsAppStatus {
   phone: string | null;
   connected_at: string | null;
   instance: string | null;
+  outbound_enabled?: boolean;
+  global_outbound_enabled?: boolean;
 }
 
 export interface QRCodeData {
@@ -30,5 +32,10 @@ export const whatsappConnectionService = {
 
   async disconnect(): Promise<void> {
     await api.delete("/api/v1/whatsapp/disconnect");
+  },
+
+  async setOutbound(enabled: boolean): Promise<WhatsAppStatus> {
+    const { data } = await api.patch<WhatsAppStatus>("/api/v1/whatsapp/outbound", { enabled });
+    return data;
   },
 };
