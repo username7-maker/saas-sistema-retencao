@@ -33,6 +33,23 @@
 
 ## Producao
 
-Preencher depois do rollout: commit, deployments, estado da migracao, readiness,
-smoke, flags e observacao inicial de logs.
-
+- Commit de aplicacao: `68fec752af407c3e89ccf5451af7cb3a56cbdbcf`.
+- API Railway: `b1b2a0b7-2e97-47bb-8da7-b915da89a722`, `SUCCESS`.
+- Worker Railway: `642c6a61-3352-4608-8e05-e2f5d3ed18be`, `SUCCESS`.
+- Frontend Vercel: `dpl_7jcE2S7ERGiwMPgeNAT5XGU8BrwZ`, `READY`, com alias
+  `https://saas-frontend-pearl.vercel.app`.
+- API, worker e frontend expõem o mesmo SHA.
+- Migração `20260908_0061` aplicada com sucesso antes da troca da API.
+- Flags do piloto ativas: scanner V2, mobile operacional V2 e bootstrap V1.
+- Smoke público: frontend e readiness HTTP 200; rota protegida retorna 401 sem
+  autenticação; nenhuma escrita de cliente foi executada.
+- Primeira janela Railway: 4 requisições, zero 5xx, p95 de 251 ms.
+- Worker: scheduler e Redis saudáveis, CPU atual inferior a 0,001 vCPU e memória
+  em torno de 133 MB na primeira janela.
+- Smoke autenticado automatizado não executado porque o repositório não possui
+  as credenciais `PILOT_*`; nenhuma credencial foi criada ou persistida para isso.
+- `/health/ready` está publicado e validado. O healthcheck nativo do serviço ainda
+  precisa ser configurado no painel Railway; a CLI atual não aplicou a alteração
+  isolada porque API e worker compartilham o mesmo arquivo de deploy.
+- Região/pooler não foram alterados: a decisão permanece bloqueada até benchmark
+  dentro da rede de produção, evitando uma troca baseada em suposição.
