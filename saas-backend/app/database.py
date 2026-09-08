@@ -1,4 +1,5 @@
 import logging
+from time import perf_counter
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -83,6 +84,37 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 _current_gym_id: ContextVar[UUID | None] = ContextVar("current_gym_id", default=None)
 _unscoped_access: ContextVar[bool] = ContextVar("unscoped_access", default=False)
 _unscoped_access_reason: ContextVar[str | None] = ContextVar("unscoped_access_reason", default=None)
+_request_database_metrics: ContextVar[dict | None] = ContextVar("request_database_metrics", default=None)
+
+
+def reset_request_database_metrics() -> None:
+    """Start an isolated, PII-free database timing window for one request."""
+    # Starlette executes sync endpoints in a worker thread. Context values are
+    # copied into that thread, so mutate one shared request-local object instead
+    # of replacing immutable counters whose updates would not flow back.
+    _request_database_metrics.set({"count": 0, "duration_ms": 0.0, "started_at": []})
+
+
+def get_request_database_metrics() -> tuple[int, float]:
+    metrics = _request_database_metrics.get() or {}
+    return int(metrics.get("count", 0)), round(float(metrics.get("duration_ms", 0.0)), 2)
+
+
+@event.listens_for(engine, "before_cursor_execute")
+def _track_query_start(*_args, **_kwargs) -> None:
+    metrics = _request_database_metrics.get()
+    if metrics is not None:
+        metrics["started_at"].append(perf_counter())
+
+
+@event.listens_for(engine, "after_cursor_execute")
+def _track_query_end(*_args, **_kwargs) -> None:
+    metrics = _request_database_metrics.get()
+    if not metrics or not metrics["started_at"]:
+        return
+    started_at = metrics["started_at"].pop()
+    metrics["count"] += 1
+    metrics["duration_ms"] += (perf_counter() - started_at) * 1000
 
 ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
     "actuar_bridge.",

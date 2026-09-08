@@ -993,67 +993,89 @@ export function MemberProfile360Page() {
   const canViewTimeline = canViewAssessmentTimeline(user?.role);
   const canUsePersonalAi = user?.role === "owner" || user?.role === "manager" || user?.role === "trainer";
   const canUseMovementVideo = canUsePersonalAi;
+  const workspaceBootstrapEnabled = import.meta.env.VITE_MEMBER_WORKSPACE_BOOTSTRAP_V1 === "true";
+
+  const bootstrapQuery = useQuery({
+    queryKey: ["members", "workspace-bootstrap", memberId],
+    queryFn: () => memberService.getWorkspaceBootstrap(memberId ?? ""),
+    enabled: Boolean(memberId) && workspaceBootstrapEnabled,
+    staleTime: 60 * 1000,
+  });
+
+  useEffect(() => {
+    const data = bootstrapQuery.data;
+    if (!data || !memberId) return;
+    queryClient.setQueryData(["assessments", "profile360", memberId], data.profile_summary);
+    queryClient.setQueryData(["members", memberId], data.member);
+    queryClient.setQueryData(["assessments", "summary360", memberId], data.summary_360);
+    queryClient.setQueryData(["members", "operational-profile", memberId], data.operational_summary);
+    queryClient.setQueryData(["body-composition", memberId], data.body_composition);
+  }, [bootstrapQuery.data, memberId, queryClient]);
+
+  const shouldLoadIndividualWorkspaceQueries = !workspaceBootstrapEnabled || bootstrapQuery.isError;
 
   const profileQuery = useQuery({
     queryKey: ["assessments", "profile360", memberId],
     queryFn: () => assessmentService.profile360(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
     staleTime: 60 * 1000,
   });
 
   const memberQuery = useQuery({
     queryKey: ["members", memberId],
     queryFn: () => memberService.getMember(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
     staleTime: 60 * 1000,
   });
 
   const assessmentsQuery = useQuery({
     queryKey: ["assessments", "list", memberId],
     queryFn: () => assessmentService.list(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled:
+      Boolean(memberId) &&
+      (shouldLoadIndividualWorkspaceQueries || (workspaceBootstrapEnabled && activeTab === "evolucao")),
     staleTime: 60 * 1000,
   });
 
   const evolutionQuery = useQuery({
     queryKey: ["assessments", "evolution", memberId],
     queryFn: () => assessmentService.evolution(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && activeTab === "evolucao",
     staleTime: 60 * 1000,
   });
 
   const summary360Query = useQuery({
     queryKey: ["assessments", "summary360", memberId],
     queryFn: () => assessmentService.summary360(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
     staleTime: 60 * 1000,
   });
 
   const intelligenceContextQuery = useQuery({
     queryKey: ["members", "intelligence-context", memberId],
     queryFn: () => memberService.getIntelligenceContext(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && activeTab === "overview",
     staleTime: 60 * 1000,
   });
 
   const operationalProfileQuery = useQuery({
     queryKey: ["members", "operational-profile", memberId],
     queryFn: () => memberService.getOperationalProfile(memberId ?? ""),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
     staleTime: 60 * 1000,
   });
 
   const timelineQuery = useQuery({
     queryKey: ["member-timeline", memberId],
     queryFn: () => memberTimelineService.list(memberId ?? ""),
-    enabled: Boolean(memberId) && canViewTimeline,
+    enabled: Boolean(memberId) && canViewTimeline && isHistoryOpen,
     staleTime: 60 * 1000,
   });
 
   const bodyCompositionQuery = useQuery({
     queryKey: ["body-composition", memberId],
     queryFn: () => bodyCompositionService.list(memberId ?? "", 5),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
     staleTime: 60 * 1000,
   });
 
@@ -1176,6 +1198,9 @@ export function MemberProfile360Page() {
   }, [activeTab, visibleTabs.join("|")]);
 
   async function handleRetryWorkspace() {
+    if (workspaceBootstrapEnabled) {
+      await bootstrapQuery.refetch();
+    }
     await Promise.all([
       profileQuery.refetch(),
       memberQuery.refetch(),
@@ -1197,9 +1222,10 @@ export function MemberProfile360Page() {
   }
 
   if (
+    (workspaceBootstrapEnabled && (bootstrapQuery.isPending || (bootstrapQuery.data && !profileQuery.data))) ||
     profileQuery.isLoading ||
     memberQuery.isLoading ||
-    assessmentsQuery.isLoading ||
+    (shouldLoadIndividualWorkspaceQueries && assessmentsQuery.isLoading) ||
     evolutionQuery.isLoading ||
     summary360Query.isLoading
   ) {
@@ -1209,7 +1235,7 @@ export function MemberProfile360Page() {
   if (
     profileQuery.isError ||
     memberQuery.isError ||
-    assessmentsQuery.isError ||
+    (shouldLoadIndividualWorkspaceQueries && assessmentsQuery.isError) ||
     evolutionQuery.isError ||
     summary360Query.isError ||
     !profileQuery.data ||
@@ -1230,7 +1256,7 @@ export function MemberProfile360Page() {
 
   const profile = profileQuery.data;
   const member = memberQuery.data;
-  const assessments = assessmentsQuery.data ?? [];
+  const assessments = assessmentsQuery.data ?? bootstrapQuery.data?.latest_assessments ?? [];
   const evolution =
     evolutionQuery.data ?? {
       labels: [],

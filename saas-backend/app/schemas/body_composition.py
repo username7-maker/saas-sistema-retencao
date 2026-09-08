@@ -233,6 +233,39 @@ class BodyCompositionImageProcessing(BaseModel):
     provider: str | None = None
     image_width: int | None = Field(default=None, ge=1)
     image_height: int | None = Field(default=None, ge=1)
+    capture_device_kind: Literal["webcam", "mobile", "unknown"] = "unknown"
+
+
+class BodyCompositionCaptureMetadata(BaseModel):
+    width: int | None = Field(default=None, ge=1, le=12000)
+    height: int | None = Field(default=None, ge=1, le=12000)
+    rotation: int = Field(default=0, ge=-360, le=360)
+    device_kind: Literal["webcam", "mobile", "unknown"] = "unknown"
+    quality_codes: list[str] = Field(default_factory=list, max_length=12)
+    document_confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class BodyCompositionImageQuality(BaseModel):
+    usable: bool = True
+    document_found: bool = False
+    codes: list[str] = Field(default_factory=list)
+    metrics: dict[str, float] = Field(default_factory=dict)
+
+
+class BodyCompositionImagePreprocessing(BaseModel):
+    applied: bool = False
+    method: str = "original"
+    confidence: float = Field(default=0, ge=0, le=1)
+    source_width: int | None = Field(default=None, ge=1)
+    source_height: int | None = Field(default=None, ge=1)
+    output_width: int | None = Field(default=None, ge=1)
+    output_height: int | None = Field(default=None, ge=1)
+
+
+class BodyCompositionProfileConflict(BaseModel):
+    field: Literal["age_years", "sex", "height_cm"]
+    profile_value: str | int | float | None = None
+    image_value: str | int | float | None = None
 
 
 class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
@@ -241,6 +274,10 @@ class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
     field_metadata: dict[str, BodyCompositionFieldMetadata] = Field(default_factory=dict)
     validation_issues: list[BodyCompositionValidationIssue] = Field(default_factory=list)
     processing: BodyCompositionImageProcessing = Field(default_factory=BodyCompositionImageProcessing)
+    image_quality: BodyCompositionImageQuality = Field(default_factory=BodyCompositionImageQuality)
+    preprocessing: BodyCompositionImagePreprocessing = Field(default_factory=BodyCompositionImagePreprocessing)
+    profile_conflicts: list[BodyCompositionProfileConflict] = Field(default_factory=list)
+    suggested_resolution: str | None = None
 
 
 class BodyCompositionEvaluationBase(BaseModel):

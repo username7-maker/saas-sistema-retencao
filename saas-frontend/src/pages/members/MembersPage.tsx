@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Edit2, Eye, RefreshCw, Trash2, Users } from "lucide-react";
 import toast from "react-hot-toast";
@@ -71,15 +71,16 @@ export function MembersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
+  const mobileOperationalV2 = import.meta.env.VITE_MOBILE_OPERATIONAL_V2 === "true";
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["members", filters, page],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       memberService.listMembers({
         ...filters,
         page,
         page_size: PAGE_SIZE,
-      }),
+      }, signal),
   });
 
   const deleteMutation = useMutation({
@@ -112,8 +113,14 @@ export function MembersPage() {
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setPage(1);
-    setFilters((prev) => ({ ...prev, search: value.trim() || undefined }));
   };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setFilters((prev) => ({ ...prev, search: search.trim() || undefined }));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const clearAllFilters = () => {
     setSearch("");
@@ -314,7 +321,71 @@ export function MembersPage() {
             action={canManageDirectory ? { label: "Adicionar Membro", onClick: () => setAddOpen(true) } : undefined}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {mobileOperationalV2 ? <div className="grid gap-3 p-3 md:hidden">
+            {data.items.map((member) => (
+              <article
+                key={member.id}
+                className="rounded-2xl border border-lovable-border bg-lovable-surface-soft/40 p-4"
+                onClick={() => openDetail(member)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      to={`/assessments/members/${member.id}`}
+                      className="block truncate font-semibold text-lovable-ink"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {member.full_name}
+                    </Link>
+                    <p className="mt-1 truncate text-xs text-lovable-ink-muted">{member.email ?? "Sem email"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {getMemberExternalId(member) ? <Badge variant="neutral" size="sm">Matricula {getMemberExternalId(member)}</Badge> : null}
+                      {isProvisionalMember(member) ? <Badge variant="warning" size="sm">Provisorio</Badge> : null}
+                      {getUpcomingBirthdayLabel(member) ? <Badge variant="warning" size="sm">{getUpcomingBirthdayLabel(member)}</Badge> : null}
+                    </div>
+                  </div>
+                  <StatusBadge
+                    status={member.risk_level}
+                    map={{
+                      green: { label: RISK_LABELS.green, variant: RISK_VARIANTS.green },
+                      yellow: { label: RISK_LABELS.yellow, variant: RISK_VARIANTS.yellow },
+                      red: { label: RISK_LABELS.red, variant: RISK_VARIANTS.red },
+                    }}
+                  />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-lovable-ink-muted">Plano</p>
+                    <p className="truncate font-medium text-lovable-ink">{member.plan_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-lovable-ink-muted">Último check-in</p>
+                    <p className="font-medium text-lovable-ink">{formatCheckinDate(member.last_checkin_at)}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <PreferredShiftBadge preferredShift={member.preferred_shift} prefix showFallback />
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2 border-t border-lovable-border pt-3" onClick={(event) => event.stopPropagation()}>
+                  <Button className="flex-1" variant="secondary" size="sm" onClick={() => openDetail(member)}>
+                    <Eye size={15} /> Ver
+                  </Button>
+                  {canManageDirectory ? (
+                    <Button className="flex-1" variant="ghost" size="sm" onClick={(event) => openEdit(member, event)}>
+                      <Edit2 size={15} /> Editar
+                    </Button>
+                  ) : null}
+                  {canRemoveMember ? (
+                    <Button variant="danger" size="sm" aria-label={`Excluir ${member.full_name}`} onClick={() => setMemberToDelete(member)}>
+                      <Trash2 size={15} />
+                    </Button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div> : null}
+          <div className={mobileOperationalV2 ? "hidden overflow-x-auto md:block" : "overflow-x-auto"}>
             <TableInner>
               <TableHead>
                 <tr>
@@ -465,6 +536,7 @@ export function MembersPage() {
               </TableBody>
             </TableInner>
           </div>
+          </>
         )}
 
         {data && data.total > PAGE_SIZE ? (

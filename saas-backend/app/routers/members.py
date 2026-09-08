@@ -10,6 +10,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
+from app.core.config import settings
 from app.core.dependencies import get_request_context, require_roles
 from app.database import get_db
 from app.models import BodyCompositionEvaluation, Member, MemberStatus, RiskLevel, RoleEnum, User
@@ -37,13 +38,27 @@ from app.schemas.body_composition import (
     BodyCompositionEvaluationUpdate,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
+    BodyCompositionCaptureMetadata,
     BodyCompositionKommoDispatchRead,
     BodyCompositionManualSyncSummaryRead,
     BodyCompositionReportRead,
     BodyCompositionWhatsAppDispatchRead,
 )
+from app.schemas.assessment import (
+    AssessmentMiniOut,
+    AssessmentOut,
+    AssessmentSummary360Out,
+    MemberConstraintsOut,
+    MemberGoalOut,
+    MemberMiniOut,
+    Profile360Out,
+    TrainingPlanOut,
+)
 from app.schemas.member_intelligence import LeadToMemberIntelligenceContextOut
 from app.services.ai_assistant_service import build_onboarding_assistant
+from app.services.ai_assistant_service import build_assessment_assistant
+from app.services.assessment_intelligence_service import get_assessment_summary_360
+from app.services.assessment_service import get_member_profile_360, list_assessments
 from app.services.audit_service import log_audit_event
 from app.services.body_composition_actuar_sync_service import (
     confirm_manual_actuar_sync,
@@ -263,6 +278,78 @@ def get_member_endpoint(
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER))],
 ) -> MemberOut:
     return get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+
+
+@router.get("/{member_id}/workspace-bootstrap")
+def get_member_workspace_bootstrap_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.SALESPERSON, RoleEnum.TRAINER)),
+    ],
+) -> dict:
+    """Return only the above-the-fold member workspace data in one network roundtrip."""
+    if not settings.member_workspace_bootstrap_v1:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace bootstrap desabilitado")
+    member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    profile_payload = get_member_profile_360(db, member_id)
+    summary_payload = get_assessment_summary_360(db, member_id)
+    operational_payload = build_member_operational_profile(db, member_id=member_id, current_user=current_user)
+    assessments = list_assessments(db, member_id, gym_id=current_user.gym_id)[:10]
+    body_evaluations = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=5)
+
+    profile = Profile360Out(
+        member=MemberMiniOut.model_validate(profile_payload["member"]),
+        latest_assessment=(
+            AssessmentMiniOut.model_validate(profile_payload.get("latest_assessment"))
+            if profile_payload.get("latest_assessment") else None
+        ),
+        constraints=(
+            MemberConstraintsOut.model_validate(profile_payload.get("constraints"))
+            if profile_payload.get("constraints") else None
+        ),
+        goals=[MemberGoalOut.model_validate(item) for item in profile_payload.get("goals", [])],
+        active_training_plan=(
+            TrainingPlanOut.model_validate(profile_payload.get("active_training_plan"))
+            if profile_payload.get("active_training_plan") else None
+        ),
+        insight_summary=profile_payload.get("insight_summary"),
+    )
+    summary = AssessmentSummary360Out(
+        member=MemberMiniOut.model_validate(summary_payload["member"]),
+        latest_assessment=(
+            AssessmentMiniOut.model_validate(summary_payload["latest_assessment"])
+            if summary_payload.get("latest_assessment") else None
+        ),
+        goal_type=summary_payload["goal_type"],
+        status=summary_payload["status"],
+        days_since_last_checkin=summary_payload["days_since_last_checkin"],
+        recent_weekly_checkins=summary_payload["recent_weekly_checkins"],
+        target_frequency_per_week=summary_payload["target_frequency_per_week"],
+        forecast=summary_payload["forecast"],
+        diagnosis=summary_payload["diagnosis"],
+        benchmark=summary_payload["benchmark"],
+        narratives=summary_payload["narratives"],
+        next_best_action=summary_payload["next_best_action"],
+        actions=summary_payload["actions"],
+        assistant=build_assessment_assistant(summary_payload),
+    )
+    return {
+        "member": MemberOut.model_validate(member).model_dump(mode="json"),
+        "profile_summary": profile.model_dump(mode="json"),
+        "latest_assessments": [AssessmentOut.model_validate(item).model_dump(mode="json") for item in assessments],
+        "operational_summary": MemberOperationalProfileOut.model_validate(operational_payload).model_dump(mode="json"),
+        "summary_360": summary.model_dump(mode="json"),
+        "body_composition": [
+            item.model_dump(mode="json")
+            for item in serialize_body_composition_evaluations(
+                db, current_user.gym_id, member_id, body_evaluations
+            )
+        ],
+        "permissions": operational_payload.get("permissions", {}),
+        "version": getattr(member, "updated_at", None).isoformat() if getattr(member, "updated_at", None) else "1",
+    }
 
 
 @router.get("/{member_id}/operational-profile", response_model=MemberOperationalProfileOut)
@@ -501,6 +588,7 @@ async def parse_body_composition_image_endpoint(
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
     evaluation_date: date | None = Form(default=None),
+    capture_metadata: str | None = Form(default=None),
 ) -> BodyCompositionImageParseResultRead:
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     parsed_local_ocr = (
@@ -519,6 +607,9 @@ async def parse_body_composition_image_endpoint(
         ).limit(1)
     )
     image_bytes = await file.read()
+    parsed_capture_metadata = (
+        BodyCompositionCaptureMetadata.model_validate_json(capture_metadata) if capture_metadata else None
+    )
     return parse_body_composition_image(
         image_bytes=image_bytes,
         media_type=file.content_type,
@@ -529,6 +620,7 @@ async def parse_body_composition_image_endpoint(
         member_sex=getattr(member, "sex_for_clinical_calculation", None),
         member_height_cm=getattr(member, "height_cm", None),
         previous_weight_kg=getattr(previous_evaluation, "weight_kg", None),
+        capture_metadata=parsed_capture_metadata,
     )
 
 
@@ -541,6 +633,7 @@ async def parse_body_composition_ocr_endpoint(
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
     evaluation_date: date | None = Form(default=None),
+    capture_metadata: str | None = Form(default=None),
 ) -> BodyCompositionImageParseResultRead:
     return await parse_body_composition_image_endpoint(
         member_id=member_id,
@@ -550,6 +643,7 @@ async def parse_body_composition_ocr_endpoint(
         device_profile=device_profile,
         local_ocr_result=local_ocr_result,
         evaluation_date=evaluation_date,
+        capture_metadata=capture_metadata,
     )
 
 

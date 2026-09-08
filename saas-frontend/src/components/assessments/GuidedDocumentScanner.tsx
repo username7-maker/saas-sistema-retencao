@@ -8,6 +8,9 @@ import { Select } from "../ui2/Select";
 type ScannerCapabilities = {
   torch: boolean;
   zoom: { min: number; max: number; step: number } | null;
+  continuousFocus: boolean;
+  continuousExposure: boolean;
+  continuousWhiteBalance: boolean;
 };
 
 type QualityResult = {
@@ -15,14 +18,31 @@ type QualityResult = {
   warnings: string[];
 };
 
+export interface DocumentCaptureMetadata {
+  width: number;
+  height: number;
+  rotation: number;
+  device_kind: "webcam" | "mobile" | "unknown";
+  quality_codes: string[];
+  document_confidence: number | null;
+}
+
 interface GuidedDocumentScannerProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (file: File) => void;
+  onConfirm: (file: File, metadata?: DocumentCaptureMetadata) => void;
 }
 
-const MAX_SIDE = 2400;
+const MAX_SIDE = 4000;
 const MAX_BYTES = 8 * 1024 * 1024;
+const SCANNER_V2_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_SCANNER_V2 === "true";
+const PREFERRED_CAMERA_STORAGE_KEY = "cordex:bioimpedance:preferred-camera";
+const RESOLUTION_LADDER = [
+  { width: 3840, height: 2160 },
+  { width: 2560, height: 1440 },
+  { width: 1920, height: 1080 },
+  { width: 1280, height: 720 },
+] as const;
 
 function stopStream(stream: MediaStream | null): void {
   stream?.getTracks().forEach((track) => track.stop());
@@ -49,7 +69,7 @@ async function imageFromBlob(blob: Blob): Promise<HTMLImageElement> {
 
 function analyzeCanvas(canvas: HTMLCanvasElement): QualityResult {
   const sample = document.createElement("canvas");
-  const scale = Math.min(1, 256 / Math.max(canvas.width, canvas.height));
+  const scale = Math.min(1, (SCANNER_V2_ENABLED ? 1024 : 256) / Math.max(canvas.width, canvas.height));
   sample.width = Math.max(1, Math.round(canvas.width * scale));
   sample.height = Math.max(1, Math.round(canvas.height * scale));
   const context = sample.getContext("2d", { willReadFrequently: true });
@@ -57,29 +77,44 @@ function analyzeCanvas(canvas: HTMLCanvasElement): QualityResult {
   context.drawImage(canvas, 0, 0, sample.width, sample.height);
   const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
   let luminanceSum = 0;
-  let luminanceSquared = 0;
+  const luminance = new Float32Array(sample.width * sample.height);
   let highlights = 0;
   for (let index = 0; index < pixels.length; index += 4) {
-    const luminance = 0.2126 * pixels[index] + 0.7152 * pixels[index + 1] + 0.0722 * pixels[index + 2];
-    luminanceSum += luminance;
-    luminanceSquared += luminance * luminance;
-    if (luminance > 248) highlights += 1;
+    const value = 0.2126 * pixels[index] + 0.7152 * pixels[index + 1] + 0.0722 * pixels[index + 2];
+    luminance[index / 4] = value;
+    luminanceSum += value;
+    if (value > 248) highlights += 1;
   }
   const count = pixels.length / 4;
   const mean = luminanceSum / count;
-  const variance = Math.max(0, luminanceSquared / count - mean * mean);
+  const regionSharpness = [0, 0, 0];
+  const regionSamples = [0, 0, 0];
+  for (let y = 1; y < sample.height - 1; y += 1) {
+    const region = Math.min(2, Math.floor((y / sample.height) * 3));
+    for (let x = 1; x < sample.width - 1; x += 1) {
+      const offset = y * sample.width + x;
+      const laplacian = Math.abs(
+        luminance[offset - 1] + luminance[offset + 1]
+        + luminance[offset - sample.width] + luminance[offset + sample.width]
+        - 4 * luminance[offset],
+      );
+      regionSharpness[region] += laplacian;
+      regionSamples[region] += 1;
+    }
+  }
+  const sharpness = regionSharpness.map((value, index) => value / Math.max(1, regionSamples[index]));
   const blocking: string[] = [];
   const warnings: string[] = [];
-  if (mean < 8 || variance < 1.5) blocking.push("A imagem esta vazia ou sem informacao utilizavel.");
+  if (mean < 8 || Math.max(...sharpness) < 0.8) blocking.push("A foto não tem informação legível.");
   if (canvas.width < 640 || canvas.height < 640) blocking.push("A resolucao e insuficiente para leitura.");
   else if (Math.max(canvas.width, canvas.height) < 1200) warnings.push("Resolucao baixa; aproxime a folha e refaca se o texto estiver pequeno.");
-  if (mean < 55) warnings.push("Imagem escura; aumente a iluminacao sem usar reflexo direto.");
-  if (variance < 180) warnings.push("Possivel desfoque ou pouco contraste; mantenha o aparelho firme.");
-  if (highlights / count > 0.34) warnings.push("Possivel reflexo forte; incline levemente a camera ou a folha.");
+  if (mean < 55) warnings.push("Aumente um pouco a iluminação.");
+  if (Math.min(...sharpness) < 2.2) warnings.push("Mantenha a câmera firme e aproxime a folha.");
+  if (highlights / count > 0.34) warnings.push("Evite reflexo direto sobre o papel.");
   return { blocking, warnings };
 }
 
-async function normalizeCapture(blob: Blob, cropPercent: number, rotation: number): Promise<{ blob: Blob; quality: QualityResult }> {
+async function normalizeCapture(blob: Blob, cropPercent: number, rotation: number): Promise<{ blob: Blob; quality: QualityResult; width: number; height: number }> {
   const image = await imageFromBlob(blob);
   const cropX = Math.round(image.naturalWidth * cropPercent / 100);
   const cropY = Math.round(image.naturalHeight * cropPercent / 100);
@@ -104,7 +139,7 @@ async function normalizeCapture(blob: Blob, cropPercent: number, rotation: numbe
   const quality = analyzeCanvas(canvas);
   let jpeg = await canvasBlob(canvas, 0.9);
   if (jpeg.size > MAX_BYTES) jpeg = await canvasBlob(canvas, 0.78);
-  return { blob: jpeg, quality };
+  return { blob: jpeg, quality, width: canvas.width, height: canvas.height };
 }
 
 export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocumentScannerProps) {
@@ -119,7 +154,15 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
   const [rotation, setRotation] = useState(0);
   const [quality, setQuality] = useState<QualityResult>({ blocking: [], warnings: [] });
   const [processing, setProcessing] = useState(false);
-  const [capabilities, setCapabilities] = useState<ScannerCapabilities>({ torch: false, zoom: null });
+  const [cameraReady, setCameraReady] = useState(false);
+  const [actualSettings, setActualSettings] = useState<MediaTrackSettings | null>(null);
+  const [capabilities, setCapabilities] = useState<ScannerCapabilities>({
+    torch: false,
+    zoom: null,
+    continuousFocus: false,
+    continuousExposure: false,
+    continuousWhiteBalance: false,
+  });
   const [torch, setTorch] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
 
@@ -135,35 +178,81 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     stopStream(streamRef.current);
     streamRef.current = null;
     setError(null);
+    setCameraReady(false);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("A camera nao esta disponivel neste navegador. Use o envio de arquivo.");
       return;
     }
-    const highResolution: MediaTrackConstraints = requestedDeviceId
-      ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 2560 }, height: { ideal: 1440 } }
-      : { facingMode: { ideal: "environment" }, width: { ideal: 2560 }, height: { ideal: 1440 } };
     try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: highResolution });
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: requestedDeviceId ? { deviceId: requestedDeviceId } : true });
+      let stream: MediaStream | null = null;
+      const preferredDevice = requestedDeviceId || (SCANNER_V2_ENABLED ? window.localStorage.getItem(PREFERRED_CAMERA_STORAGE_KEY) : "") || "";
+      const resolutions = SCANNER_V2_ENABLED ? RESOLUTION_LADDER : [{ width: 2560, height: 1440 }] as const;
+      for (const resolution of resolutions) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              ...(preferredDevice ? { deviceId: { exact: preferredDevice } } : { facingMode: { ideal: "environment" } }),
+              width: { ideal: resolution.width },
+              height: { ideal: resolution.height },
+              frameRate: { ideal: 30, min: 15 },
+            },
+          });
+          break;
+        } catch {
+          stream = null;
+        }
       }
+      if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
       const track = stream.getVideoTracks()[0];
       const rawCapabilities = typeof track?.getCapabilities === "function" ? track.getCapabilities() as MediaTrackCapabilities & Record<string, unknown> : {};
       const zoomCapability = rawCapabilities.zoom as { min?: number; max?: number; step?: number } | undefined;
+      const focusModes = Array.isArray(rawCapabilities.focusMode) ? rawCapabilities.focusMode as string[] : [];
+      const exposureModes = Array.isArray(rawCapabilities.exposureMode) ? rawCapabilities.exposureMode as string[] : [];
+      const whiteBalanceModes = Array.isArray(rawCapabilities.whiteBalanceMode) ? rawCapabilities.whiteBalanceMode as string[] : [];
       setCapabilities({
         torch: Boolean(rawCapabilities.torch),
         zoom: zoomCapability?.min != null && zoomCapability.max != null
           ? { min: zoomCapability.min, max: zoomCapability.max, step: zoomCapability.step ?? 0.1 }
           : null,
+        continuousFocus: focusModes.includes("continuous"),
+        continuousExposure: exposureModes.includes("continuous"),
+        continuousWhiteBalance: whiteBalanceModes.includes("continuous"),
       });
+      const advanced: Record<string, unknown> = {};
+      if (SCANNER_V2_ENABLED && focusModes.includes("continuous")) advanced.focusMode = "continuous";
+      if (SCANNER_V2_ENABLED && exposureModes.includes("continuous")) advanced.exposureMode = "continuous";
+      if (SCANNER_V2_ENABLED && whiteBalanceModes.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+      if (Object.keys(advanced).length) {
+        try { await track.applyConstraints({ advanced: [advanced] as MediaTrackConstraintSet[] }); } catch { /* optional */ }
+      }
       setZoom(zoomCapability?.min ?? null);
       const available = (await navigator.mediaDevices.enumerateDevices()).filter((item) => item.kind === "videoinput");
       setDevices(available);
-      setDeviceId(track?.getSettings().deviceId ?? requestedDeviceId ?? "");
+      const settings = track?.getSettings() ?? null;
+      const activeDeviceId = settings?.deviceId ?? requestedDeviceId ?? "";
+      setActualSettings(settings);
+      setDeviceId(activeDeviceId);
+      if (SCANNER_V2_ENABLED && activeDeviceId) window.localStorage.setItem(PREFERRED_CAMERA_STORAGE_KEY, activeDeviceId);
+      const markReady = () => setCameraReady(true);
+      const video = videoRef.current;
+      const videoWithFrameCallback = video as (HTMLVideoElement & {
+        requestVideoFrameCallback?: (callback: () => void) => number;
+      }) | null;
+      if (typeof videoWithFrameCallback?.requestVideoFrameCallback === "function") {
+        let frames = 0;
+        const waitForStableFrames = () => {
+          videoWithFrameCallback.requestVideoFrameCallback?.(() => {
+            frames += 1;
+            if (frames >= 3) markReady(); else waitForStableFrames();
+          });
+        };
+        waitForStableFrames();
+      } else if (video) {
+        video.addEventListener("loadeddata", markReady, { once: true });
+      }
     } catch {
       setError("Nao foi possivel acessar a camera. Verifique a permissao ou use o envio de arquivo.");
     }
@@ -177,6 +266,15 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
       streamRef.current = null;
     };
   }, [open, startCamera]);
+
+  useEffect(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!SCANNER_V2_ENABLED || !open || !mediaDevices) return;
+    const deviceEvents = mediaDevices as unknown as EventTarget;
+    const handleDeviceChange = () => void startCamera(deviceId || undefined);
+    deviceEvents.addEventListener("devicechange", handleDeviceChange);
+    return () => deviceEvents.removeEventListener("devicechange", handleDeviceChange);
+  }, [deviceId, open, startCamera]);
 
   useEffect(() => {
     if (!rawCapture) {
@@ -199,9 +297,20 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     }
     try {
       let blob: Blob | null = null;
-      const ImageCaptureCtor = (window as typeof window & { ImageCapture?: new (track: MediaStreamTrack) => { takePhoto: () => Promise<Blob> } }).ImageCapture;
+      type ImageCaptureLike = {
+        takePhoto: (settings?: { imageWidth?: number; imageHeight?: number }) => Promise<Blob>;
+        getPhotoCapabilities?: () => Promise<{ imageWidth?: { max?: number }; imageHeight?: { max?: number } }>;
+      };
+      const ImageCaptureCtor = (window as typeof window & { ImageCapture?: new (track: MediaStreamTrack) => ImageCaptureLike }).ImageCapture;
       if (ImageCaptureCtor) {
-        try { blob = await new ImageCaptureCtor(track).takePhoto(); } catch { blob = null; }
+        try {
+          const imageCapture = new ImageCaptureCtor(track);
+          const photoCapabilities = SCANNER_V2_ENABLED ? await imageCapture.getPhotoCapabilities?.() : undefined;
+          const photoSettings = photoCapabilities?.imageWidth?.max && photoCapabilities?.imageHeight?.max
+            ? { imageWidth: photoCapabilities.imageWidth.max, imageHeight: photoCapabilities.imageHeight.max }
+            : undefined;
+          blob = await imageCapture.takePhoto(photoSettings);
+        } catch { blob = null; }
       }
       if (!blob) {
         const canvas = document.createElement("canvas");
@@ -238,7 +347,20 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
         setQuality({ blocking: ["A imagem continua acima de 8 MB."], warnings: normalized.quality.warnings });
         return;
       }
-      onConfirm(new File([normalized.blob], `bioimpedancia-camera-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      onConfirm(
+        new File([normalized.blob], `bioimpedancia-camera-${Date.now()}.jpg`, { type: "image/jpeg" }),
+        {
+          width: normalized.width,
+          height: normalized.height,
+          rotation,
+          device_kind: /android|iphone|ipad|mobile/i.test(navigator.userAgent) ? "mobile" : "webcam",
+          quality_codes: [
+            ...(normalized.quality.blocking.length ? ["unusable"] : []),
+            ...(normalized.quality.warnings.length ? ["quality_warning"] : []),
+          ],
+          document_confidence: null,
+        },
+      );
       toast.success(normalized.quality.warnings.length ? "Foto aceita com avisos. Revise o OCR antes de salvar." : "Foto pronta para leitura.");
       close();
     } catch {
@@ -251,8 +373,8 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3" role="dialog" aria-modal="true" aria-labelledby="guided-scanner-title">
-      <section className="max-h-[96vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-0 sm:p-3" role="dialog" aria-modal="true" aria-labelledby="guided-scanner-title">
+      <section className="h-[100dvh] w-full overflow-y-auto border border-lovable-border bg-lovable-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:h-auto sm:max-h-[96dvh] sm:max-w-3xl sm:rounded-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="guided-scanner-title" className="font-semibold text-lovable-ink">Scanner guiado da bioimpedancia</h2>
@@ -283,8 +405,14 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               {devices.length > 1 ? <Button type="button" variant="secondary" onClick={() => { const index = devices.findIndex((item) => item.deviceId === deviceId); const next = devices[(index + 1) % devices.length]; if (next) void startCamera(next.deviceId); }}><SwitchCamera size={14} />Trocar camera</Button> : null}
               {capabilities.torch ? <Button type="button" variant="secondary" onClick={() => { const next = !torch; setTorch(next); void applyConstraint({ torch: next }); }}>{torch ? "Desligar lanterna" : "Ligar lanterna"}</Button> : null}
-              <Button type="button" variant="primary" onClick={() => void capture()} disabled={Boolean(error)}><Camera size={14} />Fotografar</Button>
+              <Button type="button" variant="primary" onClick={() => void capture()} disabled={Boolean(error) || !cameraReady}><Camera size={14} />{cameraReady ? "Fotografar" : "Preparando câmera..."}</Button>
             </div>
+            {actualSettings?.width && actualSettings.height ? (
+              <details className="mt-3 text-xs text-lovable-ink-muted">
+                <summary>Detalhes da câmera</summary>
+                <p className="mt-1">Imagem ativa: {actualSettings.width} × {actualSettings.height}px{capabilities.continuousFocus ? " · foco contínuo" : ""}</p>
+              </details>
+            ) : null}
           </>
         ) : (
           <>

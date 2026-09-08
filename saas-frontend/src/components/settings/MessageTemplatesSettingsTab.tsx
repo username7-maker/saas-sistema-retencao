@@ -16,8 +16,11 @@ export function MessageTemplatesSettingsTab() {
 
   useEffect(() => {
     if (selected && selected.key !== selectedKey) setSelectedKey(selected.key);
+  }, [selected, selectedKey]);
+
+  useEffect(() => {
     if (selected) setContent(selected.content);
-  }, [selected?.key, selected?.content]);
+  }, [selected]);
 
   const saveMutation = useMutation({
     mutationFn: () => messageComposerService.updateTemplate(selected!.key, content),

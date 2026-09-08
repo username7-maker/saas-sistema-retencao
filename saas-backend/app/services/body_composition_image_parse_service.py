@@ -19,15 +19,20 @@ from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.schemas.body_composition import (
     BodyCompositionDeviceProfile,
+    BodyCompositionCaptureMetadata,
     BodyCompositionFieldMetadata,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionImageProcessing,
+    BodyCompositionImagePreprocessing,
+    BodyCompositionImageQuality,
+    BodyCompositionProfileConflict,
     BodyCompositionOcrValues,
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
     BodyCompositionValidationIssue,
 )
+from app.services.document_image_preprocessing import DocumentPreprocessingResult, preprocess_receipt_image
 from app.services.body_composition_report_service import (
     build_body_composition_quality_flags,
     calculate_body_water_percent,
@@ -266,12 +271,19 @@ def parse_body_composition_image(
     member_sex: str | None = None,
     member_height_cm: Any = None,
     previous_weight_kg: Any = None,
+    capture_metadata: BodyCompositionCaptureMetadata | None = None,
 ) -> BodyCompositionImageParseResultRead:
     started_at = perf_counter()
     normalized_device_profile = _normalize_device_profile(device_profile)
     normalized_media_type = _validate_image_payload(image_bytes, media_type)
     provider = _resolve_image_ai_provider()
     image_width, image_height = _read_image_dimensions(image_bytes, normalized_media_type)
+    preprocessing = preprocess_receipt_image(
+        image_bytes,
+        enabled=settings.bioimpedance_scanner_v2,
+    )
+    provider_image_bytes = preprocessing.image_bytes if preprocessing and preprocessing.applied else image_bytes
+    provider_media_type = preprocessing.media_type if preprocessing and preprocessing.applied else normalized_media_type
 
     local_payload = (
         BodyCompositionImageOcrPayload.model_validate(local_ocr_result.model_dump()) if local_ocr_result else None
@@ -299,6 +311,8 @@ def parse_body_composition_image(
             provider=provider,
             image_width=image_width,
             image_height=image_height,
+            preprocessing=preprocessing,
+            capture_metadata=capture_metadata,
         )
 
     try:
@@ -307,15 +321,15 @@ def parse_body_composition_image(
         )
         if provider == "openai":
             ai_payload = _parse_with_openai_vision(
-                image_bytes=image_bytes,
-                media_type=normalized_media_type,
+                image_bytes=provider_image_bytes,
+                media_type=provider_media_type,
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
         else:
             ai_payload = _parse_with_claude_vision(
-                image_bytes=image_bytes,
-                media_type=normalized_media_type,
+                image_bytes=provider_image_bytes,
+                media_type=provider_media_type,
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
@@ -353,6 +367,8 @@ def parse_body_composition_image(
             provider=provider,
             image_width=image_width,
             image_height=image_height,
+            preprocessing=preprocessing,
+            capture_metadata=capture_metadata,
         )
 
     if settings.body_composition_image_ai_validation_enabled:
@@ -373,6 +389,8 @@ def parse_body_composition_image(
         provider=provider,
         image_width=image_width,
         image_height=image_height,
+        preprocessing=preprocessing,
+        capture_metadata=capture_metadata,
     )
 
 
@@ -1370,6 +1388,8 @@ def _complete_parse_request(
     provider: str | None,
     image_width: int | None,
     image_height: int | None,
+    preprocessing: DocumentPreprocessingResult | None = None,
+    capture_metadata: BodyCompositionCaptureMetadata | None = None,
 ) -> BodyCompositionImageParseResultRead:
     duration_ms = max(0, round((perf_counter() - started_at) * 1000))
     local_result = result.engine == "local"
@@ -1380,8 +1400,52 @@ def _complete_parse_request(
         provider=provider,
         image_width=image_width,
         image_height=image_height,
+        capture_device_kind=capture_metadata.device_kind if capture_metadata else "unknown",
     )
-    completed = result.model_copy(update={"processing": processing})
+    quality_codes = list(preprocessing.quality_codes if preprocessing else [])
+    if capture_metadata:
+        quality_codes.extend(code for code in capture_metadata.quality_codes if code not in quality_codes)
+    preprocessing_payload = BodyCompositionImagePreprocessing(
+        applied=bool(preprocessing and preprocessing.applied),
+        method=preprocessing.method if preprocessing else "original",
+        confidence=preprocessing.confidence if preprocessing else 0,
+        source_width=preprocessing.source_width if preprocessing else image_width,
+        source_height=preprocessing.source_height if preprocessing else image_height,
+        output_width=preprocessing.output_width if preprocessing else image_width,
+        output_height=preprocessing.output_height if preprocessing else image_height,
+    )
+    quality = BodyCompositionImageQuality(
+        usable=not {"document_blurred", "document_dark"}.issubset(quality_codes),
+        document_found=bool(preprocessing and preprocessing.confidence >= 0.45),
+        codes=quality_codes,
+        metrics=preprocessing.quality_metrics if preprocessing else {},
+    )
+    profile_conflicts: list[BodyCompositionProfileConflict] = []
+    for field_name, issue_code in (
+        ("age_years", "age_profile_conflict"),
+        ("sex", "sex_profile_conflict"),
+        ("height_cm", "height_profile_conflict"),
+    ):
+        if not any(issue.code == issue_code for issue in result.validation_issues):
+            continue
+        metadata = result.field_metadata.get(field_name)
+        profile_conflicts.append(
+            BodyCompositionProfileConflict(
+                field=field_name,
+                profile_value=getattr(result.values, field_name, None),
+                image_value=metadata.suggested_value if metadata else None,
+            )
+        )
+    suggested_resolution = None
+    if preprocessing and min(preprocessing.output_width, preprocessing.output_height) < 1000:
+        suggested_resolution = "Aproxime a folha para o texto ocupar mais da imagem."
+    completed = result.model_copy(update={
+        "processing": processing,
+        "image_quality": quality,
+        "preprocessing": preprocessing_payload,
+        "profile_conflicts": profile_conflicts,
+        "suggested_resolution": suggested_resolution,
+    })
     populated_fields = sorted(
         field_name
         for field_name in BodyCompositionOcrValues.model_fields

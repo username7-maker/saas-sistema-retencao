@@ -10,6 +10,7 @@ import functools
 import logging
 import uuid
 from collections.abc import Callable
+from time import perf_counter
 from typing import Any
 
 from app.core.config import settings
@@ -89,6 +90,22 @@ def with_distributed_lock(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            def execute_timed() -> Any:
+                started_at = perf_counter()
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    logger.info(
+                        "Scheduler job execution finished.",
+                        extra={
+                            "extra_fields": {
+                                "event": "job_execution_finished",
+                                "job_name": lock_name,
+                                "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                            }
+                        },
+                    )
+
             resolved_fail_open = fail_open() if callable(fail_open) else fail_open
             redis = _get_redis()
             if redis is None:
@@ -112,7 +129,7 @@ def with_distributed_lock(
                     status="unavailable",
                     fail_open=resolved_fail_open,
                 )
-                return func(*args, **kwargs)
+                return execute_timed()
 
             lock_key = f"{_KEY_PREFIX}:{lock_name}"
             lock_value = str(uuid.uuid4())
@@ -141,7 +158,7 @@ def with_distributed_lock(
                         fail_open=resolved_fail_open,
                     )
                     return None
-                return func(*args, **kwargs)
+                return execute_timed()
 
             if not acquired:
                 _log_lock_event(
@@ -165,7 +182,7 @@ def with_distributed_lock(
                 fail_open=resolved_fail_open,
             )
             try:
-                return func(*args, **kwargs)
+                return execute_timed()
             finally:
                 try:
                     # Only release if we still own the lock (compare-and-delete via Lua)

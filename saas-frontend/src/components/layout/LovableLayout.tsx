@@ -518,7 +518,7 @@ export function LovableLayout() {
           </div>
         </header>
 
-        <main id="main-content" role="main" className="app-main px-3 py-4 sm:px-4 md:px-6 lg:px-7">
+        <main id="main-content" role="main" className="app-main px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-4 md:px-6 lg:px-7">
           <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>

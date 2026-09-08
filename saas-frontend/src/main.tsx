@@ -26,6 +26,21 @@ if (sentryDsn) {
     integrations: [Sentry.browserTracingIntegration()],
     tracesSampleRate: 0.1,
     sendDefaultPii: false,
+    beforeSend(event) {
+      delete event.user;
+      if (event.request) {
+        delete event.request.data;
+        delete event.request.cookies;
+        delete event.request.query_string;
+        if (event.request.headers) {
+          delete event.request.headers.Authorization;
+          delete event.request.headers.authorization;
+          delete event.request.headers.Cookie;
+          delete event.request.headers.cookie;
+        }
+      }
+      return event;
+    },
   });
 }
 

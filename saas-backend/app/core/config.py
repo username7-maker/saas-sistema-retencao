@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     anthropometric_assessment_v1: bool = True
     claude_vision_model: str = "claude-3-5-sonnet-latest"
     body_composition_image_ai_timeout_seconds: int = 45
+    bioimpedance_scanner_v2: bool = False
+    member_workspace_bootstrap_v1: bool = False
 
     whatsapp_api_url: str = ""
     whatsapp_api_token: str = ""
@@ -170,6 +172,8 @@ class Settings(BaseSettings):
         "body_composition_image_ai_enabled",
         "body_composition_image_ai_validation_enabled",
         "anthropometric_assessment_v1",
+        "bioimpedance_scanner_v2",
+        "member_workspace_bootstrap_v1",
         "actuar_sync_screenshot_on_success",
         "actuar_sync_screenshot_on_failure",
         "actuar_sync_required_for_training",

@@ -10,6 +10,22 @@ from app.core.config import settings
 
 configure_logging()
 
+if settings.sentry_dsn:
+    import sentry_sdk
+
+    def _before_send_sentry(event, _hint):
+        event.pop("user", None)
+        event.pop("request", None)
+        return event
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        send_default_pii=False,
+        traces_sample_rate=0.02,
+        before_send=_before_send_sentry,
+    )
+
 running = True
 logger = logging.getLogger(__name__)
 

@@ -141,7 +141,7 @@ describe("AssessmentsPage", () => {
   it("renders dashboard summary and paginated queue", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Avaliacoes" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Avaliações" })).toBeInTheDocument();
     expect(screen.getByText("Base ativa")).toBeInTheDocument();
     expect(screen.getByText("Precisa de atencao agora")).toBeInTheDocument();
     expect(screen.getByText(/ficaram fora da fila do dia por serem backlog historico/i)).toBeInTheDocument();

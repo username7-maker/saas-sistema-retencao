@@ -7,8 +7,8 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.distributed_lock import with_distributed_lock
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id, unscoped_tenant_access
-from app.models import Gym
+from app.database import SessionLocal, clear_current_gym_id, include_all_tenants, set_current_gym_id, unscoped_tenant_access
+from app.models import AutopilotAction, AutopilotEvent, Gym
 from app.models.member import Member
 from app.models.enums import MemberStatus
 from app.services.analytics_view_service import refresh_member_kpis_materialized_view
@@ -448,13 +448,15 @@ def autopilot_events_queue_job() -> None:
     db = SessionLocal()
     try:
         processed_count = 0
-        for gym in _active_gyms(db):
+        for gym in _gyms_with_pending_events(db):
             try:
                 set_current_gym_id(gym.id)
-                for event in pending_events(db, limit=50):
+                events = pending_events(db, limit=50)
+                for event in events:
                     resolve_event(db, event, flush=False)
                     processed_count += 1
-                db.commit()
+                if events:
+                    db.commit()
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -470,13 +472,15 @@ def autopilot_actions_queue_job() -> None:
     db = SessionLocal()
     try:
         processed_count = 0
-        for gym in _active_gyms(db):
+        for gym in _gyms_with_due_actions(db):
             try:
                 set_current_gym_id(gym.id)
-                for action in pending_actions_due(db, limit=50):
+                actions = pending_actions_due(db, limit=50)
+                for action in actions:
                     execute_autopilot_action(db, action, flush=False)
                     processed_count += 1
-                db.commit()
+                if actions:
+                    db.commit()
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -492,13 +496,15 @@ def autopilot_timeouts_queue_job() -> None:
     db = SessionLocal()
     try:
         processed_count = 0
-        for gym in _active_gyms(db):
+        for gym in _gyms_with_timed_out_actions(db):
             try:
                 set_current_gym_id(gym.id)
-                for action in timed_out_actions(db, limit=50):
+                actions = timed_out_actions(db, limit=50)
+                for action in actions:
                     resolve_timeout(db, action, flush=False)
                     processed_count += 1
-                db.commit()
+                if actions:
+                    db.commit()
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()
@@ -548,3 +554,47 @@ def daily_retention_intelligence_job() -> None:
 
 def _active_gyms(db) -> list[Gym]:
     return db.scalars(select(Gym).where(Gym.is_active.is_(True))).all()
+
+
+def _gyms_with_pending_events(db) -> list[Gym]:
+    statement = (
+        select(Gym)
+        .join(AutopilotEvent, AutopilotEvent.gym_id == Gym.id)
+        .where(Gym.is_active.is_(True), AutopilotEvent.processing_status == "pending")
+        .distinct()
+    )
+    return list(db.scalars(include_all_tenants(statement, reason="autopilot.jobs.pending_event_gyms")).all())
+
+
+def _gyms_with_due_actions(db) -> list[Gym]:
+    from datetime import datetime, timezone
+    from sqlalchemy import or_
+
+    now = datetime.now(tz=timezone.utc)
+    statement = (
+        select(Gym)
+        .join(AutopilotAction, AutopilotAction.gym_id == Gym.id)
+        .where(
+            Gym.is_active.is_(True),
+            AutopilotAction.status.in_(["planned", "scheduled"]),
+            or_(AutopilotAction.scheduled_for.is_(None), AutopilotAction.scheduled_for <= now),
+        )
+        .distinct()
+    )
+    return list(db.scalars(include_all_tenants(statement, reason="autopilot.jobs.due_action_gyms")).all())
+
+
+def _gyms_with_timed_out_actions(db) -> list[Gym]:
+    from datetime import datetime, timezone
+
+    statement = (
+        select(Gym)
+        .join(AutopilotAction, AutopilotAction.gym_id == Gym.id)
+        .where(
+            Gym.is_active.is_(True),
+            AutopilotAction.status == "awaiting_outcome",
+            AutopilotAction.timeout_at <= datetime.now(tz=timezone.utc),
+        )
+        .distinct()
+    )
+    return list(db.scalars(include_all_tenants(statement, reason="autopilot.jobs.timed_out_action_gyms")).all())

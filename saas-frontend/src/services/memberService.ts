@@ -1,6 +1,7 @@
 import { api } from "./api";
-import { assessmentService, type AssessmentSummary360, type Profile360 } from "./assessmentService";
-import type { AIAssistantPayload, LeadToMemberIntelligenceContext, Member, PaginatedResponse, RiskLevel } from "../types";
+import { assessmentService, type Assessment, type AssessmentSummary360, type Profile360 } from "./assessmentService";
+import { normalizeBodyComposition } from "./bodyCompositionService";
+import type { AIAssistantPayload, BodyCompositionEvaluation, LeadToMemberIntelligenceContext, Member, PaginatedResponse, RiskLevel } from "../types";
 
 export type MemberPlanCycle = "monthly" | "semiannual" | "annual";
 
@@ -167,6 +168,17 @@ export interface MemberOperationalProfile {
   notes: MemberOperationalNote[];
 }
 
+export interface MemberWorkspaceBootstrap {
+  member: Member;
+  profile_summary: Profile360;
+  latest_assessments: Assessment[];
+  operational_summary: MemberOperationalProfile;
+  summary_360: AssessmentSummary360;
+  body_composition: BodyCompositionEvaluation[];
+  permissions: Record<string, unknown>;
+  version: string;
+}
+
 export interface MemberNoteCreatePayload {
   note_type?: "internal" | "retention" | "coach" | "manager" | "sales_handoff" | "health_context";
   body: string;
@@ -278,9 +290,10 @@ function normalizeMembersResponse(data: unknown, filters: MemberFilters): Pagina
 }
 
 export const memberService = {
-  async listMembers(filters: MemberFilters = {}): Promise<PaginatedResponse<Member>> {
+  async listMembers(filters: MemberFilters = {}, signal?: AbortSignal): Promise<PaginatedResponse<Member>> {
     const { data } = await api.get<unknown>("/api/v1/members/", {
       params: { page_size: 20, ...filters },
+      signal,
     });
     return normalizeMembersResponse(data, filters);
   },
@@ -346,6 +359,14 @@ export const memberService = {
       params: { ts: Date.now() },
     });
     return data;
+  },
+
+  async getWorkspaceBootstrap(memberId: string): Promise<MemberWorkspaceBootstrap> {
+    const { data } = await api.get<MemberWorkspaceBootstrap>(`/api/v1/members/${memberId}/workspace-bootstrap`);
+    return {
+      ...data,
+      body_composition: data.body_composition.map(normalizeBodyComposition),
+    };
   },
 
   async listNotes(memberId: string): Promise<MemberOperationalNote[]> {

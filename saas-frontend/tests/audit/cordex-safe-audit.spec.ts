@@ -145,15 +145,29 @@ async function collectAccessibilityHeuristics(page: Page): Promise<Record<string
     const ids = [...document.querySelectorAll("[id]")].map((element) => element.id);
     const duplicateIds = ids.length - new Set(ids).size;
     const imagesMissingAlt = [...document.querySelectorAll("img")].filter((image) => !image.hasAttribute("alt")).length;
+    const mobileViewport = window.innerWidth <= 820;
     const smallTargets = controls.filter((element) => {
       const box = element.getBoundingClientRect();
-      return box.width < 24 || box.height < 24;
+      const minimum = mobileViewport ? 44 : 24;
+      return box.width < minimum || box.height < minimum;
+    }).length;
+    const viewportOverflowElements = [...document.querySelectorAll("main *")].filter((element) => {
+      if (!visible(element)) return false;
+      const box = element.getBoundingClientRect();
+      return box.left < -1 || box.right > window.innerWidth + 1;
+    }).length;
+    const oversizedDialogs = [...document.querySelectorAll('[role="dialog"]')].filter((element) => {
+      if (!visible(element)) return false;
+      const box = element.getBoundingClientRect();
+      return box.width > window.innerWidth + 1 || box.height > window.innerHeight + 1;
     }).length;
     return {
       unnamedControls,
       duplicateIds,
       imagesMissingAlt,
       smallTargets,
+      viewportOverflowElements,
+      oversizedDialogs,
       hasMainLandmark: Boolean(document.querySelector("main")),
       hasSkipLink: Boolean(document.querySelector('a[href="#main-content"]')),
       tabListCount: document.querySelectorAll('[role="tablist"]').length,
@@ -306,3 +320,16 @@ test("trainer mobile: responsive drawer and Escape behavior", async ({ page }, t
   observation.observations.drawerCloseButtonHasAccessibleName = (await drawer.locator("header button").getAttribute("aria-label")) !== null;
   writeObservation("browser-trainer-mobile", observation);
 });
+
+for (const viewport of [
+  { width: 360, height: 800 },
+  { width: 412, height: 915 },
+  { width: 768, height: 1024 },
+]) {
+  test(`mobile matrix ${viewport.width}x${viewport.height}: operational pages stay inside the viewport`, async ({ page }, testInfo) => {
+    const { observation } = await baseObservation(page, "trainer", "/assessments", viewport, testInfo);
+    expect(observation.horizontalOverflow).toBe(false);
+    expect(observation.accessibility.oversizedDialogs).toBe(0);
+    writeObservation(`browser-mobile-${viewport.width}x${viewport.height}`, observation);
+  });
+}

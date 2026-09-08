@@ -40,6 +40,7 @@ import {
   type BodyCompositionOcrFieldOrigin,
   type BodyCompositionOcrFieldState,
   type BodyCompositionReadStage,
+  type BodyCompositionCaptureMetadata,
   type BodyCompositionOcrResult,
   type BodyCompositionValidationIssue,
 } from "../../services/bodyCompositionOcr";
@@ -440,6 +441,7 @@ function buildFieldOrigins(
 function readStageLabel(stage: BodyCompositionReadStage | null, assisted: boolean): string {
   if (!assisted) return stage === "reading_local" ? "Lendo..." : "Ler foto";
   if (stage === "uploading") return "Enviando...";
+  if (stage === "preprocessing") return "Preparando imagem...";
   if (stage === "reading_ai") return "Lendo com IA...";
   if (stage === "validating") return "Validando...";
   if (stage === "reading_local") return "Usando OCR local...";
@@ -966,6 +968,7 @@ function ocrEngineLabel(engine?: BodyCompositionOcrEngine | null): string | null
 }
 
 export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, onEditAnthropometry }: Props) {
+  const mobileOperationalV2 = import.meta.env.VITE_MOBILE_OPERATIONAL_V2 === "true";
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
@@ -986,6 +989,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const [reviewedManually, setReviewedManually] = useState(true);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [captureMetadata, setCaptureMetadata] = useState<BodyCompositionCaptureMetadata | null>(null);
   const ocrFileRef = useRef<File | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
   const recoveredDraftMemberRef = useRef<string | null>(null);
@@ -1065,9 +1069,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const watchedWeightKg = watch("weight_kg");
   const watchedBodyWaterKg = watch("body_water_kg");
 
-  function selectOcrFile(file: File | null) {
+  function selectOcrFile(file: File | null, metadata?: BodyCompositionCaptureMetadata) {
     ocrFileRef.current = file;
     setOcrFile(file);
+    setCaptureMetadata(metadata ?? null);
     setOcrFileNeedsRead(Boolean(file));
     // A leitura pertence exatamente ao arquivo que a originou. Ao trocar a
     // imagem, descarte todo o estado transitório para que valores e conflitos
@@ -1395,6 +1400,18 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const unresolvedCriticalIssues = useMemo(
     () => criticalValidationIssues.filter((issue) => !resolvedCriticalIssues.includes(validationIssueKey(issue))),
     [criticalValidationIssues, resolvedCriticalIssues],
+  );
+  const demographicConflictIssues = useMemo(
+    () => unresolvedCriticalIssues.filter((issue) => [
+      "age_profile_conflict",
+      "sex_profile_conflict",
+      "height_profile_conflict",
+    ].includes(issue.code)),
+    [unresolvedCriticalIssues],
+  );
+  const remainingCriticalIssues = useMemo(
+    () => unresolvedCriticalIssues.filter((issue) => !demographicConflictIssues.includes(issue)),
+    [demographicConflictIssues, unresolvedCriticalIssues],
   );
 
   useEffect(() => {
@@ -1730,6 +1747,27 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     resolveCriticalIssue(issue);
   }
 
+  function resolveDemographicConflicts(usePhotoSuggestions: boolean) {
+    for (const issue of demographicConflictIssues) {
+      const field = issue.fields.find((candidate) => DEMOGRAPHIC_FIELDS.has(candidate));
+      if (field && usePhotoSuggestions) {
+        const suggestedValue = ocrResult?.field_metadata?.[field]?.suggested_value;
+        if (suggestedValue != null) {
+          if (field === "sex" && (suggestedValue === "male" || suggestedValue === "female")) {
+            setValue("sex", suggestedValue, { shouldDirty: true, shouldValidate: true });
+          } else if (field === "age_years" || field === "height_cm") {
+            const numericValue = Number(suggestedValue);
+            if (Number.isFinite(numericValue)) {
+              setValue(field, numericValue as never, { shouldDirty: true, shouldValidate: true });
+            }
+          }
+          setFieldOrigins((current) => ({ ...current, [field]: "manual" }));
+        }
+      }
+      resolveCriticalIssue(issue);
+    }
+  }
+
   function fieldOriginPill(field: string): ReactNode {
     const metadata = ocrResult?.field_metadata?.[field];
     const origin = fieldOrigins[field] ?? metadata?.origin;
@@ -1838,6 +1876,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         forceAssisted,
         evaluationDate: requestedEvaluationDate,
         onStage: setOcrReadStage,
+        ...(captureMetadata ? { captureMetadata } : {}),
       });
       if (getValues("evaluation_date") !== requestedEvaluationDate) {
         toast.error("A data da avaliacao mudou durante a leitura. Tente novamente para recalcular a idade com seguranca.", {
@@ -2163,8 +2202,33 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     <p className="mt-1 text-lovable-ink-muted">
                       Falta somente uma confirmação rápida antes de salvar.
                     </p>
+                    {demographicConflictIssues.length > 0 ? (
+                      <div className="mt-3 rounded-lg border border-lovable-danger/20 bg-lovable-surface p-3">
+                        <p className="font-semibold">O papel e o cadastro são diferentes</p>
+                        <div className="mt-2 space-y-1 text-lovable-ink-muted">
+                          {demographicConflictIssues.map((issue) => {
+                            const field = issue.fields.find((candidate) => DEMOGRAPHIC_FIELDS.has(candidate));
+                            const metadata = field ? ocrResult?.field_metadata?.[field] : null;
+                            const currentValue = field ? (watchedFormValues as Record<string, unknown>)[field] : null;
+                            return field ? (
+                              <p key={validationIssueKey(issue)}>
+                                {field === "age_years" ? "Idade" : field === "sex" ? "Sexo" : "Altura"}: cadastro {String(currentValue ?? "—")} · papel {String(metadata?.suggested_value ?? "—")}
+                              </p>
+                            ) : null;
+                          })}
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <Button type="button" size="sm" variant="secondary" onClick={() => resolveDemographicConflicts(false)}>
+                            Usar dados do cadastro
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => resolveDemographicConflicts(true)}>
+                            Usar dados do papel nesta avaliação
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-3 space-y-3">
-                      {unresolvedCriticalIssues.map((issue) => {
+                      {remainingCriticalIssues.map((issue) => {
                         const heightMetadata = issue.fields.includes("height_cm")
                           ? ocrResult?.field_metadata?.height_cm
                           : null;
@@ -2599,6 +2663,29 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <Textarea rows={4} placeholder="Observacoes sobre protocolo, pontos de medida ou revisao manual..." {...register("anthropometry_notes")} />
                 </FormField>
               </div>
+
+              {mobileOperationalV2 ? <div className="sticky bottom-0 z-20 -mx-4 flex gap-2 border-t border-lovable-border bg-lovable-surface/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:hidden">
+                <Button type="button" className="flex-1 px-2" variant="secondary" onClick={() => setCameraOpen(true)}>
+                  <Camera size={16} /> Foto
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 px-2"
+                  variant="secondary"
+                  onClick={() => void handleReadPhoto(true)}
+                  disabled={!ocrFile || ocrLoading}
+                >
+                  <Sparkles size={16} /> Ler com IA
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 px-2"
+                  variant="primary"
+                  disabled={saveMutation.isPending || unresolvedCriticalIssues.length > 0 || ocrFileNeedsRead}
+                >
+                  <Save size={16} /> Salvar
+                </Button>
+              </div> : null}
 
               <div className="flex flex-wrap justify-end gap-2">
                 {editingEvaluationId ? (

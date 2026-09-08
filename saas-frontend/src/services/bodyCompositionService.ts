@@ -20,6 +20,7 @@ import {
   getBodyCompositionAiFallbackReasons,
   readBodyCompositionFromImage,
   type BodyCompositionDeviceProfile,
+  type BodyCompositionCaptureMetadata,
   type BodyCompositionReadStage,
   type BodyCompositionOcrResult,
 } from "./bodyCompositionOcr";
@@ -80,7 +81,7 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function normalizeBodyComposition(payload: BodyCompositionEvaluation): BodyCompositionEvaluation {
+export function normalizeBodyComposition(payload: BodyCompositionEvaluation): BodyCompositionEvaluation {
   const normalized = { ...payload } as BodyCompositionEvaluation;
   for (const key of NUMERIC_FIELDS) {
     normalized[key] = toNullableNumber(payload[key]) as never;
@@ -174,6 +175,7 @@ export interface BodyCompositionAssistedReadResult {
 interface BodyCompositionImageParseOptions {
   evaluationDate?: string | null;
   onStage?: (stage: BodyCompositionReadStage) => void;
+  captureMetadata?: BodyCompositionCaptureMetadata | null;
 }
 
 const BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS = 75_000;
@@ -369,6 +371,9 @@ export const bodyCompositionService = {
     if (options.evaluationDate) {
       formData.append("evaluation_date", options.evaluationDate);
     }
+    if (options.captureMetadata) {
+      formData.append("capture_metadata", JSON.stringify(options.captureMetadata));
+    }
     if (localOcrResult) {
       formData.append("local_ocr_result", JSON.stringify(stripLocalOcrTransportMetadata(localOcrResult)));
     }
@@ -388,6 +393,7 @@ export const bodyCompositionService = {
     );
     // The request has started. Browsers that do not expose upload progress still
     // get an honest processing state without delaying the operation artificially.
+    options.onStage?.("preprocessing");
     options.onStage?.("reading_ai");
     const { data } = await request;
     options.onStage?.("validating");
@@ -497,6 +503,7 @@ export const bodyCompositionService = {
       forceAssisted?: boolean;
       evaluationDate?: string | null;
       onStage?: (stage: BodyCompositionReadStage) => void;
+      captureMetadata?: BodyCompositionCaptureMetadata | null;
     },
   ): Promise<BodyCompositionAssistedReadResult> {
     const deviceProfile = options?.deviceProfile ?? BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE;
@@ -510,6 +517,7 @@ export const bodyCompositionService = {
         const assistedResult = await bodyCompositionService.parseImage(memberId, file, null, deviceProfile, {
           evaluationDate: options?.evaluationDate,
           onStage: options?.onStage,
+          captureMetadata: options?.captureMetadata,
         });
         const safeResult = assistedResult.engine === "local"
           ? withoutUnsafeLocalInferences(assistedResult)
@@ -545,6 +553,7 @@ export const bodyCompositionService = {
             {
               evaluationDate: options?.evaluationDate,
               onStage: options?.onStage,
+              captureMetadata: options?.captureMetadata,
             },
           );
           const safeValidatedFallback = validatedFallback.engine === "local"
@@ -598,8 +607,9 @@ export const bodyCompositionService = {
 
     try {
       const assistedResult = await bodyCompositionService.parseImage(memberId, file, localResult, deviceProfile, {
-        evaluationDate: options?.evaluationDate,
-        onStage: options?.onStage,
+      evaluationDate: options?.evaluationDate,
+      onStage: options?.onStage,
+      captureMetadata: options?.captureMetadata,
       });
       const assistedUsed = assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used);
       const assistedWarning = assistedResult.warnings.find(

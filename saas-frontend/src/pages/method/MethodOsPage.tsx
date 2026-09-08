@@ -177,7 +177,7 @@ export function MethodOsPage() {
   });
 
   const profile = profileQuery.data;
-  const segments = segmentsQuery.data ?? [];
+  const segments = useMemo(() => segmentsQuery.data ?? [], [segmentsQuery.data]);
   const people = peopleQuery.data ?? [];
   const tasks = tasksQuery.data ?? [];
   const openTasks = tasks.filter((task) => task.status === "open" || task.status === "in_progress");
@@ -211,7 +211,7 @@ export function MethodOsPage() {
     setOutcomeValue("");
     setActionType("whatsapp");
     setActionResult("responded");
-  }, [selectedTask?.id]);
+  }, [selectedTask]);
 
   const invalidateMethodOs = () => {
     void queryClient.invalidateQueries({ queryKey: ["method-os"] });

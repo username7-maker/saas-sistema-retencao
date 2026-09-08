@@ -185,7 +185,7 @@ describe("CrmPage", () => {
 
     expect(await screen.findByText("Ana Silva")).toBeInTheDocument();
     expect(screen.getByText("CRM")).toBeInTheDocument();
-    expect(screen.getByText("Pipeline de conversao e gestao de leads")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline de conversão e gestão de leads.")).toBeInTheDocument();
     expect(screen.getByText("Total ativos")).toBeInTheDocument();
     expect(screen.getByText("Leads quentes")).toBeInTheDocument();
     expect(screen.getByText("Aulas agendadas")).toBeInTheDocument();

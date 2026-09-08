@@ -14,6 +14,7 @@ class AutopilotEvent(Base):
         UniqueConstraint("gym_id", "deduplication_key", name="uq_autopilot_events_gym_dedupe"),
         Index("ix_autopilot_events_gym_created", "gym_id", "created_at"),
         Index("ix_autopilot_events_gym_status", "gym_id", "processing_status"),
+        Index("ix_autopilot_events_gym_status_received", "gym_id", "processing_status", "received_at"),
         Index("ix_autopilot_events_type_created", "event_type", "created_at"),
         Index("ix_autopilot_events_member_created", "member_id", "created_at"),
         Index("ix_autopilot_events_lead_created", "lead_id", "created_at"),
@@ -54,6 +55,8 @@ class AutopilotAction(Base, TimestampMixin):
         Index("ix_autopilot_actions_lead_status", "lead_id", "status"),
         Index("ix_autopilot_actions_scheduled", "scheduled_for", "status"),
         Index("ix_autopilot_actions_timeout", "timeout_at", "status"),
+        Index("ix_autopilot_actions_gym_status_scheduled", "gym_id", "status", "scheduled_for", "created_at"),
+        Index("ix_autopilot_actions_gym_status_timeout", "gym_id", "status", "timeout_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

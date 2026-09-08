@@ -11,7 +11,7 @@ export type BodyCompositionOcrFieldOrigin =
   | "previous_assessment"
   | "local_ocr";
 export type BodyCompositionOcrFieldState = "accepted" | "suggested" | "conflict" | "unavailable";
-export type BodyCompositionReadStage = "uploading" | "reading_ai" | "validating" | "reading_local";
+export type BodyCompositionReadStage = "uploading" | "preprocessing" | "reading_ai" | "validating" | "reading_local";
 
 export interface BodyCompositionOcrFieldMetadata {
   origin: BodyCompositionOcrFieldOrigin;
@@ -36,6 +36,23 @@ export interface BodyCompositionOcrProcessing {
   provider?: string | null;
   image_width?: number | null;
   image_height?: number | null;
+  capture_device_kind?: "webcam" | "mobile" | "unknown";
+}
+
+export interface BodyCompositionCaptureMetadata {
+  width: number;
+  height: number;
+  rotation: number;
+  device_kind: "webcam" | "mobile" | "unknown";
+  quality_codes: string[];
+  document_confidence: number | null;
+}
+
+export interface BodyCompositionImageQuality {
+  usable: boolean;
+  document_found: boolean;
+  codes: string[];
+  metrics: Record<string, number>;
 }
 
 export interface BodyCompositionRangeValue {
@@ -93,6 +110,22 @@ export interface BodyCompositionOcrResult {
   field_metadata?: Record<string, BodyCompositionOcrFieldMetadata>;
   validation_issues?: BodyCompositionValidationIssue[];
   processing?: BodyCompositionOcrProcessing;
+  image_quality?: BodyCompositionImageQuality;
+  preprocessing?: {
+    applied: boolean;
+    method: string;
+    confidence: number;
+    source_width?: number | null;
+    source_height?: number | null;
+    output_width?: number | null;
+    output_height?: number | null;
+  };
+  profile_conflicts?: Array<{
+    field: "age_years" | "sex" | "height_cm";
+    profile_value: string | number | null;
+    image_value: string | number | null;
+  }>;
+  suggested_resolution?: string | null;
 }
 
 type Parser = (rawText: string) => BodyCompositionOcrResult;

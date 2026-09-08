@@ -70,6 +70,7 @@ describe("AutomationsPage", () => {
     ]);
 
     renderPage();
+    screen.getByRole("button", { name: "Regras avançadas" }).click();
 
     expect(await screen.findByText("Reengajar inativos")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Excluir Reengajar inativos" })).not.toBeInTheDocument();
@@ -80,6 +81,7 @@ describe("AutomationsPage", () => {
     vi.mocked(automationService.listRules).mockResolvedValue([]);
 
     renderPage();
+    screen.getByRole("button", { name: "Regras avançadas" }).click();
 
     expect(await screen.findByText("Nenhuma regra configurada")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Regras Padrão" }).length).toBeGreaterThan(0);

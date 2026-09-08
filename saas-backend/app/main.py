@@ -3,6 +3,7 @@ import json
 import logging
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
+from time import perf_counter
 from typing import AsyncGenerator
 from urllib.parse import urlparse
 from uuid import UUID
@@ -17,7 +18,13 @@ from app.core.cache import dashboard_cache
 from app.core.config import settings
 from app.core.logging_config import configure_logging, request_id_ctx
 from app.core.security import decode_token
-from app.database import SessionLocal, clear_current_gym_id, set_current_gym_id
+from app.database import (
+    SessionLocal,
+    clear_current_gym_id,
+    get_request_database_metrics,
+    reset_request_database_metrics,
+    set_current_gym_id,
+)
 
 configure_logging()
 
@@ -26,12 +33,27 @@ if settings.sentry_dsn:
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
+    def _before_send_sentry(event, _hint):
+        request_data = event.get("request")
+        if isinstance(request_data, dict):
+            request_data.pop("data", None)
+            request_data.pop("cookies", None)
+            request_data.pop("query_string", None)
+            headers = request_data.get("headers")
+            if isinstance(headers, dict):
+                for key in list(headers):
+                    if key.lower() in {"authorization", "cookie", "x-api-key"}:
+                        headers.pop(key, None)
+        event.pop("user", None)
+        return event
+
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.environment,
         integrations=[FastApiIntegration(), SqlalchemyIntegration()],
         traces_sample_rate=0.1,
         send_default_pii=False,
+        before_send=_before_send_sentry,
     )
 
 from app.models import User
@@ -195,6 +217,7 @@ async def tenant_context_middleware(request: Request, call_next):
                     gym_id_raw = payload.get("gym_id")
                     if gym_id_raw:
                         set_current_gym_id(UUID(str(gym_id_raw)))
+                        request.state.gym_id = str(gym_id_raw)
                 except Exception:
                     clear_current_gym_id()
         response = await call_next(request)
@@ -214,6 +237,41 @@ async def correlation_id_middleware(request: Request, call_next):
         return response
     finally:
         request_id_ctx.reset(token)
+
+
+@app.middleware("http")
+async def request_metrics_middleware(request: Request, call_next):
+    """Emit useful route latency without logging URLs, payloads or customer data."""
+    reset_request_database_metrics()
+    started_at = perf_counter()
+    status_code = 500
+    response = None
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        query_count, database_duration_ms = get_request_database_metrics()
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", None) or "unmatched"
+        total_duration_ms = round((perf_counter() - started_at) * 1000, 2)
+        request_id = response.headers.get("X-Request-ID") if response is not None else request.headers.get("X-Request-ID")
+        logger.info(
+            "HTTP request completed.",
+            extra={
+                "extra_fields": {
+                    "event": "http_request_completed",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "route": route_template,
+                    "status_code": status_code,
+                    "duration_ms": total_duration_ms,
+                    "database_duration_ms": database_duration_ms,
+                    "database_query_count": query_count,
+                    "gym_id": getattr(request.state, "gym_id", None),
+                }
+            },
+        )
 
 
 app.include_router(auth.router, prefix=settings.api_prefix)

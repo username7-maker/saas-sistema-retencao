@@ -122,7 +122,7 @@ describe("MembersPage", () => {
   it("navigates to the student workspace when clicking the member name", async () => {
     renderPage();
 
-    const memberLink = await screen.findByRole("link", { name: "Ana Silva" });
+    const memberLink = (await screen.findAllByRole("link", { name: "Ana Silva" }))[0];
     fireEvent.click(memberLink);
 
     expect(screen.getByText("/assessments/members/member-1")).toBeInTheDocument();
@@ -141,12 +141,12 @@ describe("MembersPage", () => {
   it("exposes operational filters and sends them to the member query", async () => {
     renderPage();
 
-    expect(await screen.findByText("Ana Silva")).toBeInTheDocument();
+    expect((await screen.findAllByText("Ana Silva")).length).toBeGreaterThan(0);
     expect(screen.getByPlaceholderText("Buscar por nome, email ou matricula...")).toBeInTheDocument();
-    expect(screen.getByText("Matricula MAT-001")).toBeInTheDocument();
-    expect(screen.getByText("Provisorio")).toBeInTheDocument();
-    expect(screen.getByText(/Anivers/)).toBeInTheDocument();
-    expect(screen.getByText("Turno Manha")).toBeInTheDocument();
+    expect(screen.getAllByText("Matricula MAT-001").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Provisorio").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Anivers/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Turno Manha").length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByRole("combobox", { name: "Sem check-in" }), {
       target: { value: "14" },
@@ -167,6 +167,7 @@ describe("MembersPage", () => {
           page: 1,
           page_size: 20,
         }),
+        expect.any(AbortSignal),
       );
     });
   });
