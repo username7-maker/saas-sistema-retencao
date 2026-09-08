@@ -120,6 +120,7 @@ ALLOWED_INCLUDE_ALL_TENANTS_REASON_PREFIXES = (
     "actuar_bridge.",
     "actuar_settings.",
     "actuar_sync.",
+    "autopilot.jobs.",
     "assessment_analytics.",
     "auth.",
     "core_async_jobs.",

@@ -2,7 +2,7 @@
 
 ## Local
 
-- Backend completo: `1263 passed`, 12 avisos de depreciacao conhecidos.
+- Backend completo: `1264 passed`, 12 avisos de depreciacao conhecidos.
 - Frontend completo: `219 passed` em 51 arquivos.
 - Frontend lint: aprovado sem erros.
 - Build TypeScript/Vite: aprovado.
@@ -46,6 +46,9 @@
 - Primeira janela Railway: 4 requisições, zero 5xx, p95 de 251 ms.
 - Worker: scheduler e Redis saudáveis, CPU atual inferior a 0,001 vCPU e memória
   em torno de 133 MB na primeira janela.
+- A observação inicial detectou bloqueio das consultas globais de descoberta das
+  filas pelo tenant guard. O prefixo mínimo `autopilot.jobs.` foi incluído na
+  allowlist, coberto por teste e reenviado antes do encerramento do rollout.
 - Smoke autenticado automatizado não executado porque o repositório não possui
   as credenciais `PILOT_*`; nenhuma credencial foi criada ou persistida para isso.
 - `/health/ready` está publicado e validado. O healthcheck nativo do serviço ainda

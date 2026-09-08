@@ -22,6 +22,14 @@ def test_include_all_tenants_records_reason_in_execution_options():
     assert options["tenant_bypass_reason"] == "dependencies.get_current_user"
 
 
+def test_include_all_tenants_accepts_autopilot_job_discovery_reason():
+    statement = include_all_tenants(select(User), reason="autopilot.jobs.pending_event_gyms")
+
+    options = statement.get_execution_options()
+    assert options["include_all_tenants"] is True
+    assert options["tenant_bypass_reason"] == "autopilot.jobs.pending_event_gyms"
+
+
 def test_include_all_tenants_rejects_non_allowlisted_reason():
     try:
         include_all_tenants(select(User), reason="tests.database.guardrail")
