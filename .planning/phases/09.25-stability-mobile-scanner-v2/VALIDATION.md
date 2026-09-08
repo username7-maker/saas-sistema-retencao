@@ -33,10 +33,10 @@
 
 ## Producao
 
-- Commit de aplicacao: `68fec752af407c3e89ccf5451af7cb3a56cbdbcf`.
-- API Railway: `b1b2a0b7-2e97-47bb-8da7-b915da89a722`, `SUCCESS`.
-- Worker Railway: `642c6a61-3352-4608-8e05-e2f5d3ed18be`, `SUCCESS`.
-- Frontend Vercel: `dpl_7jcE2S7ERGiwMPgeNAT5XGU8BrwZ`, `READY`, com alias
+- Commit final de aplicacao/hotfix: `026d0a4043ff4d76468c1d52527d3672a503f7cc`.
+- API Railway: `e12bdbbc-d9aa-4701-acb0-05a9458056ff`, `SUCCESS`.
+- Worker Railway: `c2d2cabe-d05c-481d-913f-081a6eb6c08f`, `SUCCESS`.
+- Frontend Vercel: `dpl_3i5e3URaTVDijVuS2k316eE2DmmU`, `READY`, com alias
   `https://saas-frontend-pearl.vercel.app`.
 - API, worker e frontend expõem o mesmo SHA.
 - Migração `20260908_0061` aplicada com sucesso antes da troca da API.
@@ -49,6 +49,8 @@
 - A observação inicial detectou bloqueio das consultas globais de descoberta das
   filas pelo tenant guard. O prefixo mínimo `autopilot.jobs.` foi incluído na
   allowlist, coberto por teste e reenviado antes do encerramento do rollout.
+- O ciclo real posterior terminou sem exceções: filas de eventos e ações vazias
+  em aproximadamente 657-658 ms, abaixo da meta de 750 ms.
 - Smoke autenticado automatizado não executado porque o repositório não possui
   as credenciais `PILOT_*`; nenhuma credencial foi criada ou persistida para isso.
 - `/health/ready` está publicado e validado. O healthcheck nativo do serviço ainda
