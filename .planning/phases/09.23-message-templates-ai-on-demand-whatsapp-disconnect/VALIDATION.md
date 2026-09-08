@@ -26,5 +26,15 @@ A suíte frontend completa ainda contém sete falhas em testes antigos de Automa
 
 ## Produção
 
-A preencher após backup, migração, publicação e smoke autenticado.
-
+- Release da aplicação: `384f58b`.
+- API Railway: deployment `55c9addd-2e77-486d-aa17-d75e1923ad83`, `SUCCESS`, health ready `ok`.
+- Worker Railway: deployment `f743dddf-0f47-4318-8917-6a783c492c84`, `SUCCESS`, scheduler e Redis saudáveis.
+- Frontend Vercel: deployment `dpl_22FvHRKi4MwViT5o7XLGLe19M9pg`, alias de produção atualizado e `READY`.
+- Migração `20260904_0060` aplicada no Supabase.
+- Backup lógico anterior à rotação preservado em volume Railway destacado: 39.932.746 bytes, SHA-256 `1942d089e842701136992c5e00814f3c50040eede83e3b48531101d027ab2dd2`.
+- Senha do banco rotacionada; `DATABASE_URL` da API e do worker atualizadas e conferidas como idênticas sem exposição do valor.
+- `WHATSAPP_OUTBOUND_ENABLED=false` confirmado na API e no worker.
+- Evolution API: `fetchInstances=0` e nenhuma sessão `open`.
+- Configuração de WhatsApp das academias limpa/desativada; uma academia afetada, sem exclusão de logs ou histórico.
+- Smoke público: frontend e `/health/ready` respondendo; novas rotas respondem `401` sem autenticação, como esperado.
+- Smoke autenticado não executado por ausência de credencial de piloto local; nenhuma mensagem real foi enviada.
