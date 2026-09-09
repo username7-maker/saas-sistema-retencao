@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, Printer } from "lucide-react";
+import { ArrowLeft, Download, Printer, Share2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -26,6 +26,7 @@ import { calculationOriginLabel } from "../../utils/calculationOrigins";
 const CORDEX_LOGO_SRC = "/brand/cordex-logo-report.png";
 const PROGYM_LOGO_SRC = "/progym-logo.png";
 const EMPTY_VALUES = new Set(["", "-", "--"]);
+const MOBILE_REPORT_READING_ENABLED = import.meta.env.VITE_MOBILE_REPORT_READING_V1 === "true";
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "-";
@@ -285,9 +286,27 @@ function BodyCompositionReportPage() {
     }
   }
 
+  async function handleShare() {
+    try {
+      const data = {
+        title: `Relatorio de avaliacao - ${report.header.member_name}`,
+        text: "Relatorio de avaliacao fisica Cordex",
+        url: window.location.href,
+      };
+      if (navigator.share) await navigator.share(data);
+      else {
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success("Link do relatorio copiado.");
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error("Nao foi possivel compartilhar o relatorio.");
+    }
+  }
+
   return (
-    <section className="body-composition-report-page space-y-6 print:space-y-0">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
+    <section className={`body-composition-report-page space-y-6 print:space-y-0${MOBILE_REPORT_READING_ENABLED ? " mobile-report-reading-v1" : ""}`}>
+      <div className="sticky top-[env(safe-area-inset-top)] z-20 -mx-3 flex flex-col gap-3 border-b border-lovable-border bg-lovable-bg/95 px-3 py-2 backdrop-blur md:static md:mx-0 md:flex-row md:items-center md:justify-between md:border-0 md:bg-transparent md:p-0 print:hidden">
         <Link to={`/assessments/members/${memberId}?tab=${isAnthropometry ? "registro" : "bioimpedancia"}`} className="inline-flex items-center gap-2 text-sm font-medium text-lovable-ink-muted transition hover:text-lovable-ink">
           <ArrowLeft size={14} />
           {isAnthropometry ? "Voltar para antropometria" : "Voltar para bioimpedancia"}
@@ -306,6 +325,10 @@ function BodyCompositionReportPage() {
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer size={14} />
             Imprimir
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => void handleShare()}>
+            <Share2 size={14} />
+            Compartilhar
           </Button>
         </div>
       </div>

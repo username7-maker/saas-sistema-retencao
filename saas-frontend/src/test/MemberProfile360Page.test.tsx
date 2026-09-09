@@ -272,13 +272,13 @@ describe("MemberProfile360Page", () => {
     expect(screen.getByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nova Avaliacao" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver Tarefas" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Visao geral" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Visao geral" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Registrar avaliacao" }).length).toBeGreaterThan(0);
     expect(screen.getByText("Leitura do momento")).toBeInTheDocument();
     expect(screen.getByText("Radar rapido")).toBeInTheDocument();
     expect(screen.getAllByText("Plano e objetivos").length).toBeGreaterThan(0);
     expect(screen.getByText("Restricoes e observacoes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Acoes" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Acoes" })).toBeInTheDocument();
     expect(screen.getAllByText("Sem avaliacao estruturada").length).toBeGreaterThan(0);
     expect(screen.getByText("Check-in e consistencia")).toBeInTheDocument();
     expect(screen.getByText("Proxima melhor acao")).toBeInTheDocument();
@@ -298,7 +298,7 @@ describe("MemberProfile360Page", () => {
     expect(await screen.findByText("Goals editor mock")).toBeInTheDocument();
     expect(screen.getByText("Training plan editor mock")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Bioimpedancia" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Bioimpedancia" }));
     expect(await screen.findByText("Body composition mock")).toBeInTheDocument();
   });
 

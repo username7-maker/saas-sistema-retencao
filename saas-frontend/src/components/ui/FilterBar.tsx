@@ -26,7 +26,7 @@ function FilterControl({ filter }: { filter: FilterItem }) {
         aria-label={filter.label}
         value={filter.value}
         onChange={(event) => filter.onChange(event.target.value)}
-        className="h-9 w-full rounded-lg sm:max-w-[180px]"
+        className="h-11 w-full rounded-lg sm:max-w-[180px] md:h-9"
       >
         {filter.options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -53,7 +53,7 @@ function SearchControl({
           value={search.value}
           onChange={(event) => search.onChange(event.target.value)}
           placeholder={search.placeholder ?? "Buscar..."}
-          className="h-9 rounded-lg pl-9"
+          className="h-11 rounded-lg pl-9 md:h-9"
         />
       </div>
       {trailing}
@@ -76,7 +76,7 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
                 size="sm"
                 variant="ghost"
                 onClick={onClear}
-                className="h-9 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto"
+                className="h-11 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto md:h-9"
               >
                 <X size={14} />
                 Limpar filtros
@@ -89,7 +89,7 @@ export function FilterBar({ search, filters, activeCount = 0, onClear }: FilterB
           size="sm"
           variant="ghost"
           onClick={onClear}
-          className="h-9 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto"
+          className="h-11 w-full rounded-xl px-2 text-xs text-lovable-ink-muted sm:w-auto md:h-9"
         >
           <X size={14} />
           Limpar filtros

@@ -152,7 +152,7 @@ function renderPage() {
 }
 
 async function openCompleteList() {
-  fireEvent.click(await screen.findByRole("button", { name: "Lista completa" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Lista completa" }));
   return screen.findByText("Precisa de atencao agora");
 }
 
@@ -485,9 +485,9 @@ describe("TasksPage", () => {
 
     expect(screen.getByText("Tarefas")).toBeInTheDocument();
     expect(screen.getByText("Acompanhamento de ações e follow-ups pendentes.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Modo execucao" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lista completa" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Onboarding" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: "Modo execucao" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Lista completa" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab", { name: "Onboarding" }).length).toBeGreaterThan(0);
     expect(await screen.findByText("Modo execucao operacional")).toBeInTheDocument();
     expect(screen.getByText("Fila operacional sem retencao misturada. Use o botao Retencao quando for executar a regua de ausencia e reativacao.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Operacao" })).toBeInTheDocument();
@@ -551,7 +551,7 @@ describe("TasksPage", () => {
     await openCompleteList();
 
     expect(await screen.findByText("Precisa de atencao agora")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Triage" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Triage" })).toBeInTheDocument();
     expect(screen.getByText("Total visiveis")).toBeInTheDocument();
     expect(screen.getByText("Pendentes")).toBeInTheDocument();
     expect(screen.getByText("Vencidas")).toBeInTheDocument();
@@ -635,7 +635,7 @@ describe("TasksPage", () => {
   it("keeps onboarding in a dedicated tab with journey buckets and the queue CTA", async () => {
     renderPage();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Onboarding" })[0]);
+    fireEvent.click(screen.getAllByRole("tab", { name: "Onboarding" })[0]);
 
     expect(await screen.findByText("Onboarding preservado")).toBeInTheDocument();
     expect(screen.getByText("Intelligence de onboarding")).toBeInTheDocument();
@@ -688,7 +688,7 @@ describe("TasksPage", () => {
 
     renderPage();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Onboarding" })[0]);
+    fireEvent.click(screen.getAllByRole("tab", { name: "Onboarding" })[0]);
     await screen.findByText("Intelligence de onboarding");
     fireEvent.click(screen.getByRole("button", { name: /Bruno Lima .*61/i }));
 
@@ -740,7 +740,7 @@ describe("TasksPage", () => {
     });
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Lista completa" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Lista completa" }));
 
     expect(await screen.findByText("Nenhuma tarefa cadastrada")).toBeInTheDocument();
     expect(screen.getByText("Crie a primeira task para comecar a organizar os follow-ups do time.")).toBeInTheDocument();

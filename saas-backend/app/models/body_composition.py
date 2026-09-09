@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -77,6 +77,13 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
         Index("ix_bce_gym_member_date", "gym_id", "member_id", "evaluation_date"),
         Index("ix_bce_member_id", "member_id"),
         Index("ix_bce_gym_sync_status", "gym_id", "actuar_sync_status"),
+        Index(
+            "uq_bce_gym_idempotency_key",
+            "gym_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -86,6 +93,8 @@ class BodyCompositionEvaluation(Base, TimestampMixin):
     member_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    idempotency_payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     evaluation_date: Mapped[date] = mapped_column(Date, nullable=False)
     measured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     age_years: Mapped[int | None] = mapped_column(Integer, nullable=True)

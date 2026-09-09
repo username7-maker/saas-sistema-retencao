@@ -161,6 +161,7 @@ function writePdfWindowMessage(targetWindow: Window | null | undefined, title: s
 export type BodyCompositionPdfKind = "summary" | "technical";
 export interface BodyCompositionSaveOptions {
   syncActuar?: boolean;
+  idempotencyKey?: string;
 }
 
 export interface BodyCompositionAssistedReadResult {
@@ -176,6 +177,7 @@ interface BodyCompositionImageParseOptions {
   evaluationDate?: string | null;
   onStage?: (stage: BodyCompositionReadStage) => void;
   captureMetadata?: BodyCompositionCaptureMetadata | null;
+  supplementalFiles?: File[];
 }
 
 const BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS = 75_000;
@@ -250,7 +252,10 @@ export const bodyCompositionService = {
     const { data } = await api.post<BodyCompositionEvaluation>(
       `/api/v1/members/${memberId}/body-composition`,
       stripReadOnlyCalculationOrigins(payload),
-      { params: { sync_actuar: options?.syncActuar ?? true } },
+      {
+        params: { sync_actuar: options?.syncActuar ?? true },
+        headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined,
+      },
     );
     return normalizeBodyComposition(data);
   },
@@ -367,6 +372,9 @@ export const bodyCompositionService = {
   ): Promise<BodyCompositionOcrResult> {
     const formData = new FormData();
     formData.append("file", file);
+    for (const supplementalFile of options.supplementalFiles ?? []) {
+      formData.append("supplemental_files", supplementalFile);
+    }
     formData.append("device_profile", deviceProfile);
     if (options.evaluationDate) {
       formData.append("evaluation_date", options.evaluationDate);
@@ -504,6 +512,7 @@ export const bodyCompositionService = {
       evaluationDate?: string | null;
       onStage?: (stage: BodyCompositionReadStage) => void;
       captureMetadata?: BodyCompositionCaptureMetadata | null;
+      supplementalFiles?: File[];
     },
   ): Promise<BodyCompositionAssistedReadResult> {
     const deviceProfile = options?.deviceProfile ?? BODY_COMPOSITION_DEFAULT_DEVICE_PROFILE;
@@ -518,6 +527,7 @@ export const bodyCompositionService = {
           evaluationDate: options?.evaluationDate,
           onStage: options?.onStage,
           captureMetadata: options?.captureMetadata,
+          supplementalFiles: options?.supplementalFiles,
         });
         const safeResult = assistedResult.engine === "local"
           ? withoutUnsafeLocalInferences(assistedResult)
@@ -554,6 +564,7 @@ export const bodyCompositionService = {
               evaluationDate: options?.evaluationDate,
               onStage: options?.onStage,
               captureMetadata: options?.captureMetadata,
+              supplementalFiles: options?.supplementalFiles,
             },
           );
           const safeValidatedFallback = validatedFallback.engine === "local"
@@ -610,6 +621,7 @@ export const bodyCompositionService = {
       evaluationDate: options?.evaluationDate,
       onStage: options?.onStage,
       captureMetadata: options?.captureMetadata,
+      supplementalFiles: options?.supplementalFiles,
       });
       const assistedUsed = assistedResult.engine !== "local" || Boolean(assistedResult.fallback_used);
       const assistedWarning = assistedResult.warnings.find(

@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -585,6 +585,7 @@ async def parse_body_composition_image_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     file: UploadFile = File(...),
+    supplemental_files: list[UploadFile] | None = File(default=None),
     device_profile: str = Form("tezewa_receipt_v1"),
     local_ocr_result: str | None = Form(default=None),
     evaluation_date: date | None = Form(default=None),
@@ -607,6 +608,18 @@ async def parse_body_composition_image_endpoint(
         ).limit(1)
     )
     image_bytes = await file.read()
+    received_supplemental_files = supplemental_files or []
+    if received_supplemental_files and not settings.body_composition_multi_image_parse_v1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A captura em partes ainda nao esta habilitada para esta implantacao.",
+        )
+    if len(received_supplemental_files) > 2:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Envie no maximo tres imagens.")
+    supplemental_images = [(await item.read(), item.content_type) for item in received_supplemental_files]
+    total_size = len(image_bytes) + sum(len(content) for content, _media_type in supplemental_images)
+    if total_size > 20 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="As imagens excedem o limite total de 20 MB.")
     parsed_capture_metadata = (
         BodyCompositionCaptureMetadata.model_validate_json(capture_metadata) if capture_metadata else None
     )
@@ -621,6 +634,7 @@ async def parse_body_composition_image_endpoint(
         member_height_cm=getattr(member, "height_cm", None),
         previous_weight_kg=getattr(previous_evaluation, "weight_kg", None),
         capture_metadata=parsed_capture_metadata,
+        supplemental_images=supplemental_images,
     )
 
 
@@ -654,6 +668,7 @@ def create_body_composition_endpoint(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER))],
     sync_actuar: bool = Query(True),
+    idempotency_key: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
 ) -> BodyCompositionEvaluationRead:
     evaluation, _sync_job = create_body_composition_evaluation(
         db,
@@ -662,6 +677,7 @@ def create_body_composition_endpoint(
         payload,
         reviewer_user_id=current_user.id,
         sync_actuar=sync_actuar,
+        idempotency_key=idempotency_key,
     )
     db.commit()
     db.refresh(evaluation)

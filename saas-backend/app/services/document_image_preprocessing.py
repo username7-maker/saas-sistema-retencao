@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 import cv2
 import numpy as np
-
 
 MAX_DECODED_PIXELS = 48_000_000
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
@@ -172,21 +170,53 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
     working = image
     method = "original"
     confidence = 0.0
+    receipt_short_side_raw = float(min(source_width, source_height))
+    document_area_ratio = 0.0
     if enabled:
         points, confidence = _find_receipt(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
         if points is not None and confidence >= 0.45:
+            document_area_ratio = float(abs(cv2.contourArea(points))) / max(1.0, source_width * source_height)
             working = _warp(image, points)
             method = "receipt_perspective"
+            receipt_short_side_raw = float(min(working.shape[1], working.shape[0]))
 
         working = _adaptive_resize(working)
         luminance = cv2.cvtColor(working, cv2.COLOR_BGR2LAB)
         lightness, channel_a, channel_b = cv2.split(luminance)
-        lightness = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8)).apply(lightness)
-        working = cv2.cvtColor(cv2.merge((lightness, channel_a, channel_b)), cv2.COLOR_LAB2BGR)
-        method = f"{method}+clahe"
+        background = cv2.GaussianBlur(lightness, (0, 0), sigmaX=31, sigmaY=31)
+        normalized = cv2.divide(lightness, np.maximum(background, 1), scale=235)
+        normalized = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)).apply(normalized)
+        clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8)).apply(lightness)
+
+        normalized_image = cv2.cvtColor(cv2.merge((normalized, channel_a, channel_b)), cv2.COLOR_LAB2BGR)
+        clahe_image = cv2.cvtColor(cv2.merge((clahe, channel_a, channel_b)), cv2.COLOR_LAB2BGR)
+        normalized_codes, normalized_metrics = _quality(cv2.cvtColor(normalized_image, cv2.COLOR_BGR2GRAY))
+        clahe_codes, clahe_metrics = _quality(cv2.cvtColor(clahe_image, cv2.COLOR_BGR2GRAY))
+        normalized_score = (
+            min(
+                normalized_metrics["sharpness_top"],
+                normalized_metrics["sharpness_middle"],
+                normalized_metrics["sharpness_bottom"],
+            )
+            + normalized_metrics["contrast_stddev"] * 1.8
+            - len(normalized_codes) * 20
+        )
+        clahe_score = (
+            min(clahe_metrics["sharpness_top"], clahe_metrics["sharpness_middle"], clahe_metrics["sharpness_bottom"])
+            + clahe_metrics["contrast_stddev"] * 1.8
+            - len(clahe_codes) * 20
+        )
+        if normalized_score > clahe_score:
+            working = normalized_image
+            method = f"{method}+background_normalization+clahe"
+        else:
+            working = clahe_image
+            method = f"{method}+clahe"
 
     output_height, output_width = working.shape[:2]
     quality_codes, quality_metrics = _quality(cv2.cvtColor(working, cv2.COLOR_BGR2GRAY))
+    quality_metrics["receipt_short_side_raw"] = round(receipt_short_side_raw, 2)
+    quality_metrics["document_area_ratio"] = round(min(1.0, document_area_ratio), 4)
     output = None
     for quality in (88, 82, 76, 70):
         ok, candidate = cv2.imencode(".jpg", working, [int(cv2.IMWRITE_JPEG_QUALITY), quality])

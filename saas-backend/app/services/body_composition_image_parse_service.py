@@ -272,18 +272,31 @@ def parse_body_composition_image(
     member_height_cm: Any = None,
     previous_weight_kg: Any = None,
     capture_metadata: BodyCompositionCaptureMetadata | None = None,
+    supplemental_images: list[tuple[bytes, str | None]] | None = None,
 ) -> BodyCompositionImageParseResultRead:
     started_at = perf_counter()
     normalized_device_profile = _normalize_device_profile(device_profile)
     normalized_media_type = _validate_image_payload(image_bytes, media_type)
     provider = _resolve_image_ai_provider()
     image_width, image_height = _read_image_dimensions(image_bytes, normalized_media_type)
-    preprocessing = preprocess_receipt_image(
-        image_bytes,
-        enabled=settings.bioimpedance_scanner_v2,
-    )
-    provider_image_bytes = preprocessing.image_bytes if preprocessing and preprocessing.applied else image_bytes
-    provider_media_type = preprocessing.media_type if preprocessing and preprocessing.applied else normalized_media_type
+    input_images = [(image_bytes, normalized_media_type)]
+    for supplemental_bytes, supplemental_media_type in supplemental_images or []:
+        input_images.append((supplemental_bytes, _validate_image_payload(supplemental_bytes, supplemental_media_type)))
+    if len(input_images) > 3:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Envie no maximo tres imagens.")
+    preprocessings = [
+        preprocess_receipt_image(content, enabled=settings.bioimpedance_scanner_v2)
+        for content, _media_type in input_images
+    ]
+    preprocessing = preprocessings[0]
+    segment_roles = ["full"] if len(input_images) == 1 else ["top", "middle", "bottom"][:len(input_images)]
+    provider_images = []
+    for index, ((content, normalized_type), prepared) in enumerate(zip(input_images, preprocessings, strict=True)):
+        provider_images.append((
+            prepared.image_bytes if prepared and prepared.applied else content,
+            prepared.media_type if prepared and prepared.applied else normalized_type,
+            segment_roles[index],
+        ))
 
     local_payload = (
         BodyCompositionImageOcrPayload.model_validate(local_ocr_result.model_dump()) if local_ocr_result else None
@@ -321,15 +334,13 @@ def parse_body_composition_image(
         )
         if provider == "openai":
             ai_payload = _parse_with_openai_vision(
-                image_bytes=provider_image_bytes,
-                media_type=provider_media_type,
+                images=provider_images,
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
         else:
             ai_payload = _parse_with_claude_vision(
-                image_bytes=provider_image_bytes,
-                media_type=provider_media_type,
+                images=provider_images,
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
@@ -412,18 +423,44 @@ def _create_openai_client(*, timeout_seconds: int | None = None) -> OpenAI:
 
 def _parse_with_openai_vision(
     *,
-    image_bytes: bytes,
-    media_type: str,
+    images: list[tuple[bytes, str, str]] | None = None,
+    image_bytes: bytes | None = None,
+    media_type: str | None = None,
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
 ) -> BodyCompositionImageParseResultRead:
+    # Keep the original single-image callable contract for internal callers and
+    # focused tests while accepting the new segmented capture contract.
+    if images is None:
+        if image_bytes is None:
+            raise ValueError("Uma imagem e obrigatoria para a leitura assistida.")
+        images = [(image_bytes, media_type or "image/jpeg", "full")]
     prompt = _build_vision_prompt(
         device_profile=device_profile,
         local_ocr_result=local_ocr_result,
         provider_name="openai",
     )
+    if len(images) > 1:
+        prompt += (
+            "\nAs imagens representam topo, centro e rodape do mesmo recibo. "
+            "Use o topo para Age/Sex/Height/Weight/Test time, o centro para Body composition e o rodape "
+            "para Body parameters/Comprehensive evaluation. Valores repetidos devem concordar; em conflito, "
+            "marque revisao. Informe field_metadata.segment para todo campo extraido."
+        )
 
     client = _create_openai_client(timeout_seconds=settings.body_composition_image_ai_timeout_seconds)
+    image_content: list[dict[str, Any]] = []
+    for image_bytes, media_type, role in images:
+        image_content.extend([
+            {"type": "text", "text": f"Imagem do segmento: {role}."},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
+                    "detail": "high",
+                },
+            },
+        ])
     response = client.chat.completions.create(
         model=settings.openai_vision_model,
         temperature=0,
@@ -445,16 +482,7 @@ def _parse_with_openai_vision(
             },
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
-                            "detail": "high",
-                        },
-                    },
-                ],
+                "content": [{"type": "text", "text": prompt}, *image_content],
             },
         ],
     )
@@ -467,16 +495,28 @@ def _parse_with_openai_vision(
 
 def _parse_with_claude_vision(
     *,
-    image_bytes: bytes,
-    media_type: str,
+    images: list[tuple[bytes, str, str]] | None = None,
+    image_bytes: bytes | None = None,
+    media_type: str | None = None,
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
 ) -> BodyCompositionImageParseResultRead:
+    if images is None:
+        if image_bytes is None:
+            raise ValueError("Uma imagem e obrigatoria para a leitura assistida.")
+        images = [(image_bytes, media_type or "image/jpeg", "full")]
     prompt = _build_vision_prompt(
         device_profile=device_profile,
         local_ocr_result=local_ocr_result,
         provider_name="claude",
     )
+    if len(images) > 1:
+        prompt += (
+            "\nAs imagens representam topo, centro e rodape do mesmo recibo. "
+            "Use o topo para Age/Sex/Height/Weight/Test time, o centro para Body composition e o rodape "
+            "para Body parameters/Comprehensive evaluation. Valores repetidos devem concordar; em conflito, "
+            "marque revisao. Informe field_metadata.segment para todo campo extraido."
+        )
     prompt = (
         f"{prompt}\n"
         "JSON esperado:\n"
@@ -497,6 +537,19 @@ def _parse_with_claude_vision(
         api_key=settings.claude_api_key,
         timeout=settings.body_composition_image_ai_timeout_seconds,
     )
+    image_content: list[dict[str, Any]] = []
+    for image_bytes, media_type, role in images:
+        image_content.extend([
+            {"type": "text", "text": f"Imagem do segmento: {role}."},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64.b64encode(image_bytes).decode("ascii"),
+                },
+            },
+        ])
     response = client.messages.create(
         model=settings.claude_vision_model or settings.claude_model,
         max_tokens=max(settings.claude_max_tokens, 900),
@@ -504,17 +557,7 @@ def _parse_with_claude_vision(
         messages=[
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64.b64encode(image_bytes).decode("ascii"),
-                        },
-                    },
-                ],
+                "content": [{"type": "text", "text": prompt}, *image_content],
             }
         ],
     )
@@ -1401,6 +1444,8 @@ def _complete_parse_request(
         image_width=image_width,
         image_height=image_height,
         capture_device_kind=capture_metadata.device_kind if capture_metadata else "unknown",
+        capture_mode=capture_metadata.capture_mode if capture_metadata else "single",
+        segment_count=max(1, len(capture_metadata.segments)) if capture_metadata and capture_metadata.capture_mode == "segmented" else 1,
     )
     quality_codes = list(preprocessing.quality_codes if preprocessing else [])
     if capture_metadata:
@@ -1437,14 +1482,24 @@ def _complete_parse_request(
             )
         )
     suggested_resolution = None
-    if preprocessing and min(preprocessing.output_width, preprocessing.output_height) < 1000:
+    capture_recommendation = None
+    raw_short_side = preprocessing.quality_metrics.get("receipt_short_side_raw", 0) if preprocessing else 0
+    if raw_short_side and raw_short_side < 480:
         suggested_resolution = "Aproxime a folha para o texto ocupar mais da imagem."
+        if raw_short_side < 320:
+            capture_recommendation = {
+                "mode": "segmented",
+                "reason": "insufficient_text_density",
+                "required_segments": ["top", "middle", "bottom"],
+                "message": "Aproxime o papel ou fotografe em partes.",
+            }
     completed = result.model_copy(update={
         "processing": processing,
         "image_quality": quality,
         "preprocessing": preprocessing_payload,
         "profile_conflicts": profile_conflicts,
         "suggested_resolution": suggested_resolution,
+        "capture_recommendation": capture_recommendation,
     })
     populated_fields = sorted(
         field_name

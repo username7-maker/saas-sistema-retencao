@@ -901,6 +901,103 @@ body::-webkit-scrollbar-thumb:hover,
   }
 }
 
+@media (max-width: 767px) {
+  .mobile-report-reading-v1.body-composition-report-page {
+    margin-inline: -0.75rem;
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-document {
+    border-inline: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-content {
+    gap: 12px;
+    padding: 0;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-page {
+    min-height: auto;
+    border-inline: 0;
+    padding: 20px 14px;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-page-grid,
+  .mobile-report-reading-v1 .clinical-web-late-grid,
+  .mobile-report-reading-v1 .clinical-web-detail-grid,
+  .mobile-report-reading-v1 .clinical-web-measurement-map,
+  .mobile-report-reading-v1 .report-header-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mobile-report-reading-v1 .report-header-data-grid,
+  .mobile-report-reading-v1 .metric-highlights-grid,
+  .mobile-report-reading-v1 .clinical-web-meta-grid,
+  .mobile-report-reading-v1 .clinical-web-body-fat-grid,
+  .mobile-report-reading-v1 .clinical-web-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-mini-header {
+    grid-template-columns: 92px minmax(0, 1fr);
+  }
+
+  .mobile-report-reading-v1 .clinical-web-mini-header img {
+    width: 82px;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-measurement-map {
+    min-height: auto;
+    margin: 10px 8px 12px;
+    padding: 12px 8px;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-measurement-map img {
+    max-height: 360px;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-detail-grid {
+    padding: 10px 8px 12px;
+  }
+
+  .mobile-report-reading-v1 .clinical-web-detail-item strong,
+  .mobile-report-reading-v1 .clinical-web-detail-item em,
+  .mobile-report-reading-v1 .body-composition-report-document td {
+    font-size: 14px;
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-document table,
+  .mobile-report-reading-v1 .body-composition-report-document thead,
+  .mobile-report-reading-v1 .body-composition-report-document tbody,
+  .mobile-report-reading-v1 .body-composition-report-document tr,
+  .mobile-report-reading-v1 .body-composition-report-document th,
+  .mobile-report-reading-v1 .body-composition-report-document td {
+    display: block;
+    width: 100%;
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-document thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-document tr {
+    margin-bottom: 8px;
+    border: 1px solid #e3ddd4;
+    background: #fffdfa;
+    padding: 8px;
+  }
+
+  .mobile-report-reading-v1 .body-composition-report-document td {
+    border: 0;
+    padding: 4px !important;
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;

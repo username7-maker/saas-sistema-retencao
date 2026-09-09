@@ -7,6 +7,9 @@ import toast from "react-hot-toast";
 import { invalidateAssessmentQueries } from "./queryUtils";
 import { BODY_COMPOSITION_PROTOCOLS } from "./bodyCompositionProtocols";
 import { Button, Card, CardContent, FormField, Input, Select, Textarea } from "../ui2";
+import { cn } from "../ui2/cn";
+import { KeyboardAwareContainer } from "../mobile/KeyboardAwareContainer";
+import { MobileSection } from "../mobile/MobileSection";
 import {
   assessmentService,
   type AnthropometryAssessmentInput,
@@ -411,6 +414,7 @@ function ManualAnthropometricAssessmentForm({
   onSaved?: (assessmentId: string) => void;
   onCancelEdit?: () => void;
 }) {
+  const mobileAssessmentFlowV3 = import.meta.env.VITE_MOBILE_ASSESSMENT_FLOW_V3 === "true";
   const queryClient = useQueryClient();
   const ageFromBirthdate = calculateAge(member?.birthdate);
   const [initialDraft] = useState(() => editingAssessmentId ? null : readAnthropometryDraft(memberId));
@@ -700,7 +704,8 @@ function ManualAnthropometricAssessmentForm({
   }
 
   return (
-    <form className="space-y-4" onSubmit={(event) => event.preventDefault()} aria-busy={editingAssessmentQuery.isLoading || saveMutation.isPending}>
+    <KeyboardAwareContainer>
+    <form className="space-y-4 pb-24 md:pb-0" onSubmit={(event) => event.preventDefault()} aria-busy={editingAssessmentQuery.isLoading || saveMutation.isPending}>
       <Card>
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-center gap-3">
@@ -722,8 +727,7 @@ function ManualAnthropometricAssessmentForm({
         </CardContent>
       </Card>
 
-      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dados da avaliacao</h3>
+      <MobileSection id="anthropometry-basic" title="Dados basicos" summary="Data, sexo, idade, altura, peso e protocolo" defaultOpen collapsible={mobileAssessmentFlowV3}>
         <div className="grid gap-3 md:grid-cols-3">
           <FormField label="Data da avaliacao">
             <Input aria-label="Data da avaliacao" type="datetime-local" value={assessmentDate} onChange={(event) => {
@@ -808,7 +812,7 @@ function ManualAnthropometricAssessmentForm({
             </FormField>
           ) : null}
         </div>
-      </section>
+      </MobileSection>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <label className="flex items-start gap-3">
@@ -830,8 +834,7 @@ function ManualAnthropometricAssessmentForm({
         </label>
       </section>
 
-      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Dobras e perimetros do protocolo</h3>
+      <MobileSection id="anthropometry-protocol" title="Protocolo e dobras" summary="Pontos obrigatorios e repeticoes do protocolo" collapsible={mobileAssessmentFlowV3}>
         <p className="mb-3 text-xs text-lovable-ink-muted">Complete a primeira rodada de todos os pontos antes da segunda rodada.</p>
         <div className="grid gap-3 md:grid-cols-2">
           {dynamicFields.map((field) => {
@@ -867,10 +870,9 @@ function ManualAnthropometricAssessmentForm({
             );
           })}
         </div>
-      </section>
+      </MobileSection>
 
-      <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
-        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-lovable-ink-muted">Perimetria para evolucao</h3>
+      <MobileSection id="anthropometry-perimetry" title="Perimetria" summary="Medidas para acompanhar a evolucao" collapsible={mobileAssessmentFlowV3}>
         <p className="mb-3 text-xs text-lovable-ink-muted">
           Medidas usadas para acompanhar evolucao. Elas so entram no calculo de gordura corporal quando o protocolo exigir.
         </p>
@@ -888,7 +890,7 @@ function ManualAnthropometricAssessmentForm({
             </FormField>
           ))}
         </div>
-      </section>
+      </MobileSection>
 
       <section className="rounded-2xl border border-lovable-border bg-lovable-surface p-4 shadow-panel">
         <FormField label="Observacoes">
@@ -906,8 +908,7 @@ function ManualAnthropometricAssessmentForm({
       </section>
 
       {preview ? (
-        <section className="rounded-2xl border border-lovable-primary/25 bg-lovable-primary-soft p-4 shadow-panel">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-lovable-primary">Previa calculada</h3>
+        <MobileSection id="anthropometry-review" title="Resultados e revisao" summary="Confira os calculos antes de salvar" defaultOpen collapsible={mobileAssessmentFlowV3} className="border-lovable-primary/25 bg-lovable-primary-soft">
           <div className="mt-3 grid gap-3 md:grid-cols-4">
             <PreviewMetric label="Gordura corporal" value={preview.results.body_fat_pct != null ? `${preview.results.body_fat_pct}%` : "-"} />
             <PreviewMetric label="IMC" value={preview.results.bmi != null ? String(preview.results.bmi) : "-"} />
@@ -939,10 +940,10 @@ function ManualAnthropometricAssessmentForm({
             </p>
           ) : null}
           <p className="mt-1 text-xs text-lovable-ink-muted">Hash do calculo: {preview.calculation_hash}</p>
-        </section>
+        </MobileSection>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className={cn("flex flex-wrap items-center justify-end gap-3", mobileAssessmentFlowV3 && "sticky bottom-0 z-20 -mx-4 border-t border-lovable-border bg-lovable-surface/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:p-0")}>
         {editingAssessmentId && onCancelEdit ? (
           <Button type="button" variant="ghost" onClick={onCancelEdit} disabled={saveMutation.isPending}>
             Cancelar edicao
@@ -961,6 +962,7 @@ function ManualAnthropometricAssessmentForm({
         </Button>
       </div>
     </form>
+    </KeyboardAwareContainer>
   );
 }
 

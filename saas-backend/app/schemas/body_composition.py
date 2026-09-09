@@ -217,6 +217,7 @@ class BodyCompositionFieldMetadata(BaseModel):
     label: str | None = None
     evidence: str | None = None
     suggested_value: str | int | float | None = None
+    segment: Literal["full", "top", "middle", "bottom"] | None = None
 
 
 class BodyCompositionValidationIssue(BaseModel):
@@ -234,6 +235,16 @@ class BodyCompositionImageProcessing(BaseModel):
     image_width: int | None = Field(default=None, ge=1)
     image_height: int | None = Field(default=None, ge=1)
     capture_device_kind: Literal["webcam", "mobile", "unknown"] = "unknown"
+    capture_mode: Literal["single", "segmented"] = "single"
+    segment_count: int = Field(default=1, ge=1, le=3)
+
+
+class BodyCompositionCaptureSegment(BaseModel):
+    role: Literal["full", "top", "middle", "bottom"]
+    width: int | None = Field(default=None, ge=1, le=12000)
+    height: int | None = Field(default=None, ge=1, le=12000)
+    rotation: int = Field(default=0, ge=-360, le=360)
+    index: int = Field(ge=0, le=2)
 
 
 class BodyCompositionCaptureMetadata(BaseModel):
@@ -243,6 +254,15 @@ class BodyCompositionCaptureMetadata(BaseModel):
     device_kind: Literal["webcam", "mobile", "unknown"] = "unknown"
     quality_codes: list[str] = Field(default_factory=list, max_length=12)
     document_confidence: float | None = Field(default=None, ge=0, le=1)
+    capture_mode: Literal["single", "segmented"] = "single"
+    segments: list[BodyCompositionCaptureSegment] = Field(default_factory=list, max_length=3)
+
+
+class BodyCompositionCaptureRecommendation(BaseModel):
+    mode: Literal["single", "segmented", "retry"]
+    reason: str
+    required_segments: list[Literal["top", "middle", "bottom"]] = Field(default_factory=list)
+    message: str
 
 
 class BodyCompositionImageQuality(BaseModel):
@@ -278,6 +298,7 @@ class BodyCompositionImageParseResultRead(BodyCompositionImageOcrPayload):
     preprocessing: BodyCompositionImagePreprocessing = Field(default_factory=BodyCompositionImagePreprocessing)
     profile_conflicts: list[BodyCompositionProfileConflict] = Field(default_factory=list)
     suggested_resolution: str | None = None
+    capture_recommendation: BodyCompositionCaptureRecommendation | None = None
 
 
 class BodyCompositionEvaluationBase(BaseModel):

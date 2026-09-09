@@ -42,7 +42,7 @@ export function Pagination({ page, pageSize, total, onPageChange }: PaginationPr
         type="button"
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
-        className="inline-flex h-8 items-center gap-1 rounded-lg border border-lovable-border px-2 text-xs font-semibold text-lovable-ink disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-11 items-center gap-1 rounded-lg border border-lovable-border px-3 text-xs font-semibold text-lovable-ink disabled:cursor-not-allowed disabled:opacity-50 md:h-8 md:px-2"
       >
         <ChevronLeft size={14} />
         Anterior
@@ -59,7 +59,7 @@ export function Pagination({ page, pageSize, total, onPageChange }: PaginationPr
             type="button"
             onClick={() => onPageChange(token)}
             className={cn(
-              "h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition",
+              "h-11 min-w-11 rounded-lg px-2 text-xs font-semibold transition md:h-8 md:min-w-8",
               token === page
                 ? "bg-lovable-primary text-white"
                 : "border border-lovable-border text-lovable-ink hover:bg-lovable-surface-soft",
@@ -75,7 +75,7 @@ export function Pagination({ page, pageSize, total, onPageChange }: PaginationPr
         type="button"
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
-        className="inline-flex h-8 items-center gap-1 rounded-lg border border-lovable-border px-2 text-xs font-semibold text-lovable-ink disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-11 items-center gap-1 rounded-lg border border-lovable-border px-3 text-xs font-semibold text-lovable-ink disabled:cursor-not-allowed disabled:opacity-50 md:h-8 md:px-2"
       >
         Proximo
         <ChevronRight size={14} />

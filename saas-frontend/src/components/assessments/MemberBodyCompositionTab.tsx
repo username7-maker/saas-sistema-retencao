@@ -26,6 +26,8 @@ import { Link } from "react-router-dom";
 import { z } from "zod";
 
 import { AIAssistantPanel } from "../common/AIAssistantPanel";
+import { KeyboardAwareContainer } from "../mobile/KeyboardAwareContainer";
+import { MobileActionBar } from "../mobile/MobileActionBar";
 import {
   BODY_COMPOSITION_PROTOCOLS,
   SKINFOLD_FIELD_LABELS,
@@ -990,6 +992,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadataState>(EMPTY_OCR_METADATA);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [captureMetadata, setCaptureMetadata] = useState<BodyCompositionCaptureMetadata | null>(null);
+  const [supplementalOcrFiles, setSupplementalOcrFiles] = useState<File[]>([]);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => (
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  ));
   const ocrFileRef = useRef<File | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
   const recoveredDraftMemberRef = useRef<string | null>(null);
@@ -1069,10 +1077,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const watchedWeightKg = watch("weight_kg");
   const watchedBodyWaterKg = watch("body_water_kg");
 
-  function selectOcrFile(file: File | null, metadata?: BodyCompositionCaptureMetadata) {
+  function selectOcrFile(file: File | null, metadata?: BodyCompositionCaptureMetadata, supplementalFiles: File[] = []) {
     ocrFileRef.current = file;
     setOcrFile(file);
     setCaptureMetadata(metadata ?? null);
+    setSupplementalOcrFiles(file ? supplementalFiles : []);
     setOcrFileNeedsRead(Boolean(file));
     // A leitura pertence exatamente ao arquivo que a originou. Ao trocar a
     // imagem, descarte todo o estado transitório para que valores e conflitos
@@ -1102,6 +1111,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     setOcrMetadata(buildOcrMetadata(evaluation));
     ocrFileRef.current = null;
     setOcrFile(null);
+    setSupplementalOcrFiles([]);
     setOcrFileNeedsRead(false);
     setOcrResult(null);
     setOcrReadSession(EMPTY_OCR_READ_SESSION);
@@ -1118,7 +1128,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       if (editingEvaluationId) {
         return bodyCompositionService.update(memberId, editingEvaluationId, payload, { syncActuar });
       }
-      return bodyCompositionService.create(memberId, payload, { syncActuar });
+      return bodyCompositionService.create(memberId, payload, { syncActuar, idempotencyKey });
     },
     onSuccess: async (savedEvaluation, variables) => {
       clearBodyCompositionDraft(memberId);
@@ -1136,6 +1146,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       }
       await invalidateAssessmentQueries(queryClient, memberId);
       resetEditor(savedEvaluation);
+      setIdempotencyKey(
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      );
     },
     onError: (error) => {
       if (error instanceof AxiosError && error.response?.status === 401) {
@@ -1877,6 +1892,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         evaluationDate: requestedEvaluationDate,
         onStage: setOcrReadStage,
         ...(captureMetadata ? { captureMetadata } : {}),
+        ...(supplementalOcrFiles.length ? { supplementalFiles: supplementalOcrFiles } : {}),
       });
       if (getValues("evaluation_date") !== requestedEvaluationDate) {
         toast.error("A data da avaliacao mudou durante a leitura. Tente novamente para recalcular a idade com seguranca.", {
@@ -2095,7 +2111,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
             <CardTitle>{editingEvaluationId ? "Editar bioimpedancia" : "Registrar bioimpedancia"}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            <KeyboardAwareContainer>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 pb-[var(--mobile-action-height,0px)] md:pb-0">
               <section className="rounded-2xl border border-lovable-border bg-lovable-surface-soft p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -2664,7 +2681,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                 </FormField>
               </div>
 
-              {mobileOperationalV2 ? <div className="sticky bottom-0 z-20 -mx-4 flex gap-2 border-t border-lovable-border bg-lovable-surface/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:hidden">
+              {mobileOperationalV2 ? <MobileActionBar>
                 <Button type="button" className="flex-1 px-2" variant="secondary" onClick={() => setCameraOpen(true)}>
                   <Camera size={16} /> Foto
                 </Button>
@@ -2685,7 +2702,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                 >
                   <Save size={16} /> Salvar
                 </Button>
-              </div> : null}
+              </MobileActionBar> : null}
 
               <div className="flex flex-wrap justify-end gap-2">
                 {editingEvaluationId ? (
@@ -2715,6 +2732,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                 </Button>
               </div>
             </form>
+            </KeyboardAwareContainer>
           </CardContent>
         </Card>
 

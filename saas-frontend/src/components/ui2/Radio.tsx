@@ -11,9 +11,7 @@ export const Radio = forwardRef<HTMLInputElement, RadioProps>(function Radio(
   return (
     <span
       className={cn(
-        "relative inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors duration-150",
-        "border-lovable-border bg-lovable-bg-muted/82",
-        "has-[:checked]:border-[hsl(var(--lovable-primary))]",
+        "relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
         "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[hsl(var(--lovable-primary)/0.45)] has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-[hsl(var(--lovable-bg))]",
         disabled && "opacity-50",
         className,
@@ -27,9 +25,9 @@ export const Radio = forwardRef<HTMLInputElement, RadioProps>(function Radio(
         className="peer absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
         {...props}
       />
-      {checked ? (
-        <span className="pointer-events-none h-[8px] w-[8px] rounded-full bg-[hsl(var(--lovable-primary))]" />
-      ) : null}
+      <span className="pointer-events-none inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-lovable-border bg-lovable-bg-muted/82 peer-checked:border-[hsl(var(--lovable-primary))]">
+        {checked ? <span className="h-[8px] w-[8px] rounded-full bg-[hsl(var(--lovable-primary))]" /> : null}
+      </span>
     </span>
   );
 });

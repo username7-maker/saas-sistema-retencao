@@ -121,7 +121,7 @@ describe("SettingsPage", () => {
   it("lets an authenticated user change their own password and logs out", async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Seguranca" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Seguranca" }));
     fireEvent.change(screen.getByPlaceholderText("Senha atual"), { target: { value: "Current123" } });
     fireEvent.change(screen.getByPlaceholderText("Minimo de 8 caracteres"), { target: { value: "NewSecret123" } });
     fireEvent.change(screen.getByPlaceholderText("Repita a nova senha"), { target: { value: "NewSecret123" } });
@@ -142,7 +142,7 @@ describe("SettingsPage", () => {
   it("keeps e-mail recovery as a fallback path with provider failure guidance", async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Seguranca" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Seguranca" }));
 
     expect(screen.getByText("Recuperacao por e-mail")).toBeInTheDocument();
     expect(screen.getByText(/Se o provedor de e-mail bloquear o envio/i)).toBeInTheDocument();

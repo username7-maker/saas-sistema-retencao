@@ -1,7 +1,9 @@
+import hashlib
+import json
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.models.actuar_sync import ActuarSyncJob
@@ -66,7 +68,27 @@ def create_body_composition_evaluation(
     *,
     reviewer_user_id: UUID | None = None,
     sync_actuar: bool = True,
+    idempotency_key: UUID | None = None,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
+    payload_hash = _body_composition_payload_hash(payload)
+    if idempotency_key is not None:
+        _lock_body_composition_idempotency_key(db, gym_id=gym_id, idempotency_key=idempotency_key)
+        existing = db.scalar(
+            select(BodyCompositionEvaluation).where(
+                BodyCompositionEvaluation.gym_id == gym_id,
+                BodyCompositionEvaluation.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is not None:
+            if existing.member_id != member_id or (
+                existing.idempotency_payload_hash
+                and existing.idempotency_payload_hash != payload_hash
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A mesma chave de idempotencia ja foi usada com outra avaliacao.",
+                )
+            return existing, None
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id)
     evaluation_data = resolve_body_composition_persistence_fields(
@@ -80,6 +102,8 @@ def create_body_composition_evaluation(
     evaluation = BodyCompositionEvaluation(
         gym_id=gym_id,
         member_id=member_id,
+        idempotency_key=idempotency_key,
+        idempotency_payload_hash=payload_hash if idempotency_key is not None else None,
         **evaluation_data,
     )
     db.add(evaluation)
@@ -95,6 +119,26 @@ def create_body_composition_evaluation(
     sync_attempt = prepare_body_composition_sync_attempt(db, member=member, evaluation=evaluation) if sync_actuar else None
     db.flush()
     return evaluation, sync_attempt
+
+
+def _body_composition_payload_hash(payload: BodyCompositionEvaluationCreate) -> str:
+    canonical = json.dumps(
+        payload.model_dump(mode="json", exclude_none=False),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _lock_body_composition_idempotency_key(db: Session, *, gym_id: UUID, idempotency_key: UUID) -> None:
+    """Serialize equal keys in PostgreSQL so concurrent retries cannot both insert."""
+    bind = db.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", None) != "postgresql":
+        return
+    digest = hashlib.sha256(f"{gym_id}:{idempotency_key}".encode("ascii")).digest()
+    lock_id = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    db.execute(select(func.pg_advisory_xact_lock(lock_id)))
 
 
 def list_body_composition_evaluations(

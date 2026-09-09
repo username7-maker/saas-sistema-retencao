@@ -32,6 +32,75 @@ def _ai_payload() -> dict:
 
 
 class TestCreateBodyComposition:
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_returns_existing_evaluation_for_same_idempotency_key_and_payload(self, mock_get_member):
+        from app.schemas.body_composition import BodyCompositionEvaluationCreate
+        from app.services.body_composition_service import (
+            _body_composition_payload_hash,
+            create_body_composition_evaluation,
+        )
+
+        payload = BodyCompositionEvaluationCreate(
+            evaluation_date=date(2026, 9, 8),
+            source="manual",
+            weight_kg=80.0,
+        )
+        key = uuid.uuid4()
+        existing = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            idempotency_key=key,
+            idempotency_payload_hash=_body_composition_payload_hash(payload),
+        )
+        db = MagicMock()
+        db.scalar.return_value = existing
+
+        evaluation, attempt = create_body_composition_evaluation(
+            db,
+            GYM_ID,
+            MEMBER_ID,
+            payload,
+            idempotency_key=key,
+        )
+
+        assert evaluation is existing
+        assert attempt is None
+        db.add.assert_not_called()
+        mock_get_member.assert_not_called()
+
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_rejects_reused_idempotency_key_with_different_payload(self, mock_get_member):
+        from app.schemas.body_composition import BodyCompositionEvaluationCreate
+        from app.services.body_composition_service import create_body_composition_evaluation
+
+        key = uuid.uuid4()
+        db = MagicMock()
+        db.scalar.return_value = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            idempotency_key=key,
+            idempotency_payload_hash="different-payload-hash",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            create_body_composition_evaluation(
+                db,
+                GYM_ID,
+                MEMBER_ID,
+                BodyCompositionEvaluationCreate(
+                    evaluation_date=date(2026, 9, 8),
+                    source="manual",
+                    weight_kg=81.0,
+                ),
+                idempotency_key=key,
+            )
+
+        assert exc_info.value.status_code == 409
+        db.add.assert_not_called()
+        mock_get_member.assert_not_called()
+
     @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt")
     @patch("app.services.body_composition_service.generate_body_composition_ai")
     @patch("app.services.body_composition_service.get_member_or_404")

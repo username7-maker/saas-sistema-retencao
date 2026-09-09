@@ -678,6 +678,69 @@ class TestImageParseService:
 
 
 class TestImageParseRoute:
+    def test_accepts_three_segmented_images(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ), patch(
+                "app.routers.members.parse_body_composition_image",
+                return_value=_ai_parse_result(),
+            ) as mock_parse, patch(
+                "app.routers.members.settings.body_composition_multi_image_parse_v1",
+                True,
+            ):
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/parse-image",
+                    files=[
+                        ("file", ("top.jpg", b"top-image", "image/jpeg")),
+                        ("supplemental_files", ("middle.jpg", b"middle-image", "image/jpeg")),
+                        ("supplemental_files", ("bottom.jpg", b"bottom-image", "image/jpeg")),
+                    ],
+                )
+
+            assert response.status_code == 200
+            supplemental = mock_parse.call_args.kwargs["supplemental_images"]
+            assert [content for content, _media_type in supplemental] == [b"middle-image", b"bottom-image"]
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_rejects_more_than_three_images(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ), patch(
+                "app.routers.members.settings.body_composition_multi_image_parse_v1",
+                True,
+            ):
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/parse-image",
+                    files=[
+                        ("file", ("top.jpg", b"top-image", "image/jpeg")),
+                        ("supplemental_files", ("middle.jpg", b"middle-image", "image/jpeg")),
+                        ("supplemental_files", ("bottom.jpg", b"bottom-image", "image/jpeg")),
+                        ("supplemental_files", ("extra.jpg", b"extra-image", "image/jpeg")),
+                    ],
+                )
+
+            assert response.status_code == 422
+            assert "maximo tres imagens" in response.json()["detail"]
+        finally:
+            app.dependency_overrides.clear()
+
     def test_requires_authentication(self, client):
         response = client.post(
             f"/api/v1/members/{MEMBER_ID}/body-composition/parse-image",

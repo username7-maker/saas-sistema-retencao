@@ -20,6 +20,7 @@ export interface BodyCompositionOcrFieldMetadata {
   label?: string | null;
   evidence: string | null;
   suggested_value: string | number | null;
+  segment?: "full" | "top" | "middle" | "bottom" | null;
 }
 
 export interface BodyCompositionValidationIssue {
@@ -37,6 +38,16 @@ export interface BodyCompositionOcrProcessing {
   image_width?: number | null;
   image_height?: number | null;
   capture_device_kind?: "webcam" | "mobile" | "unknown";
+  capture_mode?: "single" | "segmented";
+  segment_count?: number;
+}
+
+export interface BodyCompositionCaptureSegment {
+  role: "full" | "top" | "middle" | "bottom";
+  width: number;
+  height: number;
+  rotation: number;
+  index: number;
 }
 
 export interface BodyCompositionCaptureMetadata {
@@ -46,6 +57,8 @@ export interface BodyCompositionCaptureMetadata {
   device_kind: "webcam" | "mobile" | "unknown";
   quality_codes: string[];
   document_confidence: number | null;
+  capture_mode?: "single" | "segmented";
+  segments?: BodyCompositionCaptureSegment[];
 }
 
 export interface BodyCompositionImageQuality {
@@ -126,6 +139,12 @@ export interface BodyCompositionOcrResult {
     image_value: string | number | null;
   }>;
   suggested_resolution?: string | null;
+  capture_recommendation?: {
+    mode: "single" | "segmented" | "retry";
+    reason: string;
+    required_segments: Array<"top" | "middle" | "bottom">;
+    message: string;
+  } | null;
 }
 
 type Parser = (rawText: string) => BodyCompositionOcrResult;
