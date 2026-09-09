@@ -1,4 +1,4 @@
-from datetime import date, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
 from collections import Counter
@@ -987,6 +987,62 @@ def test_import_checkins_csv_groups_missing_members() -> None:
         "Ronaldo Dos Santos",
     ]
     assert summary.missing_members[0].occurrences == 2
+
+
+def test_preview_checkins_warns_about_gap_after_latest_saved_access() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+    )
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = [member]
+    db.execute.return_value.all.return_value = []
+    db.scalar.return_value = datetime(2026, 9, 1, 21, 0, tzinfo=timezone.utc)
+
+    preview = import_service.preview_checkins_csv(
+        db,
+        b"email,data,hora\naluno.existente@example.com,2026-09-05,08:00\n",
+        filename="Acessos.csv",
+    )
+
+    assert any("lacuna de 3 dia(s)" in warning for warning in preview.warnings)
+    assert any("filtros do relatorio do Actuar" in warning for warning in preview.warnings)
+
+
+@patch("app.services.import_service.sync_preferred_shifts_from_checkins")
+def test_reimported_duplicate_repairs_member_last_checkin(mock_sync_shift) -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Aluno Existente",
+        email="aluno.existente@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="Mensal",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        last_checkin_at=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    )
+    parsed = import_service._parse_datetime("2026-09-05 08:00")
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = [member]
+    db.execute.return_value.all.return_value = [(member.id, parsed)]
+
+    summary = import_service.import_checkins_csv(
+        db,
+        b"email,data,hora\naluno.existente@example.com,2026-09-05,08:00\n",
+        filename="Acessos.csv",
+    )
+
+    assert summary.imported == 0
+    assert summary.skipped_duplicates == 1
+    assert member.last_checkin_at == parsed
+    mock_sync_shift.assert_called_once()
 
 
 def test_import_checkins_csv_auto_creates_missing_members(monkeypatch) -> None:

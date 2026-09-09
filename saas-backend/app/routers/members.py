@@ -94,6 +94,7 @@ from app.services.member_operational_profile_service import (
     create_member_note,
     list_member_notes,
 )
+from app.services.member_profile_permissions_service import build_member_profile_permissions
 from app.services.member_service import (
     create_member,
     get_member_or_404,
@@ -295,7 +296,10 @@ def get_member_workspace_bootstrap_endpoint(
     member = get_member_or_404(db, member_id, gym_id=current_user.gym_id)
     profile_payload = get_member_profile_360(db, member_id)
     summary_payload = get_assessment_summary_360(db, member_id)
-    operational_payload = build_member_operational_profile(db, member_id=member_id, current_user=current_user)
+    # The operational profile is intentionally loaded by its own lazy endpoint.
+    # Building it here duplicated dozens of queries and one invalid optional
+    # operational signal could turn the entire workspace bootstrap into a 422.
+    permissions = build_member_profile_permissions(current_user)
     assessments = list_assessments(db, member_id, gym_id=current_user.gym_id)[:10]
     body_evaluations = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=5)
 
@@ -339,7 +343,7 @@ def get_member_workspace_bootstrap_endpoint(
         "member": MemberOut.model_validate(member).model_dump(mode="json"),
         "profile_summary": profile.model_dump(mode="json"),
         "latest_assessments": [AssessmentOut.model_validate(item).model_dump(mode="json") for item in assessments],
-        "operational_summary": MemberOperationalProfileOut.model_validate(operational_payload).model_dump(mode="json"),
+        "operational_summary": None,
         "summary_360": summary.model_dump(mode="json"),
         "body_composition": [
             item.model_dump(mode="json")
@@ -347,7 +351,7 @@ def get_member_workspace_bootstrap_endpoint(
                 db, current_user.gym_id, member_id, body_evaluations
             )
         ],
-        "permissions": operational_payload.get("permissions", {}),
+        "permissions": permissions,
         "version": getattr(member, "updated_at", None).isoformat() if getattr(member, "updated_at", None) else "1",
     }
 

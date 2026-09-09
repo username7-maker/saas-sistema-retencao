@@ -13,7 +13,7 @@ from defusedxml import ElementTree as ET
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_dashboard_cache
@@ -780,6 +780,7 @@ def preview_checkins_csv(
     pending_existing_rows: list[tuple[Member, datetime, int, dict[str, str]]] = []
     missing_member_counts: Counter[str] = Counter()
     missing_member_plans: dict[str, str | None] = {}
+    parsed_checkin_dates: set[date] = set()
     normalized_mappings, normalized_ignored = _normalize_mapping_inputs(
         column_mappings,
         ignored_columns,
@@ -806,6 +807,8 @@ def preview_checkins_csv(
         if not parsed:
             errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=mapped_row))
             continue
+
+        parsed_checkin_dates.add(parsed.date())
 
         member = _resolve_member_from_row(mapped_row, lookup)
         if not member and auto_create_missing_members:
@@ -871,6 +874,36 @@ def preview_checkins_csv(
                         "action": "create_checkin",
                     },
                 )
+            )
+
+    latest_existing_checkin_at = db.scalar(select(func.max(Checkin.checkin_at)))
+    if parsed_checkin_dates and isinstance(latest_existing_checkin_at, datetime):
+        first_incoming_date = min(parsed_checkin_dates)
+        previous_date = latest_existing_checkin_at.date()
+        missing_days = (first_incoming_date - previous_date).days - 1
+        if missing_days > 0:
+            warnings.append(
+                "Existe uma lacuna de "
+                f"{missing_days} dia(s) entre o ultimo acesso salvo ({previous_date.strftime('%d/%m/%Y')}) "
+                f"e o primeiro acesso deste arquivo ({first_incoming_date.strftime('%d/%m/%Y')}). "
+                "Confira o periodo e os filtros do relatorio do Actuar antes de confirmar."
+            )
+
+    if len(parsed_checkin_dates) > 1:
+        first_incoming_date = min(parsed_checkin_dates)
+        last_incoming_date = max(parsed_checkin_dates)
+        expected_dates = {
+            first_incoming_date + timedelta(days=offset)
+            for offset in range((last_incoming_date - first_incoming_date).days + 1)
+        }
+        missing_in_file = sorted(expected_dates - parsed_checkin_dates)
+        if missing_in_file:
+            sample = ", ".join(item.strftime("%d/%m/%Y") for item in missing_in_file[:5])
+            suffix = "..." if len(missing_in_file) > 5 else ""
+            warnings.append(
+                "O arquivo nao possui acessos em "
+                f"{len(missing_in_file)} dia(s) dentro do proprio periodo ({sample}{suffix}). "
+                "Confira se a academia esteve fechada ou se ha filtros ativos no Actuar."
             )
 
     if auto_create_missing_members and provisional_members_possible > 0:
@@ -1461,6 +1494,13 @@ def import_checkins_csv(
 
     for member, parsed, source, row in pending_rows:
         unique_key = (str(member.id), parsed.isoformat())
+        # A reimportacao tambem deve reparar o resumo desnormalizado do membro.
+        # Antes, uma linha ja existente era descartada antes dessa reconciliacao,
+        # deixando a Retencao incorreta mesmo com o check-in presente no banco.
+        if member.last_checkin_at is None or parsed > member.last_checkin_at:
+            member.last_checkin_at = parsed
+            touched_member_ids.add(member.id)
+            db.add(member)
         if unique_key in existing_keys:
             duplicates += 1
             continue
@@ -1473,9 +1513,6 @@ def import_checkins_csv(
             weekday=parsed.weekday(),
             extra_data={"imported": True, "raw": row},
         )
-        if member.last_checkin_at is None or parsed > member.last_checkin_at:
-            member.last_checkin_at = parsed
-            db.add(member)
         touched_member_ids.add(member.id)
         db.add(checkin)
         imported += 1

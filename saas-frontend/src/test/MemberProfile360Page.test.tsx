@@ -92,7 +92,10 @@ vi.mock("../services/memberTimelineService", () => ({
 
 vi.mock("../services/memberService", () => ({
   memberService: {
+    getWorkspaceBootstrap: vi.fn(),
     getMember: vi.fn(),
+    getOperationalProfile: vi.fn(),
+    getIntelligenceContext: vi.fn(),
     updateMember: vi.fn(),
   },
 }));
@@ -192,6 +195,7 @@ function renderPage(initialEntry = "/assessments/members/member-1") {
 describe("MemberProfile360Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("VITE_MEMBER_WORKSPACE_BOOTSTRAP_V1", "false");
     authState.user = { id: "owner-1", full_name: "Owner Teste", role: "owner" };
     window.localStorage.clear();
 
@@ -207,6 +211,13 @@ describe("MemberProfile360Page", () => {
     vi.mocked(bodyCompositionService.list).mockResolvedValue([]);
     vi.mocked(memberTimelineService.list).mockResolvedValue([]);
     vi.mocked(memberService.getMember).mockResolvedValue(minimalMember);
+    vi.mocked(memberService.getOperationalProfile).mockResolvedValue({
+      notes: [],
+      next_best_action: null,
+      autopilot: null,
+      tasks: { open_total: 0 },
+    } as never);
+    vi.mocked(memberService.getIntelligenceContext).mockRejectedValue(new Error("not used in this focused test"));
     vi.mocked(memberService.updateMember).mockResolvedValue(minimalMember);
     vi.mocked(taskService.listAllTasks).mockResolvedValue({
       items: [],
@@ -370,5 +381,17 @@ describe("MemberProfile360Page", () => {
     await screen.findByRole("heading", { name: "Ana Silva" });
 
     expect(screen.queryByText("Nota local antiga")).not.toBeInTheDocument();
+  });
+
+  it("falls back after one failed workspace bootstrap request", async () => {
+    vi.stubEnv("VITE_MEMBER_WORKSPACE_BOOTSTRAP_V1", "true");
+    vi.mocked(memberService.getWorkspaceBootstrap).mockRejectedValueOnce(new Error("bootstrap unavailable"));
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
+    expect(memberService.getWorkspaceBootstrap).toHaveBeenCalledTimes(1);
+    expect(assessmentService.profile360).toHaveBeenCalledTimes(1);
+    expect(memberService.getMember).toHaveBeenCalledTimes(1);
   });
 });

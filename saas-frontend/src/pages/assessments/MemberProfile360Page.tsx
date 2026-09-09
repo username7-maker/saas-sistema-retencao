@@ -1000,6 +1000,7 @@ export function MemberProfile360Page() {
     queryFn: () => memberService.getWorkspaceBootstrap(memberId ?? ""),
     enabled: Boolean(memberId) && workspaceBootstrapEnabled,
     staleTime: 60 * 1000,
+    retry: false,
   });
 
   useEffect(() => {
@@ -1008,7 +1009,9 @@ export function MemberProfile360Page() {
     queryClient.setQueryData(["assessments", "profile360", memberId], data.profile_summary);
     queryClient.setQueryData(["members", memberId], data.member);
     queryClient.setQueryData(["assessments", "summary360", memberId], data.summary_360);
-    queryClient.setQueryData(["members", "operational-profile", memberId], data.operational_summary);
+    if (data.operational_summary) {
+      queryClient.setQueryData(["members", "operational-profile", memberId], data.operational_summary);
+    }
     queryClient.setQueryData(["body-composition", memberId], data.body_composition);
   }, [bootstrapQuery.data, memberId, queryClient]);
 
@@ -1061,7 +1064,7 @@ export function MemberProfile360Page() {
   const operationalProfileQuery = useQuery({
     queryKey: ["members", "operational-profile", memberId],
     queryFn: () => memberService.getOperationalProfile(memberId ?? ""),
-    enabled: Boolean(memberId) && shouldLoadIndividualWorkspaceQueries,
+    enabled: Boolean(memberId) && (shouldLoadIndividualWorkspaceQueries || Boolean(bootstrapQuery.data)),
     staleTime: 60 * 1000,
   });
 

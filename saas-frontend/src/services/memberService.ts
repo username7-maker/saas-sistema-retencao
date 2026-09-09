@@ -172,7 +172,7 @@ export interface MemberWorkspaceBootstrap {
   member: Member;
   profile_summary: Profile360;
   latest_assessments: Assessment[];
-  operational_summary: MemberOperationalProfile;
+  operational_summary: MemberOperationalProfile | null;
   summary_360: AssessmentSummary360;
   body_composition: BodyCompositionEvaluation[];
   permissions: Record<string, unknown>;
