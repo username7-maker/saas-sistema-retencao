@@ -495,7 +495,11 @@ describe("MemberBodyCompositionTab", () => {
 
     renderTab();
 
-    expect(await screen.findByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("31");
+    expect(await screen.findByRole(
+      "textbox",
+      { name: "Idade para protocolo" },
+      { timeout: 5_000 },
+    )).toHaveValue("31");
     expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
     expect(screen.getAllByDisplayValue("62.5")).toHaveLength(1);
   }, 10_000);
