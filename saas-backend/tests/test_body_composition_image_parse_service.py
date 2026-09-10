@@ -13,6 +13,7 @@ from app.schemas.body_composition import (
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
 )
+from app.services.document_image_preprocessing import DocumentPreprocessingResult
 
 MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 
@@ -195,6 +196,118 @@ def _validate_strict(
 
 
 class TestImageParseService:
+    def test_retries_with_safe_enhancement_only_when_essential_fields_are_missing(self):
+        primary = _strict_ai_result()
+        primary.values.age_years = None
+        primary.values.sex = None
+        primary.values.height_cm = None
+        primary.values.bmi = None
+        for field_name in ("age_years", "sex", "height_cm", "bmi"):
+            primary.field_metadata.pop(field_name, None)
+        recovered = _strict_ai_result()
+        preprocessing = DocumentPreprocessingResult(
+            image_bytes=b"primary-enhanced",
+            media_type="image/jpeg",
+            applied=True,
+            method="original+clahe",
+            confidence=0.8,
+            source_width=1920,
+            source_height=1080,
+            output_width=1920,
+            output_height=1080,
+            recovery_image_bytes=b"recovery-high-contrast",
+            recovery_media_type="image/jpeg",
+            recovery_method="thermal_adaptive_threshold+unsharp",
+        )
+
+        with patch(
+            "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",
+            True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.settings.openai_api_key",
+            "test-openai-key",
+        ), patch(
+            "app.services.body_composition_image_parse_service._image_ai_available",
+            return_value=True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.preprocess_receipt_image",
+            return_value=preprocessing,
+        ), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            side_effect=[primary, recovered],
+        ) as mock_provider:
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                evaluation_date=date(2026, 9, 3),
+                member_birthdate=None,
+                member_sex=None,
+                member_height_cm=None,
+            )
+
+        assert mock_provider.call_count == 2
+        assert mock_provider.call_args_list[0].kwargs["images"][0][0] == b"primary-enhanced"
+        assert mock_provider.call_args_list[1].kwargs["images"][0][0] == b"recovery-high-contrast"
+        assert result.values.age_years == 40
+        assert result.values.height_cm == 180
+        assert result.values.bmi == 25
+        assert result.processing.enhancement_retry_used is True
+        assert result.processing.enhancement_variant == "thermal_adaptive_threshold+unsharp"
+
+    def test_recovery_failure_keeps_primary_ai_result(self):
+        primary = _strict_ai_result()
+        primary.values.bmi = None
+        primary.field_metadata.pop("bmi", None)
+        preprocessing = DocumentPreprocessingResult(
+            image_bytes=b"primary-enhanced",
+            media_type="image/jpeg",
+            applied=True,
+            method="original+clahe",
+            confidence=0.8,
+            source_width=1920,
+            source_height=1080,
+            output_width=1920,
+            output_height=1080,
+            recovery_image_bytes=b"recovery-high-contrast",
+            recovery_media_type="image/jpeg",
+            recovery_method="thermal_adaptive_threshold+unsharp",
+        )
+
+        with patch(
+            "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",
+            True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.settings.openai_api_key",
+            "test-openai-key",
+        ), patch(
+            "app.services.body_composition_image_parse_service._image_ai_available",
+            return_value=True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.preprocess_receipt_image",
+            return_value=preprocessing,
+        ), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            side_effect=[primary, TimeoutError("recovery timed out")],
+        ):
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image",
+                media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1",
+                evaluation_date=date(2026, 9, 3),
+                member_birthdate=date(1986, 9, 3),
+                member_sex="male",
+                member_height_cm=180,
+            )
+
+        assert result.values.weight_kg == 81
+        assert result.processing.primary_engine == "ai_image"
+        assert result.processing.enhancement_retry_used is False
+
     def test_strict_parse_keeps_member_context_out_of_provider_request(self):
         with patch(
             "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",

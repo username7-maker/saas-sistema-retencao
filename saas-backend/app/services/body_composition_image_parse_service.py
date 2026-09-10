@@ -18,25 +18,25 @@ from pydantic import BaseModel, Field
 from app.core.circuit_breaker import claude_circuit_breaker
 from app.core.config import settings
 from app.schemas.body_composition import (
-    BodyCompositionDeviceProfile,
     BodyCompositionCaptureMetadata,
+    BodyCompositionDeviceProfile,
     BodyCompositionFieldMetadata,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
-    BodyCompositionImageProcessing,
     BodyCompositionImagePreprocessing,
+    BodyCompositionImageProcessing,
     BodyCompositionImageQuality,
-    BodyCompositionProfileConflict,
     BodyCompositionOcrValues,
     BodyCompositionOcrWarning,
+    BodyCompositionProfileConflict,
     BodyCompositionRangeValue,
     BodyCompositionValidationIssue,
 )
-from app.services.document_image_preprocessing import DocumentPreprocessingResult, preprocess_receipt_image
 from app.services.body_composition_report_service import (
     build_body_composition_quality_flags,
     calculate_body_water_percent,
 )
+from app.services.document_image_preprocessing import DocumentPreprocessingResult, preprocess_receipt_image
 from app.utils.claude import _parse_claude_json
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ DEMOGRAPHIC_FIELDS = {"age_years", "sex", "height_cm"}
 AI_EVIDENCE_CRITICAL_FIELDS = {"weight_kg", "bmi"}
 POSITIONAL_INFERENCE_MARKERS = ("inferido pela ordem", "inferida pela ordem", "ordem esperada")
 MIN_EVIDENCE_CONFIDENCE = 0.65
+RECOVERY_READ_FIELDS = ("age_years", "sex", "height_cm", "weight_kg", "bmi")
 FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
     "evaluation_date": ("date", "data", "test time", "hora do teste"),
     "measured_at": ("date", "data", "time", "hora"),
@@ -291,10 +292,20 @@ def parse_body_composition_image(
     preprocessing = preprocessings[0]
     segment_roles = ["full"] if len(input_images) == 1 else ["top", "middle", "bottom"][:len(input_images)]
     provider_images = []
+    recovery_provider_images = []
+    has_recovery_variant = False
     for index, ((content, normalized_type), prepared) in enumerate(zip(input_images, preprocessings, strict=True)):
         provider_images.append((
             prepared.image_bytes if prepared and prepared.applied else content,
             prepared.media_type if prepared and prepared.applied else normalized_type,
+            segment_roles[index],
+        ))
+        recovery_bytes = prepared.recovery_image_bytes if prepared else None
+        recovery_type = prepared.recovery_media_type if prepared else None
+        has_recovery_variant = has_recovery_variant or recovery_bytes is not None
+        recovery_provider_images.append((
+            recovery_bytes or (prepared.image_bytes if prepared and prepared.applied else content),
+            recovery_type or (prepared.media_type if prepared and prepared.applied else normalized_type),
             segment_roles[index],
         ))
 
@@ -328,6 +339,8 @@ def parse_body_composition_image(
             capture_metadata=capture_metadata,
         )
 
+    enhancement_retry_used = False
+    enhancement_variant = None
     try:
         provider_local_hint = (
             None if settings.body_composition_image_ai_validation_enabled else local_payload
@@ -344,6 +357,37 @@ def parse_body_composition_image(
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
+        missing_recovery_fields = _missing_recovery_read_fields(ai_payload)
+        if has_recovery_variant and missing_recovery_fields:
+            try:
+                if provider == "openai":
+                    recovery_payload = _parse_with_openai_vision(
+                        images=recovery_provider_images,
+                        device_profile=normalized_device_profile,
+                        local_ocr_result=provider_local_hint,
+                    )
+                else:
+                    recovery_payload = _parse_with_claude_vision(
+                        images=recovery_provider_images,
+                        device_profile=normalized_device_profile,
+                        local_ocr_result=provider_local_hint,
+                    )
+                ai_payload = _merge_ai_recovery_result(ai_payload, recovery_payload)
+                enhancement_retry_used = True
+                enhancement_variant = "thermal_adaptive_threshold+unsharp"
+                logger.info(
+                    "body_composition_image_enhancement_retry provider=%s missing_fields=%s",
+                    provider,
+                    ",".join(missing_recovery_fields),
+                )
+            except Exception as recovery_exc:
+                # The primary AI result remains valid. A recovery failure must
+                # never turn a partially successful read into a total failure.
+                logger.warning(
+                    "body_composition_image_enhancement_retry_failed provider=%s error_type=%s",
+                    provider,
+                    type(recovery_exc).__name__,
+                )
         if provider == "claude":
             claude_circuit_breaker.record_success()
     except Exception as exc:
@@ -402,6 +446,8 @@ def parse_body_composition_image(
         image_height=image_height,
         preprocessing=preprocessing,
         capture_metadata=capture_metadata,
+        enhancement_retry_used=enhancement_retry_used,
+        enhancement_variant=enhancement_variant,
     )
 
 
@@ -609,6 +655,52 @@ def _normalize_ai_payload(
         fallback_used=False,
         field_metadata=field_metadata,
         validation_issues=[],
+    )
+
+
+def _missing_recovery_read_fields(result: BodyCompositionImageParseResultRead) -> list[str]:
+    return [field_name for field_name in RECOVERY_READ_FIELDS if getattr(result.values, field_name, None) is None]
+
+
+def _merge_ai_recovery_result(
+    primary: BodyCompositionImageParseResultRead,
+    recovery: BodyCompositionImageParseResultRead,
+) -> BodyCompositionImageParseResultRead:
+    """Fill only absent values from the recovery read; never replace a primary value."""
+    value_updates: dict[str, Any] = {}
+    recovered_fields: set[str] = set()
+    for field_name in BodyCompositionOcrValues.model_fields:
+        if getattr(primary.values, field_name, None) is not None:
+            continue
+        recovered_value = getattr(recovery.values, field_name, None)
+        if recovered_value is None:
+            continue
+        value_updates[field_name] = recovered_value
+        recovered_fields.add(field_name)
+
+    ranges = dict(primary.ranges)
+    for field_name, range_value in recovery.ranges.items():
+        ranges.setdefault(field_name, range_value)
+
+    field_metadata = dict(primary.field_metadata)
+    for field_name in recovered_fields:
+        metadata = recovery.field_metadata.get(field_name)
+        if metadata is not None:
+            field_metadata[field_name] = metadata
+
+    recovery_warnings = [
+        warning for warning in recovery.warnings if warning.field is None or warning.field in recovered_fields
+    ]
+    return primary.model_copy(
+        update={
+            "device_model": primary.device_model or recovery.device_model,
+            "values": primary.values.model_copy(update=value_updates),
+            "ranges": ranges,
+            "warnings": _dedupe_warnings([*primary.warnings, *recovery_warnings]),
+            "field_metadata": field_metadata,
+            "confidence": max(primary.confidence, recovery.confidence),
+            "needs_review": primary.needs_review or recovery.needs_review,
+        }
     )
 
 
@@ -1433,6 +1525,8 @@ def _complete_parse_request(
     image_height: int | None,
     preprocessing: DocumentPreprocessingResult | None = None,
     capture_metadata: BodyCompositionCaptureMetadata | None = None,
+    enhancement_retry_used: bool = False,
+    enhancement_variant: str | None = None,
 ) -> BodyCompositionImageParseResultRead:
     duration_ms = max(0, round((perf_counter() - started_at) * 1000))
     local_result = result.engine == "local"
@@ -1445,7 +1539,13 @@ def _complete_parse_request(
         image_height=image_height,
         capture_device_kind=capture_metadata.device_kind if capture_metadata else "unknown",
         capture_mode=capture_metadata.capture_mode if capture_metadata else "single",
-        segment_count=max(1, len(capture_metadata.segments)) if capture_metadata and capture_metadata.capture_mode == "segmented" else 1,
+        segment_count=(
+            max(1, len(capture_metadata.segments))
+            if capture_metadata and capture_metadata.capture_mode == "segmented"
+            else 1
+        ),
+        enhancement_retry_used=enhancement_retry_used,
+        enhancement_variant=enhancement_variant,
     )
     quality_codes = list(preprocessing.quality_codes if preprocessing else [])
     if capture_metadata:
@@ -1509,13 +1609,14 @@ def _complete_parse_request(
     issue_codes = sorted({issue.code for issue in completed.validation_issues})
     logger.info(
         "body_composition_image_parse_complete provider=%s engine=%s fallback=%s duration_ms=%s "
-        "image_width=%s image_height=%s fields=%s issue_codes=%s",
+        "image_width=%s image_height=%s enhancement_retry=%s fields=%s issue_codes=%s",
         provider or "unavailable",
         processing.primary_engine,
         processing.fallback_used,
         duration_ms,
         image_width,
         image_height,
+        processing.enhancement_retry_used,
         ",".join(populated_fields),
         ",".join(issue_codes),
     )

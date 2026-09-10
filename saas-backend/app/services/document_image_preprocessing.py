@@ -23,6 +23,9 @@ class DocumentPreprocessingResult:
     output_height: int
     quality_codes: list[str] = field(default_factory=list)
     quality_metrics: dict[str, float] = field(default_factory=dict)
+    recovery_image_bytes: bytes | None = None
+    recovery_media_type: str | None = None
+    recovery_method: str | None = None
 
 
 def _order_points(points: np.ndarray) -> np.ndarray:
@@ -157,6 +160,45 @@ def _quality(gray: np.ndarray) -> tuple[list[str], dict[str, float]]:
     return codes, metrics
 
 
+def _encode_jpeg(image: np.ndarray, *, qualities: tuple[int, ...] = (90, 84, 78, 72)) -> bytes | None:
+    for quality in qualities:
+        ok, candidate = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        if not ok:
+            return None
+        if candidate.nbytes <= MAX_OUTPUT_BYTES:
+            return candidate.tobytes()
+    return None
+
+
+def _thermal_recovery_variant(image: np.ndarray) -> np.ndarray:
+    """Build a deterministic high-contrast variant without inventing receipt pixels."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    background = cv2.GaussianBlur(gray, (0, 0), sigmaX=31, sigmaY=31)
+    normalized = cv2.divide(gray, np.maximum(background, 1), scale=245)
+    contrasted = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(normalized)
+    blurred = cv2.GaussianBlur(contrasted, (0, 0), sigmaX=1.0, sigmaY=1.0)
+    sharpened = cv2.addWeighted(contrasted, 1.35, blurred, -0.35, 0)
+
+    # Thermal printers frequently produce a weak, uneven background. Adaptive
+    # thresholding makes the glyphs explicit for the recovery read while the
+    # normal grayscale/color variant remains the primary source.
+    shortest_side = min(sharpened.shape[:2])
+    if shortest_side < 35:
+        _, binary = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+    block_size = min(81, (shortest_side - 2) | 1)
+    block_size = max(31, min(block_size, (shortest_side // 18) | 1))
+    binary = cv2.adaptiveThreshold(
+        sharpened,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        block_size,
+        11,
+    )
+    return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+
+
 def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPreprocessingResult | None:
     """Prepare a thermal receipt in memory. Returns None when decoding is unavailable."""
     encoded = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -217,18 +259,12 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
     quality_codes, quality_metrics = _quality(cv2.cvtColor(working, cv2.COLOR_BGR2GRAY))
     quality_metrics["receipt_short_side_raw"] = round(receipt_short_side_raw, 2)
     quality_metrics["document_area_ratio"] = round(min(1.0, document_area_ratio), 4)
-    output = None
-    for quality in (88, 82, 76, 70):
-        ok, candidate = cv2.imencode(".jpg", working, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-        if not ok:
-            return None
-        output = candidate
-        if candidate.nbytes <= MAX_OUTPUT_BYTES:
-            break
-    if output is None or output.nbytes > MAX_OUTPUT_BYTES:
+    output = _encode_jpeg(working, qualities=(88, 82, 76, 70))
+    if output is None:
         return None
+    recovery_output = _encode_jpeg(_thermal_recovery_variant(working)) if enabled else None
     return DocumentPreprocessingResult(
-        image_bytes=output.tobytes(),
+        image_bytes=output,
         media_type="image/jpeg",
         applied=enabled,
         method=method,
@@ -239,4 +275,7 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
         output_height=output_height,
         quality_codes=quality_codes,
         quality_metrics=quality_metrics,
+        recovery_image_bytes=recovery_output,
+        recovery_media_type="image/jpeg" if recovery_output else None,
+        recovery_method="thermal_adaptive_threshold+unsharp" if recovery_output else None,
     )

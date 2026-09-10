@@ -1,5 +1,8 @@
 # Decisions
 
+## 2026-09-10 - Recuperacao Deterministica de Recibos Termicos
+A leitura assistida de bioimpedancia usa primeiro a variante normal corrigida e somente faz uma segunda chamada de IA quando idade, sexo, altura, peso ou IMC nao forem encontrados. A segunda chamada recebe uma variante deterministica com normalizacao de fundo, contraste local, nitidez moderada e limiarizacao adaptativa. Ela apenas preenche campos ausentes, nunca substitui valores encontrados na primeira leitura. Falha da recuperacao preserva o resultado inicial. Filtros generativos ou super-resolucao generativa nao sao permitidos, pois podem inventar digitos clinicos; imagens irrecuperaveis continuam exigindo nova foto.
+
 ## 2026-07-07 - Protocolos Automaticos Apenas Com Campos Existentes
 Depois da paridade Petroski, o catalogo antropometrico pode calcular automaticamente Macardle/YMCA adulto, Guedes adulto, Petroski feminino, Weltman feminino, Slaughter simples e Faulkner quando os campos obrigatorios ja existem. Protocolos que dependem de raca, maturacao, circunferencia iliaca ou campos nao capturados permanecem manual-only, sem alterar `body_fat_used_percent`. O mapa corporal do relatorio deve mostrar uma figura unica grande com baloes de medidas, nao a folha completa do asset.
 
