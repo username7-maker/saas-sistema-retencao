@@ -48,6 +48,10 @@ export function preferredCamera(devices: MediaDeviceInfo[]): MediaDeviceInfo | u
   return [...devices].sort((left, right) => cameraPreferenceScore(right) - cameraPreferenceScore(left))[0];
 }
 
+export function scannerPreviewAspect(width: number, height: number, mobile: boolean): string {
+  return width > 0 && height > 0 ? `${width}/${height}` : mobile ? "9/16" : "16/9";
+}
+
 export interface DocumentCaptureMetadata {
   width: number;
   height: number;
@@ -604,8 +608,10 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
           </div>
         ) : !rawCapture ? (
           <>
-            <div className="relative mx-auto mt-4 max-h-[65dvh] max-w-full overflow-hidden rounded-xl border border-lovable-border bg-black"
-              style={{ aspectRatio: previewWidth > 0 && previewHeight > 0 ? `${previewWidth}/${previewHeight}` : "16/9" }}>
+            <div
+              className="relative mt-4 w-full overflow-hidden rounded-xl border border-lovable-border bg-black"
+              style={{ aspectRatio: scannerPreviewAspect(previewWidth, previewHeight, isMobileCaptureDevice()) }}
+            >
               <video
                 ref={videoRef}
                 autoPlay
