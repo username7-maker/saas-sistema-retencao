@@ -453,7 +453,6 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
   }
   const previewWidth = previewDimensions?.width ?? Number(actualSettings?.width || 0);
   const previewHeight = previewDimensions?.height ?? Number(actualSettings?.height || 0);
-  const streamIsPortrait = previewHeight > previewWidth;
 
   async function capture() {
     const video = videoRef.current;
@@ -586,7 +585,7 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
             <p className="text-xs text-lovable-ink-muted">
               {captureMode === "segmented"
                 ? segmentsReady ? "As tres partes estao prontas. Confira antes de continuar." : `Fotografe ${(["o topo", "o centro", "o rodape"] as const)[segmentIndex]} do papel (${segmentIndex + 1} de 3).`
-                : isMobileCaptureDevice() ? "Mostre o papel inteiro dentro da moldura." : "Coloque o papel deitado dentro da moldura."}
+                : "Aponte a camera para o papel inteiro e fotografe."}
             </p>
           </div>
           <Button type="button" size="sm" variant="ghost" onClick={close} aria-label="Fechar camera"><X size={16} /></Button>
@@ -624,12 +623,6 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
                     setPreviewDimensions({ width: video.videoWidth, height: video.videoHeight });
                   }
                 }}
-              />
-              <div
-                className={`pointer-events-none absolute rounded-lg border-2 border-dashed border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.28)] ${
-                  streamIsPortrait ? "inset-y-[5%] left-[28%] right-[28%]" : "inset-x-[5%] bottom-[34%] top-[34%]"
-                }`}
-                aria-hidden="true"
               />
             </div>
             {error ? <p className="mt-3 text-sm text-lovable-danger">{error}</p> : null}
