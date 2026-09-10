@@ -85,6 +85,12 @@ import { calculateAnthropometryPreview } from "./bodyCompositionAnthropometryPre
 import { invalidateAssessmentQueries } from "./queryUtils";
 import { GuidedDocumentScanner } from "./GuidedDocumentScanner";
 
+function createBodyCompositionIdempotencyKey(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function normalizeNullableNumberInput(value: unknown): number | null | unknown {
   if (value == null || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : value;
@@ -185,6 +191,9 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 type BodyCompositionSessionDraft = {
+  _legacy_key?: string;
+  idempotency_key?: string;
+  editing_evaluation_id?: string | null;
   saved_at: number;
   values: FormData;
   source: EvaluationSource;
@@ -200,20 +209,22 @@ type BodyCompositionDisplayFieldOrigin = BodyCompositionOcrFieldOrigin | "draft"
 
 const BODY_COMPOSITION_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
 
-function bodyCompositionDraftKey(memberId: string): string {
-  return `cordex:body-composition-draft:v1:${memberId}`;
+function bodyCompositionDraftKey(scope: string): string {
+  return `cordex:assessment-draft:v2:bioimpedance:${scope}`;
 }
 
-function readBodyCompositionDraft(memberId: string): BodyCompositionSessionDraft | null {
+function readBodyCompositionDraft(scope: string, legacyMemberId?: string): BodyCompositionSessionDraft | null {
   try {
-    const raw = window.sessionStorage.getItem(bodyCompositionDraftKey(memberId));
+    const legacyKey = legacyMemberId ? `cordex:body-composition-draft:v1:${legacyMemberId}` : null;
+    const raw = window.sessionStorage.getItem(bodyCompositionDraftKey(scope)) ?? (legacyKey ? window.sessionStorage.getItem(legacyKey) : null);
     if (!raw) return null;
     const draft = JSON.parse(raw) as BodyCompositionSessionDraft;
     if (!draft.values || Date.now() - draft.saved_at > BODY_COMPOSITION_DRAFT_TTL_MS) {
-      window.sessionStorage.removeItem(bodyCompositionDraftKey(memberId));
+      window.sessionStorage.removeItem(bodyCompositionDraftKey(scope));
+      if (legacyKey) window.sessionStorage.removeItem(legacyKey);
       return null;
     }
-    return draft;
+    return { ...draft, _legacy_key: window.sessionStorage.getItem(bodyCompositionDraftKey(scope)) ? undefined : legacyKey ?? undefined };
   } catch {
     return null;
   }
@@ -973,6 +984,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const mobileOperationalV2 = import.meta.env.VITE_MOBILE_OPERATIONAL_V2 === "true";
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const draftStorageId = `${user?.gym_id ?? ""}:${user?.id ?? ""}:${memberId}`;
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrPreviewUrl, setOcrPreviewUrl] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -993,11 +1005,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const [cameraOpen, setCameraOpen] = useState(false);
   const [captureMetadata, setCaptureMetadata] = useState<BodyCompositionCaptureMetadata | null>(null);
   const [supplementalOcrFiles, setSupplementalOcrFiles] = useState<File[]>([]);
-  const [idempotencyKey, setIdempotencyKey] = useState(() => (
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  ));
+  const [idempotencyKey, setIdempotencyKey] = useState(createBodyCompositionIdempotencyKey);
   const ocrFileRef = useRef<File | null>(null);
   const restoredDraftMemberRef = useRef<string | null>(null);
   const recoveredDraftMemberRef = useRef<string | null>(null);
@@ -1131,7 +1139,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       return bodyCompositionService.create(memberId, payload, { syncActuar, idempotencyKey });
     },
     onSuccess: async (savedEvaluation, variables) => {
-      clearBodyCompositionDraft(memberId);
+      clearBodyCompositionDraft(draftStorageId);
       if (!variables.syncActuar) {
         toast.success(editingEvaluationId ? "Bioimpedancia atualizada apenas no sistema." : "Bioimpedancia salva apenas no sistema.");
       } else if (savedEvaluation.actuar_sync_status === "sync_pending") {
@@ -1435,12 +1443,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }, [selectedProtocol?.key, selectedProtocol?.sex, selectedSex, setValue]);
 
   useEffect(() => {
-    if (restoredDraftMemberRef.current === memberId || isLoading) return;
+    if (restoredDraftMemberRef.current === memberId || isLoading || !user?.gym_id || !user?.id) return;
     restoredDraftMemberRef.current = memberId;
-    const draft = readBodyCompositionDraft(memberId);
+    const draft = readBodyCompositionDraft(draftStorageId, memberId);
     if (!draft) return;
+    if (!window.confirm("Encontramos uma avaliacao nao salva deste aluno. Deseja recuperar?")) return;
 
     recoveredDraftMemberRef.current = memberId;
+    const restoredIdempotencyKey = draft.idempotency_key ?? idempotencyKey;
+    setIdempotencyKey(restoredIdempotencyKey);
+    setEditingEvaluationId(draft.editing_evaluation_id ?? null);
     reset({ ...buildDefaultValues(null), ...draft.values });
     setCurrentSource(draft.source);
     setReviewedManually(draft.reviewed_manually);
@@ -1454,8 +1466,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       draft.field_origins
         ?? buildFieldOrigins(draft.values as Record<string, unknown>, "draft"),
     );
+    if (draft._legacy_key) {
+      const { _legacy_key: legacyKey, ...migratedDraft } = draft;
+      saveBodyCompositionDraft(draftStorageId, { ...migratedDraft, idempotency_key: restoredIdempotencyKey });
+      window.sessionStorage.removeItem(legacyKey);
+    }
     toast.success("Rascunho desta avaliacao foi recuperado nesta aba. Revise e salve quando estiver pronto.");
-  }, [isLoading, memberId, reset]);
+  }, [isLoading, memberId, reset, draftStorageId, user?.gym_id, user?.id, idempotencyKey]);
 
   useEffect(() => {
     const latestEvaluation = evaluations?.[0];
@@ -1472,9 +1489,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }, [evaluations, isDirty, memberId, selectedSex, setValue, watchedAgeYears]);
 
   useEffect(() => {
-    if (!isDirty) return;
+    if (!isDirty || !user?.gym_id || !user?.id) return;
     const timer = window.setTimeout(() => {
-      saveBodyCompositionDraft(memberId, {
+      saveBodyCompositionDraft(draftStorageId, {
+        idempotency_key: idempotencyKey,
+        editing_evaluation_id: editingEvaluationId,
         saved_at: Date.now(),
         values: watchedFormValues,
         source: currentSource,
@@ -1488,10 +1507,15 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         },
         resolved_critical_issues: resolvedCriticalIssues,
       });
-    }, 300);
+    }, 500);
     return () => window.clearTimeout(timer);
   }, [
     currentSource,
+    idempotencyKey,
+    editingEvaluationId,
+    draftStorageId,
+    user?.gym_id,
+    user?.id,
     fieldOrigins,
     isDirty,
     memberId,
@@ -1856,7 +1880,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       toast.error("Preencha ao menos uma metrica da bioimpedancia antes de salvar.");
       return;
     }
-    saveBodyCompositionDraft(memberId, {
+    saveBodyCompositionDraft(draftStorageId, {
+      idempotency_key: idempotencyKey,
+      editing_evaluation_id: editingEvaluationId,
       saved_at: Date.now(),
       values: data,
       source: currentSource,
@@ -1935,14 +1961,15 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   }
 
   function handleNewEvaluation() {
-    clearBodyCompositionDraft(memberId);
+    clearBodyCompositionDraft(draftStorageId);
+    setIdempotencyKey(createBodyCompositionIdempotencyKey());
     resetEditor(null);
     setCurrentSource("manual");
     setReviewedManually(true);
   }
 
   function handleEditEvaluation(evaluation: BodyCompositionEvaluation) {
-    clearBodyCompositionDraft(memberId);
+    clearBodyCompositionDraft(draftStorageId);
     resetEditor(evaluation);
   }
 

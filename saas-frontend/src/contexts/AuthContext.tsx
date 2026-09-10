@@ -112,8 +112,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const logout = useCallback(async () => {
-    await authService.logout();
-    setUser(null);
+    try {
+      await authService.logout();
+    } finally {
+      try {
+        const prefixes = ["cordex:assessment-draft:", "cordex:body-composition-draft:", "cordex:anthropometry-draft:"];
+        for (const key of Object.keys(window.sessionStorage)) {
+          if (prefixes.some((prefix) => key.startsWith(prefix))) window.sessionStorage.removeItem(key);
+        }
+      } finally {
+        setUser(null);
+      }
+    }
   }, []);
 
   const value = useMemo(

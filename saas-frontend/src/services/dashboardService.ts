@@ -60,6 +60,12 @@ export interface RetentionQueueItem {
 }
 
 export type RetentionQueueResponse = PaginatedResponse<RetentionQueueItem> & {
+  data_freshness?: {
+    last_import_at: string | null;
+    latest_checkin_at: string | null;
+    coverage_verified: boolean;
+    warning_codes: string[];
+  } | null;
   stage_counts?: Record<string, number>;
 };
 

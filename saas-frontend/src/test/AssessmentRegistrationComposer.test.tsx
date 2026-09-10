@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AssessmentRegistrationComposer } from "../components/assessments/AssessmentRegistrationComposer";
 import { assessmentService } from "../services/assessmentService";
 
+vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "user-1", gym_id: "gym-1" } }) }));
+
 
 function renderComposer(options: { editingAssessmentId?: string; onSaved?: (assessmentId: string) => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -31,6 +33,7 @@ describe("AssessmentRegistrationComposer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(assessmentService, "anthropometryProtocols").mockResolvedValue([
       {
         key: "slaughter_1988_boys_black_white_6_17",
@@ -80,6 +83,9 @@ describe("AssessmentRegistrationComposer", () => {
     fireEvent.change(screen.getByLabelText("Observacoes"), { target: { value: "Aluno em jejum." } });
 
     await waitFor(() => expect(window.sessionStorage.length).toBe(1));
+    const draftKey = "cordex:assessment-draft:v2:anthropometry:gym-1:user-1:member-1:new";
+    const savedKey = JSON.parse(window.sessionStorage.getItem(draftKey)!).idempotency_key;
+    expect(savedKey).toMatch(/^[0-9a-f-]{36}$/i);
     firstRender.unmount();
     renderComposer();
 
@@ -88,6 +94,9 @@ describe("AssessmentRegistrationComposer", () => {
     expect(screen.getByLabelText("Estagio maturacional")).toHaveValue("pubertal");
     expect(screen.getByLabelText("Dobra tricipital - tentativa 1")).toHaveValue("12,5");
     expect(screen.getByLabelText("Observacoes")).toHaveValue("Aluno em jejum.");
+    fireEvent.change(screen.getByLabelText("Observacoes"), { target: { value: "Revisado" } });
+    await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(draftKey)!).observations).toBe("Revisado"));
+    expect(JSON.parse(window.sessionStorage.getItem(draftKey)!).idempotency_key).toBe(savedKey);
   });
 
   it("shows the backend-controlled TMB origin in the calculated preview", async () => {

@@ -2,14 +2,10 @@ name: Deploy Frontend Vercel
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "saas-frontend/**"
-      - ".github/workflows/deploy-frontend-vercel.yml"
 
 jobs:
   deploy:
+    if: ${{ false }} # Replaced by release-pilot.yml, which pins and verifies one SHA.
     runs-on: ubuntu-latest
     defaults:
       run:

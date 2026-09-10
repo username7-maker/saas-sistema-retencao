@@ -8,20 +8,41 @@ export function KeyboardAwareContainer({ children, className }: { children: Reac
 
   useEffect(() => {
     const viewport = window.visualViewport;
-    if (!viewport) return;
-    const update = () => setKeyboardInset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+    let timer: number | undefined;
+    let originalScroll: number | null = null;
+    const update = () => {
+      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      setKeyboardInset(inset);
+    };
     const focus = (event: FocusEvent) => {
-      if (!(event.target instanceof HTMLElement) || !rootRef.current?.contains(event.target)) return;
-      window.setTimeout(() => event.target instanceof HTMLElement && event.target.scrollIntoView({ block: "center", behavior: "smooth" }), 80);
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches("input, textarea, select, [contenteditable=true]") || !rootRef.current?.contains(target)) return;
+      if (originalScroll === null) originalScroll = window.scrollY;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => target.isConnected && target.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
+    };
+    const blur = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (rootRef.current?.contains(document.activeElement) && document.activeElement?.matches("input, textarea, select")) return;
+        if (originalScroll !== null) window.scrollTo({ top: originalScroll });
+        originalScroll = null;
+        update();
+      }, 250);
     };
     update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
     document.addEventListener("focusin", focus);
+    document.addEventListener("focusout", blur);
     return () => {
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
+      window.clearTimeout(timer);
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
       document.removeEventListener("focusin", focus);
+      document.removeEventListener("focusout", blur);
     };
   }, []);
 

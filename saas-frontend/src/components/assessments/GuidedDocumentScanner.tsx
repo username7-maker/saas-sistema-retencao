@@ -25,6 +25,29 @@ type CapturedSegment = {
   rotation: number;
 };
 
+type CropCorner = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
+type CropPoint = { x: number; y: number };
+type CropCorners = Record<CropCorner, CropPoint>;
+const FULL_CROP: CropCorners = {
+  topLeft: { x: 0, y: 0 }, topRight: { x: 1, y: 0 },
+  bottomRight: { x: 1, y: 1 }, bottomLeft: { x: 0, y: 1 },
+};
+
+export function cameraPreferenceScore(device: MediaDeviceInfo): number {
+  const label = device.label.toLocaleLowerCase("pt-BR");
+  let score = 0;
+  if (/traseira|rear|back|environment/.test(label)) score += 30;
+  if (/usb|logitech|webcam|brio/.test(label)) score += 15;
+  if (/principal|main|wide camera/.test(label)) score += 20;
+  if (/ultra|ultrawide|ultra-wide|0[,.]5/.test(label)) score -= 60;
+  if (/virtual|obs|snap camera|manycam/.test(label)) score -= 80;
+  return score;
+}
+
+export function preferredCamera(devices: MediaDeviceInfo[]): MediaDeviceInfo | undefined {
+  return [...devices].sort((left, right) => cameraPreferenceScore(right) - cameraPreferenceScore(left))[0];
+}
+
 export interface DocumentCaptureMetadata {
   width: number;
   height: number;
@@ -173,7 +196,7 @@ function analyzeCanvas(canvas: HTMLCanvasElement): QualityResult {
   const blocking: string[] = [];
   const warnings: string[] = [];
   if (mean < 8 || Math.max(...sharpness) < 0.8) blocking.push("A foto não tem informação legível.");
-  if (canvas.width < 640 || canvas.height < 640) blocking.push("A resolucao e insuficiente para leitura.");
+  if (canvas.width < 640 || canvas.height < 640) warnings.push("Aproxime o papel ou fotografe em partes.");
   else if (Math.max(canvas.width, canvas.height) < 1200) warnings.push("Resolucao baixa; aproxime a folha e refaca se o texto estiver pequeno.");
   if (mean < 55) warnings.push("Aumente um pouco a iluminação.");
   if (Math.min(...sharpness) < 2.2) warnings.push("Mantenha a câmera firme e aproxime a folha.");
@@ -181,12 +204,34 @@ function analyzeCanvas(canvas: HTMLCanvasElement): QualityResult {
   return { blocking, warnings };
 }
 
-async function normalizeCapture(blob: Blob, cropPercent: number, rotation: number): Promise<{ blob: Blob; quality: QualityResult; width: number; height: number }> {
+async function normalizeCapture(blob: Blob, crop: CropCorners, rotation: number): Promise<{ blob: Blob; quality: QualityResult; width: number; height: number }> {
   const image = await imageFromBlob(blob);
-  const cropX = Math.round(image.naturalWidth * cropPercent / 100);
-  const cropY = Math.round(image.naturalHeight * cropPercent / 100);
-  const sourceWidth = Math.max(1, image.naturalWidth - cropX * 2);
-  const sourceHeight = Math.max(1, image.naturalHeight - cropY * 2);
+  const points = Object.values(crop).map((point) => ({ x: point.x * image.naturalWidth, y: point.y * image.naturalHeight }));
+  const cropX = Math.floor(Math.min(...points.map((point) => point.x)));
+  const cropY = Math.floor(Math.min(...points.map((point) => point.y)));
+  const cropRight = Math.ceil(Math.max(...points.map((point) => point.x)));
+  const cropBottom = Math.ceil(Math.max(...points.map((point) => point.y)));
+  const sourceWidth = Math.max(1, cropRight - cropX);
+  const sourceHeight = Math.max(1, cropBottom - cropY);
+  const clipped = document.createElement("canvas");
+  clipped.width = sourceWidth;
+  clipped.height = sourceHeight;
+  const clippedContext = clipped.getContext("2d");
+  if (!clippedContext) throw new Error("capture_canvas_failed");
+  clippedContext.fillStyle = "#fff";
+  clippedContext.fillRect(0, 0, sourceWidth, sourceHeight);
+  clippedContext.save();
+  clippedContext.beginPath();
+  const polygon = [crop.topLeft, crop.topRight, crop.bottomRight, crop.bottomLeft];
+  polygon.forEach((point, index) => {
+    const x = point.x * image.naturalWidth - cropX;
+    const y = point.y * image.naturalHeight - cropY;
+    if (index === 0) clippedContext.moveTo(x, y); else clippedContext.lineTo(x, y);
+  });
+  clippedContext.closePath();
+  clippedContext.clip();
+  clippedContext.drawImage(image, -cropX, -cropY);
+  clippedContext.restore();
   const rotated = Math.abs(rotation % 180) === 90;
   const outputWidth = rotated ? sourceHeight : sourceWidth;
   const outputHeight = rotated ? sourceWidth : sourceHeight;
@@ -202,7 +247,7 @@ async function normalizeCapture(blob: Blob, cropPercent: number, rotation: numbe
   context.rotate(rotation * Math.PI / 180);
   const drawWidth = sourceWidth * scale;
   const drawHeight = sourceHeight * scale;
-  context.drawImage(image, cropX, cropY, sourceWidth, sourceHeight, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  context.drawImage(clipped, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   const quality = analyzeCanvas(canvas);
   let jpeg = await canvasBlob(canvas, 0.9);
   if (jpeg.size > MAX_BYTES) jpeg = await canvasBlob(canvas, 0.78);
@@ -217,7 +262,8 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
   const [deviceId, setDeviceId] = useState("");
   const [rawCapture, setRawCapture] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [cropPercent, setCropPercent] = useState(4);
+  const [cropCorners, setCropCorners] = useState<CropCorners>(FULL_CROP);
+  const [adjustingCrop, setAdjustingCrop] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [quality, setQuality] = useState<QualityResult>({ blocking: [], warnings: [] });
   const [processing, setProcessing] = useState(false);
@@ -233,8 +279,11 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
   const [torch, setTorch] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
   const [cameraHint, setCameraHint] = useState("Preparando camera...");
+  const [previewDimensions, setPreviewDimensions] = useState<{ width: number; height: number } | null>(null);
   const [captureMode, setCaptureMode] = useState<"single" | "segmented">("single");
   const [segmentFiles, setSegmentFiles] = useState<CapturedSegment[]>([]);
+  const [segmentIndex, setSegmentIndex] = useState(0);
+  const [segmentsReady, setSegmentsReady] = useState(false);
   const [acceptWarnings, setAcceptWarnings] = useState(false);
 
   const close = useCallback(() => {
@@ -244,12 +293,15 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     setError(null);
     setTorch(false);
     setCapabilities(EMPTY_CAPABILITIES);
+    setPreviewDimensions(null);
     setSegmentFiles([]);
+    setSegmentIndex(0);
+    setSegmentsReady(false);
     setCaptureMode("single");
     onClose();
   }, [onClose]);
 
-  const startCamera = useCallback(async (requestedDeviceId?: string) => {
+  const startCamera = useCallback(async (requestedDeviceId?: string, rememberManualChoice = false) => {
     stopStream(streamRef.current);
     streamRef.current = null;
     setError(null);
@@ -257,13 +309,16 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     setCameraHint("Preparando camera...");
     setTorch(false);
     setCapabilities(EMPTY_CAPABILITIES);
+    setPreviewDimensions(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("A camera nao esta disponivel neste navegador. Use o envio de arquivo.");
       return;
     }
     try {
       let stream: MediaStream | null = null;
-      const preferredDevice = requestedDeviceId || (SCANNER_V2_ENABLED ? window.localStorage.getItem(PREFERRED_CAMERA_STORAGE_KEY) : "") || "";
+      const storedDevice = SCANNER_V2_ENABLED ? window.localStorage.getItem(PREFERRED_CAMERA_STORAGE_KEY) : "";
+      const storedWasManual = window.localStorage.getItem(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`) === "true";
+      const preferredDevice = requestedDeviceId || storedDevice || "";
       const requestedResolution = RESOLUTION_LADDER[0];
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -319,12 +374,27 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
       const zoomSetting = settings?.zoom as number | undefined;
       setZoom(zoomSetting ?? zoomCapability?.min ?? null);
       const activeDeviceId = settings?.deviceId ?? requestedDeviceId ?? "";
+      const automaticChoice = preferredCamera(available);
+      const activeDevice = available.find((item) => item.deviceId === activeDeviceId);
+      if (!requestedDeviceId && !storedWasManual && automaticChoice?.deviceId && activeDevice?.deviceId !== automaticChoice.deviceId
+        && cameraPreferenceScore(automaticChoice) > cameraPreferenceScore(activeDevice ?? automaticChoice)) {
+        stopStream(stream);
+        streamRef.current = null;
+        await startCamera(automaticChoice.deviceId);
+        return;
+      }
       setActualSettings(settings);
       setDeviceId(activeDeviceId);
       if (SCANNER_V2_ENABLED && activeDeviceId) window.localStorage.setItem(PREFERRED_CAMERA_STORAGE_KEY, activeDeviceId);
+      if (rememberManualChoice) window.localStorage.setItem(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`, "true");
       const video = videoRef.current;
       if (video) {
         const stable = CAPTURE_GUIDE_V3_ENABLED ? await waitForStableCamera(video) : true;
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          setPreviewDimensions({ width: video.videoWidth, height: video.videoHeight });
+        } else if (settings?.width && settings.height) {
+          setPreviewDimensions({ width: settings.width, height: settings.height });
+        }
         setCameraHint(stable ? "Foto pronta" : "Segure a camera e confira o foco");
         setCameraReady(true);
       }
@@ -361,7 +431,25 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     return () => URL.revokeObjectURL(url);
   }, [rawCapture]);
 
-  const reviewTransform = useMemo(() => ({ transform: `rotate(${rotation}deg) scale(${1 + cropPercent / 100})` }), [cropPercent, rotation]);
+  const reviewTransform = useMemo(() => ({ transform: `rotate(${rotation}deg)` }), [rotation]);
+  const cropPolygon = useMemo(() => [cropCorners.topLeft, cropCorners.topRight, cropCorners.bottomRight, cropCorners.bottomLeft]
+    .map((point) => `${point.x * 100}% ${point.y * 100}%`).join(","), [cropCorners]);
+  function moveCorner(corner: CropCorner, event: React.PointerEvent<HTMLButtonElement>) {
+    const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+    if (!frame) return;
+    const limits: Record<CropCorner, { minX: number; maxX: number; minY: number; maxY: number }> = {
+      topLeft: { minX: 0, maxX: .49, minY: 0, maxY: .49 }, topRight: { minX: .51, maxX: 1, minY: 0, maxY: .49 },
+      bottomRight: { minX: .51, maxX: 1, minY: .51, maxY: 1 }, bottomLeft: { minX: 0, maxX: .49, minY: .51, maxY: 1 },
+    };
+    const limit = limits[corner];
+    const x = Math.min(limit.maxX, Math.max(limit.minX, (event.clientX - frame.left) / frame.width));
+    const y = Math.min(limit.maxY, Math.max(limit.minY, (event.clientY - frame.top) / frame.height));
+    setCropCorners((current) => ({ ...current, [corner]: { x, y } }));
+    setQuality({ blocking: [], warnings: [] });
+  }
+  const previewWidth = previewDimensions?.width ?? Number(actualSettings?.width || 0);
+  const previewHeight = previewDimensions?.height ?? Number(actualSettings?.height || 0);
+  const streamIsPortrait = previewHeight > previewWidth;
 
   async function capture() {
     const video = videoRef.current;
@@ -414,7 +502,7 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
     if (!rawCapture) return;
     setProcessing(true);
     try {
-      const normalized = await normalizeCapture(rawCapture, cropPercent, rotation);
+      const normalized = await normalizeCapture(rawCapture, cropCorners, rotation);
       setQuality(normalized.quality);
       if (normalized.quality.blocking.length) return;
       if (normalized.quality.warnings.length && !acceptWarnings) return;
@@ -422,7 +510,7 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
         setQuality({ blocking: ["A imagem continua acima de 8 MB."], warnings: normalized.quality.warnings });
         return;
       }
-      const segmentRole = captureMode === "single" ? "full" : (["top", "middle", "bottom"] as const)[segmentFiles.length];
+      const segmentRole = captureMode === "single" ? "full" : (["top", "middle", "bottom"] as const)[segmentIndex];
       const capturedFile = new File([normalized.blob], `bioimpedancia-${segmentRole}-${Date.now()}.jpg`, { type: "image/jpeg" });
       const capturedSegment: CapturedSegment = {
         file: capturedFile,
@@ -430,27 +518,42 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
         height: normalized.height,
         rotation,
       };
-      if (captureMode === "segmented" && segmentFiles.length < 2) {
-        setSegmentFiles((current) => [...current, capturedSegment]);
+      if (captureMode === "segmented") {
+        const updated = [...segmentFiles];
+        updated[segmentIndex] = capturedSegment;
+        setSegmentFiles(updated);
         setRawCapture(null);
         setQuality({ blocking: [], warnings: [] });
         setAcceptWarnings(false);
         setRotation(0);
-        setCropPercent(0);
-        await startCamera(deviceId || undefined);
+        setCropCorners(FULL_CROP);
+        if (updated.length === 3 && updated.every(Boolean)) {
+          setSegmentsReady(true);
+        } else {
+          setSegmentIndex(updated.length);
+          await startCamera(deviceId || undefined);
+        }
         return;
       }
-      const allSegments = captureMode === "segmented" ? [...segmentFiles, capturedSegment] : [capturedSegment];
+      deliver([capturedSegment]);
+    } catch {
+      toast.error("Nao foi possivel preparar a imagem.");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  function deliver(allSegments: CapturedSegment[]) {
+      if (captureMode === "segmented" && allSegments.length !== 3) return;
       onConfirm(
         allSegments[0].file,
         {
-          width: normalized.width,
-          height: normalized.height,
-          rotation,
+          width: allSegments[0].width,
+          height: allSegments[0].height,
+          rotation: allSegments[0].rotation,
           device_kind: isMobileCaptureDevice() ? "mobile" : "webcam",
           quality_codes: [
-            ...(normalized.quality.blocking.length ? ["unusable"] : []),
-            ...(normalized.quality.warnings.length ? ["quality_warning"] : []),
+            ...(quality.warnings.length ? ["quality_warning"] : []),
           ],
           document_confidence: null,
           capture_mode: captureMode,
@@ -464,13 +567,8 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
         },
         allSegments.slice(1).map((segment) => segment.file),
       );
-      toast.success(normalized.quality.warnings.length ? "Foto aceita com avisos. Revise o OCR antes de salvar." : "Foto pronta para leitura.");
+      toast.success("Foto pronta para leitura.");
       close();
-    } catch {
-      toast.error("Nao foi possivel preparar a imagem.");
-    } finally {
-      setProcessing(false);
-    }
   }
 
   if (!open) return null;
@@ -483,20 +581,47 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
             <h2 id="guided-scanner-title" className="font-semibold text-lovable-ink">Scanner guiado da bioimpedancia</h2>
             <p className="text-xs text-lovable-ink-muted">
               {captureMode === "segmented"
-                ? `Fotografe ${(["o topo", "o centro", "o rodape"] as const)[segmentFiles.length]} do papel (${segmentFiles.length + 1} de 3).`
+                ? segmentsReady ? "As tres partes estao prontas. Confira antes de continuar." : `Fotografe ${(["o topo", "o centro", "o rodape"] as const)[segmentIndex]} do papel (${segmentIndex + 1} de 3).`
                 : isMobileCaptureDevice() ? "Mostre o papel inteiro dentro da moldura." : "Coloque o papel deitado dentro da moldura."}
             </p>
           </div>
           <Button type="button" size="sm" variant="ghost" onClick={close} aria-label="Fechar camera"><X size={16} /></Button>
         </div>
 
-        {!rawCapture ? (
+        {segmentsReady ? (
+          <div className="mt-4 space-y-3">
+            {segmentFiles.map((_, index) => (
+              <div key={index} className="flex items-center justify-between gap-2">
+                <span>{["Topo", "Centro", "Rodape"][index]} confirmado</span>
+                <Button type="button" variant="secondary" onClick={() => {
+                  setSegmentIndex(index); setSegmentsReady(false); setRawCapture(null);
+                  setRotation(0); setCropCorners(FULL_CROP); setAcceptWarnings(false);
+                  setQuality({ blocking: [], warnings: [] }); void startCamera(deviceId || undefined);
+                }}>Refazer {["topo", "centro", "rodape"][index]}</Button>
+              </div>
+            ))}
+            <Button type="button" variant="primary" onClick={() => deliver(segmentFiles)}>Usar as tres fotos</Button>
+          </div>
+        ) : !rawCapture ? (
           <>
-            <div className="relative mt-4 overflow-hidden rounded-xl border border-lovable-border bg-black">
-              <video ref={videoRef} autoPlay muted playsInline className="aspect-video w-full object-contain" />
+            <div className="relative mx-auto mt-4 max-h-[65dvh] max-w-full overflow-hidden rounded-xl border border-lovable-border bg-black"
+              style={{ aspectRatio: previewWidth > 0 && previewHeight > 0 ? `${previewWidth}/${previewHeight}` : "16/9" }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className="h-full w-full object-contain"
+                onLoadedMetadata={(event) => {
+                  const video = event.currentTarget;
+                  if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    setPreviewDimensions({ width: video.videoWidth, height: video.videoHeight });
+                  }
+                }}
+              />
               <div
                 className={`pointer-events-none absolute rounded-lg border-2 border-dashed border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.28)] ${
-                  isMobileCaptureDevice() ? "inset-y-[5%] left-[28%] right-[28%]" : "inset-x-[5%] bottom-[34%] top-[34%]"
+                  streamIsPortrait ? "inset-y-[5%] left-[28%] right-[28%]" : "inset-x-[5%] bottom-[34%] top-[34%]"
                 }`}
                 aria-hidden="true"
               />
@@ -504,7 +629,7 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
             {error ? <p className="mt-3 text-sm text-lovable-danger">{error}</p> : null}
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {devices.length > 1 ? (
-                <Select aria-label="Selecionar camera" value={deviceId} onChange={(event) => void startCamera(event.target.value)}>
+                <Select aria-label="Selecionar camera" value={deviceId} onChange={(event) => void startCamera(event.target.value, true)}>
                   {devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
                 </Select>
               ) : null}
@@ -520,7 +645,7 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
                   Fotografar em partes
                 </Button>
               ) : null}
-              {devices.length > 1 ? <Button type="button" variant="secondary" onClick={() => { const index = devices.findIndex((item) => item.deviceId === deviceId); const next = devices[(index + 1) % devices.length]; if (next) void startCamera(next.deviceId); }}><SwitchCamera size={14} />Trocar camera</Button> : null}
+              {devices.length > 1 ? <Button type="button" variant="secondary" onClick={() => { const index = devices.findIndex((item) => item.deviceId === deviceId); const next = devices[(index + 1) % devices.length]; if (next) void startCamera(next.deviceId, true); }}><SwitchCamera size={14} />Trocar camera</Button> : null}
               {capabilities.torch ? <Button type="button" variant="secondary" onClick={() => { const next = !torch; setTorch(next); void applyConstraint({ torch: next }); }}>{torch ? "Desligar lanterna" : "Ligar lanterna"}</Button> : null}
               <Button type="button" variant="primary" onClick={() => void capture()} disabled={Boolean(error) || !cameraReady}><Camera size={14} />{cameraReady ? "Fotografar" : "Preparando câmera..."}</Button>
             </div>
@@ -534,15 +659,22 @@ export function GuidedDocumentScanner({ open, onClose, onConfirm }: GuidedDocume
           </>
         ) : (
           <>
-            <div className="mt-4 flex aspect-video items-center justify-center overflow-hidden rounded-xl border border-lovable-border bg-black">
+            <div className="relative mt-4 flex aspect-video items-center justify-center overflow-hidden rounded-xl border border-lovable-border bg-black">
               {previewUrl ? <img src={previewUrl} alt="Previa da folha fotografada" className="max-h-full max-w-full object-contain transition-transform" style={reviewTransform} /> : null}
+              {adjustingCrop ? <div className="absolute inset-0" style={{ clipPath: `polygon(${cropPolygon})`, boxShadow: "0 0 0 999px rgba(0,0,0,.55)" }}>
+                {(Object.entries(cropCorners) as [CropCorner, CropPoint][]).map(([corner, point]) => <button
+                  key={corner} type="button" aria-label={`Ajustar canto ${corner}`} className="absolute h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500/80 touch-none"
+                  style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+                  onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                  onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCorner(corner, event); }}
+                />)}
+              </div> : null}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button type="button" variant="secondary" onClick={() => { setRotation((value) => value - 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCcw size={14} />Girar esquerda</Button>
               <Button type="button" variant="secondary" onClick={() => { setRotation((value) => value + 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCw size={14} />Girar direita</Button>
-              <label className="text-xs text-lovable-ink-muted">Recorte
-                <input className="ml-2 align-middle" type="range" min="0" max="18" step="1" value={cropPercent} onChange={(event) => { setCropPercent(Number(event.target.value)); setQuality({ blocking: [], warnings: [] }); }} />
-              </label>
+              <Button type="button" variant="secondary" onClick={() => setAdjustingCrop((value) => !value)}>{adjustingCrop ? "Concluir recorte" : "Ajustar recorte"}</Button>
+              {adjustingCrop ? <Button type="button" variant="ghost" onClick={() => setCropCorners(FULL_CROP)}>Usar imagem inteira</Button> : null}
             </div>
             {quality.blocking.map((message) => <p key={message} className="mt-2 text-sm font-semibold text-lovable-danger">{message}</p>)}
             {quality.warnings.length ? (

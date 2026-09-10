@@ -836,6 +836,18 @@ export function RetentionDashboardPage() {
         </div>
       </CommandCard>
 
+      {queueQuery.data?.data_freshness ? (
+        <div className="rounded-xl border border-lovable-border p-3 text-sm text-lovable-ink-muted">
+          <p>Ultima importacao de acessos: {queueQuery.data.data_freshness.last_import_at
+            ? new Date(queueQuery.data.data_freshness.last_import_at).toLocaleString("pt-BR") : "Sem registro"}.</p>
+          <p>Acesso mais recente registrado: {queueQuery.data.data_freshness.latest_checkin_at
+            ? new Date(queueQuery.data.data_freshness.latest_checkin_at).toLocaleString("pt-BR") : "Sem registro"}.</p>
+          <p className="mt-1">Essas datas nao confirmam que todos os acessos foram importados.</p>
+          {queueQuery.data.data_freshness.warning_codes.includes("possible_access_gap") ? (
+            <p className="mt-1 text-lovable-warning">A ultima importacao indicou dias sem acessos. Confira o periodo do arquivo e os dias de funcionamento.</p>
+          ) : null}
+        </div>
+      ) : null}
       {summaryQuery.isLoading ? (
         <SummarySkeleton />
       ) : (

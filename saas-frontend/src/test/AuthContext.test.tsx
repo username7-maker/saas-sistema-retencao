@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -27,13 +27,13 @@ vi.mock("../services/storage", () => ({
 }));
 
 function AuthProbe() {
-  const { loading, user } = useAuth();
+  const { loading, user, logout } = useAuth();
 
   if (loading) {
     return <div>loading</div>;
   }
 
-  return <div>{user ? user.full_name : "anonymous"}</div>;
+  return <div>{user ? user.full_name : "anonymous"}<button onClick={() => void logout().catch(() => undefined)}>Logout</button></div>;
 }
 
 function renderAuthProvider(queryClient = new QueryClient()) {
@@ -56,6 +56,21 @@ describe("AuthProvider", () => {
     authServiceMock.ensureSession.mockReset();
     tokenStorageMock.getAccessToken.mockReset();
     tokenStorageMock.clear.mockReset();
+    window.sessionStorage.clear();
+  });
+
+  it("clears assessment drafts on explicit logout even when the request fails", async () => {
+    tokenStorageMock.getAccessToken.mockReturnValue("token");
+    authServiceMock.me.mockResolvedValue({ id: "user-1", gym_id: "gym-1", full_name: "Owner" });
+    authServiceMock.logout.mockRejectedValue(new Error("offline"));
+    window.sessionStorage.setItem("cordex:assessment-draft:v2:sample", "draft");
+    window.sessionStorage.setItem("unrelated", "keep");
+    renderAuthProvider();
+    await screen.findByText("Owner");
+    fireEvent.click(screen.getByText("Logout"));
+    await screen.findByText("anonymous");
+    expect(window.sessionStorage.getItem("cordex:assessment-draft:v2:sample")).toBeNull();
+    expect(window.sessionStorage.getItem("unrelated")).toBe("keep");
   });
 
   it("restores the session from the refresh cookie when no access token is cached", async () => {

@@ -1,0 +1,197 @@
+name: Release Pilot By SHA
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full 40-character commit SHA to publish
+        required: true
+        type: string
+      rollback:
+        description: Allow an older SHA for an explicit rollback
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-production-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_sha }}
+      - id: ref
+        name: Validate immutable release reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ inputs.release_sha }}'
+          [[ "${requested}" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "release_sha must contain 40 hexadecimal characters"; exit 1; }
+          actual="$(git rev-parse HEAD)"
+          test "${actual,,}" = "${requested,,}"
+          if [ '${{ inputs.rollback }}' != 'true' ]; then
+            git fetch origin main
+            test "$(git rev-parse origin/main)" = "${actual}" || {
+              echo "Normal releases must use the current origin/main SHA. Select rollback only for a deliberate rollback."
+              exit 1
+            }
+          fi
+          echo "sha=${actual}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: saas-frontend/package-lock.json
+      - name: Validate backend
+        working-directory: saas-backend
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+          test "$(alembic heads | wc -l)" -eq 1
+      - name: Validate frontend
+        working-directory: saas-frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run test -- --run
+          npm run build
+
+  deploy-backend:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN || secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+      RAILWAY_API_SERVICE_ID: ${{ secrets.RAILWAY_API_SERVICE_ID }}
+      RAILWAY_WORKER_SERVICE_ID: ${{ secrets.RAILWAY_WORKER_SERVICE_ID }}
+      PILOT_API_BASE_URL: ${{ secrets.PILOT_API_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate Railway release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_ENVIRONMENT_ID RAILWAY_API_SERVICE_ID RAILWAY_WORKER_SERVICE_ID PILOT_API_BASE_URL; do
+            test -n "${!name:-}" || { echo "Missing required release secret: ${name}"; exit 1; }
+          done
+      - run: npm install -g @railway/cli
+      - name: Publish API and worker with one release SHA
+        working-directory: saas-backend
+        run: |
+          set -euo pipefail
+          railway variable set RELEASE_SHA=${{ needs.validate.outputs.sha }} --skip-deploys --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_API_SERVICE_ID}"
+          railway variable set RELEASE_SHA=${{ needs.validate.outputs.sha }} --skip-deploys --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_WORKER_SERVICE_ID}"
+          railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_API_SERVICE_ID}" --message "release ${{ needs.validate.outputs.sha }}"
+          railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_WORKER_SERVICE_ID}" --message "release ${{ needs.validate.outputs.sha }}"
+      - name: Verify API readiness and release
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            headers="$(curl -fsS -D - -o /dev/null "${PILOT_API_BASE_URL}/health/ready" || true)"
+            if grep -qi "^x-cordex-release: ${{ needs.validate.outputs.sha }}" <<<"${headers}"; then exit 0; fi
+            sleep 10
+          done
+          echo "API did not become ready with the requested release"; exit 1
+
+  deploy-frontend:
+    needs: [validate, deploy-backend]
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VITE_RELEASE_SHA: ${{ needs.validate.outputs.sha }}
+      PILOT_FRONTEND_URL: ${{ secrets.PILOT_FRONTEND_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate Vercel release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID PILOT_FRONTEND_URL; do
+            test -n "${!name:-}" || { echo "Missing required release secret: ${name}"; exit 1; }
+          done
+      - run: npm install -g vercel@latest
+      - name: Build and publish immutable frontend
+        working-directory: saas-frontend
+        run: |
+          vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+          vercel build --prod --token="${VERCEL_TOKEN}"
+          vercel deploy --prebuilt --prod --token="${VERCEL_TOKEN}"
+      - name: Verify frontend release
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$(curl -fsS "${PILOT_FRONTEND_URL}")"
+          assets="$(grep -oE 'src="[^"]+\.js' <<<"${html}" | cut -d'"' -f2)"
+          found=false
+          for asset in ${assets}; do
+            if curl -fsS "${PILOT_FRONTEND_URL}${asset}" | grep -q '${{ needs.validate.outputs.sha }}'; then found=true; break; fi
+          done
+          test "${found}" = true
+
+  smoke:
+    needs: [validate, deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    env:
+      PILOT_API_BASE_URL: ${{ secrets.PILOT_API_BASE_URL }}
+      PILOT_FRONTEND_URL: ${{ secrets.PILOT_FRONTEND_URL }}
+      PILOT_GYM_SLUG: ${{ secrets.PILOT_GYM_SLUG }}
+      PILOT_LOGIN_EMAIL: ${{ secrets.PILOT_LOGIN_EMAIL }}
+      PILOT_LOGIN_PASSWORD: ${{ secrets.PILOT_LOGIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate smoke configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in PILOT_API_BASE_URL PILOT_GYM_SLUG PILOT_LOGIN_EMAIL PILOT_LOGIN_PASSWORD; do
+            test -n "${!name:-}" || { echo "Missing required smoke secret: ${name}"; exit 1; }
+          done
+      - name: Run authenticated read-only pilot smoke
+        run: python scripts/pilot_smoke.py
+
+  manifest:
+    needs: [validate, deploy-backend, deploy-frontend, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record release manifest
+        shell: bash
+        run: |
+          mkdir release
+          printf '%s\n' '{"release_sha":"${{ needs.validate.outputs.sha }}","rollback":${{ inputs.rollback }},"api":"verified","worker":"published","frontend":"verified","authenticated_smoke":"passed","migrations":"single_head_validated","feature_flags":"environment_managed","run_id":"${{ github.run_id }}"}' > release/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pilot-release-${{ needs.validate.outputs.sha }}
+          path: release/manifest.json
+          retention-days: 90

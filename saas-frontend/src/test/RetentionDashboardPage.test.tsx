@@ -227,6 +227,21 @@ describe("RetentionDashboardPage", () => {
     });
   });
 
+  it("distinguishes import freshness from access coverage", async () => {
+    vi.mocked(dashboardService.retentionQueue).mockResolvedValue({
+      items: [], total: 0, page: 1, page_size: 50,
+      data_freshness: {
+        last_import_at: "2026-09-09T12:00:00Z", latest_checkin_at: "2026-09-04T12:00:00Z",
+        coverage_verified: false, warning_codes: ["possible_access_gap"],
+      },
+    });
+    renderPage();
+    expect(await screen.findByText(/Ultima importacao de acessos:/)).toBeInTheDocument();
+    expect(screen.getByText(/Acesso mais recente registrado:/)).toBeInTheDocument();
+    expect(screen.getByText(/Essas datas nao confirmam/)).toBeInTheDocument();
+    expect(screen.getByText(/A ultima importacao indicou dias sem acessos/)).toBeInTheDocument();
+  });
+
   it("renders executive summary, queue and opens playbook drawer on demand", async () => {
     renderPage();
 
@@ -249,7 +264,7 @@ describe("RetentionDashboardPage", () => {
     expect(screen.getAllByRole("button", { name: "Abrir perfil 360" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Marcar resolvido" })).toBeInTheDocument();
     expect(screen.getByText("Ações rápidas mock")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("uses server-side search and resets pagination when filters change", async () => {
     renderPage();

@@ -54,6 +54,7 @@ from app.schemas import (
     WeeklySummary,
 )
 from app.services.ai_assistant_service import build_retention_assistant
+from app.services.retention_freshness_service import get_retention_freshness
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.assessment_intelligence_service import get_assessment_forecast
 from app.services.crm_service import calculate_cac
@@ -1309,7 +1310,8 @@ def get_retention_queue(
         )
     )
 
-    return RetentionQueueResponse(items=items, total=total, page=page, page_size=page_size, stage_counts=stage_counts)
+    return RetentionQueueResponse(items=items, total=total, page=page, page_size=page_size, stage_counts=stage_counts,
+                                  data_freshness=get_retention_freshness(db, resolved_gym_id))
 
 
 def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1, page_size: int = 20) -> dict:

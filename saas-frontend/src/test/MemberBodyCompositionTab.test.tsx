@@ -11,7 +11,7 @@ import type { ActuarSettings, BodyCompositionActuarSyncStatus, BodyCompositionEv
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "user-1", role: "owner", full_name: "Automicai Owner" },
+    user: { id: "user-1", gym_id: "gym-1", role: "owner", full_name: "Automicai Owner" },
   }),
 }));
 
@@ -222,6 +222,7 @@ describe("MemberBodyCompositionTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(bodyCompositionService.list).mockResolvedValue([makeEvaluation()]);
     vi.mocked(assessmentService.list).mockResolvedValue([]);
     vi.mocked(assessmentService.openAnthropometryPdf).mockResolvedValue(undefined);
@@ -460,7 +461,7 @@ describe("MemberBodyCompositionTab", () => {
         { syncActuar: true },
       );
     });
-  });
+  }, 10_000);
 
   it("locks Petroski women to the required sex and keeps the current age available to the protocol", async () => {
     renderTab();
@@ -477,7 +478,7 @@ describe("MemberBodyCompositionTab", () => {
 
   it("restores an unfinished body-composition form from the current browser tab", async () => {
     window.sessionStorage.setItem(
-      "cordex:body-composition-draft:v1:member-1",
+      "cordex:assessment-draft:v2:bioimpedance:gym-1:user-1:member-1",
       JSON.stringify({
         saved_at: Date.now(),
         source: "manual",
@@ -497,6 +498,39 @@ describe("MemberBodyCompositionTab", () => {
     expect(await screen.findByRole("textbox", { name: "Idade para protocolo" })).toHaveValue("31");
     expect(screen.getByRole("combobox", { name: "Sexo para protocolo" })).toHaveValue("female");
     expect(screen.getAllByDisplayValue("62.5")).toHaveLength(1);
+  }, 10_000);
+
+  it("reuses the persisted save key after a lost response and reload", async () => {
+    const key = "e7e3d6f0-9946-4a73-bd6f-de3368fa938d";
+    const storageKey = "cordex:assessment-draft:v2:bioimpedance:gym-1:user-1:member-1";
+    window.sessionStorage.setItem(storageKey, JSON.stringify({
+      saved_at: Date.now(), idempotency_key: key, editing_evaluation_id: null,
+      source: "manual", reviewed_manually: true,
+      values: { evaluation_date: "2026-04-14", weight_kg: 62.5, age_years: 31, sex: "female" },
+    }));
+    vi.mocked(bodyCompositionService.create).mockRejectedValue(new Error("response lost"));
+    const first = renderTab();
+    await screen.findByDisplayValue("62.5");
+    fireEvent.click(await screen.findByRole("button", { name: "Salvar bioimpedancia" }));
+    await waitFor(() => expect(bodyCompositionService.create).toHaveBeenCalledWith(
+      "member-1", expect.anything(), expect.objectContaining({ idempotencyKey: key }),
+    ));
+    first.unmount();
+    renderTab();
+    await screen.findByDisplayValue("62.5");
+    fireEvent.click(await screen.findByRole("button", { name: "Salvar bioimpedancia" }));
+    await waitFor(() => expect(bodyCompositionService.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(bodyCompositionService.create).mock.calls[1][2]?.idempotencyKey).toBe(key);
+  });
+
+  it("does not recover a draft belonging to another user", async () => {
+    window.sessionStorage.setItem("cordex:assessment-draft:v2:bioimpedance:gym-1:other:member-1", JSON.stringify({
+      saved_at: Date.now(), values: { weight_kg: 123.4 }, source: "manual", reviewed_manually: true,
+    }));
+    renderTab();
+    await screen.findByText("Registrar bioimpedancia");
+    expect(screen.queryByDisplayValue("123.4")).not.toBeInTheDocument();
+    expect(window.confirm).not.toHaveBeenCalled();
   });
 
   it("opens the device camera capture flow next to file upload", async () => {

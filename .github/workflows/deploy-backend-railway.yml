@@ -2,14 +2,10 @@ name: Deploy Backend Railway
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "saas-backend/**"
-      - ".github/workflows/deploy-backend-railway.yml"
 
 jobs:
   deploy:
+    if: ${{ false }} # Replaced by release-pilot.yml, which pins and verifies one SHA.
     runs-on: ubuntu-latest
     defaults:
       run:

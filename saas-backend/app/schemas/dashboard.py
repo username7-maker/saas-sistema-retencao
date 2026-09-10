@@ -233,5 +233,13 @@ class RetentionQueueItem(BaseModel):
     assistant: AIAssistantPayload | None = None
 
 
+class RetentionDataFreshness(BaseModel):
+    last_import_at: datetime | None = None
+    latest_checkin_at: datetime | None = None
+    coverage_verified: bool = False
+    warning_codes: list[str] = Field(default_factory=list)
+
+
 class RetentionQueueResponse(PaginatedResponse[RetentionQueueItem]):
     stage_counts: dict[str, int] = {}
+    data_freshness: RetentionDataFreshness | None = None

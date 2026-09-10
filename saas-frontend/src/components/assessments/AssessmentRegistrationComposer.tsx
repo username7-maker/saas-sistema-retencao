@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { Activity, Ruler, Scale } from "lucide-react";
@@ -18,6 +18,7 @@ import {
 } from "../../services/assessmentService";
 import { parseLocalizedNumber } from "../../utils/localizedNumber";
 import { calculationOriginLabel } from "../../utils/calculationOrigins";
+import { useAuth } from "../../hooks/useAuth";
 
 type SexForFormula = "male" | "female";
 
@@ -40,6 +41,10 @@ interface AssessmentRegistrationComposerProps {
 }
 
 type AnthropometryDraft = {
+  _legacy_key?: string;
+  idempotency_key?: string;
+  expected_updated_at?: string;
+  editing_assessment_id?: string | null;
   saved_at: number;
   assessment_date: string;
   sex: SexForFormula;
@@ -58,19 +63,21 @@ type AnthropometryDraft = {
 const ANTHROPOMETRY_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
 
 function anthropometryDraftKey(memberId: string): string {
-  return `cordex:anthropometry-draft:v1:${memberId}`;
+  return `cordex:assessment-draft:v2:anthropometry:${memberId}`;
 }
 
-function readAnthropometryDraft(memberId: string): AnthropometryDraft | null {
+function readAnthropometryDraft(scope: string, legacyMemberId?: string): AnthropometryDraft | null {
   try {
-    const raw = window.sessionStorage.getItem(anthropometryDraftKey(memberId));
+    const legacyKey = legacyMemberId ? `cordex:anthropometry-draft:v1:${legacyMemberId}` : null;
+    const raw = window.sessionStorage.getItem(anthropometryDraftKey(scope)) ?? (legacyKey ? window.sessionStorage.getItem(legacyKey) : null);
     if (!raw) return null;
     const draft = JSON.parse(raw) as AnthropometryDraft;
     if (!draft.saved_at || Date.now() - draft.saved_at > ANTHROPOMETRY_DRAFT_TTL_MS) {
-      window.sessionStorage.removeItem(anthropometryDraftKey(memberId));
+      window.sessionStorage.removeItem(anthropometryDraftKey(scope));
+      if (legacyKey) window.sessionStorage.removeItem(legacyKey);
       return null;
     }
-    return draft;
+    return { ...draft, _legacy_key: window.sessionStorage.getItem(anthropometryDraftKey(scope)) ? undefined : legacyKey ?? undefined };
   } catch {
     return null;
   }
@@ -329,6 +336,8 @@ export function AssessmentRegistrationComposer({
   onSaved,
   onCancelEdit,
 }: AssessmentRegistrationComposerProps) {
+  const { user } = useAuth();
+  const draftScope = user?.gym_id && user?.id ? `${user.gym_id}:${user.id}:${memberId}:${editingAssessmentId ?? "new"}` : null;
   const [mode, setMode] = useState<"select" | "manual_anthropometry">(initialMode);
   const [idempotencyKey, setIdempotencyKey] = useState(randomIdempotencyKey);
 
@@ -339,6 +348,8 @@ export function AssessmentRegistrationComposer({
   if (mode === "manual_anthropometry") {
     return (
       <ManualAnthropometricAssessmentForm
+        key={draftScope ?? memberId}
+        draftScope={draftScope}
         memberId={memberId}
         member={member}
         idempotencyKey={idempotencyKey}
@@ -399,25 +410,52 @@ export function AssessmentRegistrationComposer({
   );
 }
 
-function ManualAnthropometricAssessmentForm({
-  memberId,
-  member,
-  idempotencyKey,
-  editingAssessmentId,
-  onSaved,
-  onCancelEdit,
-}: {
+type ManualFormProps = {
+  draftScope: string | null;
   memberId: string;
   member?: AssessmentComposerMember | null;
   idempotencyKey: string;
   editingAssessmentId?: string | null;
   onSaved?: (assessmentId: string) => void;
   onCancelEdit?: () => void;
-}) {
+};
+
+function ManualAnthropometricAssessmentForm(props: ManualFormProps) {
+  const checked = useRef(false);
+  const [recovery, setRecovery] = useState<{ draft: AnthropometryDraft | null } | null>(null);
+  useEffect(() => {
+    if (checked.current) return;
+    checked.current = true;
+    const candidate = props.draftScope ? readAnthropometryDraft(props.draftScope, props.memberId) : null;
+    const accepted = candidate && window.confirm("Encontramos uma avaliacao nao salva deste aluno. Deseja recuperar?");
+    if (accepted && props.draftScope && candidate) {
+      const { _legacy_key: legacyKey, ...draft } = candidate;
+      const migrated = { ...draft, idempotency_key: draft.idempotency_key ?? props.idempotencyKey };
+      saveAnthropometryDraft(props.draftScope, migrated);
+      if (legacyKey) window.sessionStorage.removeItem(legacyKey);
+      setRecovery({ draft: migrated });
+    } else {
+      setRecovery({ draft: null });
+    }
+  }, [props.draftScope, props.idempotencyKey, props.memberId]);
+  if (!recovery) return <p role="status">Preparando avaliacao...</p>;
+  return <ConfirmedManualAnthropometricAssessmentForm {...props} initialDraft={recovery.draft} />;
+}
+
+function ConfirmedManualAnthropometricAssessmentForm({
+  initialDraft,
+  draftScope,
+  memberId,
+  member,
+  idempotencyKey,
+  editingAssessmentId,
+  onSaved,
+  onCancelEdit,
+}: ManualFormProps & { initialDraft: AnthropometryDraft | null }) {
   const mobileAssessmentFlowV3 = import.meta.env.VITE_MOBILE_ASSESSMENT_FLOW_V3 === "true";
   const queryClient = useQueryClient();
   const ageFromBirthdate = calculateAge(member?.birthdate);
-  const [initialDraft] = useState(() => editingAssessmentId ? null : readAnthropometryDraft(memberId));
+  const [effectiveIdempotencyKey, setEffectiveIdempotencyKey] = useState(initialDraft?.idempotency_key ?? idempotencyKey);
   const [hasUserChanges, setHasUserChanges] = useState(Boolean(initialDraft));
   const [assessmentDate, setAssessmentDate] = useState(initialDraft?.assessment_date ?? defaultDateTimeLocal);
   const [sex, setSex] = useState<SexForFormula>(
@@ -450,7 +488,7 @@ function ManualAnthropometricAssessmentForm({
 
   useEffect(() => {
     const assessment = editingAssessmentQuery.data;
-    if (!assessment || !editingAssessmentId) return;
+    if (!assessment || !editingAssessmentId || initialDraft) return;
     const snapshot = asRecord(assessment.anthropometry_snapshot_json);
     const inputs = asRecord(snapshot.inputs);
     const snapshotMeasurements = asRecord(snapshot.measurements);
@@ -484,7 +522,7 @@ function ManualAnthropometricAssessmentForm({
     setObservations(assessment.observations ?? "");
     setPreview(null);
     setHasUserChanges(false);
-  }, [editingAssessmentId, editingAssessmentQuery.data]);
+  }, [editingAssessmentId, editingAssessmentQuery.data, initialDraft]);
 
   useEffect(() => {
     if (!initialDraft) return;
@@ -492,9 +530,12 @@ function ManualAnthropometricAssessmentForm({
   }, [initialDraft]);
 
   useEffect(() => {
-    if (!hasUserChanges) return;
+    if (!hasUserChanges || !draftScope) return;
     const timer = window.setTimeout(() => {
-      saveAnthropometryDraft(memberId, {
+      saveAnthropometryDraft(draftScope, {
+        idempotency_key: effectiveIdempotencyKey,
+        expected_updated_at: initialDraft?.expected_updated_at ?? editingAssessmentQuery.data?.updated_at,
+        editing_assessment_id: editingAssessmentId ?? null,
         saved_at: Date.now(),
         assessment_date: assessmentDate,
         sex,
@@ -509,10 +550,15 @@ function ManualAnthropometricAssessmentForm({
         perimetry,
         observations,
       });
-    }, 300);
+    }, 500);
     return () => window.clearTimeout(timer);
   }, [
     ageYears,
+    draftScope,
+    effectiveIdempotencyKey,
+    editingAssessmentId,
+    editingAssessmentQuery.data?.updated_at,
+    initialDraft?.expected_updated_at,
     anthropometryEthnicity,
     anthropometryMaturity,
     assessmentDate,
@@ -666,17 +712,18 @@ function ManualAnthropometricAssessmentForm({
   const saveMutation = useMutation({
     mutationFn: (payload: AnthropometryAssessmentInput) => {
       if (editingAssessmentId) {
-        const expectedUpdatedAt = editingAssessmentQuery.data?.updated_at;
+        const expectedUpdatedAt = initialDraft?.expected_updated_at ?? editingAssessmentQuery.data?.updated_at;
         if (!expectedUpdatedAt) throw new AnthropometryClientValidationError("A avaliacao ainda esta sendo carregada para edicao.");
         return assessmentService.updateAnthropometry(memberId, editingAssessmentId, {
           ...payload,
           expected_updated_at: expectedUpdatedAt,
         });
       }
-      return assessmentService.createAnthropometry(memberId, payload, idempotencyKey);
+      return assessmentService.createAnthropometry(memberId, payload, effectiveIdempotencyKey);
     },
     onSuccess: async (assessment) => {
-      clearAnthropometryDraft(memberId);
+      if (draftScope) clearAnthropometryDraft(draftScope);
+      setEffectiveIdempotencyKey(randomIdempotencyKey());
       setHasUserChanges(false);
       await invalidateAssessmentQueries(queryClient, memberId);
       toast.success(anthropometryActuarToast(assessment));
@@ -697,7 +744,17 @@ function ManualAnthropometricAssessmentForm({
 
   function handleConfirm() {
     try {
-      saveMutation.mutate(buildValidatedPayload());
+      const payload = buildValidatedPayload();
+      if (draftScope) saveAnthropometryDraft(draftScope, {
+        saved_at: Date.now(), idempotency_key: effectiveIdempotencyKey,
+        expected_updated_at: initialDraft?.expected_updated_at ?? editingAssessmentQuery.data?.updated_at,
+        editing_assessment_id: editingAssessmentId ?? null,
+        assessment_date: assessmentDate, sex, age_years: ageYears, height, weight,
+        protocol_key: protocolKey, anthropometry_ethnicity: anthropometryEthnicity,
+        anthropometry_maturity: anthropometryMaturity, calculate_muscle_mass: calculateMuscleMass,
+        attempts, perimetry, observations,
+      });
+      saveMutation.mutate(payload);
     } catch (error) {
       toast.error(anthropometryErrorMessage(error, "Nao foi possivel salvar a avaliacao antropometrica."));
     }

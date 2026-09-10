@@ -10,7 +10,16 @@ from app.schemas import PaginatedResponse
 from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
 
 
+import pytest
+
+
 class TestRetentionQueueService:
+    @pytest.fixture(autouse=True)
+    def isolate_freshness_queries(self):
+        # Freshness queries have separate tenant/date contract tests.
+        with patch("app.services.dashboard_service.get_retention_freshness", return_value=None):
+            yield
+
     def test_plan_cycle_filter_prioritizes_visible_plan_name_over_stale_extra_data(self):
         from app.services.dashboard_service import _retention_plan_cycle_filter
         from sqlalchemy import select

@@ -127,6 +127,7 @@ def _successful_import_audit_details(
     column_mappings: dict[str, str],
     ignored_columns: list[str],
     summary: ImportSummary,
+    coverage_warning_codes: list[str] | None = None,
 ) -> dict:
     """Aggregate-only import evidence. Never records source rows or PII."""
 
@@ -134,6 +135,7 @@ def _successful_import_audit_details(
     return {
         "filename": safe_filename,
         "file_sha256": hashlib.sha256(content).hexdigest().upper(),
+        "coverage_warning_codes": coverage_warning_codes or [],
         "mapping": {
             "column_mappings": dict(sorted(column_mappings.items())),
             "ignored_columns": sorted(ignored_columns),
@@ -331,6 +333,10 @@ async def import_checkins_endpoint(
             column_mappings=parsed_mappings,
             ignored_columns=parsed_ignored_columns,
             summary=summary,
+            coverage_warning_codes=["possible_access_gap"] if any(
+                "lacuna" in warning.lower() or "nao possui acessos" in warning.lower()
+                for warning in preview.warnings
+            ) else [],
         ),
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
