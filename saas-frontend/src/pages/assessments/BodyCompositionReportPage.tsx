@@ -256,20 +256,32 @@ function BodyCompositionReportPage() {
   }
 
   const report = reportQuery.data;
-  const allReferenceMetrics = [...report.composition_metrics, ...report.risk_metrics, ...report.goal_metrics, ...report.muscle_fat_metrics];
-  const scoreMetric = metricByKey([...report.risk_metrics, ...report.primary_cards], "health_score");
+  // Reports created by older releases can omit collection fields that are now
+  // required by the API contract. Keep the presentation usable while those
+  // historical records are progressively enriched.
+  const primaryCards = Array.isArray(report.primary_cards) ? report.primary_cards : [];
+  const compositionMetrics = Array.isArray(report.composition_metrics) ? report.composition_metrics : [];
+  const muscleFatMetrics = Array.isArray(report.muscle_fat_metrics) ? report.muscle_fat_metrics : [];
+  const riskMetrics = Array.isArray(report.risk_metrics) ? report.risk_metrics : [];
+  const goalMetrics = Array.isArray(report.goal_metrics) ? report.goal_metrics : [];
+  const measurementRows = Array.isArray(report.measurement_rows) ? report.measurement_rows : [];
+  const comparisonRows = Array.isArray(report.comparison_rows) ? report.comparison_rows : [];
+  const historySeries = Array.isArray(report.history_series) ? report.history_series : [];
+  const insights = Array.isArray(report.insights) ? report.insights : [];
+  const allReferenceMetrics = [...compositionMetrics, ...riskMetrics, ...goalMetrics, ...muscleFatMetrics];
+  const scoreMetric = metricByKey([...riskMetrics, ...primaryCards], "health_score");
   const reportScore = report.score_total != null ? formatNumber(report.score_total) : metricValue(scoreMetric);
-  const physicalAgeMetric = metricByKey(report.risk_metrics, "physical_age");
-  const bmrMetric = metricByKey(report.primary_cards, "basal_metabolic_rate_kcal", "bmr");
-  const leadInsight = report.insights[0] ?? null;
+  const physicalAgeMetric = metricByKey(riskMetrics, "physical_age");
+  const bmrMetric = metricByKey(primaryCards, "basal_metabolic_rate_kcal", "bmr");
+  const leadInsight = insights[0] ?? null;
   const keyIndicators = [
     metricByKey(allReferenceMetrics, "bmi"),
     metricByKey(allReferenceMetrics, "body_fat_used_percent"),
     metricByKey(allReferenceMetrics, "visceral_fat_level"),
     metricByKey(allReferenceMetrics, "waist_hip_ratio"),
   ].filter((metric): metric is BodyCompositionReferenceMetric => Boolean(metric && isPresentMetric(metric)));
-  const detailMetrics = filterCompositionMetrics(report.composition_metrics);
-  const cleanGoalMetrics = report.goal_metrics.filter(isPresentMetric);
+  const detailMetrics = filterCompositionMetrics(compositionMetrics);
+  const cleanGoalMetrics = goalMetrics.filter(isPresentMetric);
 
   async function handleOpenPdf(kind: "summary" | "technical") {
     if (!memberId || !reportId) return;
@@ -365,13 +377,13 @@ function BodyCompositionReportPage() {
 
           <section className="clinical-web-page">
             <ReportMiniHeader header={report.header} />
-            <MeasurementsSection rows={report.measurement_rows ?? []} sex={report.header.sex} />
+            <MeasurementsSection rows={measurementRows} sex={report.header.sex} />
             <section className="clinical-web-page-grid clinical-web-late-grid">
               <GoalCards metrics={cleanGoalMetrics} />
               <BodyFatSourcePanel context={report.body_fat_context ?? null} />
             </section>
-            <HistoryTable comparisonRows={report.comparison_rows} historySeries={report.history_series} />
-            <ClientObservations insights={report.insights} teacherNotes={report.teacher_notes} />
+            <HistoryTable comparisonRows={comparisonRows} historySeries={historySeries} />
+            <ClientObservations insights={insights} teacherNotes={report.teacher_notes} />
           </section>
         </div>
       </article>
@@ -666,7 +678,7 @@ function HistoryTable({ comparisonRows, historySeries }: { comparisonRows: BodyC
   const columns = Array.from(
     new Set(
       historySeries
-        .flatMap((series) => series.points)
+        .flatMap((series) => Array.isArray(series?.points) ? series.points : [])
         .map((point) => point.evaluation_date)
         .filter(Boolean),
     ),

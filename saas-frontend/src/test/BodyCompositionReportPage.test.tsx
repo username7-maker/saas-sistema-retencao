@@ -297,4 +297,26 @@ describe("BodyCompositionReportPage", () => {
       expect.anything(),
     ));
   });
+
+  it("renders historical reports when optional collections are absent", async () => {
+    const historicalReport = makeReport();
+    const sparsePayload = historicalReport as unknown as Record<string, unknown>;
+    sparsePayload.measurement_rows = undefined;
+    sparsePayload.goal_metrics = undefined;
+    sparsePayload.comparison_rows = undefined;
+    sparsePayload.insights = undefined;
+    sparsePayload.history_series = [{
+      key: "weight",
+      label: "Peso",
+      unit: "kg",
+      points: undefined,
+    }];
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(historicalReport as BodyCompositionReport);
+
+    renderPage();
+
+    expect((await screen.findAllByText("Erick Bedin")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Historico em consolidacao")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
+  });
 });
