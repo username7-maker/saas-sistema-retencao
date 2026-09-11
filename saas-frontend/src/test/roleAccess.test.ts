@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canDeleteAutomationRules,
+  canDeleteBodyComposition,
   canRoleAccessPath,
   canSeedAutomationRules,
   getDefaultRouteForRole,
@@ -44,5 +45,13 @@ describe("roleAccess", () => {
     expect(canSeedAutomationRules("manager")).toBe(false);
     expect(canDeleteAutomationRules("owner")).toBe(true);
     expect(canDeleteAutomationRules("manager")).toBe(false);
+  });
+
+  it("allows assessment deletion for leadership and trainers only", () => {
+    expect(canDeleteBodyComposition("owner")).toBe(true);
+    expect(canDeleteBodyComposition("manager")).toBe(true);
+    expect(canDeleteBodyComposition("trainer")).toBe(true);
+    expect(canDeleteBodyComposition("receptionist")).toBe(false);
+    expect(canDeleteBodyComposition("salesperson")).toBe(false);
   });
 });

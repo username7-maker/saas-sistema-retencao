@@ -243,7 +243,7 @@ export function canManageBodyComposition(role: Role | null | undefined): boolean
 }
 
 export function canDeleteBodyComposition(role: Role | null | undefined): boolean {
-  return role === "owner" || role === "manager";
+  return role === "owner" || role === "manager" || role === "trainer";
 }
 
 export function canManageActuarSync(role: Role | null | undefined): boolean {

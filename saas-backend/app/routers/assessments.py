@@ -452,7 +452,7 @@ def delete_anthropometry_endpoint(
     member_id: UUID,
     assessment_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> APIMessage:
     _ensure_anthropometry_feature_enabled()
     assessment, before = delete_anthropometric_assessment(

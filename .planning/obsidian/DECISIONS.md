@@ -1,5 +1,8 @@
 # Decisions
 
+## 2026-09-11 - Professor Pode Excluir Avaliacoes
+O perfil `trainer` pode excluir logicamente avaliacoes de bioimpedancia e antropometria da propria academia, com a mesma auditoria e preservacao recuperavel aplicada a owner/manager. Recepcionista e vendedor permanecem sem permissao de exclusao. O backend e a interface devem aplicar a mesma matriz de acesso.
+
 ## 2026-09-10 - Recuperacao Deterministica de Recibos Termicos
 A leitura assistida de bioimpedancia usa primeiro a variante normal corrigida e somente faz uma segunda chamada de IA quando idade, sexo, altura, peso ou IMC nao forem encontrados. A segunda chamada recebe uma variante deterministica com normalizacao de fundo, contraste local, nitidez moderada e limiarizacao adaptativa. Ela apenas preenche campos ausentes, nunca substitui valores encontrados na primeira leitura. Falha da recuperacao preserva o resultado inicial. Filtros generativos ou super-resolucao generativa nao sao permitidos, pois podem inventar digitos clinicos; imagens irrecuperaveis continuam exigindo nova foto.
 

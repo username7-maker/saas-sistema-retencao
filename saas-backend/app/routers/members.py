@@ -752,7 +752,7 @@ def delete_body_composition_endpoint(
     member_id: UUID,
     evaluation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.TRAINER))],
 ) -> APIMessage:
     evaluation = delete_body_composition_evaluation(
         db,
