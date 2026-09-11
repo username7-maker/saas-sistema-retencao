@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from "react";
+import * as Sentry from "@sentry/react";
 
 const CHUNK_RELOAD_FLAG = "ai_gym_chunk_reload_attempted";
 const CHUNK_RELOAD_GUARD_MS = 60_000;
@@ -56,6 +57,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[ErrorBoundary]", error, info.componentStack);
+    Sentry.captureException(error, {
+      tags: { boundary: "application" },
+      contexts: {
+        react: { componentStack: info.componentStack ?? "unavailable" },
+        release: {
+          sha: (import.meta.env.VITE_RELEASE_SHA as string | undefined) || "dev",
+        },
+      },
+    });
     if (isRecoverableChunkLoadError(error) && getChunkReloadStorage() && !hasAlreadyTriedChunkReload()) {
       markChunkReloadAttempted();
       window.location.reload();

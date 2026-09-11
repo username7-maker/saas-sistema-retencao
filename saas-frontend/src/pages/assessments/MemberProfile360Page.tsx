@@ -1066,6 +1066,10 @@ export function MemberProfile360Page() {
     queryFn: () => memberService.getOperationalProfile(memberId ?? ""),
     enabled: Boolean(memberId) && (shouldLoadIndividualWorkspaceQueries || Boolean(bootstrapQuery.data)),
     staleTime: 60 * 1000,
+    // This profile enriches the workspace, but is not required to register or
+    // review an assessment. A deterministic 4xx must not be retried several
+    // times or delay the rest of the page.
+    retry: false,
   });
 
   const timelineQuery = useQuery({
@@ -1299,12 +1303,15 @@ export function MemberProfile360Page() {
         converted_at: typeof rawConversionHandoff.converted_at === "string" ? rawConversionHandoff.converted_at : null,
       }
     : null;
+  const operationalNotes = Array.isArray(operationalProfileQuery.data?.notes)
+    ? operationalProfileQuery.data.notes
+    : [];
   const structuredNotes =
-    operationalProfileQuery.data?.notes.map((note) => ({
+    operationalNotes.map((note) => ({
       id: note.id,
       text: note.body,
       created_at: note.created_at,
-    })) ?? [];
+    }));
   const apiNotes = structuredNotes.length > 0 ? structuredNotes : parseInternalNotes(mergedExtra);
   const notes = apiNotes;
   const latestNote = notes[0] ?? null;

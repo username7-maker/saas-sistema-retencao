@@ -394,4 +394,16 @@ describe("MemberProfile360Page", () => {
     expect(assessmentService.profile360).toHaveBeenCalledTimes(1);
     expect(memberService.getMember).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the assessment workspace available when the optional operational profile fails", async () => {
+    vi.mocked(memberService.getOperationalProfile).mockRejectedValueOnce(new Error("invalid optional profile"));
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
+    expect(screen.getByText("perfil operacional indisponivel")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(memberService.getOperationalProfile).toHaveBeenCalledTimes(1);
+    });
+  });
 });

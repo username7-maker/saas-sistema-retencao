@@ -4,7 +4,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 MemberNoteType = Literal["internal", "retention", "coach", "manager", "sales_handoff", "health_context"]
 MemberNoteVisibility = Literal["internal", "team", "manager", "coach", "sales"]
 
@@ -48,5 +47,9 @@ class MemberOperationalProfileOut(BaseModel):
     next_best_action: dict
     signals: list[dict] = Field(default_factory=list)
     timeline_preview: list[dict] = Field(default_factory=list)
-    data_quality_flags: list[dict] = Field(default_factory=list)
+    # Member intelligence exposes stable flag codes (for example,
+    # ``missing_recent_checkin``), not structured objects.  Keeping this in
+    # sync with LeadToMemberIntelligenceContextOut prevents valid profiles
+    # from being rejected with 422 during response validation.
+    data_quality_flags: list[str] = Field(default_factory=list)
     notes: list[MemberNoteOut] = Field(default_factory=list)

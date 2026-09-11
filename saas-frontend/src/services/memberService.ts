@@ -164,7 +164,7 @@ export interface MemberOperationalProfile {
   };
   signals: Record<string, unknown>[];
   timeline_preview: Record<string, unknown>[];
-  data_quality_flags: Record<string, unknown>[];
+  data_quality_flags: string[];
   notes: MemberOperationalNote[];
 }
 
