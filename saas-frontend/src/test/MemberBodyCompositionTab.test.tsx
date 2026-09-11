@@ -285,10 +285,10 @@ describe("MemberBodyCompositionTab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Excluir" }));
 
     expect(screen.getByRole("dialog", { name: "Excluir avaliacao" })).toBeInTheDocument();
-    expect(screen.getByText(/Esta acao nao pode ser desfeita/)).toBeInTheDocument();
+    expect(screen.getByText(/auditoria serao preservados/)).toBeInTheDocument();
     expect(bodyCompositionService.delete).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Excluir definitivamente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Excluir avaliacao" }));
 
     await waitFor(() => {
       expect(bodyCompositionService.delete).toHaveBeenCalledWith("member-1", "eval-1");
@@ -421,7 +421,10 @@ describe("MemberBodyCompositionTab", () => {
       expect(bodyCompositionService.update).toHaveBeenCalledWith(
         "member-1",
         "eval-1",
-        expect.objectContaining({ measurement_protocol: "weltman_1988_female_obese_20_60" }),
+        expect.objectContaining({
+          measurement_protocol: "weltman_1988_female_obese_20_60",
+          expected_updated_at: evaluation.updated_at,
+        }),
         { syncActuar: true },
       );
     });

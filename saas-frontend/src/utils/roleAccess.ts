@@ -246,6 +246,10 @@ export function canDeleteBodyComposition(role: Role | null | undefined): boolean
   return role === "owner" || role === "manager" || role === "trainer";
 }
 
+export function canManageAnthropometry(role: Role | null | undefined): boolean {
+  return role === "owner" || role === "manager" || role === "trainer";
+}
+
 export function canManageActuarSync(role: Role | null | undefined): boolean {
   return role === "owner" || role === "manager" || role === "receptionist";
 }

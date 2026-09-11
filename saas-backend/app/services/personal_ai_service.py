@@ -563,7 +563,11 @@ def _latest_assessment(db: Session, *, gym_id: UUID, member_id: UUID) -> Assessm
 def _latest_body_composition(db: Session, *, gym_id: UUID, member_id: UUID) -> BodyCompositionEvaluation | None:
     return db.scalar(
         select(BodyCompositionEvaluation)
-        .where(BodyCompositionEvaluation.gym_id == gym_id, BodyCompositionEvaluation.member_id == member_id)
+        .where(
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
+        )
         .order_by(BodyCompositionEvaluation.evaluation_date.desc(), BodyCompositionEvaluation.created_at.desc())
         .limit(1)
     )

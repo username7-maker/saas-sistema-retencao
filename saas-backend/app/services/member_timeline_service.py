@@ -314,7 +314,10 @@ def get_member_timeline(db: Session, member_id: UUID, limit: int = 50) -> list[d
         body_composition_items = _scalars_all(
             db,
             select(BodyCompositionEvaluation)
-            .where(BodyCompositionEvaluation.member_id == member_id)
+            .where(
+                BodyCompositionEvaluation.member_id == member_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
+            )
             .order_by(BodyCompositionEvaluation.evaluation_date.desc())
             .limit(10)
         )

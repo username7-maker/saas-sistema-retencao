@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -77,6 +78,7 @@ def create_body_composition_evaluation(
             select(BodyCompositionEvaluation).where(
                 BodyCompositionEvaluation.gym_id == gym_id,
                 BodyCompositionEvaluation.idempotency_key == idempotency_key,
+                BodyCompositionEvaluation.deleted_at.is_(None),
             )
         )
         if existing is not None:
@@ -153,6 +155,7 @@ def list_body_composition_evaluations(
             .where(
                 BodyCompositionEvaluation.gym_id == gym_id,
                 BodyCompositionEvaluation.member_id == member_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
             )
             .order_by(BodyCompositionEvaluation.evaluation_date.desc())
             .limit(limit)
@@ -171,13 +174,31 @@ def delete_body_composition_evaluation(
         gym_id=gym_id,
         member_id=member_id,
         evaluation_id=evaluation_id,
+        for_update=True,
     )
     remove_body_composition_technical_ladder_task_sources(
         db,
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
-    db.delete(evaluation)
+    now = datetime.now(tz=timezone.utc)
+    active_jobs = list(
+        db.scalars(
+            select(ActuarSyncJob).where(
+                ActuarSyncJob.body_composition_evaluation_id == evaluation_id,
+                ActuarSyncJob.status.in_(("pending", "processing")),
+            )
+        ).all()
+    )
+    for job in active_jobs:
+        job.status = "cancelled"
+        job.error_code = "evaluation_deleted"
+        job.error_message = "Avaliacao removida do historico antes da sincronizacao."
+        job.next_retry_at = None
+        job.locked_at = None
+        job.locked_by = None
+    evaluation.deleted_at = now
+    evaluation.actuar_sync_job_id = None
     db.flush()
     return evaluation
 
@@ -193,10 +214,27 @@ def update_body_composition_evaluation(
     sync_actuar: bool = True,
 ) -> tuple[BodyCompositionEvaluation, ActuarSyncJob | None]:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    evaluation = get_body_composition_evaluation_or_404(db, gym_id=gym_id, member_id=member_id, evaluation_id=evaluation_id)
+    evaluation = get_body_composition_evaluation_or_404(
+        db,
+        gym_id=gym_id,
+        member_id=member_id,
+        evaluation_id=evaluation_id,
+        for_update=True,
+    )
 
+    if _normalize_datetime(evaluation.updated_at) != _normalize_datetime(payload.expected_updated_at):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "body_composition_edit_conflict",
+                "message": "A avaliacao foi alterada por outro usuario.",
+            },
+        )
+
+    before_update = _body_composition_change_snapshot(evaluation)
     previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id, exclude_evaluation_id=evaluation_id)
-    payload_values = payload.model_dump()
+    explicit_fields = set(payload.model_fields_set) - {"expected_updated_at"}
+    payload_values = payload.model_dump(exclude={"expected_updated_at"})
     if payload.source == "ocr_receipt":
         payload_values = _preserve_existing_anthropometry_for_ocr_update(payload_values, evaluation)
     update_data = resolve_body_composition_persistence_fields(
@@ -204,14 +242,14 @@ def update_body_composition_evaluation(
         reviewer_user_id=reviewer_user_id,
         previous_evaluation=previous_evaluation,
         existing_evaluation=evaluation,
-        explicit_fields=set(payload.model_fields_set),
+        explicit_fields=explicit_fields,
     )
     _validate_body_composition_payload(payload)
     update_data["reviewed_manually"] = _resolve_reviewed_manually(payload)
     manual_changes = _manual_calculation_metric_changes(
         evaluation,
         update_data,
-        explicit_fields=set(payload.model_fields_set),
+        explicit_fields=explicit_fields,
     )
     if manual_changes:
         log_audit_event(
@@ -228,6 +266,26 @@ def update_body_composition_evaluation(
         )
     for field, value in update_data.items():
         setattr(evaluation, field, value)
+
+    after_update = _body_composition_change_snapshot(evaluation)
+    changed_fields = {
+        field: {"before": before_update[field], "after": after_update[field]}
+        for field in before_update
+        if before_update[field] != after_update[field]
+    }
+    if changed_fields:
+        log_audit_event(
+            db,
+            "body_composition_evaluation_updated",
+            "body_composition_evaluation",
+            gym_id=gym_id,
+            member_id=member_id,
+            entity_id=evaluation_id,
+            details={
+                "reviewer_user_id": str(reviewer_user_id) if reviewer_user_id else None,
+                "changes": changed_fields,
+            },
+        )
 
     _apply_ai_payload(db, member=member, evaluation=evaluation)
     ensure_body_composition_technical_ladder_tasks(
@@ -278,6 +336,7 @@ def serialize_body_composition_evaluation(
         .where(
             BodyCompositionEvaluation.member_id == member_id,
             BodyCompositionEvaluation.id != evaluation.id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)
@@ -351,6 +410,31 @@ def _same_metric_value(left: object, right: object) -> bool:
         return left == right
 
 
+def _body_composition_change_snapshot(evaluation: BodyCompositionEvaluation) -> dict[str, object]:
+    fields = (
+        "evaluation_date",
+        "measured_at",
+        "age_years",
+        "sex",
+        "height_cm",
+        *BODY_COMPOSITION_MEASUREMENT_FIELDS,
+        "measurement_protocol",
+        "notes",
+    )
+    snapshot: dict[str, object] = {}
+    for field in dict.fromkeys(fields):
+        value = getattr(evaluation, field, None)
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        elif value is not None and not isinstance(value, (str, int, float, bool, list, dict)):
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                value = str(value)
+        snapshot[field] = value
+    return snapshot
+
+
 def _preserve_existing_anthropometry_for_ocr_update(
     values: dict,
     evaluation: BodyCompositionEvaluation,
@@ -406,6 +490,7 @@ def _find_previous_evaluation(
         .where(
             BodyCompositionEvaluation.gym_id == gym_id,
             BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)
@@ -413,6 +498,12 @@ def _find_previous_evaluation(
     if exclude_evaluation_id is not None:
         statement = statement.where(BodyCompositionEvaluation.id != exclude_evaluation_id)
     return db.scalar(statement)
+
+
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _validate_body_composition_payload(

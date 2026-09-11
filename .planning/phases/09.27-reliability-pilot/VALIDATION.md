@@ -20,6 +20,12 @@
 - Publicacao automatica antiga foi desativada. O workflow unico exige SHA completo,
   valida main ou rollback explicito, publica API/worker/frontend e executa smoke
   autenticado somente de leitura antes de registrar o manifesto.
+- Bioimpedancia agora usa exclusao logica, filtra registros removidos das superficies
+  operacionais e cancela jobs de sincronizacao ainda abertos sem destruir historicos.
+- Edicao de bioimpedancia usa controle concorrente por `expected_updated_at` e retorna
+  `409 Conflict` quando outra pessoa alterou o registro.
+- Recuperacao da camera considera campo sem evidencia, limita a segunda leitura a 20s,
+  sinaliza divergencias entre leituras e evita falso reflexo em papel branco legivel.
 
 ## Verificacoes locais
 

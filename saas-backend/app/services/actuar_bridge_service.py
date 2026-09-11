@@ -257,7 +257,7 @@ def complete_actuar_bridge_job(
     action_log = list(payload.action_log_json or [])
     if payload.note:
         action_log.append({"event": "bridge_note", "note": payload.note})
-    _finalize_bridge_success(
+    finalized = _finalize_bridge_success(
         db,
         job=job,
         evaluation=evaluation,
@@ -265,7 +265,8 @@ def complete_actuar_bridge_job(
         external_id=payload.external_id,
         action_log=action_log,
     )
-    _persist_member_link_from_bridge_success(db, job=job, external_id=payload.external_id)
+    if finalized:
+        _persist_member_link_from_bridge_success(db, job=job, external_id=payload.external_id)
 
 
 def fail_actuar_bridge_job(
@@ -274,7 +275,7 @@ def fail_actuar_bridge_job(
     device: ActuarBridgeDevice,
     job_id: UUID,
     payload: ActuarBridgeJobFailInput,
-) -> None:
+) -> bool:
     _load_claimed_job_triplet(db, device=device, job_id=job_id)
     now = _now()
     device.status = "online"
@@ -311,7 +312,7 @@ def _finalize_bridge_success(
 ) -> None:
     from app.services.body_composition_actuar_sync_service import _finalize_sync_success
 
-    _finalize_sync_success(
+    return _finalize_sync_success(
         db,
         job=job,
         evaluation=evaluation,
@@ -441,7 +442,10 @@ def _load_claimed_job_triplet(
 
     evaluation = db.scalar(
         include_all_tenants(
-            select(BodyCompositionEvaluation).where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id),
+            select(BodyCompositionEvaluation).where(
+                BodyCompositionEvaluation.id == job.body_composition_evaluation_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
+            ),
             reason="actuar_bridge.load_evaluation",
         )
     )

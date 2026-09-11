@@ -581,7 +581,10 @@ def _member_assessment_queue_item(db: Session, *, member_id: UUID, current_user:
     )
     latest_body_composition = db.scalar(
         select(BodyCompositionEvaluation)
-        .where(BodyCompositionEvaluation.member_id == member.id)
+        .where(
+            BodyCompositionEvaluation.member_id == member.id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
+        )
         .order_by(BodyCompositionEvaluation.evaluation_date.desc(), BodyCompositionEvaluation.updated_at.desc())
         .limit(1)
     )

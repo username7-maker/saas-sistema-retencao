@@ -417,6 +417,7 @@ def get_member_intelligence_context(
             .where(
                 BodyCompositionEvaluation.gym_id == gym_id,
                 BodyCompositionEvaluation.member_id == member.id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
             )
             .order_by(
                 BodyCompositionEvaluation.measured_at.desc().nullslast(),
@@ -430,6 +431,7 @@ def get_member_intelligence_context(
         BodyCompositionEvaluation,
         BodyCompositionEvaluation.gym_id == gym_id,
         BodyCompositionEvaluation.member_id == member.id,
+        BodyCompositionEvaluation.deleted_at.is_(None),
     )
     historical_appointments_total = _count(
         db,

@@ -561,6 +561,7 @@ def remove_body_composition_technical_ladder_task_sources(
             select(Task).where(
                 Task.member_id == member_id,
                 Task.deleted_at.is_(None),
+                Task.status.in_((TaskStatus.TODO, TaskStatus.DOING)),
                 Task.extra_data["source"].astext.in_(
                     (
                         _ASSESSMENT_TRAINING_DELIVERY_TASK_SOURCE,
@@ -710,7 +711,7 @@ def update_assessment_queue_resolution(
 def list_assessments(db: Session, member_id: UUID, gym_id: UUID | None = None) -> list:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
     assessment_filters = [Assessment.member_id == member_id, Assessment.deleted_at.is_(None)]
-    body_filters = [BodyCompositionEvaluation.member_id == member_id]
+    body_filters = [BodyCompositionEvaluation.member_id == member_id, BodyCompositionEvaluation.deleted_at.is_(None)]
     if gym_id is not None:
         assessment_filters.append(Assessment.gym_id == gym_id)
         body_filters.append(BodyCompositionEvaluation.gym_id == gym_id)

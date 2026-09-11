@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Ind
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.body_composition_constants import (
     ACTUAR_SYNC_MODES,
     ACTUAR_SYNC_STATUSES,
@@ -18,7 +18,7 @@ from app.models.body_composition_constants import (
 )
 
 
-class BodyCompositionEvaluation(Base, TimestampMixin):
+class BodyCompositionEvaluation(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "body_composition_evaluations"
     __table_args__ = (
         CheckConstraint("weight_kg IS NULL OR weight_kg > 0", name="bce_weight_positive"),

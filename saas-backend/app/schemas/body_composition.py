@@ -237,6 +237,7 @@ class BodyCompositionImageProcessing(BaseModel):
     capture_device_kind: Literal["webcam", "mobile", "unknown"] = "unknown"
     capture_mode: Literal["single", "segmented"] = "single"
     segment_count: int = Field(default=1, ge=1, le=3)
+    enhancement_retry_attempted: bool = False
     enhancement_retry_used: bool = False
     enhancement_variant: str | None = None
 
@@ -405,7 +406,7 @@ class BodyCompositionEvaluationCreate(BodyCompositionEvaluationBase):
 
 
 class BodyCompositionEvaluationUpdate(BodyCompositionEvaluationBase):
-    pass
+    expected_updated_at: datetime
 
 
 class BodyCompositionSyncAttemptRead(BaseModel):
@@ -476,7 +477,7 @@ class BodyCompositionEvaluationRead(BodyCompositionEvaluationBase):
 
 
 class BodyCompositionEvaluationReviewInput(BodyCompositionEvaluationBase):
-    pass
+    expected_updated_at: datetime
 
 
 class BodyCompositionReportHeaderRead(BaseModel):

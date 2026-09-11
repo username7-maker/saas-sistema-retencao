@@ -36,7 +36,11 @@ from app.services.body_composition_report_service import (
     build_body_composition_quality_flags,
     calculate_body_water_percent,
 )
-from app.services.document_image_preprocessing import DocumentPreprocessingResult, preprocess_receipt_image
+from app.services.document_image_preprocessing import (
+    DocumentPreprocessingResult,
+    build_thermal_recovery_image,
+    preprocess_receipt_image,
+)
 from app.utils.claude import _parse_claude_json
 
 logger = logging.getLogger(__name__)
@@ -292,20 +296,10 @@ def parse_body_composition_image(
     preprocessing = preprocessings[0]
     segment_roles = ["full"] if len(input_images) == 1 else ["top", "middle", "bottom"][:len(input_images)]
     provider_images = []
-    recovery_provider_images = []
-    has_recovery_variant = False
     for index, ((content, normalized_type), prepared) in enumerate(zip(input_images, preprocessings, strict=True)):
         provider_images.append((
             prepared.image_bytes if prepared and prepared.applied else content,
             prepared.media_type if prepared and prepared.applied else normalized_type,
-            segment_roles[index],
-        ))
-        recovery_bytes = prepared.recovery_image_bytes if prepared else None
-        recovery_type = prepared.recovery_media_type if prepared else None
-        has_recovery_variant = has_recovery_variant or recovery_bytes is not None
-        recovery_provider_images.append((
-            recovery_bytes or (prepared.image_bytes if prepared and prepared.applied else content),
-            recovery_type or (prepared.media_type if prepared and prepared.applied else normalized_type),
             segment_roles[index],
         ))
 
@@ -339,6 +333,7 @@ def parse_body_composition_image(
             capture_metadata=capture_metadata,
         )
 
+    enhancement_retry_attempted = False
     enhancement_retry_used = False
     enhancement_variant = None
     try:
@@ -357,20 +352,43 @@ def parse_body_composition_image(
                 device_profile=normalized_device_profile,
                 local_ocr_result=provider_local_hint,
             )
-        missing_recovery_fields = _missing_recovery_read_fields(ai_payload)
-        if has_recovery_variant and missing_recovery_fields:
+        missing_recovery_fields = _recovery_read_fields(ai_payload)
+        has_prebuilt_recovery = any(
+            prepared is not None and prepared.recovery_image_bytes is not None
+            for prepared in preprocessings
+        )
+        if missing_recovery_fields and (settings.bioimpedance_scanner_v2 or has_prebuilt_recovery):
+            recovery_provider_images = []
+            has_recovery_variant = False
+            for index, (content, normalized_type, role) in enumerate(provider_images):
+                prepared = preprocessings[index]
+                recovery_bytes = prepared.recovery_image_bytes if prepared else None
+                recovery_bytes = recovery_bytes or build_thermal_recovery_image(content)
+                has_recovery_variant = has_recovery_variant or recovery_bytes is not None
+                recovery_provider_images.append((
+                    recovery_bytes or content,
+                    "image/jpeg" if recovery_bytes else normalized_type,
+                    role,
+                ))
+        else:
+            recovery_provider_images = []
+            has_recovery_variant = False
+        if has_recovery_variant:
+            enhancement_retry_attempted = True
             try:
                 if provider == "openai":
                     recovery_payload = _parse_with_openai_vision(
                         images=recovery_provider_images,
                         device_profile=normalized_device_profile,
                         local_ocr_result=provider_local_hint,
+                        timeout_seconds=min(settings.body_composition_image_ai_timeout_seconds, 20),
                     )
                 else:
                     recovery_payload = _parse_with_claude_vision(
                         images=recovery_provider_images,
                         device_profile=normalized_device_profile,
                         local_ocr_result=provider_local_hint,
+                        timeout_seconds=min(settings.body_composition_image_ai_timeout_seconds, 20),
                     )
                 ai_payload = _merge_ai_recovery_result(ai_payload, recovery_payload)
                 enhancement_retry_used = True
@@ -446,6 +464,7 @@ def parse_body_composition_image(
         image_height=image_height,
         preprocessing=preprocessing,
         capture_metadata=capture_metadata,
+        enhancement_retry_attempted=enhancement_retry_attempted,
         enhancement_retry_used=enhancement_retry_used,
         enhancement_variant=enhancement_variant,
     )
@@ -474,6 +493,7 @@ def _parse_with_openai_vision(
     media_type: str | None = None,
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
+    timeout_seconds: int | None = None,
 ) -> BodyCompositionImageParseResultRead:
     # Keep the original single-image callable contract for internal callers and
     # focused tests while accepting the new segmented capture contract.
@@ -494,7 +514,9 @@ def _parse_with_openai_vision(
             "marque revisao. Informe field_metadata.segment para todo campo extraido."
         )
 
-    client = _create_openai_client(timeout_seconds=settings.body_composition_image_ai_timeout_seconds)
+    client = _create_openai_client(
+        timeout_seconds=timeout_seconds or settings.body_composition_image_ai_timeout_seconds
+    )
     image_content: list[dict[str, Any]] = []
     for image_bytes, media_type, role in images:
         image_content.extend([
@@ -546,6 +568,7 @@ def _parse_with_claude_vision(
     media_type: str | None = None,
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
+    timeout_seconds: int | None = None,
 ) -> BodyCompositionImageParseResultRead:
     if images is None:
         if image_bytes is None:
@@ -581,7 +604,8 @@ def _parse_with_claude_vision(
 
     client = anthropic.Anthropic(
         api_key=settings.claude_api_key,
-        timeout=settings.body_composition_image_ai_timeout_seconds,
+        timeout=timeout_seconds or settings.body_composition_image_ai_timeout_seconds,
+        max_retries=0,
     )
     image_content: list[dict[str, Any]] = []
     for image_bytes, media_type, role in images:
@@ -658,8 +682,28 @@ def _normalize_ai_payload(
     )
 
 
-def _missing_recovery_read_fields(result: BodyCompositionImageParseResultRead) -> list[str]:
-    return [field_name for field_name in RECOVERY_READ_FIELDS if getattr(result.values, field_name, None) is None]
+def _recovery_read_fields(result: BodyCompositionImageParseResultRead) -> list[str]:
+    fields: list[str] = []
+    for field_name in RECOVERY_READ_FIELDS:
+        value = getattr(result.values, field_name, None)
+        metadata = result.field_metadata.get(field_name)
+        if value is None:
+            fields.append(field_name)
+            continue
+        if field_name == "age_years" and _is_physical_age_label(
+            (metadata.label or "") if metadata else "",
+            (metadata.evidence or "") if metadata else "",
+        ):
+            fields.append(field_name)
+            continue
+        if (
+            not _is_plausible(field_name, value)
+            or _ai_metadata_validation_error(field_name, value, metadata)
+            or metadata is None
+            or (metadata.confidence or 0) < MIN_EVIDENCE_CONFIDENCE
+        ):
+            fields.append(field_name)
+    return fields
 
 
 def _merge_ai_recovery_result(
@@ -669,10 +713,14 @@ def _merge_ai_recovery_result(
     """Fill only absent values from the recovery read; never replace a primary value."""
     value_updates: dict[str, Any] = {}
     recovered_fields: set[str] = set()
+    conflicts: set[str] = set()
     for field_name in BodyCompositionOcrValues.model_fields:
-        if getattr(primary.values, field_name, None) is not None:
-            continue
+        primary_value = getattr(primary.values, field_name, None)
         recovered_value = getattr(recovery.values, field_name, None)
+        if primary_value is not None:
+            if recovered_value is not None and not _values_close(field_name, primary_value, recovered_value):
+                conflicts.add(field_name)
+            continue
         if recovered_value is None:
             continue
         value_updates[field_name] = recovered_value
@@ -687,6 +735,20 @@ def _merge_ai_recovery_result(
         metadata = recovery.field_metadata.get(field_name)
         if metadata is not None:
             field_metadata[field_name] = metadata
+    for field_name in conflicts:
+        metadata = field_metadata.get(field_name)
+        if metadata is not None:
+            field_metadata[field_name] = metadata.model_copy(update={"state": "conflict"})
+
+    validation_issues = list(primary.validation_issues)
+    for field_name in sorted(conflicts):
+        _append_issue(
+            validation_issues,
+            code="ai_enhancement_conflict",
+            severity="critical" if field_name in RECOVERY_READ_FIELDS else "warning",
+            fields=[field_name],
+            message=f"As duas leituras da imagem divergiram em {field_name}.",
+        )
 
     recovery_warnings = [
         warning for warning in recovery.warnings if warning.field is None or warning.field in recovered_fields
@@ -698,6 +760,7 @@ def _merge_ai_recovery_result(
             "ranges": ranges,
             "warnings": _dedupe_warnings([*primary.warnings, *recovery_warnings]),
             "field_metadata": field_metadata,
+            "validation_issues": validation_issues,
             "confidence": max(primary.confidence, recovery.confidence),
             "needs_review": primary.needs_review or recovery.needs_review,
         }
@@ -1525,6 +1588,7 @@ def _complete_parse_request(
     image_height: int | None,
     preprocessing: DocumentPreprocessingResult | None = None,
     capture_metadata: BodyCompositionCaptureMetadata | None = None,
+    enhancement_retry_attempted: bool = False,
     enhancement_retry_used: bool = False,
     enhancement_variant: str | None = None,
 ) -> BodyCompositionImageParseResultRead:
@@ -1544,6 +1608,7 @@ def _complete_parse_request(
             if capture_metadata and capture_metadata.capture_mode == "segmented"
             else 1
         ),
+        enhancement_retry_attempted=enhancement_retry_attempted,
         enhancement_retry_used=enhancement_retry_used,
         enhancement_variant=enhancement_variant,
     )

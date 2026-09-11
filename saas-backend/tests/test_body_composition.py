@@ -14,6 +14,7 @@ GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 EVALUATION_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
 ATTEMPT_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
+UPDATED_AT = datetime(2026, 3, 2, 12, tzinfo=UTC)
 
 
 def _ai_payload() -> dict:
@@ -254,6 +255,7 @@ class TestUpdateBodyComposition:
             ai_risk_flags_json=None,
             ai_training_focus_json=None,
             ai_generated_at=None,
+            updated_at=UPDATED_AT,
         )
         mock_get_member.return_value = member
         mock_get_evaluation.return_value = evaluation
@@ -276,6 +278,7 @@ class TestUpdateBodyComposition:
                 fat_free_mass_kg=63.2,
                 lean_mass_kg=61.0,
                 reviewed_manually=True,
+                expected_updated_at=UPDATED_AT,
             ),
         )
 
@@ -285,13 +288,15 @@ class TestUpdateBodyComposition:
         assert updated.reviewed_manually is True
         assert updated.ai_training_focus_json["primary_goal"] == "reducao_de_gordura"
         assert attempt is None
-        db.flush.assert_called_once()
+        assert db.flush.call_count >= 1
 
     @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
     @patch("app.services.body_composition_service.get_member_or_404")
     def test_rejects_update_that_clears_all_metrics(self, mock_get_member, mock_get_evaluation):
         mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID, full_name="Aluno")
-        mock_get_evaluation.return_value = SimpleNamespace(id=EVALUATION_ID, gym_id=GYM_ID, member_id=MEMBER_ID)
+        mock_get_evaluation.return_value = SimpleNamespace(
+            id=EVALUATION_ID, gym_id=GYM_ID, member_id=MEMBER_ID, updated_at=UPDATED_AT
+        )
         db = MagicMock()
 
         from app.schemas.body_composition import BodyCompositionEvaluationUpdate
@@ -306,6 +311,7 @@ class TestUpdateBodyComposition:
                 BodyCompositionEvaluationUpdate(
                     evaluation_date=date(2026, 4, 9),
                     source="manual",
+                    expected_updated_at=UPDATED_AT,
                 ),
             )
         except HTTPException as exc:
@@ -357,6 +363,7 @@ class TestUpdateBodyComposition:
             ai_risk_flags_json=None,
             ai_training_focus_json=None,
             ai_generated_at=None,
+            updated_at=UPDATED_AT,
         )
         mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID, full_name="Aluno")
         mock_get_evaluation.return_value = evaluation
@@ -379,6 +386,7 @@ class TestUpdateBodyComposition:
                 body_fat_percent=23.0,
                 device_profile="tezewa_receipt_v1",
                 reviewed_manually=True,
+                expected_updated_at=UPDATED_AT,
             ),
             sync_actuar=False,
         )
@@ -413,7 +421,13 @@ class TestDeleteBodyComposition:
     @patch("app.services.body_composition_service.remove_body_composition_technical_ladder_task_sources")
     @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
     def test_deletes_tenant_scoped_evaluation_and_related_task_sources(self, mock_get_evaluation, mock_remove_tasks):
-        evaluation = SimpleNamespace(id=EVALUATION_ID, gym_id=GYM_ID, member_id=MEMBER_ID)
+        evaluation = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            deleted_at=None,
+            actuar_sync_job_id=ATTEMPT_ID,
+        )
         mock_get_evaluation.return_value = evaluation
         db = MagicMock()
 
@@ -427,10 +441,74 @@ class TestDeleteBodyComposition:
             gym_id=GYM_ID,
             member_id=MEMBER_ID,
             evaluation_id=EVALUATION_ID,
+            for_update=True,
         )
         mock_remove_tasks.assert_called_once_with(db, member_id=MEMBER_ID, evaluation_id=EVALUATION_ID)
-        db.delete.assert_called_once_with(evaluation)
-        db.flush.assert_called_once()
+        db.delete.assert_not_called()
+        assert evaluation.deleted_at is not None
+        assert evaluation.actuar_sync_job_id is None
+        assert db.flush.call_count >= 1
+
+    @patch("app.services.body_composition_service.remove_body_composition_technical_ladder_task_sources")
+    @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
+    def test_soft_delete_cancels_only_active_sync_jobs(self, mock_get_evaluation, _mock_remove_tasks):
+        evaluation = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            deleted_at=None,
+            actuar_sync_job_id=ATTEMPT_ID,
+        )
+        active_job = SimpleNamespace(
+            status="pending",
+            error_code=None,
+            error_message=None,
+            next_retry_at=datetime.now(tz=UTC),
+            locked_at=datetime.now(tz=UTC),
+            locked_by="worker-1",
+        )
+        mock_get_evaluation.return_value = evaluation
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = [active_job]
+
+        from app.services.body_composition_service import delete_body_composition_evaluation
+
+        delete_body_composition_evaluation(db, GYM_ID, MEMBER_ID, EVALUATION_ID)
+
+        assert active_job.status == "cancelled"
+        assert active_job.error_code == "evaluation_deleted"
+        assert active_job.next_retry_at is None
+        assert active_job.locked_at is None
+        assert active_job.locked_by is None
+
+    @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
+    @patch("app.services.body_composition_service.get_member_or_404")
+    def test_rejects_stale_update(self, mock_get_member, mock_get_evaluation):
+        mock_get_member.return_value = SimpleNamespace(id=MEMBER_ID)
+        mock_get_evaluation.return_value = SimpleNamespace(
+            id=EVALUATION_ID,
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            updated_at=UPDATED_AT,
+        )
+
+        from app.schemas.body_composition import BodyCompositionEvaluationUpdate
+        from app.services.body_composition_service import update_body_composition_evaluation
+
+        with pytest.raises(HTTPException) as exc:
+            update_body_composition_evaluation(
+                MagicMock(),
+                GYM_ID,
+                MEMBER_ID,
+                EVALUATION_ID,
+                BodyCompositionEvaluationUpdate(
+                    evaluation_date=date(2026, 3, 3),
+                    weight_kg=82,
+                    expected_updated_at=datetime(2026, 3, 1, 12, tzinfo=UTC),
+                ),
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "body_composition_edit_conflict"
 
 
 class TestBodyCompositionDelivery:
@@ -826,6 +904,7 @@ class TestBodyCompositionPdfRoutes:
             id=EVALUATION_ID,
             evaluation_date=date(2026, 4, 14),
             source="manual",
+            deleted_at=datetime(2026, 4, 15, tzinfo=UTC),
         )
         db = MagicMock()
         current_user = SimpleNamespace(id=uuid.uuid4(), gym_id=GYM_ID)

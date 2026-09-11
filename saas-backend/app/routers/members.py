@@ -602,6 +602,7 @@ async def parse_body_composition_image_endpoint(
     previous_stmt = select(BodyCompositionEvaluation).where(
         BodyCompositionEvaluation.gym_id == current_user.gym_id,
         BodyCompositionEvaluation.member_id == member_id,
+        BodyCompositionEvaluation.deleted_at.is_(None),
     )
     if evaluation_date is not None:
         previous_stmt = previous_stmt.where(BodyCompositionEvaluation.evaluation_date < evaluation_date)
@@ -771,6 +772,8 @@ def delete_body_composition_endpoint(
         details={
             "evaluation_date": evaluation.evaluation_date.isoformat(),
             "source": evaluation.source,
+            "recoverable": True,
+            "deleted_at": evaluation.deleted_at.isoformat(),
         },
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
@@ -1304,6 +1307,7 @@ def _get_previous_body_composition_evaluation(
         .where(
             BodyCompositionEvaluation.member_id == member_id,
             BodyCompositionEvaluation.id != evaluation_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)

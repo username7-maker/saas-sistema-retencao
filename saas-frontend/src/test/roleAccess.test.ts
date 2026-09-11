@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canDeleteAutomationRules,
   canDeleteBodyComposition,
+  canManageAnthropometry,
   canRoleAccessPath,
   canSeedAutomationRules,
   getDefaultRouteForRole,
@@ -53,5 +54,13 @@ describe("roleAccess", () => {
     expect(canDeleteBodyComposition("trainer")).toBe(true);
     expect(canDeleteBodyComposition("receptionist")).toBe(false);
     expect(canDeleteBodyComposition("salesperson")).toBe(false);
+  });
+
+  it("keeps anthropometry editing aligned with the backend", () => {
+    expect(canManageAnthropometry("owner")).toBe(true);
+    expect(canManageAnthropometry("manager")).toBe(true);
+    expect(canManageAnthropometry("trainer")).toBe(true);
+    expect(canManageAnthropometry("receptionist")).toBe(false);
+    expect(canManageAnthropometry("salesperson")).toBe(false);
   });
 });

@@ -96,6 +96,7 @@ def generate_body_composition_ai(
         .where(
             BodyCompositionEvaluation.member_id == member.id,
             BodyCompositionEvaluation.id != evaluation.id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)

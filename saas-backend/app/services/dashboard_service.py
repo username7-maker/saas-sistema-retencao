@@ -648,7 +648,10 @@ def _onboarding_activation(db: Session, *, gym_id=None) -> BIOnboardingActivatio
 
     assessment_start = datetime.combine(cutoff_date, time.min, tzinfo=timezone.utc)
     assessment_filters = [Assessment.deleted_at.is_(None), Assessment.assessment_date >= assessment_start]
-    body_composition_filters = [BodyCompositionEvaluation.evaluation_date >= cutoff_date]
+    body_composition_filters = [
+        BodyCompositionEvaluation.deleted_at.is_(None),
+        BodyCompositionEvaluation.evaluation_date >= cutoff_date,
+    ]
     if gym_id is not None:
         assessment_filters.append(Assessment.gym_id == gym_id)
         body_composition_filters.append(BodyCompositionEvaluation.gym_id == gym_id)

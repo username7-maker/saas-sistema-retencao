@@ -2066,8 +2066,8 @@ export interface BodyCompositionEvaluationCreate {
   measured_ranges_json?: Record<string, BodyCompositionRangeValue> | null;
 }
 
-export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate;
-export type BodyCompositionEvaluationReviewInput = BodyCompositionEvaluationCreate;
+export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate & { expected_updated_at: string };
+export type BodyCompositionEvaluationReviewInput = BodyCompositionEvaluationCreate & { expected_updated_at: string };
 
 export interface SalesHistoryItem {
   kind: string;

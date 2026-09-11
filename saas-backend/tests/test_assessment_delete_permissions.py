@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -29,7 +29,12 @@ def test_trainer_can_delete_body_composition(app, client):
     db = MagicMock()
     member_id = uuid4()
     evaluation_id = uuid4()
-    evaluation = SimpleNamespace(id=evaluation_id, evaluation_date=date(2026, 9, 10), source="manual")
+    evaluation = SimpleNamespace(
+        id=evaluation_id,
+        evaluation_date=date(2026, 9, 10),
+        source="manual",
+        deleted_at=datetime(2026, 9, 11, tzinfo=UTC),
+    )
     _override_actor(app, actor, db)
     try:
         with patch(

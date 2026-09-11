@@ -455,7 +455,10 @@ def list_actuar_sync_queue(
         select(BodyCompositionEvaluation, Member, ActuarSyncJob)
         .join(Member, Member.id == BodyCompositionEvaluation.member_id)
         .outerjoin(ActuarSyncJob, ActuarSyncJob.id == BodyCompositionEvaluation.actuar_sync_job_id)
-        .where(BodyCompositionEvaluation.gym_id == gym_id)
+        .where(
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
+        )
         .order_by(
             Member.id.asc(),
             desc(BodyCompositionEvaluation.evaluation_date),
@@ -575,7 +578,10 @@ def execute_actuar_sync_job(*, job_id: UUID, worker_id: str) -> None:
             evaluation = db.scalar(
                 include_all_tenants(
                     select(BodyCompositionEvaluation)
-                    .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id),
+                    .where(
+                        BodyCompositionEvaluation.id == job.body_composition_evaluation_id,
+                        BodyCompositionEvaluation.deleted_at.is_(None),
+                    ),
                     reason="actuar_sync.load_evaluation",
                 )
             )
@@ -709,14 +715,17 @@ def get_body_composition_evaluation_or_404(
     gym_id: UUID,
     member_id: UUID,
     evaluation_id: UUID,
+    for_update: bool = False,
 ) -> BodyCompositionEvaluation:
-    evaluation = db.scalar(
-        select(BodyCompositionEvaluation).where(
+    statement = select(BodyCompositionEvaluation).where(
             BodyCompositionEvaluation.id == evaluation_id,
             BodyCompositionEvaluation.gym_id == gym_id,
             BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
         )
-    )
+    if for_update:
+        statement = statement.with_for_update()
+    evaluation = db.scalar(statement)
     if not evaluation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bioimpedancia nao encontrada")
     return evaluation
@@ -855,7 +864,19 @@ def _finalize_sync_success(
     action_log: list[dict],
     screenshot_path: str | None,
     page_html_path: str | None,
-) -> None:
+) -> bool:
+    # The external operation may finish after an operator deleted the
+    # evaluation. Re-read both rows before accepting the result so a late
+    # worker cannot resurrect a cancelled job.
+    db.refresh(job)
+    db.refresh(evaluation)
+    if job.status == "cancelled" or getattr(evaluation, "deleted_at", None) is not None:
+        attempt.status = "failed"
+        attempt.finished_at = _now()
+        attempt.action_log_json = [*action_log, {"event": "evaluation_deleted_during_sync"}]
+        db.add(attempt)
+        db.commit()
+        return False
     now = _now()
     attempt.status = "succeeded"
     attempt.finished_at = now
@@ -885,6 +906,7 @@ def _finalize_sync_success(
             }
         },
     )
+    return True
 
 
 def _finalize_sync_failure(
@@ -901,7 +923,10 @@ def _finalize_sync_failure(
     evaluation = db.scalar(
         include_all_tenants(
             select(BodyCompositionEvaluation)
-            .where(BodyCompositionEvaluation.id == job.body_composition_evaluation_id),
+            .where(
+                BodyCompositionEvaluation.id == job.body_composition_evaluation_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
+            ),
             reason="actuar_sync.finalize_failure_evaluation",
         )
     )

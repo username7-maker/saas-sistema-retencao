@@ -80,6 +80,7 @@ def _latest_body_composition_subquery():
             )
             .label("row_number"),
         )
+        .where(BodyCompositionEvaluation.deleted_at.is_(None))
         .subquery()
     )
 
@@ -480,6 +481,7 @@ def get_assessments_dashboard(db: Session) -> dict:
                 BodyCompositionEvaluation,
                 and_(
                     BodyCompositionEvaluation.member_id == Member.id,
+                    BodyCompositionEvaluation.deleted_at.is_(None),
                     BodyCompositionEvaluation.evaluation_date >= cutoff_90,
                 ),
             )
@@ -504,7 +506,13 @@ def get_assessments_dashboard(db: Session) -> dict:
             select(func.count(distinct(Member.id)))
             .select_from(Member)
             .outerjoin(Assessment, and_(Assessment.member_id == Member.id, Assessment.deleted_at.is_(None)))
-            .outerjoin(BodyCompositionEvaluation, BodyCompositionEvaluation.member_id == Member.id)
+            .outerjoin(
+                BodyCompositionEvaluation,
+                and_(
+                    BodyCompositionEvaluation.member_id == Member.id,
+                    BodyCompositionEvaluation.deleted_at.is_(None),
+                ),
+            )
             .outerjoin(
                 AssessmentAppointment,
                 and_(

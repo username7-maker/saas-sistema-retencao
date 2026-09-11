@@ -56,7 +56,7 @@ import type {
 import { useAuth } from "../../hooks/useAuth";
 import { PRODUCT_NAME } from "../../config/brand";
 import { getPermissionAwareMessage } from "../../utils/httpErrors";
-import { canDeleteBodyComposition, canManageActuarSync } from "../../utils/roleAccess";
+import { canDeleteBodyComposition, canManageActuarSync, canManageAnthropometry } from "../../utils/roleAccess";
 import { calculationOriginLabel } from "../../utils/calculationOrigins";
 import { Button } from "../ui2/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui2/Card";
@@ -1134,7 +1134,13 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   const saveMutation = useMutation({
     mutationFn: ({ payload, syncActuar }: { payload: BodyCompositionEvaluationCreate; syncActuar: boolean }) => {
       if (editingEvaluationId) {
-        return bodyCompositionService.update(memberId, editingEvaluationId, payload, { syncActuar });
+        if (!editingEvaluation) throw new Error("A avaliacao em edicao nao esta mais disponivel.");
+        return bodyCompositionService.update(
+          memberId,
+          editingEvaluationId,
+          { ...payload, expected_updated_at: editingEvaluation.updated_at },
+          { syncActuar },
+        );
       }
       return bodyCompositionService.create(memberId, payload, { syncActuar, idempotencyKey });
     },
@@ -1188,6 +1194,10 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     onError: (error) => {
       if (error instanceof AxiosError && typeof error.response?.data?.detail === "string") {
         toast.error(error.response.data.detail);
+        return;
+      }
+      if (error instanceof AxiosError && error.response?.status === 409) {
+        toast.error("Esta avaliacao foi alterada por outro usuario. Reabra a edicao para conferir os dados atuais.");
         return;
       }
       toast.error("Nao foi possivel excluir a avaliacao.");
@@ -3189,7 +3199,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                         Relatorio
                       </Button>
                     </Link>
-                    {onEditAnthropometry ? (
+                    {onEditAnthropometry && canManageAnthropometry(user?.role) ? (
                       <Button type="button" size="sm" variant="secondary" onClick={() => onEditAnthropometry(entry.assessment.id)}>
                         <Pencil size={14} />
                         Editar
@@ -3232,7 +3242,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         title="Excluir avaliacao"
         description={
           evaluationToDelete
-            ? `Excluir definitivamente a avaliacao de ${fmtDate(evaluationToDelete.evaluation_date)}? Esta acao nao pode ser desfeita.`
+            ? `Remover a avaliacao de ${fmtDate(evaluationToDelete.evaluation_date)} do historico? O aluno, as demais avaliacoes e a auditoria serao preservados.`
             : undefined
         }
       >
@@ -3247,7 +3257,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
             }}
             disabled={deleteMutation.isPending}
           >
-            {deleteMutation.isPending ? "Excluindo..." : "Excluir definitivamente"}
+            {deleteMutation.isPending ? "Excluindo..." : "Excluir avaliacao"}
           </Button>
         </div>
       </Dialog>

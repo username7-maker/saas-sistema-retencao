@@ -55,6 +55,7 @@ def calculate_onboarding_score(db: Session, member: Member) -> dict:
     has_body_composition = db.scalar(
         select(func.count(BodyCompositionEvaluation.id)).where(
             BodyCompositionEvaluation.member_id == member.id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
             BodyCompositionEvaluation.evaluation_date >= window_start.date(),
             BodyCompositionEvaluation.evaluation_date <= window_end.date(),
         )

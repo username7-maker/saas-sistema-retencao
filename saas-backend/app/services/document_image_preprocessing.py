@@ -139,10 +139,16 @@ def _quality(gray: np.ndarray) -> tuple[list[str], dict[str, float]]:
     contrast = float(np.std(gray))
     highlights = float(np.mean(gray >= 250))
     shadows = float(np.mean(gray <= 18))
+    height, width = gray.shape[:2]
+    center = gray[height // 5 : max(height // 5 + 1, height * 4 // 5), width // 5 : max(width // 5 + 1, width * 4 // 5)]
+    center_highlights = float(np.mean(center >= 250)) if center.size else highlights
+    center_contrast = float(np.std(center)) if center.size else contrast
     metrics = {
         "luminance_mean": round(mean, 2),
         "contrast_stddev": round(contrast, 2),
         "highlight_ratio": round(highlights, 4),
+        "center_highlight_ratio": round(center_highlights, 4),
+        "center_contrast_stddev": round(center_contrast, 2),
         "shadow_ratio": round(shadows, 4),
         "sharpness_top": round(sharpness[0], 2),
         "sharpness_middle": round(sharpness[1], 2),
@@ -153,7 +159,9 @@ def _quality(gray: np.ndarray) -> tuple[list[str], dict[str, float]]:
         codes.append("document_blurred")
     if mean < 55 or shadows > 0.35:
         codes.append("document_dark")
-    if highlights > 0.42:
+    # White thermal paper is expected. Treat it as glare only when a large,
+    # central saturated region also erased local text contrast.
+    if center_highlights > 0.62 and center_contrast < 16:
         codes.append("document_glare")
     if contrast < 22:
         codes.append("document_low_contrast")
@@ -197,6 +205,15 @@ def _thermal_recovery_variant(image: np.ndarray) -> np.ndarray:
         11,
     )
     return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+
+
+def build_thermal_recovery_image(image_bytes: bytes) -> bytes | None:
+    """Build the expensive recovery variant only after the primary read needs it."""
+    encoded = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if image is None or image.shape[0] * image.shape[1] > MAX_DECODED_PIXELS:
+        return None
+    return _encode_jpeg(_thermal_recovery_variant(image))
 
 
 def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPreprocessingResult | None:
@@ -262,7 +279,6 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
     output = _encode_jpeg(working, qualities=(88, 82, 76, 70))
     if output is None:
         return None
-    recovery_output = _encode_jpeg(_thermal_recovery_variant(working)) if enabled else None
     return DocumentPreprocessingResult(
         image_bytes=output,
         media_type="image/jpeg",
@@ -275,7 +291,7 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
         output_height=output_height,
         quality_codes=quality_codes,
         quality_metrics=quality_metrics,
-        recovery_image_bytes=recovery_output,
-        recovery_media_type="image/jpeg" if recovery_output else None,
-        recovery_method="thermal_adaptive_threshold+unsharp" if recovery_output else None,
+        recovery_image_bytes=None,
+        recovery_media_type=None,
+        recovery_method=None,
     )

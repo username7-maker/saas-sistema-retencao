@@ -328,6 +328,31 @@ def test_finalize_sync_success_marks_synced_and_training_ready():
     assert evaluation.actuar_last_error is None
 
 
+def test_late_sync_success_does_not_resurrect_deleted_evaluation():
+    db = MagicMock()
+    evaluation = _evaluation(sync_status="syncing")
+    evaluation.deleted_at = datetime.now(tz=timezone.utc)
+    job = _job(status="cancelled")
+    attempt = _attempt()
+
+    finalized = _finalize_sync_success(
+        db,
+        job=job,
+        evaluation=evaluation,
+        attempt=attempt,
+        external_id="act-late",
+        action_log=[{"event": "filled"}],
+        screenshot_path=None,
+        page_html_path=None,
+    )
+
+    assert finalized is False
+    assert job.status == "cancelled"
+    assert evaluation.actuar_sync_status == "syncing"
+    assert attempt.status == "failed"
+    assert attempt.action_log_json[-1]["event"] == "evaluation_deleted_during_sync"
+
+
 def test_finalize_csv_export_marks_manual_sync_required_and_logs_snapshot():
     db = MagicMock()
     evaluation = _evaluation(sync_status="syncing")

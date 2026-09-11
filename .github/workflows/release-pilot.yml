@@ -86,6 +86,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Validate Railway release configuration
         shell: bash
         run: |
@@ -102,6 +105,28 @@ jobs:
           railway variable set RELEASE_SHA=${{ needs.validate.outputs.sha }} --skip-deploys --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_WORKER_SERVICE_ID}"
           railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_API_SERVICE_ID}" --message "release ${{ needs.validate.outputs.sha }}"
           railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${RAILWAY_WORKER_SERVICE_ID}" --message "release ${{ needs.validate.outputs.sha }}"
+      - name: Verify API and worker deployments use the requested SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for service_id in "${RAILWAY_API_SERVICE_ID}" "${RAILWAY_WORKER_SERVICE_ID}"; do
+            deployment="$(railway deployment list --json --limit 1 --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT_ID}" --service "${service_id}")"
+            DEPLOYMENT_JSON="${deployment}" python - '${{ needs.validate.outputs.sha }}' <<'PY'
+          import json
+          import os
+          import sys
+
+          payload = json.loads(os.environ["DEPLOYMENT_JSON"])
+          latest = payload[0] if isinstance(payload, list) else payload
+          expected_sha = sys.argv[1]
+          message = str((latest.get("meta") or {}).get("cliMessage") or "")
+          if latest.get("status") != "SUCCESS" or expected_sha not in message:
+              raise SystemExit(
+                  f"Deployment not verified: status={latest.get('status')} message={message!r}"
+              )
+          print(f"Verified deployment {latest.get('id')} at {expected_sha}")
+          PY
+          done
       - name: Verify API readiness and release
         shell: bash
         run: |
@@ -189,7 +214,7 @@ jobs:
         shell: bash
         run: |
           mkdir release
-          printf '%s\n' '{"release_sha":"${{ needs.validate.outputs.sha }}","rollback":${{ inputs.rollback }},"api":"verified","worker":"published","frontend":"verified","authenticated_smoke":"passed","migrations":"single_head_validated","feature_flags":"environment_managed","run_id":"${{ github.run_id }}"}' > release/manifest.json
+          printf '%s\n' '{"release_sha":"${{ needs.validate.outputs.sha }}","rollback":${{ inputs.rollback }},"api":"verified","worker":"verified","frontend":"verified","authenticated_smoke":"passed","migrations":"single_head_and_predeploy_validated","feature_flags":"environment_managed","run_id":"${{ github.run_id }}"}' > release/manifest.json
       - uses: actions/upload-artifact@v4
         with:
           name: pilot-release-${{ needs.validate.outputs.sha }}

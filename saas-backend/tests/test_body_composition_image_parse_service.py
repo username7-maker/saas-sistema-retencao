@@ -196,6 +196,36 @@ def _validate_strict(
 
 
 class TestImageParseService:
+    def test_recovery_targets_plausible_value_without_valid_evidence(self):
+        primary = _strict_ai_result()
+        primary.field_metadata["height_cm"] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="accepted",
+            confidence=0.9,
+            label="Height",
+            evidence=None,
+            suggested_value=180,
+        )
+
+        from app.services.body_composition_image_parse_service import _recovery_read_fields
+
+        assert "height_cm" in _recovery_read_fields(primary)
+
+    def test_recovery_disagreement_is_exposed_as_critical_conflict(self):
+        primary = _strict_ai_result(weight_kg=81)
+        recovery = _strict_ai_result(weight_kg=91)
+
+        from app.services.body_composition_image_parse_service import _merge_ai_recovery_result
+
+        merged = _merge_ai_recovery_result(primary, recovery)
+
+        assert merged.values.weight_kg == 81
+        assert merged.field_metadata["weight_kg"].state == "conflict"
+        assert any(
+            issue.code == "ai_enhancement_conflict" and issue.severity == "critical"
+            for issue in merged.validation_issues
+        )
+
     def test_retries_with_safe_enhancement_only_when_essential_fields_are_missing(self):
         primary = _strict_ai_result()
         primary.values.age_years = None

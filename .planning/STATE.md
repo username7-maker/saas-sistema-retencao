@@ -1,9 +1,9 @@
 ---
 milestone: v3.3.0
-phase: 04.35
-plan: "Upload real de foto e funcoes mais ricas por usuario"
-status: Publicada e validada no piloto; V1 entregou upload de avatar para equipe e separacao clara entre cargo exibido e papel de acesso.
-last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
+phase: 09.27
+plan: "Confiabilidade, camera e mobile"
+status: Implementacao local validada; aguardando publicacao controlada no piloto.
+last_activity: 2026-09-11 - exclusao recuperavel, concorrencia de edicao e recuperacao da leitura assistida implementadas.
 ---
 
 # STATE
@@ -13,14 +13,14 @@ last_activity: 2026-05-28 - fase 04.35 publicada no piloto com Vercel e Railway
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** A equipe da academia precisa confiar que cada tela mostra o estado real do aluno e so oferece acoes que de fato fecham operacionalmente.
-**Current focus:** Fechar identidade de equipe com upload real de avatar e separacao clara entre cargo exibido e papel de acesso.
+**Current focus:** Confiabilidade das avaliacoes, leitura assistida de recibos e publicacao imutavel no piloto.
 
 ## Current Position
 
-**Phase:** 04.35
-**Plan:** `Upload real de foto e funcoes mais ricas por usuario`
-**Status:** `published/validated`; V1 aplica upload real para avatar de equipe e reduz URL manual como caminho principal.
-**Last activity:** 2026-05-28 - fase 04.35 publicada no piloto.
+**Phase:** 09.27
+**Plan:** `Confiabilidade, camera e mobile`
+**Status:** `implementation/validated-local`; entrega aguarda publicacao controlada por SHA.
+**Last activity:** 2026-09-11 - exclusao logica de bioimpedancia, bloqueio de edicao concorrente, recuperacao segura da IA e verificacao de deploy do worker.
 
 ## Progress Snapshot
 

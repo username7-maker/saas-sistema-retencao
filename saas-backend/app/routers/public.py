@@ -76,6 +76,7 @@ def public_body_composition_report_pdf(token: str, db: Session = Depends(get_db)
                 BodyCompositionEvaluation.id == evaluation_id,
                 BodyCompositionEvaluation.gym_id == gym_id,
                 BodyCompositionEvaluation.member_id == member_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
             ),
             reason="public_reports.fetch_body_composition",
         )
@@ -91,6 +92,7 @@ def public_body_composition_report_pdf(token: str, db: Session = Depends(get_db)
                 BodyCompositionEvaluation.gym_id == gym_id,
                 BodyCompositionEvaluation.member_id == member_id,
                 BodyCompositionEvaluation.id != evaluation_id,
+                BodyCompositionEvaluation.deleted_at.is_(None),
             )
             .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
             .limit(1),
