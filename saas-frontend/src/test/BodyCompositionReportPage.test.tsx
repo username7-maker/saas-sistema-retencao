@@ -319,4 +319,27 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getByText("Historico em consolidacao")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
   });
+
+  it("formats measurements above 100 that have decimal places", async () => {
+    const report = makeReport();
+    report.header.height_cm = 180.5;
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(report);
+
+    renderPage();
+
+    expect(await screen.findByText("180,5 cm")).toBeInTheDocument();
+    expect(screen.queryByText("Algo deu errado")).not.toBeInTheDocument();
+  });
+
+  it("keeps PDF access available when a report section cannot render", async () => {
+    const malformedReport = makeReport();
+    (malformedReport as unknown as Record<string, unknown>).measurement_rows = [null];
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(malformedReport);
+
+    renderPage();
+
+    expect(await screen.findByText("Relatorio da avaliacao")).toBeInTheDocument();
+    expect(screen.getByText(/relatorio completo continua disponivel em PDF/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Abrir PDF" }).length).toBeGreaterThan(0);
+  });
 });

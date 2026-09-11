@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { LoadingPanel } from "../../components/common/LoadingPanel";
+import { ErrorBoundary } from "../../components/common/ErrorBoundary";
 import { Button, Card, CardContent } from "../../components/ui2";
 import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService } from "../../services/assessmentService";
@@ -30,24 +31,29 @@ const MOBILE_REPORT_READING_ENABLED = import.meta.env.VITE_MOBILE_REPORT_READING
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  } catch {
+    return String(value);
+  }
 }
 
 function formatNumber(value: number | null | undefined, unit?: string | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   const abs = Math.abs(value);
-  const digits = abs >= 100 ? 0 : 1;
+  const minimumDigits = Number.isInteger(value) ? 0 : 1;
+  const maximumDigits = abs >= 100 && Number.isInteger(value) ? 0 : 1;
   const formatted = value.toLocaleString("pt-BR", {
-    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
-    maximumFractionDigits: digits,
+    minimumFractionDigits: minimumDigits,
+    maximumFractionDigits: maximumDigits,
   });
   return unit ? `${formatted} ${unit}` : formatted;
 }
@@ -72,7 +78,7 @@ function isPresentMetric(metric: BodyCompositionMetricCard | BodyCompositionRefe
 
 function metricByKey<T extends { key: string }>(metrics: T[], ...keys: string[]): T | null {
   for (const key of keys) {
-    const match = metrics.find((metric) => metric.key === key);
+    const match = metrics.find((metric) => metric && metric.key === key);
     if (match) return match;
   }
   return null;
@@ -256,6 +262,18 @@ function BodyCompositionReportPage() {
   }
 
   const report = reportQuery.data;
+  const reportHeader: BodyCompositionReportHeader = report.header && typeof report.header === "object"
+    ? report.header
+    : {
+        member_name: "Aluno",
+        gym_name: null,
+        trainer_name: null,
+        measured_at: "",
+        age_years: null,
+        sex: null,
+        height_cm: null,
+        weight_kg: null,
+      };
   // Reports created by older releases can omit collection fields that are now
   // required by the API contract. Keep the presentation usable while those
   // historical records are progressively enriched.
@@ -301,7 +319,7 @@ function BodyCompositionReportPage() {
   async function handleShare() {
     try {
       const data = {
-        title: `Relatorio de avaliacao - ${report.header.member_name}`,
+        title: `Relatorio de avaliacao - ${reportHeader.member_name}`,
         text: "Relatorio de avaliacao fisica Cordex",
         url: window.location.href,
       };
@@ -345,8 +363,31 @@ function BodyCompositionReportPage() {
         </div>
       </div>
 
-      <article className="clinical-web-document body-composition-report-document mx-auto max-w-[1180px] overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
-        <div className="body-composition-report-content">
+      <ErrorBoundary
+        fallback={(
+          <Card>
+            <CardContent className="space-y-4 pt-6">
+              <div>
+                <h1 className="text-xl font-semibold text-lovable-ink">Relatorio da avaliacao</h1>
+                <p className="mt-1 text-sm text-lovable-ink-muted">
+                  Uma parte visual nao pode ser exibida, mas o relatorio completo continua disponivel em PDF.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" onClick={() => void handleOpenPdf("technical")}>
+                  <Download size={14} />
+                  Abrir PDF
+                </Button>
+                <Link to={`/assessments/members/${memberId}?tab=${isAnthropometry ? "registro" : "bioimpedancia"}`}>
+                  <Button variant="secondary">Voltar para a avaliacao</Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      >
+        <article className="clinical-web-document body-composition-report-document mx-auto max-w-[1180px] overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
+          <div className="body-composition-report-content">
           <section className="clinical-web-page">
             {isAnthropometry ? (
               <p className="mb-3 inline-flex rounded-full border border-[#157ca5]/30 bg-[#eaf6fa] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-[#0b668a]">
@@ -354,7 +395,7 @@ function BodyCompositionReportPage() {
               </p>
             ) : null}
             <ReportHeader
-              header={report.header}
+              header={reportHeader}
               physicalAge={metricValue(physicalAgeMetric)}
               bmr={metricValue(bmrMetric)}
               basalMetabolicRateOrigin={report.basal_metabolic_rate_origin}
@@ -376,8 +417,8 @@ function BodyCompositionReportPage() {
           </section>
 
           <section className="clinical-web-page">
-            <ReportMiniHeader header={report.header} />
-            <MeasurementsSection rows={measurementRows} sex={report.header.sex} />
+            <ReportMiniHeader header={reportHeader} />
+            <MeasurementsSection rows={measurementRows} sex={reportHeader.sex} />
             <section className="clinical-web-page-grid clinical-web-late-grid">
               <GoalCards metrics={cleanGoalMetrics} />
               <BodyFatSourcePanel context={report.body_fat_context ?? null} />
@@ -385,8 +426,9 @@ function BodyCompositionReportPage() {
             <HistoryTable comparisonRows={comparisonRows} historySeries={historySeries} />
             <ClientObservations insights={insights} teacherNotes={report.teacher_notes} />
           </section>
-        </div>
-      </article>
+          </div>
+        </article>
+      </ErrorBoundary>
     </section>
   );
 }
