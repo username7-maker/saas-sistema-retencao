@@ -1323,8 +1323,10 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
     if cached is not None:
         return cached
 
-    base_red = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.RED)
-    base_yellow = (Member.deleted_at.is_(None), Member.risk_level == RiskLevel.YELLOW)
+    latest_open_alerts = _latest_open_retention_alert_subquery()
+    has_open_alert = Member.id.in_(select(latest_open_alerts.c.member_id))
+    base_red = (Member.deleted_at.is_(None), has_open_alert, Member.risk_level == RiskLevel.RED)
+    base_yellow = (Member.deleted_at.is_(None), has_open_alert, Member.risk_level == RiskLevel.YELLOW)
 
     red_total = db.scalar(select(func.count()).select_from(Member).where(*base_red)) or 0
     yellow_total = db.scalar(select(func.count()).select_from(Member).where(*base_yellow)) or 0
@@ -1341,6 +1343,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         db.scalar(
             select(func.coalesce(func.sum(Member.monthly_fee), Decimal("0"))).where(
                 Member.deleted_at.is_(None),
+                has_open_alert,
                 Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
             )
         )
@@ -1361,6 +1364,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         )
         .where(
             Member.deleted_at.is_(None),
+            has_open_alert,
             Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
         )
         .group_by(func.coalesce(Member.churn_type, ChurnType.UNKNOWN.value))

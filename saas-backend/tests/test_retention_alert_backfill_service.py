@@ -6,7 +6,10 @@ from uuid import uuid4
 from sqlalchemy.dialects import postgresql
 
 from app.background_jobs import jobs
-from app.services.retention_alert_backfill_service import backfill_retention_alerts_for_current_gym
+from app.services.retention_alert_backfill_service import (
+    backfill_retention_alerts_for_current_gym,
+    repair_retention_stage_resolutions_for_current_gym,
+)
 from app.services.risk import _prefetch_resolved_retention_episodes, sync_retention_alerts_from_member_activity
 
 
@@ -60,6 +63,10 @@ def test_backfill_job_repairs_guard_and_processes_every_active_gym():
         patch("app.background_jobs.jobs.clear_current_gym_id"),
         patch("app.background_jobs.jobs.repair_retention_episode_guard") as repair_guard,
         patch(
+            "app.background_jobs.jobs.repair_retention_stage_resolutions_for_current_gym",
+            return_value={"resolved_repaired": 0, "open_deduplicated": 0, "keys_updated": 0},
+        ) as repair_stages,
+        patch(
             "app.background_jobs.jobs.backfill_retention_alerts_for_current_gym",
             side_effect=[
                 {"members_refreshed": 10, "alerts_synced": 4, "already_completed": False},
@@ -71,9 +78,63 @@ def test_backfill_job_repairs_guard_and_processes_every_active_gym():
         jobs.retention_alert_backfill_job()
 
     repair_guard.assert_called_once_with(db)
+    assert repair_stages.call_count == 2
     assert backfill.call_count == 2
     set_current_gym_id.assert_has_calls([call("gym-a"), call("gym-b")])
     db.close.assert_called_once()
+
+
+def test_stage_repair_closes_reopened_alert_in_same_stage_without_deleting_history():
+    now = datetime.now(tz=timezone.utc)
+    member_id = uuid4()
+    user_id = uuid4()
+    member = SimpleNamespace(
+        id=member_id,
+        join_date=(now - timedelta(days=90)).date(),
+        last_checkin_at=now - timedelta(days=10),
+        retention_stage=None,
+        deleted_at=None,
+    )
+    resolved_alert = SimpleNamespace(
+        id=uuid4(),
+        member_id=member_id,
+        resolved=True,
+        resolved_by_user_id=user_id,
+        resolved_at=now - timedelta(days=1),
+        created_at=now - timedelta(days=4),
+        automation_stage="d9",
+        episode_key="legacy-key",
+        action_history=[{"type": "manual_resolution"}],
+    )
+    reopened_alert = SimpleNamespace(
+        id=uuid4(),
+        member_id=member_id,
+        resolved=False,
+        resolved_by_user_id=None,
+        resolved_at=None,
+        created_at=now,
+        automation_stage="d10",
+        episode_key="other-key",
+        action_history=[],
+    )
+    member_rows = MagicMock()
+    member_rows.all.return_value = [member]
+    alert_rows = MagicMock()
+    alert_rows.all.return_value = [reopened_alert, resolved_alert]
+    db = MagicMock()
+    db.scalars.side_effect = [member_rows, alert_rows]
+
+    with patch("app.services.retention_alert_backfill_service.invalidate_dashboard_cache") as invalidate:
+        result = repair_retention_stage_resolutions_for_current_gym(db)
+
+    assert result["resolved_repaired"] == 1
+    assert reopened_alert.resolved is True
+    assert reopened_alert.action_history[-1]["reason"] == "repaired_reopened_resolved_retention_stage"
+    assert resolved_alert.action_history == [{"type": "manual_resolution"}]
+    assert resolved_alert.episode_key.endswith(":stage:attention")
+    assert member.retention_stage == "attention"
+    db.commit.assert_called_once()
+    invalidate.assert_called_once_with("risk")
 
 
 def test_activity_backfill_creates_alerts_only_from_seven_days_onward():

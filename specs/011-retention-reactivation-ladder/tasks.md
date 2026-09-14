@@ -9,3 +9,6 @@
 - [x] T007 Adicionar testes backend.
 - [x] T008 Executar build frontend.
 - [ ] T009 Validar com dados reais do piloto.
+- [x] T010 Fechar resolucoes por estagio e reabrir apenas na faixa seguinte.
+- [x] T011 Excluir alertas resolvidos dos indicadores e invalidar o cache da Retencao.
+- [x] T012 Adicionar migracao reparadora e testes de regressao de precisao de data.

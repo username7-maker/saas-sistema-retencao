@@ -688,6 +688,7 @@ export function RetentionDashboardPage() {
         setSelectedItem(null);
       }
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention", "queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
       toast.success("Alerta marcado como resolvido.");
     },
     onError: () => toast.error("Falha ao resolver alerta."),

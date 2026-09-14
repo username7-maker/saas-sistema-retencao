@@ -302,6 +302,8 @@ class TestGetRetentionDashboard:
         assert isinstance(cached_payload["red"]["items"][0], dict)
         assert cached_payload["red"]["items"][0]["full_name"] == "Aluno Vermelho"
         assert cached_payload["yellow"]["items"][0]["churn_type"] == "voluntary_financial"
+        red_count_query = str(db.scalar.call_args_list[0].args[0])
+        assert "risk_alerts.resolved IS false" in red_count_query
 
 
 class TestGetFinancialDashboard:

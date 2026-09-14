@@ -380,10 +380,43 @@ class TestRiskHistory:
             last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
         )
 
-        episode_key = risk_service._retention_episode_key(member)
+        episode_key = risk_service._retention_episode_key(member, days_without_checkin=11)
 
-        assert risk_service._should_suppress_resolved_episode(member, {("m1", episode_key)}) is True
-        assert episode_key == "absence:last-checkin:2026-08-01T09:30:00.000000+00:00"
+        assert risk_service._should_suppress_resolved_episode(
+            member,
+            {("m1", episode_key)},
+            days_without_checkin=13,
+        ) is True
+        assert episode_key == "absence:last-checkin:2026-08-01T09:30:00.000000+00:00:stage:attention"
+
+    def test_next_retention_stage_reopens_resolved_absence(self):
+        member = SimpleNamespace(
+            id="m1",
+            join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+            last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
+        )
+        resolved_attention = risk_service._retention_episode_key(member, days_without_checkin=13)
+
+        assert risk_service._should_suppress_resolved_episode(
+            member,
+            {("m1", resolved_attention)},
+            days_without_checkin=14,
+        ) is False
+
+    def test_import_precision_change_does_not_reopen_same_stage(self):
+        member = SimpleNamespace(
+            id="m1",
+            join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+            last_checkin_at=datetime(2026, 8, 1, 9, 30, 0, tzinfo=timezone.utc),
+        )
+        resolved_attention = risk_service._retention_episode_key(member, days_without_checkin=10)
+        member.last_checkin_at = datetime(2026, 8, 1, 9, 30, 0, 1000, tzinfo=timezone.utc)
+
+        assert risk_service._should_suppress_resolved_episode(
+            member,
+            {("m1", resolved_attention)},
+            days_without_checkin=11,
+        ) is True
 
     def test_checkin_after_resolution_starts_a_new_absence_episode(self):
         member = SimpleNamespace(
@@ -391,20 +424,24 @@ class TestRiskHistory:
             join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
             last_checkin_at=datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc),
         )
-        resolved_episode = risk_service._retention_episode_key(member)
+        resolved_episode = risk_service._retention_episode_key(member, days_without_checkin=11)
 
         member.last_checkin_at = datetime(2026, 8, 12, 18, 45, tzinfo=timezone.utc)
 
-        assert risk_service._should_suppress_resolved_episode(member, {("m1", resolved_episode)}) is False
+        assert risk_service._should_suppress_resolved_episode(
+            member,
+            {("m1", resolved_episode)},
+            days_without_checkin=11,
+        ) is False
 
     def test_never_checked_in_episode_is_stable_when_import_corrects_join_date(self):
         member = SimpleNamespace(id="m1", join_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(), last_checkin_at=None)
-        original_episode = risk_service._retention_episode_key(member)
+        original_episode = risk_service._retention_episode_key(member, days_without_checkin=10)
 
         member.join_date = datetime(2026, 6, 15, tzinfo=timezone.utc).date()
 
-        assert original_episode == "absence:never-checked-in"
-        assert risk_service._retention_episode_key(member) == original_episode
+        assert original_episode == "absence:never-checked-in:stage:attention"
+        assert risk_service._retention_episode_key(member, days_without_checkin=10) == original_episode
 
     def test_import_risk_refresh_does_not_recreate_resolved_same_episode(self, monkeypatch):
         member = SimpleNamespace(
@@ -426,7 +463,9 @@ class TestRiskHistory:
         monkeypatch.setattr(
             risk_service,
             "_prefetch_resolved_retention_episodes",
-            lambda *_a, **_kw: {(member.id, risk_service._retention_episode_key(member))},
+            lambda *_a, **_kw: {
+                (member.id, risk_service._retention_episode_key(member, days_without_checkin=result.days_without_checkin))
+            },
         )
         monkeypatch.setattr(risk_service, "_create_or_update_alert", create_or_update_alert)
         monkeypatch.setattr(risk_service, "invalidate_dashboard_cache", lambda *_a, **_kw: None)

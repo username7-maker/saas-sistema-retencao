@@ -5,10 +5,13 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.database import get_current_gym_id
 from app.models import RiskAlert, RiskLevel, User
 from app.schemas import PaginatedResponse
 from app.services.audit_service import log_audit_event
+from app.services.retention_stage_service import calculate_member_retention_stage
+from app.services.risk import _retention_episode_key
 
 
 def list_risk_alerts(
@@ -57,6 +60,18 @@ def resolve_risk_alert(
         return alert
 
     now = datetime.now(tz=timezone.utc)
+    member = getattr(alert, "member", None)
+    resolved_stage = None
+    if member is not None:
+        resolved_stage, days_without_checkin = calculate_member_retention_stage(member, now=now)
+        alert.episode_key = _retention_episode_key(
+            member,
+            days_without_checkin=days_without_checkin,
+        )
+        alert.automation_stage = f"d{days_without_checkin}" if days_without_checkin is not None else alert.automation_stage
+        member.retention_stage = resolved_stage
+        db.add(member)
+
     history = list(alert.action_history or [])
     history.append(
         {
@@ -79,8 +94,12 @@ def resolve_risk_alert(
         entity_id=alert.id,
         member_id=alert.member_id,
         user=current_user,
-        details={"resolution_note": resolution_note or ""},
+        details={
+            "resolution_note": resolution_note or "",
+            "retention_stage": resolved_stage,
+        },
     )
     db.commit()
     db.refresh(alert)
+    invalidate_dashboard_cache("risk", gym_id=getattr(alert, "gym_id", None))
     return alert

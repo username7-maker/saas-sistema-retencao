@@ -58,3 +58,13 @@ Itens de retencao devem expor:
 ### R5 - No Automatic Sending
 
 Nenhum canal externo e enviado automaticamente nesta V1.
+
+### R6 - Resolution By Stage
+
+Uma resolucao manual fecha somente o estagio operacional atual da ausencia.
+
+- O aluno nao deve reaparecer enquanto permanecer no mesmo estagio.
+- Ao cruzar o limite do proximo estagio, um novo alerta pode ser aberto.
+- Uma nova ausencia apos um check-in real inicia um novo ciclo.
+- Correcao de precisao ou reapresentacao do mesmo ultimo acesso nao inicia um novo ciclo.
+- Indicadores e filas contam somente alertas abertos.

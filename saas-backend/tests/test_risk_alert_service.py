@@ -1,14 +1,12 @@
 """Tests for risk_alert_service."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-
-from app.models import RiskLevel, RoleEnum
-
 
 GYM_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 USER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -51,6 +49,40 @@ class TestResolveRiskAlert:
         result = resolve_risk_alert(db, alert_id=alert.id, current_user=user, resolution_note="OK")
         assert result.resolved is True
         db.commit.assert_called_once()
+
+    @patch("app.services.risk_alert_service.invalidate_dashboard_cache")
+    @patch("app.services.risk_alert_service.log_audit_event")
+    def test_resolution_closes_only_current_retention_stage(self, mock_audit, mock_invalidate):
+        member = SimpleNamespace(
+            id=MEMBER_ID,
+            join_date=(datetime.now(tz=UTC) - timedelta(days=60)).date(),
+            last_checkin_at=datetime.now(tz=UTC) - timedelta(days=10),
+            retention_stage=None,
+        )
+        alert = SimpleNamespace(
+            id=uuid.uuid4(),
+            gym_id=GYM_ID,
+            member_id=MEMBER_ID,
+            member=member,
+            resolved=False,
+            resolved_at=None,
+            resolved_by_user_id=None,
+            action_history=[],
+            episode_key=None,
+            automation_stage=None,
+        )
+        user = SimpleNamespace(id=USER_ID)
+        db = MagicMock()
+        db.get.return_value = alert
+
+        from app.services.risk_alert_service import resolve_risk_alert
+
+        result = resolve_risk_alert(db, alert_id=alert.id, current_user=user)
+
+        assert result.episode_key.endswith(":stage:attention")
+        assert result.automation_stage in {"d9", "d10"}
+        assert member.retention_stage == "attention"
+        mock_invalidate.assert_called_once_with("risk", gym_id=GYM_ID)
 
     def test_not_found_raises(self):
         db = MagicMock()

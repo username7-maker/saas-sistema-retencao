@@ -35,6 +35,7 @@ from app.services.risk_recalculation_service import process_pending_risk_recalcu
 from app.services.retention_alert_backfill_service import (
     backfill_retention_alerts_for_current_gym,
     repair_retention_episode_guard,
+    repair_retention_stage_resolutions_for_current_gym,
 )
 from app.services.weekly_briefing_service import generate_and_send_weekly_briefing
 
@@ -133,8 +134,9 @@ def retention_alert_backfill_job() -> None:
         for gym in _active_gyms(db):
             try:
                 set_current_gym_id(gym.id)
+                repair_result = repair_retention_stage_resolutions_for_current_gym(db)
                 result = backfill_retention_alerts_for_current_gym(db)
-                _log_job_metrics(job_name, gym_id=gym.id, result=result)
+                _log_job_metrics(job_name, gym_id=gym.id, result={**result, **repair_result})
             except Exception:
                 _log_job_failure(job_name, gym_id=gym.id)
                 db.rollback()

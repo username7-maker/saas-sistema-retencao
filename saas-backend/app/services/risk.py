@@ -13,6 +13,7 @@ from app.database import get_current_gym_id
 from app.models import Assessment, AuditLog, Checkin, Member, MemberRiskHistory, MemberStatus, RiskAlert, RiskLevel, RoleEnum, Task, TaskPriority, TaskStatus, User
 from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
+from app.services.retention_stage_service import calculate_retention_stage
 from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email_result
 
@@ -242,7 +243,11 @@ def run_daily_risk_processing(db: Session) -> dict[str, int]:
                     effective_result = _result_from_member_state(member, result)
                     alert_result = _retention_alert_result(effective_result)
                     current_alert_obj = current_alerts_by_member.get(member.id)
-                    if current_alert_obj is None and _should_suppress_resolved_episode(member, resolved_retention_episodes):
+                    if current_alert_obj is None and _should_suppress_resolved_episode(
+                        member,
+                        resolved_retention_episodes,
+                        days_without_checkin=result.days_without_checkin,
+                    ):
                         current_alerts_by_member.pop(member.id, None)
                     else:
                         actions = []
@@ -384,7 +389,11 @@ def refresh_member_risk_snapshot(
                     alerts_synced += 1
                 refreshed += 1
                 continue
-            if current_alert is None and _should_suppress_resolved_episode(member, resolved_retention_episodes):
+            if current_alert is None and _should_suppress_resolved_episode(
+                member,
+                resolved_retention_episodes,
+                days_without_checkin=result.days_without_checkin,
+            ):
                 refreshed += 1
                 continue
             synced_alert = _create_or_update_alert(
@@ -440,7 +449,11 @@ def sync_retention_alerts_from_member_activity(
             continue
         if (
             current_alerts_by_member.get(member.id) is None
-            and _should_suppress_resolved_episode(member, explicitly_resolved_episodes)
+            and _should_suppress_resolved_episode(
+                member,
+                explicitly_resolved_episodes,
+                days_without_checkin=days_without_checkin,
+            )
         ):
             continue
 
@@ -522,19 +535,36 @@ def _retention_cooldown_active(member: Member, now: datetime) -> bool:
     return parsed > now
 
 
-def _retention_episode_key(member: Member) -> str:
+def _retention_episode_key(member: Member, *, days_without_checkin: int | None = None) -> str:
+    """Return the stable absence-and-stage key used by manual resolution.
+
+    A resolution closes only the current operational stage. Timestamp precision is
+    intentionally reduced to one minute so a harmless import precision change does
+    not reopen the same stage. A real later check-in still starts a new absence.
+    """
     last_checkin_at = getattr(member, "last_checkin_at", None)
     if last_checkin_at is not None:
         if last_checkin_at.tzinfo is None:
             last_checkin_at = last_checkin_at.replace(tzinfo=timezone.utc)
-        normalized = last_checkin_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
-        return f"absence:last-checkin:{normalized}"
+        normalized_checkin = last_checkin_at.astimezone(timezone.utc).replace(second=0, microsecond=0)
+        anchor = f"last-checkin:{normalized_checkin.isoformat(timespec='microseconds')}"
+    else:
+        anchor = "never-checked-in"
 
-    return "absence:never-checked-in"
+    stage = calculate_retention_stage(days_without_checkin)
+    return f"absence:{anchor}:stage:{stage}"
 
 
-def _should_suppress_resolved_episode(member: Member, resolved_episodes: set[tuple]) -> bool:
-    return (member.id, _retention_episode_key(member)) in resolved_episodes
+def _should_suppress_resolved_episode(
+    member: Member,
+    resolved_episodes: set[tuple],
+    *,
+    days_without_checkin: int | None = None,
+) -> bool:
+    return (
+        member.id,
+        _retention_episode_key(member, days_without_checkin=days_without_checkin),
+    ) in resolved_episodes
 
 
 def _prefetch_resolved_retention_episodes(
@@ -841,8 +871,10 @@ def _create_or_update_alert(
     ws_events: list[dict] | None = None,
 ) -> RiskAlert:
     if current_alert:
-        if not current_alert.episode_key:
-            current_alert.episode_key = _retention_episode_key(member)
+        current_alert.episode_key = _retention_episode_key(
+            member,
+            days_without_checkin=risk_result.days_without_checkin,
+        )
         current_alert.score = risk_result.score
         current_alert.level = risk_result.level
         current_alert.reasons = risk_result.reasons
@@ -855,7 +887,10 @@ def _create_or_update_alert(
     alert = RiskAlert(
         id=uuid.uuid4(),
         member_id=member.id,
-        episode_key=_retention_episode_key(member),
+        episode_key=_retention_episode_key(
+            member,
+            days_without_checkin=risk_result.days_without_checkin,
+        ),
         score=risk_result.score,
         level=risk_result.level,
         reasons=risk_result.reasons,
