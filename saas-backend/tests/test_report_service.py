@@ -249,7 +249,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Metodo de leitura da gordura corporal" in html
     assert "Composicao corporal detalhada" in html
     assert "Medidas/protocolo" in html
-    assert "Bioimpedancia" in html
+    assert "Bioimpedância" in html
     assert "Medidas corporais" in html
     assert "Anterior: 37 cm &middot; +1 cm" in html
     assert "Primeira avaliacao" in html
@@ -353,6 +353,8 @@ def test_body_composition_report_builds_v3_score_indicators_and_rules():
     assert risk_by_key["waist_height_ratio"].formatted_value == "0.46"
     assert risk_by_key["ffmi"].formatted_value == "20.5"
     assert risk_by_key["visceral_fat_level"].status == "monitor"
+    assert risk_by_key["visceral_fat_level"].reference_min == 1
+    assert risk_by_key["visceral_fat_level"].reference_max == 12
     assert risk_by_key["waist_hip_ratio"].status == "monitor"
     assert risk_by_key["waist_hip_ratio"].position_label == "terco superior da faixa"
     assert report.score_total == sum(item.score for item in report.score_breakdown)

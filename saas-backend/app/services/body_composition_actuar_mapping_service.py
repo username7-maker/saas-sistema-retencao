@@ -22,7 +22,12 @@ def build_body_composition_canonical_payload(member: Member, evaluation: BodyCom
         "body_fat_pct": _to_float(getattr(evaluation, "body_fat_percent", None))
         or _to_float(getattr(evaluation, "body_fat_bioimpedance_percent", None)),
         "waist_hip_ratio": _to_float(getattr(evaluation, "waist_hip_ratio", None)),
-        "muscle_mass_kg": _to_float(getattr(evaluation, "skeletal_muscle_kg", None)) or _to_float(getattr(evaluation, "muscle_mass_kg", None)),
+        "muscle_mass_kg": _to_float(getattr(evaluation, "muscle_mass_kg", None))
+        or (
+            None
+            if getattr(evaluation, "device_profile", None) == "tezewa_receipt_v1"
+            else _to_float(getattr(evaluation, "skeletal_muscle_kg", None))
+        ),
         "lean_mass_kg": _to_float(getattr(evaluation, "fat_free_mass_kg", None)) or _to_float(getattr(evaluation, "lean_mass_kg", None)),
         "body_water_pct": _to_float(getattr(evaluation, "body_water_percent", None)),
         "bmi": bmi,

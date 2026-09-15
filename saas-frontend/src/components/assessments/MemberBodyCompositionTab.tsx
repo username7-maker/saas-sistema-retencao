@@ -142,6 +142,7 @@ const schema = z.object({
   lean_mass_kg: nullableNumberField,
   muscle_mass_kg: nullableNumberField,
   skeletal_muscle_kg: nullableNumberField,
+  skeletal_muscle_percent: nullableNumberField,
   body_water_percent: nullableNumberField,
   visceral_fat_level: nullableNumberField,
   bmi: nullableNumberField,
@@ -261,6 +262,7 @@ type NumericFieldKey =
   | "lean_mass_kg"
   | "muscle_mass_kg"
   | "skeletal_muscle_kg"
+  | "skeletal_muscle_percent"
   | "body_water_percent"
   | "visceral_fat_level"
   | "bmi"
@@ -464,7 +466,7 @@ function readStageLabel(stage: BodyCompositionReadStage | null, assisted: boolea
 const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDef[] }> = [
   {
     title: "Dados basicos do exame",
-    description: "Contexto do exame capturado na Tezewa ou revisado pelo professor.",
+    description: "Contexto do exame capturado na bioimpedância ou revisado pelo professor.",
     fields: [
       { key: "age_years", label: "Idade (anos)", placeholder: "29", step: "1" },
       { key: "height_cm", label: "Altura (cm)", placeholder: "178", step: "0.1" },
@@ -481,7 +483,7 @@ const FORM_SECTIONS: Array<{ title: string; description: string; fields: FieldDe
       { key: "fat_free_mass_kg", label: "Massa livre de gordura (kg)", placeholder: "65.0", step: "0.1" },
       { key: "lean_mass_kg", label: "Massa magra (legado)", placeholder: "63.0", step: "0.1" },
       { key: "muscle_mass_kg", label: "Massa muscular (kg)", placeholder: "37.2", step: "0.1" },
-      { key: "skeletal_muscle_kg", label: "Musculo esqueletico (kg)", placeholder: "35.6", step: "0.1" },
+      { key: "skeletal_muscle_percent", label: "Músculo esquelético (%)", placeholder: "35.6", step: "0.1" },
       { key: "body_water_kg", label: "Agua corporal (kg)", placeholder: "43.3", step: "0.1" },
       {
         key: "body_water_percent",
@@ -619,6 +621,7 @@ const SAVE_VALIDATION_FIELDS: NumericFieldKey[] = [
   "lean_mass_kg",
   "muscle_mass_kg",
   "skeletal_muscle_kg",
+  "skeletal_muscle_percent",
   "body_water_percent",
   "visceral_fat_level",
   "bmi",
@@ -634,7 +637,7 @@ const HISTORY_METRICS: Array<{ label: string; field: keyof BodyCompositionEvalua
   { label: "Peso", field: "weight_kg", unit: " kg" },
   { label: "Gordura kg", field: "body_fat_kg", unit: " kg" },
   { label: "Gordura estimada %", field: "body_fat_used_percent", unit: "%" },
-  { label: "Musc. esqueletico", field: "skeletal_muscle_kg", unit: " kg" },
+  { label: "Músculo esquelético", field: "skeletal_muscle_percent", unit: "%" },
   { label: "IMC", field: "bmi" },
   { label: "Health score", field: "health_score" },
 ];
@@ -678,6 +681,10 @@ function buildDefaultValues(evaluation?: BodyCompositionEvaluation | null): Form
     lean_mass_kg: evaluation?.lean_mass_kg ?? null,
     muscle_mass_kg: evaluation?.muscle_mass_kg ?? null,
     skeletal_muscle_kg: evaluation?.skeletal_muscle_kg ?? null,
+    skeletal_muscle_percent:
+      evaluation?.skeletal_muscle_percent
+      ?? (evaluation?.device_profile === "tezewa_receipt_v1" ? evaluation?.skeletal_muscle_kg : null)
+      ?? null,
     body_water_percent: calculatedBodyWaterPercent ?? evaluation?.body_water_percent ?? null,
     visceral_fat_level: evaluation?.visceral_fat_level ?? null,
     bmi: evaluation?.bmi ?? null,
@@ -756,18 +763,18 @@ function sourceLabel(source: EvaluationSource | string | null | undefined): stri
   if (source === "ocr_receipt") return "OCR da foto";
   if (source === "device_import") return "Importado";
   if (source === "actuar_sync") return "Actuar / sincronizado";
-  return "Tezewa (legado)";
+  return "Bioimpedância (legado)";
 }
 
 function bodyFatSourceLabel(source: string | null | undefined): string {
-  if (source === "bioimpedance") return "Bioimpedancia";
+  if (source === "bioimpedance") return "Bioimpedância";
   if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Override manual";
   return "Fonte pendente";
 }
 
 function preferredBodyFatSourceLabel(source: string | null | undefined): string {
-  if (source === "bioimpedance") return "Bioimpedancia quando nao houver medidas";
+  if (source === "bioimpedance") return "Bioimpedância quando não houver medidas";
   if (source === "geneos_composite") return "Metodo composto GeneOS";
   if (source === "anthropometry") return "Dobras e medidas";
   if (source === "manual_override") return "Informar manualmente";
@@ -2032,7 +2039,14 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                 value={fmt(focusEvaluation.body_fat_used_percent, "%")}
                 helper={`Fonte: ${bodyFatSourceLabel(focusEvaluation.body_fat_used_source)}`}
               />
-              <MetricCard label="Musculo esqueletico" value={fmt(focusEvaluation.skeletal_muscle_kg, " kg")} />
+              <MetricCard
+                label="Músculo esquelético"
+                value={fmt(
+                  focusEvaluation.skeletal_muscle_percent
+                    ?? (focusEvaluation.device_profile === "tezewa_receipt_v1" ? focusEvaluation.skeletal_muscle_kg : null),
+                  "%",
+                )}
+              />
               <MetricCard
                 label="Massa muscular"
                 value={fmt(focusEvaluation.muscle_mass_kg, " kg")}
@@ -2155,7 +2169,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <div>
                     <p className="text-sm font-semibold text-lovable-ink">Leitura da foto</p>
                     <p className="text-xs text-lovable-ink-muted">
-                      Profile ativo: <strong>tezewa_receipt_v1</strong>. A IA le a foto e o professor confirma antes de salvar.
+                      Perfil ativo: <strong>bioimpedância</strong>. A IA lê a foto e o professor confirma antes de salvar.
                     </p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
@@ -2227,7 +2241,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     Revisao manual concluida
                   </label>
                   <span>Origem atual: {sourceLabel(currentSource)}</span>
-                  {ocrMetadata.device_model ? <span>Modelo: {ocrMetadata.device_model}</span> : null}
+                  {ocrMetadata.device_model ? <span>Equipamento: bioimpedância</span> : null}
                 </div>
                 <div
                   className={`mt-3 rounded-xl border px-3 py-3 text-sm ${

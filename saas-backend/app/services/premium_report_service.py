@@ -1146,6 +1146,7 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
         "body_water_kg",
         "muscle_mass_kg",
         "skeletal_muscle_kg",
+        "skeletal_muscle_percent",
         "fat_free_mass_kg",
     }
     visible_composition_metrics = (
@@ -1230,7 +1231,8 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
             or _body_metric_by_key(composition_metrics, "body_fat_used_percent")
             or _body_metric_by_key(primary_cards, "body_fat_used_percent"),
             fat_mass_metric,
-            _body_metric_by_key(composition_metrics, "skeletal_muscle_kg")
+            _body_metric_by_key(composition_metrics, "skeletal_muscle_percent")
+            or _body_metric_by_key(composition_metrics, "skeletal_muscle_kg")
             or _body_metric_by_key(composition_metrics, "muscle_mass_kg")
             or _body_metric_by_key(primary_cards, "muscle_mass_kg"),
             _body_metric_by_key(risk_metrics, "visceral_fat_level") or _body_metric_by_key(primary_cards, "visceral_fat_level"),
@@ -1523,6 +1525,7 @@ def _body_compact_detail_metrics(
         "fat_free_mass_kg",
         "muscle_mass_kg",
         "skeletal_muscle_kg",
+        "skeletal_muscle_percent",
         "fat_mass_estimated_kg",
     ]
     by_key = {str(metric.get("key") or ""): metric for metric in visible}
@@ -1534,7 +1537,7 @@ def _body_compact_detail_metrics(
             metric
             for metric in result
             if str(metric.get("key") or "")
-            in {"body_water_kg", "body_water_percent", "fat_free_mass_kg", "muscle_mass_kg", "skeletal_muscle_kg", "fat_mass_estimated_kg"}
+            in {"body_water_kg", "body_water_percent", "fat_free_mass_kg", "muscle_mass_kg", "skeletal_muscle_kg", "skeletal_muscle_percent", "fat_mass_estimated_kg"}
         ]
     return result[:10]
 
@@ -2172,7 +2175,7 @@ def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[
     used_source = str(_read_value(body_fat_context, "used_source") or "")
     if key in {"body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"}:
         if used_source == "bioimpedance":
-            return ("bioimpedance", "Bioimpedancia")
+            return ("bioimpedance", "Bioimpedância")
         if used_source == "manual_override":
             return ("measurements", "Manual")
         return ("measurements", "Medidas/protocolo")
@@ -2182,7 +2185,7 @@ def _body_metric_source(metric: dict[str, Any], body_fat_context: Any) -> tuple[
         return ("measurements", "Calculo")
     if key in {"ffmi", "bmi"}:
         return ("bioimpedance", "Calculo")
-    return ("bioimpedance", "Bioimpedancia")
+    return ("bioimpedance", "Bioimpedância")
 
 
 def _body_indicator_source_label(metric: dict[str, Any]) -> str:
@@ -2199,7 +2202,7 @@ def _body_indicator_source_label(metric: dict[str, Any]) -> str:
     if key in {"waist_height_ratio", "ffmi"}:
         return "Calculo do sistema"
     if key in {"visceral_fat_level", "physical_age", "health_score"}:
-        return "Bioimpedancia"
+        return "Bioimpedância"
     return "Exame / sistema"
 
 
@@ -2491,6 +2494,7 @@ def _body_metric_explanation(key: str, body_fat_context: Any | None = None) -> s
         "fat_free_mass_kg": "Componentes livres de gordura",
         "muscle_mass_kg": "Base muscular do organismo",
         "skeletal_muscle_kg": "Musculatura de movimento",
+        "skeletal_muscle_percent": "Percentual estimado de musculatura de movimento",
     }
     return explanations.get(key, "Leitura corporal")
 

@@ -26,14 +26,19 @@
   `409 Conflict` quando outra pessoa alterou o registro.
 - Recuperacao da camera considera campo sem evidencia, limita a segunda leitura a 20s,
   sinaliza divergencias entre leituras e evita falso reflexo em papel branco legivel.
+- Relatorios de bioimpedancia calculam o IMC por peso e altura, nao classificam a
+  incerteza antropometrica como faixa clinica e preservam a unidade percentual de
+  musculo esqueletico indicada pelo recibo.
+- Para avaliacoes masculinas, gordura visceral exibe a faixa operacional 1-12;
+  avaliacoes femininas continuam usando a faixa registrada no exame.
 
 ## Verificacoes locais
 
-- Backend: 1.273 testes aprovados; 13 avisos de depreciacao preexistentes.
-- Frontend: 226 testes aprovados em 52 arquivos.
+- Backend: 1.305 testes aprovados; 14 avisos de depreciacao preexistentes.
+- Frontend: 235 testes aprovados em 52 arquivos.
 - ESLint aprovado.
 - TypeScript e build de producao aprovados.
-- Bundle: maior chunk 456,06 kB, abaixo do limite de 500 kB.
+- Bundle: maior chunk 466,60 kB, abaixo do limite de 500 kB.
 - `git diff --check` aprovado; workflow YAML validado.
 
 ## Validacao que depende do ambiente fisico

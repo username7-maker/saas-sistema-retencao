@@ -135,4 +135,26 @@ describe("bodyCompositionInterpretation helpers", () => {
     expect(items.some((item) => item.label === "Relacao cintura-quadril")).toBe(true);
     expect(items.some((item) => item.label === "inorganic_salt_kg")).toBe(false);
   });
+
+  it("does not classify anthropometry uncertainty as a healthy body-fat range", () => {
+    const evaluation = makeEvaluation({
+      age_years: 47,
+      bmi: 24.5,
+      body_fat_used_percent: 34.23,
+      body_fat_used_source: "anthropometry",
+      body_fat_range_min: 31.23,
+      body_fat_range_max: 37.23,
+      measured_ranges_json: {
+        body_fat_used_percent: { min: 31.23, max: 37.23 },
+        bmi: { min: 18.5, max: 24 },
+        visceral_fat_level: { min: 1, max: 5 },
+      },
+    });
+
+    const items = buildBodyCompositionRangeClassifications(evaluation);
+
+    expect(items.some((item) => item.label === "Gordura corporal estimada")).toBe(false);
+    expect(items).toContainEqual({ label: "IMC", status: "dentro" });
+    expect(items).toContainEqual({ label: "Gordura visceral", status: "dentro" });
+  });
 });

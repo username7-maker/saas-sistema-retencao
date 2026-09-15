@@ -94,7 +94,7 @@ FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
         "metabolismo basal",
         "tmb",
     ),
-    "skeletal_muscle_kg": ("skeletal muscle", "musculo esqueletico", "massa muscular esqueletica"),
+    "skeletal_muscle_percent": ("skeletal muscle", "musculo esqueletico", "massa muscular esqueletica"),
     "target_weight_kg": ("target weight", "peso alvo", "peso meta"),
     "weight_control_kg": ("weight control", "controle de peso"),
     "muscle_control_kg": ("muscle control", "controle muscular"),
@@ -118,7 +118,7 @@ NUMERIC_FIELDS = (
     "visceral_fat_level",
     "bmi",
     "basal_metabolic_rate_kcal",
-    "skeletal_muscle_kg",
+    "skeletal_muscle_percent",
     "target_weight_kg",
     "weight_control_kg",
     "muscle_control_kg",
@@ -147,7 +147,7 @@ FIELD_EXTRACTION_GUIDE: tuple[tuple[str, str], ...] = (
     ("visceral_fat_level", "Visceral fat"),
     ("bmi", "BMI"),
     ("basal_metabolic_rate_kcal", "BMR, Basic metabolism ou Basal metabolism (kcal)"),
-    ("skeletal_muscle_kg", "Skeletal muscle (kg), ainda que a unidade nao esteja ao lado do rotulo"),
+    ("skeletal_muscle_percent", "Skeletal muscle (%) na secao Body parameters (%)"),
     ("target_weight_kg", "Target weight (kg)"),
     ("weight_control_kg", "Weight control (kg)"),
     ("muscle_control_kg", "Muscle control (kg)"),
@@ -171,7 +171,7 @@ PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
     "visceral_fat_level": (1, 30),
     "bmi": (10, 80),
     "basal_metabolic_rate_kcal": (500, 4000),
-    "skeletal_muscle_kg": (5, 100),
+    "skeletal_muscle_percent": (1, 100),
     "target_weight_kg": (30, 300),
     "weight_control_kg": (-100, 100),
     "muscle_control_kg": (-100, 100),
@@ -230,8 +230,8 @@ def _build_vision_prompt(
         "consecutivas que formem um rotulo conhecido, sem associar pela posicao\n"
         "- exemplos do layout: 'Fat free / (kg) / weight' significa fat_free_mass_kg; "
         "'(kg) / Body moisture' significa body_water_kg\n"
-        "- 'Basal metabolism' significa basal_metabolic_rate_kcal e 'Skeletal muscle' significa "
-        "skeletal_muscle_kg, mesmo sem a unidade impressa ao lado\n"
+        "- 'Basal metabolism' significa basal_metabolic_rate_kcal e 'Skeletal muscle' na secao "
+        "Body parameters (%) significa skeletal_muscle_percent\n"
         "- normalize Man/Male para male e Woman/Female para female\n"
         "- antes de concluir, confira se Weight, Height e BMI impressos obedecem aproximadamente "
         "BMI = Weight / Height_m^2; se um algarismo de qualquer um desses tres campos estiver visualmente "
@@ -247,7 +247,7 @@ def _build_vision_prompt(
         "- body_water_kg corresponde a 'Body moisture'/'Body water' em kg\n"
         "- body_water_percent NAO deve ser inferido, calculado ou copiado pela IA; retorne sempre null\n"
         "- o sistema calcula body_water_percent deterministicamente usando body_water_kg / weight_kg * 100\n"
-        "- skeletal_muscle_kg e muscle_mass_kg sao campos diferentes e podem coexistir\n"
+        "- skeletal_muscle_percent e muscle_mass_kg sao campos diferentes e podem coexistir\n"
         "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
         "- physical_age e health_score devem ser inteiros quando visiveis\n"
         "- quando houver faixa impressa, preencha ranges com min/max\n"

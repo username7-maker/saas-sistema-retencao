@@ -37,6 +37,7 @@ _FIELD_LABELS = {
     "body_water_percent": "percentual de agua corporal",
     "basal_metabolic_rate_kcal": "taxa metabolica basal",
     "skeletal_muscle_kg": "musculo esqueletico",
+    "skeletal_muscle_percent": "percentual de musculo esqueletico",
     "target_weight_kg": "peso alvo",
     "weight_control_kg": "controle de peso",
     "muscle_control_kg": "controle de musculo",

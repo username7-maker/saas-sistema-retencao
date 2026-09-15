@@ -63,6 +63,7 @@ _REFERENCE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "muscle_mass_kg": (20.0, 60.0),
     "weight_kg": (20.0, 220.0),
     "skeletal_muscle_kg": (15.0, 45.0),
+    "skeletal_muscle_percent": (None, None),
     "body_fat_used_percent": (10.0, 25.0),
     "fat_mass_estimated_kg": (5.0, 30.0),
     "lean_mass_estimated_kg": (35.0, 90.0),
@@ -89,15 +90,17 @@ _COMPOSITION_DEFS = (
     ("body_water_kg", "Agua corporal", "kg"),
     ("body_water_percent", "Agua corporal (%)", "%"),
     ("protein_kg", "Proteina", "kg"),
-    ("inorganic_salt_kg", "Minerais", "kg"),
+    ("inorganic_salt_kg", "Sal inorgânico", "kg"),
     ("fat_free_mass_kg", "Massa livre de gordura", "kg"),
     ("muscle_mass_kg", "Massa muscular", "kg"),
     ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
+    ("skeletal_muscle_percent", "Músculo esquelético", "%"),
 )
 
 _MUSCLE_FAT_DEFS = (
     ("weight_kg", "Peso total", "kg"),
     ("skeletal_muscle_kg", "Musculo esqueletico", "kg"),
+    ("skeletal_muscle_percent", "Músculo esquelético", "%"),
     ("fat_mass_estimated_kg", "Massa de gordura estimada", "kg"),
 )
 
@@ -136,6 +139,7 @@ _HISTORY_DEFS = (
 )
 CALCULATION_ORIGIN_LABELS: dict[str, str] = {
     "reported": "Medido/informado no exame",
+    "calculated_weight_height": "Calculado por peso e altura",
     "schofield_hw_1985": "TMB estimada por Schofield-HW (1985)",
     "mifflin_st_jeor_1990": "TMB estimada por Mifflin-St Jeor (1990)",
     "lee_2000": "Massa muscular estimada por Lee (2000)",
@@ -156,12 +160,20 @@ def body_composition_origin_label(origin: Any, *, metric_key: str | None = None)
     normalized = str(origin or "").strip()
     if not normalized:
         return None
+    if normalized == "reported":
+        if metric_key == "basal_metabolic_rate_kcal":
+            return "Estimada pela bioimpedância"
+        if metric_key == "muscle_mass_kg":
+            return "Estimado pela bioimpedância"
+        return "Informado pela bioimpedância"
     if normalized == "unavailable" and metric_key == "muscle_mass_kg":
         return "Indisponivel - medicao necessaria"
     return CALCULATION_ORIGIN_LABELS.get(normalized, "Origem nao identificada")
 
 
 def _metric_origin(evaluation: Any, key: str) -> str | None:
+    if key == "bmi" and _read_metric_float(evaluation, key) is not None:
+        return "calculated_weight_height"
     field = _ORIGIN_FIELDS_BY_METRIC.get(key)
     if field is None:
         return None
@@ -184,7 +196,7 @@ def build_body_composition_quality_flags(
 
     if body_fat_percent is None:
         flags.append("missing_body_fat_percent")
-    if muscle_mass is None and _read_float(values, "skeletal_muscle_kg") is None:
+    if muscle_mass is None and _read_metric_float(values, "skeletal_muscle_percent") is None and _read_float(values, "skeletal_muscle_kg") is None:
         flags.append("missing_muscle_mass")
     if bmi is not None and not 5 <= bmi <= 80:
         flags.append("suspect_bmi")
@@ -915,6 +927,23 @@ def _build_reference_metric(
     hint = _format_reference_hint(reference_min, reference_max, unit)
     if key == "bmi":
         hint = "Interpretar junto com o FFMI; IMC isolado pode superestimar excesso de peso em perfis musculosos."
+        position_label = _adult_bmi_classification(evaluation, value)
+    elif key == "body_fat_used_percent" and _body_fat_uses_method_uncertainty(evaluation):
+        estimate_min = _read_float(evaluation, "body_fat_range_min")
+        estimate_max = _read_float(evaluation, "body_fat_range_max")
+        reference_min = None
+        reference_max = None
+        status = "unknown"
+        position_label = "Sem classificação clínica validada"
+        hint = _method_uncertainty_hint(estimate_min, estimate_max)
+    elif key == "visceral_fat_level":
+        printed_min, printed_max = _stored_reference_range(evaluation, key)
+        position_label = "Índice estimado pela bioimpedância"
+        hint = (
+            "Faixa operacional masculina: 1 a 12."
+            if _is_male(evaluation)
+            else _device_scale_hint(printed_min, printed_max)
+        )
     elif key == "waist_height_ratio" and reference_max is not None:
         hint = f"Meta < {_format_value(reference_max, None)}"
         if value is not None and value <= reference_max:
@@ -1064,6 +1093,18 @@ def _read_float(item: Any, key: str) -> float | None:
 def _read_metric_float(item: Any, key: str) -> float | None:
     if key == "body_fat_used_percent":
         return _read_float(item, "body_fat_used_percent")
+    if key == "bmi":
+        weight = _read_float(item, "weight_kg")
+        height = _read_float(item, "height_cm")
+        if weight is not None and height not in (None, 0):
+            height_m = height / 100
+            if height_m > 0:
+                return round(weight / (height_m * height_m), 1)
+        return _read_float(item, "bmi")
+    if key == "skeletal_muscle_percent" and _is_percent_skeletal_profile(item):
+        return _read_float(item, "skeletal_muscle_percent") or _read_float(item, "skeletal_muscle_kg")
+    if key == "skeletal_muscle_kg" and _is_percent_skeletal_profile(item):
+        return None
     if key == "waist_height_ratio":
         waist = _read_float(item, "waist_cm")
         height = _read_float(item, "height_cm")
@@ -1145,16 +1186,82 @@ def _resolve_reference_range(
     evaluation: BodyCompositionEvaluation,
     key: str,
 ) -> tuple[float | None, float | None]:
-    stored_ranges = getattr(evaluation, "measured_ranges_json", None) or {}
+    if key == "bmi":
+        age = _read_float(evaluation, "age_years")
+        return (18.5, 24.9) if age is not None and age >= 20 else (None, None)
+    if key == "visceral_fat_level":
+        if _is_male(evaluation):
+            return 1.0, 12.0
+        return _stored_reference_range(evaluation, key)
     if key == "body_fat_used_percent":
+        if _body_fat_uses_method_uncertainty(evaluation):
+            return None, None
         body_fat_min = _read_float(evaluation, "body_fat_range_min")
         body_fat_max = _read_float(evaluation, "body_fat_range_max")
         if body_fat_min is not None or body_fat_max is not None:
             return body_fat_min, body_fat_max
-    if isinstance(stored_ranges, dict) and isinstance(stored_ranges.get(key), dict):
-        raw = stored_ranges[key]
-        return _maybe_float(raw.get("min")), _maybe_float(raw.get("max"))
+    stored_min, stored_max = _stored_reference_range(evaluation, key)
+    if stored_min is not None or stored_max is not None:
+        return stored_min, stored_max
     return _REFERENCE_RANGES.get(key, (None, None))
+
+
+def _stored_reference_range(evaluation: BodyCompositionEvaluation, key: str) -> tuple[float | None, float | None]:
+    stored_ranges = getattr(evaluation, "measured_ranges_json", None) or {}
+    if key == "skeletal_muscle_percent" and _is_percent_skeletal_profile(evaluation):
+        key = "skeletal_muscle_percent" if isinstance(stored_ranges.get("skeletal_muscle_percent"), dict) else "skeletal_muscle_kg"
+    if not isinstance(stored_ranges, dict) or not isinstance(stored_ranges.get(key), dict):
+        return None, None
+    raw = stored_ranges[key]
+    return _maybe_float(raw.get("min")), _maybe_float(raw.get("max"))
+
+
+def _is_percent_skeletal_profile(evaluation: Any) -> bool:
+    return str(getattr(evaluation, "device_profile", "") or "") == "tezewa_receipt_v1"
+
+
+def _is_male(evaluation: Any) -> bool:
+    return str(getattr(evaluation, "sex", "") or "").lower() == "male"
+
+
+def _body_fat_uses_method_uncertainty(evaluation: BodyCompositionEvaluation) -> bool:
+    return str(getattr(evaluation, "body_fat_used_source", "") or "") == "anthropometry"
+
+
+def _adult_bmi_classification(evaluation: BodyCompositionEvaluation, value: float | None) -> str | None:
+    age = _read_float(evaluation, "age_years")
+    if value is None or age is None or age < 20:
+        return None
+    if value < 18.5:
+        return "Baixo peso"
+    if value < 25:
+        return "Faixa adequada"
+    if value < 30:
+        return "Sobrepeso"
+    if value < 35:
+        return "Obesidade grau I"
+    if value < 40:
+        return "Obesidade grau II"
+    return "Obesidade grau III"
+
+
+def _pt_number(value: float | None) -> str:
+    return _format_value(value).replace(".", ",")
+
+
+def _method_uncertainty_hint(minimum: float | None, maximum: float | None) -> str:
+    if minimum is None and maximum is None:
+        return "Intervalo estimado do método indisponível; sem faixa clínica validada."
+    return f"Intervalo estimado do método: {_pt_number(minimum)}% a {_pt_number(maximum)}%; não é faixa clínica."
+
+
+def _device_scale_hint(minimum: float | None, maximum: float | None) -> str:
+    if minimum is None and maximum is None:
+        return "Índice estimado pela bioimpedância; interpretar pela escala do equipamento."
+    return (
+        f"Referência impressa no exame: {_pt_number(minimum)} a {_pt_number(maximum)}; "
+        "interpretar pela escala do equipamento."
+    )
 
 
 def _resolve_range_status(

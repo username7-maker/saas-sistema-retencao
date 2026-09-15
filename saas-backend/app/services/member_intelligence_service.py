@@ -174,6 +174,17 @@ def _append_flag(flags: list[str], flag: str, condition: bool) -> None:
         flags.append(flag)
 
 
+def _muscle_mass_kg_for_intelligence(evaluation: BodyCompositionEvaluation | None) -> object | None:
+    if evaluation is None:
+        return None
+    muscle_mass = getattr(evaluation, "muscle_mass_kg", None)
+    if muscle_mass is not None:
+        return muscle_mass
+    if str(getattr(evaluation, "device_profile", "") or "") == "tezewa_receipt_v1":
+        return None
+    return getattr(evaluation, "skeletal_muscle_kg", None)
+
+
 def build_lead_to_member_intelligence_context(
     *,
     member: Member,
@@ -328,10 +339,7 @@ def build_lead_to_member_intelligence_context(
             latest_body_fat_percent=_to_float(
                 getattr(latest_body_composition, "body_fat_used_percent", None)
             ),
-            latest_muscle_mass_kg=_to_float(
-                getattr(latest_body_composition, "skeletal_muscle_kg", None)
-                or getattr(latest_body_composition, "muscle_mass_kg", None)
-            ),
+            latest_muscle_mass_kg=_to_float(_muscle_mass_kg_for_intelligence(latest_body_composition)),
             latest_weight_kg=_to_float(getattr(latest_body_composition, "weight_kg", None)),
         ),
         operations=OperationsIntelligenceContextOut(
