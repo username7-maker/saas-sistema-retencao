@@ -46,6 +46,6 @@ test("operational dashboard renders key cards", async ({ page }) => {
   await page.goto("/dashboard/operational");
 
   await expect(page.getByRole("heading", { name: /Dashboard Operacional/i })).toBeVisible();
-  await expect(page.getByText(/Check-ins .ltima hora/i)).toBeVisible();
+  await expect(page.getByText("Check-ins em tempo real", { exact: true })).toBeVisible();
   await expect(page.getByText("14", { exact: true })).toBeVisible();
 });

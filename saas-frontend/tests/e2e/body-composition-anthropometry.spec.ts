@@ -159,10 +159,11 @@ test("body composition report shows anthropometry as official source", async ({ 
   await page.goto("/assessments/members/member-1/body-composition/eval-1/report");
 
   await expect(page.getByRole("heading", { name: /Erick Bedin/i })).toBeVisible();
-  await expect(page.getByText("Fonte oficial da gordura corporal")).toBeVisible();
+  await expect(page.getByText("Metodo de leitura da gordura corporal")).toBeVisible();
   await expect(page.getByText("23.8%").first()).toBeVisible();
-  await expect(page.getByText("Medidas manuais")).toBeVisible();
-  await expect(page.getByText("Bioimpedancia bruta")).toBeVisible();
+  await expect(page.getByText("Fonte usada")).toBeVisible();
+  await expect(page.getByText("Dobras e medidas").first()).toBeVisible();
+  await expect(page.getByText("Bioimpedancia bruta")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Medidas corporais" })).toBeVisible();
   await expect(page.getByText("Abdomen").first()).toBeVisible();
   await expect(page.getByText("Braco direito contraido").first()).toBeVisible();
