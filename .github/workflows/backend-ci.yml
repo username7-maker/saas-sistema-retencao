@@ -45,6 +45,10 @@ jobs:
         run: >
           pip-audit -r requirements.runtime.txt --strict --desc on
           --ignore-vuln PYSEC-2025-185
+          --ignore-vuln PYSEC-2026-1325
+        # python-jose requires python-ecdsa, but this application signs only
+        # HS256 tokens. The advisory affects ECDSA signing/ECDH, which are not
+        # used here, and upstream currently offers no fixed release.
 
       # TODO(coverage): cobertura atual ~66.76%; meta 80% (gap ~13.24pp / ~3.756 linhas).
       # Subir o piso gradualmente apos cobrir work_queue_service, personal_ai_service,
