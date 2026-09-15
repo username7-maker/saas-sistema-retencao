@@ -1279,6 +1279,91 @@ def test_parse_time_normalizes_unambiguous_actuar_formats(raw_value: str, expect
     assert parsed.isoformat() == expected
 
 
+def test_parse_checkin_does_not_replace_an_invalid_explicit_time_with_midnight() -> None:
+    parsed = import_service._parse_checkin_datetime(
+        checkin_raw="27/08/2026",
+        date_raw="27/08/2026",
+        time_raw="hora-invalida",
+    )
+
+    assert parsed is None
+
+
+def test_preview_checkin_pending_payload_preserves_source_columns() -> None:
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = []
+    db.execute.return_value.all.return_value = []
+    csv_content = (
+        "Cliente,Legacy Data,Observacao\n"
+        "Pessoa Desconhecida,data-invalida,nao perder esta coluna\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_checkins_csv(
+        db,
+        csv_content,
+        filename="Acessos.csv",
+        column_mappings={"legacy_data": "data_entrada"},
+        ignored_columns=["observacao"],
+    )
+
+    assert preview.errors[0].payload == {
+        "cliente": "Pessoa Desconhecida",
+        "legacy_data": "data-invalida",
+        "observacao": "nao perder esta coluna",
+    }
+
+
+def test_import_checkin_pending_payload_preserves_source_columns() -> None:
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = []
+    db.execute.return_value.all.return_value = []
+    csv_content = (
+        "Cliente,Legacy Data,Observacao\n"
+        "Pessoa Desconhecida,data-invalida,nao perder esta coluna\n"
+    ).encode("utf-8")
+
+    summary = import_service.import_checkins_csv(
+        db,
+        csv_content,
+        filename="Acessos.csv",
+        column_mappings={"legacy_data": "data_entrada"},
+        ignored_columns=["observacao"],
+    )
+
+    assert summary.errors[0].payload == {
+        "cliente": "Pessoa Desconhecida",
+        "legacy_data": "data-invalida",
+        "observacao": "nao perder esta coluna",
+    }
+
+
+def test_import_checkins_can_leave_commit_to_the_router() -> None:
+    member = Member(
+        id=uuid4(),
+        gym_id=uuid4(),
+        full_name="Evelyn Casela",
+        email="evelyn@example.com",
+        status=MemberStatus.ACTIVE,
+        plan_name="LIVRE ANUAL",
+        monthly_fee=0,
+        join_date=date(2026, 1, 1),
+        extra_data={},
+    )
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = [member]
+    db.execute.return_value.all.return_value = []
+
+    summary = import_service.import_checkins_csv(
+        db,
+        b"Cliente,Data Entrada,Hora Entrada\nEvelyn Casela,27/08/2026,11:43\n",
+        filename="Acessos.csv",
+        commit=False,
+    )
+
+    assert summary.imported == 1
+    db.commit.assert_not_called()
+
+
 def test_import_checkin_updates_last_access_without_changing_member_plan() -> None:
     member = Member(
         id=uuid4(),

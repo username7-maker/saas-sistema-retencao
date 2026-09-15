@@ -6,8 +6,6 @@ export interface ImportSummaryNotice {
   description: string;
 }
 
-const MISSING_MEMBER_REASON_FRAGMENT = "base de alunos importada";
-
 function pendingCellValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
@@ -28,7 +26,7 @@ export function buildPendingImportCsvRows(errors: ImportErrorEntry[]): string[][
 }
 
 export function getVisibleImportErrors(summary: ImportSummary): ImportErrorEntry[] {
-  return summary.errors.filter((error) => !error.reason.includes(MISSING_MEMBER_REASON_FRAGMENT));
+  return summary.errors;
 }
 
 export function isDuplicateOnlyImport(summary: ImportSummary): boolean {

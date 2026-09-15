@@ -38,7 +38,7 @@ describe("import summary helpers", () => {
     });
   });
 
-  it("keeps missing-member errors out of the technical error list", () => {
+  it("keeps every pending row visible and exportable", () => {
     const summary = makeSummary({
       errors: [
         {
@@ -55,6 +55,11 @@ describe("import summary helpers", () => {
     });
 
     expect(getVisibleImportErrors(summary)).toEqual([
+      {
+        row_number: 10,
+        reason: "Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
+        payload: {},
+      },
       {
         row_number: 11,
         reason: "Formato de data invalido",

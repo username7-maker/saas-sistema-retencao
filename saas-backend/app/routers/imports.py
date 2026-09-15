@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.cache import invalidate_dashboard_cache
 from app.core.dependencies import get_request_context, require_roles
 from app.core.limiter import limiter
 from app.database import get_db, set_current_gym_id
@@ -131,14 +132,16 @@ def _successful_import_audit_details(
 ) -> dict:
     """Aggregate-only import evidence. Never records source rows or PII."""
 
-    safe_filename = str(filename or "arquivo_sem_nome").replace("\\", "/").rsplit("/", 1)[-1]
+    safe_filename = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    file_type = f".{safe_filename.rsplit('.', 1)[-1]}" if "." in safe_filename else "unknown"
     return {
-        "filename": safe_filename,
+        "file_type": file_type,
         "file_sha256": hashlib.sha256(content).hexdigest().upper(),
         "coverage_warning_codes": coverage_warning_codes or [],
         "mapping": {
-            "column_mappings": dict(sorted(column_mappings.items())),
-            "ignored_columns": sorted(ignored_columns),
+            "mapped_fields": sorted(set(column_mappings.values())),
+            "mapped_columns": len(column_mappings),
+            "ignored_columns": len(ignored_columns),
         },
         "totals": {
             "imported": summary.imported,
@@ -294,6 +297,14 @@ async def import_checkins_endpoint(
             ignored_columns=parsed_ignored_columns,
         )
         if not preview.can_confirm:
+            _audit_checkin_preview_errors(
+                request,
+                db,
+                current_user,
+                content=content,
+                preview=preview,
+                action="import_checkins_csv_blocked",
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
@@ -308,6 +319,7 @@ async def import_checkins_endpoint(
             auto_create_missing_members=auto_create_missing_members,
             column_mappings=parsed_mappings,
             ignored_columns=parsed_ignored_columns,
+            commit=False,
         )
     except HTTPException:
         raise
@@ -334,6 +346,9 @@ async def import_checkins_endpoint(
         user_agent=context["user_agent"],
     )
     db.commit()
+    invalidate_dashboard_cache("checkins", "risk")
+    if summary.provisional_members_created:
+        invalidate_dashboard_cache("members")
     return summary
 
 
