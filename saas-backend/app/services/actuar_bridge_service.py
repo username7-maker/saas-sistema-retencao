@@ -275,7 +275,7 @@ def fail_actuar_bridge_job(
     device: ActuarBridgeDevice,
     job_id: UUID,
     payload: ActuarBridgeJobFailInput,
-) -> bool:
+) -> None:
     _load_claimed_job_triplet(db, device=device, job_id=job_id)
     now = _now()
     device.status = "online"
@@ -309,7 +309,7 @@ def _finalize_bridge_success(
     attempt: ActuarSyncAttempt,
     external_id: str | None,
     action_log: list[dict] | list,
-) -> None:
+) -> bool:
     from app.services.body_composition_actuar_sync_service import _finalize_sync_success
 
     return _finalize_sync_success(
