@@ -123,7 +123,12 @@ function statusClass(status: string | null | undefined): string {
 }
 
 function metricReference(metric: BodyCompositionReferenceMetric): string {
-  if (metric.reference_min == null && metric.reference_max == null) return "Sem faixa";
+  if (metric.reference_min == null && metric.reference_max == null) {
+    if (metric.key === "body_fat_used_percent" && metric.status === "unknown") {
+      return "Sem faixa clínica validada";
+    }
+    return "Sem faixa";
+  }
   if (metric.reference_min != null && metric.reference_max != null) {
     return `${formatNumber(metric.reference_min)} - ${formatNumber(metric.reference_max)}${metric.unit ? ` ${metric.unit}` : ""}`;
   }
@@ -136,19 +141,33 @@ interface ReportCalculationOrigins {
   muscle_mass_origin?: CalculationOrigin | null;
 }
 
+function metricOriginLabel(
+  metric: BodyCompositionMetricCard | BodyCompositionReferenceMetric | null | undefined,
+  fallbackOrigin?: CalculationOrigin | null,
+): string {
+  const suppliedLabel = metric?.origin_label?.trim();
+  return suppliedLabel || calculationOriginLabel(fallbackOrigin);
+}
+
+function metricStatusLabel(metric: BodyCompositionReferenceMetric): string {
+  if (metric.status === "unknown" && metric.position_label?.trim()) return metric.position_label;
+  return statusLabel(metric.status);
+}
+
 function metricExplanation(
-  key: string,
+  metric: BodyCompositionReferenceMetric,
   context?: BodyCompositionBodyFatContext | null,
   origins?: ReportCalculationOrigins,
 ): string {
+  const key = metric.key;
   if (key === "body_fat_used_percent") {
     if (context?.used_source === "bioimpedance") return "Leitura de gordura informada pela bioimpedancia";
     if (context?.used_source === "manual_override") return "Percentual informado pelo profissional";
     return "Estimativa por protocolo de dobras e medidas";
   }
-  if (key === "muscle_mass_kg") return calculationOriginLabel(origins?.muscle_mass_origin);
+  if (key === "muscle_mass_kg") return metricOriginLabel(metric, origins?.muscle_mass_origin);
   if (key === "basal_metabolic_rate_kcal" || key === "bmr") {
-    return calculationOriginLabel(origins?.basal_metabolic_rate_origin);
+    return metricOriginLabel(metric, origins?.basal_metabolic_rate_origin);
   }
   const labels: Record<string, string> = {
     bmi: "Indice entre peso e altura",
@@ -179,6 +198,13 @@ function metricSource(
   context: BodyCompositionBodyFatContext | null,
   origins?: ReportCalculationOrigins,
 ): { group: "bioimpedance" | "measurements"; label: string } {
+  const suppliedLabel = metric.origin_label?.trim();
+  if (suppliedLabel) {
+    return {
+      group: suppliedLabel.toLocaleLowerCase("pt-BR").includes("bioimped") ? "bioimpedance" : "measurements",
+      label: suppliedLabel,
+    };
+  }
   const usedSource = context?.used_source ?? null;
   if (["body_fat_used_percent", "fat_mass_estimated_kg", "lean_mass_estimated_kg"].includes(metric.key)) {
     if (usedSource === "bioimpedance") return { group: "bioimpedance", label: "Bioimpedancia" };
@@ -292,6 +318,7 @@ function BodyCompositionReportPage() {
   const reportScore = report.score_total != null ? formatNumber(report.score_total) : metricValue(scoreMetric);
   const physicalAgeMetric = metricByKey(riskMetrics, "physical_age");
   const bmrMetric = metricByKey(primaryCards, "basal_metabolic_rate_kcal", "bmr");
+  const muscleMassMetric = metricByKey(primaryCards, "muscle_mass_kg");
   const leadInsight = insights[0] ?? null;
   const keyIndicators = [
     metricByKey(allReferenceMetrics, "bmi"),
@@ -399,8 +426,8 @@ function BodyCompositionReportPage() {
               header={reportHeader}
               physicalAge={metricValue(physicalAgeMetric)}
               bmr={metricValue(bmrMetric)}
-              basalMetabolicRateOrigin={report.basal_metabolic_rate_origin}
-              muscleMassOrigin={report.muscle_mass_origin}
+              basalMetabolicRateOriginLabel={metricOriginLabel(bmrMetric, report.basal_metabolic_rate_origin)}
+              muscleMassOriginLabel={metricOriginLabel(muscleMassMetric, report.muscle_mass_origin)}
             />
             <section className="clinical-web-page-grid">
               <SummaryCard score={reportScore} insight={leadInsight} />
@@ -440,14 +467,14 @@ function ReportHeader({
   header,
   physicalAge,
   bmr,
-  basalMetabolicRateOrigin,
-  muscleMassOrigin,
+  basalMetabolicRateOriginLabel,
+  muscleMassOriginLabel,
 }: {
   header: BodyCompositionReportHeader;
   physicalAge: string;
   bmr: string;
-  basalMetabolicRateOrigin?: CalculationOrigin | null;
-  muscleMassOrigin?: CalculationOrigin | null;
+  basalMetabolicRateOriginLabel: string;
+  muscleMassOriginLabel: string;
 }) {
   return (
     <header className="clinical-web-header">
@@ -473,11 +500,11 @@ function ReportHeader({
       <section className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Origem dos calculos">
         <div className="rounded-lg border border-[#d8d2ca] bg-[#f7f4ef] px-4 py-3">
           <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[#7c6250]">Origem da TMB</span>
-          <strong className="mt-1 block text-sm text-[#050505]">{calculationOriginLabel(basalMetabolicRateOrigin)}</strong>
+          <strong className="mt-1 block text-sm text-[#050505]">{basalMetabolicRateOriginLabel}</strong>
         </div>
         <div className="rounded-lg border border-[#d8d2ca] bg-[#f7f4ef] px-4 py-3">
           <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[#7c6250]">Origem da massa muscular</span>
-          <strong className="mt-1 block text-sm text-[#050505]">{calculationOriginLabel(muscleMassOrigin)}</strong>
+          <strong className="mt-1 block text-sm text-[#050505]">{muscleMassOriginLabel}</strong>
         </div>
       </section>
     </header>
@@ -559,7 +586,7 @@ function KeyIndicatorsTable({
               <tr key={metric.key}>
                 <td>
                   <strong>{metric.label}</strong>
-                  <span className={statusClass(metric.status)}>{statusLabel(metric.status)}</span>
+                  <span className={statusClass(metric.status)}>{metricStatusLabel(metric)}</span>
                 </td>
                 <td>
                   <span className="clinical-web-source-pill">{metricSource(metric, context, origins).label}</span>
@@ -596,7 +623,7 @@ function CompositionDetailGrid({
             <div>
               <span>{metricSource(metric, context, origins).label}</span>
               <strong>{metric.label}</strong>
-              <small>{metricExplanation(metric.key, context, origins)}</small>
+              <small>{metricExplanation(metric, context, origins)}</small>
             </div>
             <em>{metric.formatted_value}</em>
           </article>

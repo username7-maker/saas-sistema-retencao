@@ -251,6 +251,36 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.getAllByText("Estimado por Lee").length).toBeGreaterThan(0);
   });
 
+  it("uses the metric-specific provenance supplied by the report", async () => {
+    const report = makeReport();
+    report.basal_metabolic_rate_origin = "reported";
+    report.muscle_mass_origin = "reported";
+    const bmr = report.primary_cards.find((metric) => metric.key === "bmr");
+    const muscle = report.primary_cards.find((metric) => metric.key === "muscle_mass_kg");
+    const compositionMuscle = report.composition_metrics.find((metric) => metric.key === "muscle_mass_kg");
+    const bmi = report.risk_metrics.find((metric) => metric.key === "bmi");
+    const bodyFat = report.composition_metrics.find((metric) => metric.key === "body_fat_used_percent");
+    if (bmr) bmr.origin_label = "Estimada pela bioimpedância";
+    if (muscle) muscle.origin_label = "Estimado pela bioimpedância";
+    if (compositionMuscle) compositionMuscle.origin_label = "Estimado pela bioimpedância";
+    if (bmi) bmi.origin_label = "Calculado por peso e altura";
+    if (bodyFat) {
+      bodyFat.reference_min = null;
+      bodyFat.reference_max = null;
+      bodyFat.status = "unknown";
+      bodyFat.position_label = "Sem classificação clínica validada";
+    }
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(report);
+
+    renderPage();
+
+    expect((await screen.findAllByText("Calculado por peso e altura")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Estimada pela bioimpedância").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Estimado pela bioimpedância").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sem classificação clínica validada").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Medido pelo aparelho")).not.toBeInTheDocument();
+  });
+
   it("opens the complete technical pdf through the authenticated service", async () => {
     vi.mocked(bodyCompositionService.openPdf).mockResolvedValue(undefined);
     const windowOpenSpy = vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window);

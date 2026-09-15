@@ -252,6 +252,10 @@ def test_report_distinguishes_clinical_reference_from_method_uncertainty_and_dev
     assert body_fat.position_label == "Sem classificação clínica validada"
     assert body_fat.hint == "Intervalo estimado do método: 31,23% a 37,23%; não é faixa clínica."
 
+    assert report.score_total == 43
+    assert [item.key for item in report.score_breakdown] == ["muscle", "visceral_fat", "waist"]
+    assert all(item.key != "body_fat" for item in report.score_breakdown)
+
     visceral = metrics["visceral_fat_level"]
     assert visceral.reference_min == 1
     assert visceral.reference_max == 12

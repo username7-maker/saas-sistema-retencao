@@ -408,7 +408,7 @@ def build_body_composition_report_read(
     previous = _resolve_previous_evaluation(evaluation, ordered_history)
     risk_metrics = [_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _RISK_DEFS]
     score_breakdown = _build_score_breakdown(evaluation)
-    score_total = sum(item.score for item in score_breakdown) if score_breakdown else None
+    score_total = _normalize_available_score(score_breakdown)
     header = BodyCompositionReportHeaderRead(
         member_name=member.full_name,
         gym_name=getattr(getattr(member, "gym", None), "name", None),
@@ -705,42 +705,48 @@ def _build_score_breakdown(evaluation: BodyCompositionEvaluation) -> list[BodyCo
     waist_hip = _read_metric_float(evaluation, "waist_hip_ratio")
     waist_height = _read_metric_float(evaluation, "waist_height_ratio")
 
-    body_fat_score = _centered_range_score(body_fat, body_fat_min, body_fat_max)
-    muscle_score = _progressive_range_score(ffmi, *_REFERENCE_RANGES["ffmi"])
-    visceral_score = _inverse_range_score(visceral, *_REFERENCE_RANGES["visceral_fat_level"])
-    waist_score = _average_scores(
-        [
-            _inverse_range_score(waist_hip, *_REFERENCE_RANGES["waist_hip_ratio"]),
-            _inverse_range_score(waist_height, *_REFERENCE_RANGES["waist_height_ratio"]),
-        ]
-    )
-
-    return [
-        BodyCompositionScoreBreakdownItemRead(
+    items: list[BodyCompositionScoreBreakdownItemRead] = []
+    if body_fat is not None and body_fat_min is not None and body_fat_max is not None:
+        items.append(BodyCompositionScoreBreakdownItemRead(
             key="body_fat",
             label="Gordura corporal",
-            score=body_fat_score,
+            score=_centered_range_score(body_fat, body_fat_min, body_fat_max),
             description="Pontua o percentual oficial usado no relatorio contra a faixa de referencia.",
-        ),
-        BodyCompositionScoreBreakdownItemRead(
+        ))
+    if ffmi is not None:
+        items.append(BodyCompositionScoreBreakdownItemRead(
             key="muscle",
             label="Massa muscular",
-            score=muscle_score,
+            score=_progressive_range_score(ffmi, *_REFERENCE_RANGES["ffmi"]),
             description="Usa FFMI quando existe massa livre de gordura e altura suficientes.",
-        ),
-        BodyCompositionScoreBreakdownItemRead(
+        ))
+    if visceral is not None:
+        items.append(BodyCompositionScoreBreakdownItemRead(
             key="visceral_fat",
             label="Gordura visceral",
-            score=visceral_score,
+            score=_inverse_range_score(visceral, *_REFERENCE_RANGES["visceral_fat_level"]),
             description="Quanto menor o indice visceral dentro da faixa, maior a pontuacao.",
-        ),
-        BodyCompositionScoreBreakdownItemRead(
+        ))
+    waist_scores: list[int] = []
+    if waist_hip is not None:
+        waist_scores.append(_inverse_range_score(waist_hip, *_REFERENCE_RANGES["waist_hip_ratio"]))
+    if waist_height is not None:
+        waist_scores.append(_inverse_range_score(waist_height, *_REFERENCE_RANGES["waist_height_ratio"]))
+    if waist_scores:
+        items.append(BodyCompositionScoreBreakdownItemRead(
             key="waist",
             label="Cintura / RCQ",
-            score=waist_score,
+            score=_average_scores(waist_scores),
             description="Combina relacao cintura-quadril e razao cintura-altura quando disponiveis.",
-        ),
-    ]
+        ))
+    return items
+
+
+def _normalize_available_score(items: Sequence[BodyCompositionScoreBreakdownItemRead]) -> int | None:
+    available_max = sum(item.max_score for item in items)
+    if available_max <= 0:
+        return None
+    return round((sum(item.score for item in items) / available_max) * 100)
 
 
 def _build_body_composition_recommendations(
@@ -1343,10 +1349,9 @@ def _inverse_range_score(value: float | None, minimum: float | None, maximum: fl
 
 
 def _average_scores(scores: Sequence[int]) -> int:
-    valid = [score for score in scores if score > 0]
-    if not valid:
+    if not scores:
         return 0
-    return round(sum(valid) / len(valid))
+    return round(sum(scores) / len(scores))
 
 
 def _format_reference_hint(minimum: float | None, maximum: float | None, unit: str | None) -> str | None:

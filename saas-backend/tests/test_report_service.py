@@ -357,8 +357,10 @@ def test_body_composition_report_builds_v3_score_indicators_and_rules():
     assert risk_by_key["visceral_fat_level"].reference_max == 12
     assert risk_by_key["waist_hip_ratio"].status == "monitor"
     assert risk_by_key["waist_hip_ratio"].position_label == "terco superior da faixa"
-    assert report.score_total == sum(item.score for item in report.score_breakdown)
-    assert [item.key for item in report.score_breakdown] == ["body_fat", "muscle", "visceral_fat", "waist"]
+    assert report.score_total == round(
+        (sum(item.score for item in report.score_breakdown) / sum(item.max_score for item in report.score_breakdown)) * 100
+    )
+    assert [item.key for item in report.score_breakdown] == ["muscle", "visceral_fat", "waist"]
     assert [item.key for item in report.recommendations] == [
         "monitor_waist_visceral",
         "repeat_thigh_measurement",
