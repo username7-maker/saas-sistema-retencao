@@ -102,7 +102,7 @@ describe("ImportsPage", () => {
       recognized_columns: [],
       unrecognized_columns: [],
       missing_members: [],
-      warnings: [],
+      warnings: ["Uma linha sera mantida como pendencia."],
       sample_rows: [],
       mapping_required: false,
       can_confirm: true,
@@ -248,7 +248,7 @@ describe("ImportsPage", () => {
     });
   });
 
-  it("blocks check-in commit and offers an error CSV when any row is invalid", async () => {
+  it("imports valid check-ins while keeping invalid rows as pending", async () => {
     vi.mocked(importExportService.previewCheckins).mockResolvedValue({
       preview_kind: "checkins",
       total_rows: 2,
@@ -268,13 +268,29 @@ describe("ImportsPage", () => {
       resolved_mappings: {},
       ignored_columns: [],
       conflicting_targets: [],
-      blocking_issues: ["Existe uma linha com erro."],
+      blocking_issues: [],
       source_columns: [],
       errors: [
         {
           row_number: 3,
           reason: "Formato de data invalido",
           payload: { cliente: "Evelyn Casela" },
+        },
+      ],
+    });
+    vi.mocked(importExportService.importCheckins).mockResolvedValue({
+      imported: 1,
+      updated_existing: 0,
+      skipped_duplicates: 0,
+      ignored_rows: 0,
+      provisional_members_created: 0,
+      provisional_members: [],
+      missing_members: [],
+      errors: [
+        {
+          row_number: 3,
+          reason: "Formato de data invalido",
+          payload: { cliente: "Evelyn Casela", data_entrada: "data-invalida" },
         },
       ],
     });
@@ -291,9 +307,16 @@ describe("ImportsPage", () => {
     fireEvent.change(checkinsFileInput, { target: { files: [file] } });
     fireEvent.click(screen.getAllByRole("button", { name: "Validar arquivo" })[1]);
 
-    expect(await screen.findByText("Importacao bloqueada: 1 linha(s) precisam de correcao")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Baixar erros CSV" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Confirmar importacao" })[1]).toBeDisabled();
-    expect(importExportService.importCheckins).not.toHaveBeenCalled();
+    expect(await screen.findByText(/ficarao pendentes e nao entrarao na Retencao/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Baixar pendencias CSV" })).toBeInTheDocument();
+    const confirmButton = screen.getAllByRole("button", { name: "Importar linhas validas" })[0];
+    expect(confirmButton).toBeEnabled();
+
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(importExportService.importCheckins).toHaveBeenCalledWith(file, false, undefined);
+    });
+    expect(await screen.findByText("Pendencias da importacao: 1")).toBeInTheDocument();
   });
 });

@@ -1193,7 +1193,7 @@ def test_import_checkins_csv_accepts_turnstile_xlsx_with_data_entrada_serial() -
     assert any(call.args and call.args[0].__class__.__name__ == "Checkin" for call in db.add.call_args_list)
 
 
-def test_preview_checkins_blocks_commit_when_any_row_has_error() -> None:
+def test_preview_checkins_allows_valid_rows_when_another_row_is_pending() -> None:
     member = Member(
         id=uuid4(),
         gym_id=uuid4(),
@@ -1221,9 +1221,62 @@ def test_preview_checkins_blocks_commit_when_any_row_has_error() -> None:
 
     assert preview.valid_rows == 1
     assert len(preview.errors) == 1
-    assert preview.can_confirm is False
+    assert preview.can_confirm is True
     assert preview.errors[0].row_number == 3
-    assert "1 linha(s) de check-in com erro" in " ".join(preview.blocking_issues)
+    assert preview.blocking_issues == []
+    assert "1 linha(s)" in " ".join(preview.warnings)
+
+
+def test_preview_checkins_still_blocks_when_every_row_is_pending() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = (
+        "Cliente,Data Entrada,Hora Entrada\n"
+        "Pessoa Desconhecida,data-invalida,12:00\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_checkins_csv(db, csv_content, filename="Acessos.csv")
+
+    assert preview.valid_rows == 0
+    assert preview.can_confirm is False
+    assert "Nenhuma linha valida" in " ".join(preview.blocking_issues)
+
+
+def test_preview_checkins_does_not_count_pending_member_as_duplicate() -> None:
+    db = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    db.scalars.return_value = mock_scalars
+    db.execute.return_value.all.return_value = []
+
+    csv_content = (
+        "Cliente,Data Entrada,Hora Entrada\n"
+        "Pessoa Desconhecida,27/08/2026,12:00\n"
+    ).encode("utf-8")
+
+    preview = import_service.preview_checkins_csv(db, csv_content, filename="Acessos.csv")
+
+    assert len(preview.errors) == 1
+    assert preview.would_skip == 0
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("21h33", "21:33:00"),
+        ("21.33", "21:33:00"),
+        ("21:33:00.000", "21:33:00"),
+    ],
+)
+def test_parse_time_normalizes_unambiguous_actuar_formats(raw_value: str, expected: str) -> None:
+    parsed = import_service._parse_time(raw_value)
+
+    assert parsed is not None
+    assert parsed.isoformat() == expected
 
 
 def test_import_checkin_updates_last_access_without_changing_member_plan() -> None:

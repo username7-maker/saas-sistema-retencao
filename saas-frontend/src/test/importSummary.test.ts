@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ImportSummary } from "../types";
 import {
+  buildPendingImportCsvRows,
   getIgnoredRowsHint,
   getImportSummaryNotice,
   getVisibleImportErrors,
@@ -70,5 +71,26 @@ describe("import summary helpers", () => {
     expect(getIgnoredRowsHint(summary)).toBe(
       "Algumas linhas foram ignoradas por nao representarem um check-in valido de membro, como registros manuais ou linhas de totalizacao.",
     );
+  });
+
+  it("exports pending rows with their original columns", () => {
+    expect(
+      buildPendingImportCsvRows([
+        {
+          row_number: 3,
+          reason: "Formato de data invalido",
+          payload: { cliente: "Evelyn Casela", data_entrada: "data-invalida" },
+        },
+        {
+          row_number: 8,
+          reason: "Membro nao encontrado",
+          payload: { cliente: "Joao Silva", hora_entrada: "08:30" },
+        },
+      ]),
+    ).toEqual([
+      ["linha", "motivo", "cliente", "data_entrada", "hora_entrada"],
+      ["3", "Formato de data invalido", "Evelyn Casela", "data-invalida", ""],
+      ["8", "Membro nao encontrado", "Joao Silva", "", "08:30"],
+    ]);
   });
 });

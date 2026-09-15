@@ -837,7 +837,6 @@ def preview_checkins_csv(
             if missing_name:
                 missing_member_counts[missing_name] += 1
                 missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
-            would_skip += 1
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
@@ -926,11 +925,11 @@ def preview_checkins_csv(
         ignored_columns=normalized_ignored,
         valid_rows=valid_rows,
     )
-    if errors:
-        blocking_issues.append(
-            f"Existem {len(errors)} linha(s) de check-in com erro. Corrija as pendencias e valide o arquivo novamente."
+    if errors and valid_rows > 0:
+        warnings.append(
+            f"{len(errors)} linha(s) nao puderam ser validadas e ficarao pendentes. "
+            "As linhas validas podem ser importadas normalmente."
         )
-        can_confirm = False
     return ImportPreview(
         preview_kind="checkins",
         total_rows=total_rows,
@@ -2407,7 +2406,10 @@ def _parse_time(value: str | None) -> time | None:
     if serial is not None and 0 <= serial < 1:
         return _excel_serial_to_datetime(serial).time()
 
-    for fmt in ("%H:%M:%S", "%H:%M"):
+    if re.fullmatch(r"\d{1,2}[hH.]\d{2}", raw):
+        raw = re.sub(r"[hH.]", ":", raw, count=1)
+
+    for fmt in ("%H:%M:%S.%f", "%H:%M:%S", "%H:%M"):
         try:
             return datetime.strptime(raw, fmt).time()
         except ValueError:

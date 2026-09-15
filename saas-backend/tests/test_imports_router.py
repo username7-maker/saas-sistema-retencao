@@ -11,8 +11,8 @@ def _blocked_preview() -> ImportPreview:
         total_rows=2,
         valid_rows=1,
         would_create=1,
-        can_confirm=False,
-        blocking_issues=["Existe uma linha com erro."],
+        can_confirm=True,
+        warnings=["Uma linha sera mantida como pendencia."],
         errors=[
             ImportErrorEntry(
                 row_number=3,
@@ -110,11 +110,23 @@ def test_member_preview_audits_access_export_block_without_payload(app, client, 
         app.dependency_overrides.clear()
 
 
-def test_checkin_commit_is_fail_closed_when_preflight_has_errors(app, client, mock_owner, monkeypatch):
+def test_checkin_commit_imports_valid_rows_and_returns_pending_rows(app, client, mock_owner, monkeypatch):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: mock_owner
-    import_mock = MagicMock()
+    import_mock = MagicMock(
+        return_value=ImportSummary(
+            imported=1,
+            skipped_duplicates=0,
+            errors=[
+                ImportErrorEntry(
+                    row_number=3,
+                    reason="Formato de data invalido",
+                    payload={"cliente": "[redacted]"},
+                )
+            ],
+        )
+    )
     audit_calls: list[dict] = []
 
     monkeypatch.setattr("app.routers.imports.preview_checkins_csv", lambda *_args, **_kwargs: _blocked_preview())
@@ -130,12 +142,13 @@ def test_checkin_commit_is_fail_closed_when_preflight_has_errors(app, client, mo
             files={"file": ("Acessos.csv", b"Cliente,Data Entrada\nEvelyn Casela,data-invalida", "text/csv")},
         )
 
-        assert response.status_code == 422
-        assert "nenhum check-in foi gravado" in response.json()["detail"].lower()
-        import_mock.assert_not_called()
+        assert response.status_code == 200
+        assert response.json()["imported"] == 1
+        assert response.json()["errors"][0]["row_number"] == 3
+        import_mock.assert_called_once()
         db.commit.assert_called_once()
-        assert audit_calls[0]["action"] == "import_checkins_csv_blocked"
-        assert audit_calls[0]["details"]["error_rows"] == [3]
+        assert audit_calls[0]["action"] == "import_checkins_csv"
+        assert audit_calls[0]["details"]["totals"]["errors"] == 1
         assert "payload" not in audit_calls[0]["details"]
     finally:
         app.dependency_overrides.clear()
@@ -160,7 +173,7 @@ def test_checkin_preview_audits_error_metadata_without_row_payload(app, client, 
         )
 
         assert response.status_code == 200
-        assert response.json()["can_confirm"] is False
+        assert response.json()["can_confirm"] is True
         db.commit.assert_called_once()
         assert audit_calls[0]["action"] == "preview_checkins_csv_errors"
         assert audit_calls[0]["details"]["error_reasons"] == {"Formato de data invalido": 1}

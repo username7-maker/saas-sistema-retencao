@@ -293,20 +293,12 @@ async def import_checkins_endpoint(
             column_mappings=parsed_mappings,
             ignored_columns=parsed_ignored_columns,
         )
-        if preview.errors:
-            _audit_checkin_preview_errors(
-                request,
-                db,
-                current_user,
-                content=content,
-                preview=preview,
-                action="import_checkins_csv_blocked",
-            )
+        if not preview.can_confirm:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
-                    f"Importacao bloqueada: {len(preview.errors)} linha(s) de check-in possuem erro. "
-                    "Corrija as pendencias no preview e valide novamente; nenhum check-in foi gravado."
+                    "Importacao bloqueada: nenhuma linha valida ou existe um conflito no mapeamento. "
+                    "Revise o preview; nenhum check-in foi gravado."
                 ),
             )
         summary = import_checkins_csv(
