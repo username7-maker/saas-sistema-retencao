@@ -192,7 +192,9 @@ describe("bodyCompositionOcr", () => {
     expect(result.values.body_fat_kg).toBe(19.46);
     expect(result.values.body_fat_percent).toBe(23.0);
     expect(result.values.waist_hip_ratio).toBe(0.88);
-    expect(result.values.skeletal_muscle_kg).toBe(35.6);
+    expect(result.values.skeletal_muscle_percent).toBe(35.6);
+    expect(result.values.skeletal_muscle_kg).toBeUndefined();
+    expect(result.ranges.skeletal_muscle_percent).toEqual({ min: 21.3, max: 35.7 });
     expect(result.values.target_weight_kg).toBe(68.3);
     expect(result.values.weight_control_kg).toBe(-16.1);
     expect(result.values.health_score).toBe(62);
@@ -282,7 +284,7 @@ describe("bodyCompositionOcr", () => {
     expect(result.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ field: "weight_kg", severity: "critical" }),
-        expect.objectContaining({ field: null, message: expect.stringContaining("Layout diferente do recibo Tezewa") }),
+        expect.objectContaining({ field: null, message: expect.stringContaining("Layout diferente do recibo de bioimpedância") }),
       ]),
     );
   });

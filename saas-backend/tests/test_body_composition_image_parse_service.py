@@ -519,10 +519,10 @@ class TestImageParseService:
         assert result.field_metadata["body_water_percent"].origin == "derived"
         assert result.field_metadata["body_water_percent"].state == "accepted"
 
-    def test_strict_mode_accepts_unambiguous_device_labels_without_printed_units(self):
+    def test_strict_mode_maps_skeletal_muscle_from_body_parameters_to_percent(self):
         payload = _strict_ai_result(weight_kg=90, bmi=27.78, body_water_kg=45)
         payload.values.basal_metabolic_rate_kcal = 1880
-        payload.values.skeletal_muscle_kg = 38.2
+        payload.values.skeletal_muscle_percent = 38.2
         payload.field_metadata["body_water_kg"] = BodyCompositionFieldMetadata(
             origin="ai_image",
             state="accepted",
@@ -539,12 +539,12 @@ class TestImageParseService:
             evidence="Basic metabolism 1880",
             suggested_value=1880,
         )
-        payload.field_metadata["skeletal_muscle_kg"] = BodyCompositionFieldMetadata(
+        payload.field_metadata["skeletal_muscle_percent"] = BodyCompositionFieldMetadata(
             origin="ai_image",
             state="accepted",
             confidence=0.95,
             label="Skeletal muscle",
-            evidence="Skeletal muscle 38.2",
+            evidence="Body parameters (%) Skeletal muscle 38.2",
             suggested_value=38.2,
         )
 
@@ -552,13 +552,14 @@ class TestImageParseService:
 
         assert result.values.body_water_kg == 45
         assert result.values.basal_metabolic_rate_kcal == 1880
-        assert result.values.skeletal_muscle_kg == 38.2
+        assert result.values.skeletal_muscle_percent == 38.2
+        assert result.values.skeletal_muscle_kg is None
         rejected_fields = {
             issue.fields[0]
             for issue in result.validation_issues
             if issue.code == "ai_label_field_mismatch" and issue.fields
         }
-        assert not {"body_water_kg", "basal_metabolic_rate_kcal", "skeletal_muscle_kg"} & rejected_fields
+        assert not {"body_water_kg", "basal_metabolic_rate_kcal", "skeletal_muscle_percent"} & rejected_fields
 
     def test_strict_mode_supports_real_tezewa_narrow_receipt_labels(self):
         """Covers the receipt structure without retaining its identifier or image."""
@@ -580,7 +581,7 @@ class TestImageParseService:
         payload.values.protein_kg = 10.0
         payload.values.visceral_fat_level = 7.0
         payload.values.basal_metabolic_rate_kcal = 1366
-        payload.values.skeletal_muscle_kg = 25.7
+        payload.values.skeletal_muscle_percent = 25.7
         payload.values.target_weight_kg = 58.1
         payload.values.weight_control_kg = -7.0
         payload.values.muscle_control_kg = -2.1
@@ -617,7 +618,7 @@ class TestImageParseService:
                 "visceral_fat_level": metadata("Visceral fat", "Visceral fat 7.0", 7.0),
                 "basal_metabolic_rate_kcal": metadata("Basal metabolism", "Basal metabolism 1366", 1366),
                 "bmi": metadata("BMI", "BMI 26.1", 26.1),
-                "skeletal_muscle_kg": metadata("Skeletal muscle", "Skeletal muscle 25.7", 25.7),
+                "skeletal_muscle_percent": metadata("Skeletal muscle", "Body parameters (%) Skeletal muscle 25.7", 25.7),
                 "target_weight_kg": metadata("Target weight", "Target weight (kg) 58.1kg", 58.1),
                 "weight_control_kg": metadata("Weight control", "Weight control (kg) -7.0kg", -7.0),
                 "muscle_control_kg": metadata("Muscle control", "Muscle control (kg) -2.1kg", -2.1),
@@ -646,7 +647,8 @@ class TestImageParseService:
         assert result.values.fat_free_mass_kg == 44.0
         assert result.values.body_water_kg == 35.8
         assert result.values.basal_metabolic_rate_kcal == 1366
-        assert result.values.skeletal_muscle_kg == 25.7
+        assert result.values.skeletal_muscle_percent == 25.7
+        assert result.values.skeletal_muscle_kg is None
         assert result.needs_review is False
 
     def test_prefers_openai_provider_when_available(self):

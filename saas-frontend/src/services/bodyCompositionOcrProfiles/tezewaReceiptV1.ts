@@ -51,7 +51,7 @@ const FIELD_SPECS: FieldSpec[] = [
   { key: "visceral_fat_level", aliases: ["visceral fat"], sections: ["body_parameters", "general"] },
   { key: "basal_metabolic_rate_kcal", aliases: ["basal metabolic rate", "basal metabolism", "basal metabolic", "bmr"], sections: ["body_parameters", "general"] },
   { key: "bmi", aliases: ["body mass index", "bmi"], sections: ["body_parameters", "general"] },
-  { key: "skeletal_muscle_kg", aliases: ["skeletal muscle"], sections: ["body_parameters", "general"] },
+  { key: "skeletal_muscle_percent", aliases: ["skeletal muscle"], sections: ["body_parameters", "general"] },
   { key: "target_weight_kg", aliases: ["target weight"], sections: ["comprehensive_evaluation", "general"] },
   { key: "weight_control_kg", aliases: ["weight control"], sections: ["comprehensive_evaluation", "general"] },
   { key: "muscle_control_kg", aliases: ["muscle control"], sections: ["comprehensive_evaluation", "general"] },
@@ -80,7 +80,7 @@ const PLAUSIBLE_RANGES: Partial<Record<keyof BodyCompositionOcrValues, { min: nu
   visceral_fat_level: { min: 1, max: 30 },
   bmi: { min: 10, max: 80 },
   basal_metabolic_rate_kcal: { min: 500, max: 4000 },
-  skeletal_muscle_kg: { min: 5, max: 100 },
+  skeletal_muscle_percent: { min: 1, max: 100 },
   target_weight_kg: { min: 30, max: 300 },
   weight_control_kg: { min: -100, max: 100 },
   muscle_control_kg: { min: -100, max: 100 },
@@ -105,7 +105,7 @@ const POSITIONAL_FALLBACKS: Record<Exclude<SectionName, "general">, Array<keyof 
     "visceral_fat_level",
     "basal_metabolic_rate_kcal",
     "bmi",
-    "skeletal_muscle_kg",
+    "skeletal_muscle_percent",
   ],
   comprehensive_evaluation: [
     "target_weight_kg",
@@ -193,7 +193,7 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
   } else {
     warnings.push({
       field: null,
-      message: "Layout diferente do recibo Tezewa detectado. A leitura assistida por IA e obrigatoria para esta imagem.",
+      message: "Layout diferente do recibo de bioimpedância detectado. A leitura assistida por IA é obrigatória para esta imagem.",
       severity: "critical",
     });
   }

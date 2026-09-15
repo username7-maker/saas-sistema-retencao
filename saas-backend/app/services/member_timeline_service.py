@@ -40,7 +40,7 @@ def _body_composition_source_label(source: str | None) -> str:
         return "Importado"
     if source == "actuar_sync":
         return "Actuar / sincronizado"
-    return "Tezewa (legado)"
+    return "Bioimpedância (legado)"
 
 
 def _body_composition_sync_label(sync_status: str | None) -> str:

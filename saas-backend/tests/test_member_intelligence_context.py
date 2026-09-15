@@ -101,6 +101,22 @@ def test_intelligence_context_preserves_lead_origin_and_consent():
     assert "missing_lead_origin" not in result.data_quality_flags
 
 
+def test_intelligence_context_does_not_treat_receipt_skeletal_percent_as_muscle_kg():
+    result = _context(
+        latest_body_composition=SimpleNamespace(
+            measured_at=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+            evaluation_date=date(2026, 4, 18),
+            body_fat_used_percent=Decimal("34.23"),
+            muscle_mass_kg=None,
+            skeletal_muscle_kg=Decimal("38.00"),
+            device_profile="tezewa_receipt_v1",
+            weight_kg=Decimal("107.90"),
+        )
+    )
+
+    assert result.assessment.latest_muscle_mass_kg is None
+
+
 def test_intelligence_context_flags_missing_operational_inputs():
     result = _context(
         member=_member(preferred_shift=None, extra_data={}),

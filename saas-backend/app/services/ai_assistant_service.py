@@ -447,8 +447,8 @@ def _body_change_summary(
         "pp",
     )
     muscle_delta = _delta_text(
-        evaluation.skeletal_muscle_kg or evaluation.muscle_mass_kg,
-        previous_evaluation.skeletal_muscle_kg or previous_evaluation.muscle_mass_kg,
+        evaluation.muscle_mass_kg,
+        previous_evaluation.muscle_mass_kg,
         "massa muscular",
         "kg",
     )

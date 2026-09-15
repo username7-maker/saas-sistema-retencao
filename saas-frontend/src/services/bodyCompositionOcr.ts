@@ -100,6 +100,7 @@ export interface BodyCompositionOcrValues {
   bmi?: number;
   basal_metabolic_rate_kcal?: number;
   skeletal_muscle_kg?: number;
+  skeletal_muscle_percent?: number;
   target_weight_kg?: number;
   weight_control_kg?: number;
   muscle_control_kg?: number;
@@ -176,6 +177,7 @@ const OCR_FIELDS: Array<keyof BodyCompositionOcrValues> = [
   "bmi",
   "basal_metabolic_rate_kcal",
   "skeletal_muscle_kg",
+  "skeletal_muscle_percent",
   "target_weight_kg",
   "weight_control_kg",
   "muscle_control_kg",
@@ -214,6 +216,7 @@ const NUMERIC_BOUNDS: Partial<Record<keyof BodyCompositionOcrValues, { min: numb
   bmi: { min: 10, max: 80 },
   basal_metabolic_rate_kcal: { min: 500, max: 4000 },
   skeletal_muscle_kg: { min: 5, max: 100 },
+  skeletal_muscle_percent: { min: 1, max: 100 },
   target_weight_kg: { min: 30, max: 300 },
   weight_control_kg: { min: -100, max: 100 },
   muscle_control_kg: { min: -100, max: 100 },
@@ -416,7 +419,7 @@ function scoreBodyCompositionOcrResult(result: BodyCompositionOcrResult): number
     "fat_free_mass_kg",
     "visceral_fat_level",
     "bmi",
-    "skeletal_muscle_kg",
+    "skeletal_muscle_percent",
     "target_weight_kg",
     "total_energy_kcal",
     "health_score",

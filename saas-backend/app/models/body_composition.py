@@ -125,6 +125,7 @@ class BodyCompositionEvaluation(Base, TimestampMixin, SoftDeleteMixin):
     protein_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     body_water_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     skeletal_muscle_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    skeletal_muscle_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     target_weight_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     weight_control_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     muscle_control_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)

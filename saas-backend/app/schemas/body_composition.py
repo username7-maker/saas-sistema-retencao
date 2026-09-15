@@ -105,6 +105,7 @@ BODY_COMPOSITION_NUMERIC_INPUT_FIELDS = (
     "lean_mass_kg",
     "muscle_mass_kg",
     "skeletal_muscle_kg",
+    "skeletal_muscle_percent",
     "body_water_percent",
     "visceral_fat_level",
     "bmi",
@@ -189,6 +190,7 @@ class BodyCompositionOcrValues(BaseModel):
     bmi: float | None = None
     basal_metabolic_rate_kcal: float | None = None
     skeletal_muscle_kg: float | None = None
+    skeletal_muscle_percent: float | None = None
     target_weight_kg: float | None = None
     weight_control_kg: float | None = None
     muscle_control_kg: float | None = None
@@ -341,6 +343,7 @@ class BodyCompositionEvaluationBase(BaseModel):
     lean_mass_kg: float | None = Field(default=None)
     muscle_mass_kg: float | None = Field(default=None)
     skeletal_muscle_kg: float | None = Field(default=None)
+    skeletal_muscle_percent: float | None = Field(default=None, ge=0, le=100)
     body_water_percent: float | None = Field(default=None, ge=0, le=100)
     visceral_fat_level: float | None = Field(default=None, ge=0, le=30)
     bmi: float | None = Field(default=None, ge=5, le=80)

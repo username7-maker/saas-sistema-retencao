@@ -1863,6 +1863,7 @@ export interface BodyCompositionEvaluation {
   lean_mass_kg: number | null;
   muscle_mass_kg: number | null;
   skeletal_muscle_kg: number | null;
+  skeletal_muscle_percent?: number | null;
   body_water_percent: number | null;
   visceral_fat_level: number | null;
   bmi: number | null;
@@ -2006,6 +2007,7 @@ export interface BodyCompositionEvaluationCreate {
   lean_mass_kg?: number | null;
   muscle_mass_kg?: number | null;
   skeletal_muscle_kg?: number | null;
+  skeletal_muscle_percent?: number | null;
   body_water_percent?: number | null;
   visceral_fat_level?: number | null;
   bmi?: number | null;

@@ -273,6 +273,7 @@ function compositionExplanation(key: string) {
   if (key === "fat_free_mass_kg") return "Componentes livres de gordura";
   if (key === "muscle_mass_kg") return "Base muscular do organismo";
   if (key === "skeletal_muscle_kg") return "Indicador de musculo esqueletico capturado no exame";
+  if (key === "skeletal_muscle_percent") return "Percentual de músculo esquelético estimado pela bioimpedância";
   return "Leitura corporal";
 }
 

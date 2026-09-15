@@ -42,6 +42,7 @@ BODY_COMPOSITION_MEASUREMENT_FIELDS = (
     "lean_mass_kg",
     "muscle_mass_kg",
     "skeletal_muscle_kg",
+    "skeletal_muscle_percent",
     "body_water_percent",
     "visceral_fat_level",
     "bmi",

@@ -159,6 +159,7 @@ function metricExplanation(
     protein_kg: "Proteina informada no exame",
     inorganic_salt_kg: "Minerais informados no exame",
     skeletal_muscle_kg: "Musculo esqueletico informado",
+    skeletal_muscle_percent: "Músculo esquelético informado pela bioimpedância",
     fat_mass_estimated_kg: "Massa de gordura calculada pelo percentual oficial",
     fat_free_mass_kg: "Massa livre de gordura informada",
     lean_mass_estimated_kg: "Massa livre estimada pelo percentual oficial",

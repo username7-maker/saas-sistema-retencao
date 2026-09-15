@@ -18,7 +18,7 @@ from app.services.premium_report_service import render_premium_report_html
 @pytest.mark.parametrize(
     ("origin", "metric_key", "expected"),
     [
-        ("reported", "muscle_mass_kg", "Medido/informado no exame"),
+        ("reported", "muscle_mass_kg", "Estimado pela bioimpedância"),
         ("schofield_hw_1985", "basal_metabolic_rate_kcal", "TMB estimada por Schofield-HW (1985)"),
         ("mifflin_st_jeor_1990", "basal_metabolic_rate_kcal", "TMB estimada por Mifflin-St Jeor (1990)"),
         ("lee_2000", "muscle_mass_kg", "Massa muscular estimada por Lee (2000)"),
@@ -120,7 +120,7 @@ def test_report_cards_history_and_pdf_keep_metric_provenance_and_weight_header_f
     assert "grid-template-columns: repeat(7, minmax(0, 1fr))" in html
     assert "Massa muscular estimada por Poortmans (2005)" in html
     assert "TMB estimada por Schofield-HW (1985)" in html
-    assert "Medido/informado no exame" in html
+    assert "Estimado pela bioimpedância" in html
 
 
 def test_anthropometry_payload_uses_poortmans_and_schofield_instead_of_hardcoded_lee():
@@ -177,3 +177,96 @@ def test_anthropometry_payload_uses_poortmans_and_schofield_instead_of_hardcoded
     assert "Poortmans et al. (2005)" in html
     assert "Schofield-HW (1985)" in html
     assert "Lee et al. (2000)" not in html
+
+
+def test_report_distinguishes_clinical_reference_from_method_uncertainty_and_device_scale():
+    measured_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    member = SimpleNamespace(
+        full_name="Mateus Nicoletto",
+        birthdate=date(1979, 1, 1),
+        gym=SimpleNamespace(name="Academia Piloto"),
+        assigned_user=None,
+    )
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        evaluation_date=measured_at.date(),
+        measured_at=measured_at,
+        created_at=measured_at,
+        age_years=47,
+        sex="male",
+        height_cm=174,
+        weight_kg=107.9,
+        bmi=35.6,
+        body_fat_percent=20.8,
+        body_fat_used_percent=34.23,
+        body_fat_range_min=31.23,
+        body_fat_range_max=37.23,
+        body_fat_used_source="anthropometry",
+        preferred_body_fat_source="anthropometry",
+        body_fat_method="skinfold_protocol",
+        body_fat_anthropometric_percent=34.23,
+        fat_mass_estimated_kg=36.93,
+        lean_mass_estimated_kg=70.97,
+        body_water_kg=59.3,
+        body_water_percent=55,
+        protein_kg=21.5,
+        inorganic_salt_kg=3.7,
+        fat_free_mass_kg=67.6,
+        muscle_mass_kg=42.2,
+        muscle_mass_origin="reported",
+        skeletal_muscle_kg=38,
+        visceral_fat_level=20.8,
+        waist_hip_ratio=1,
+        waist_cm=None,
+        basal_metabolic_rate_kcal=2064,
+        basal_metabolic_rate_origin="reported",
+        physical_age=53,
+        notes=None,
+        reviewed_manually=True,
+        parsing_confidence=1,
+        data_quality_flags_json=[],
+        measured_ranges_json={
+            "bmi": {"min": 18.5, "max": 24},
+            "visceral_fat_level": {"min": 1, "max": 5},
+            "waist_hip_ratio": {"min": 0.8, "max": 0.9},
+        },
+        device_model="tezewa_t6100",
+        device_profile="tezewa_receipt_v1",
+    )
+
+    report = build_body_composition_report_read(member, evaluation, history=[evaluation])
+    metrics = {metric.key: metric for metric in report.risk_metrics}
+
+    bmi = metrics["bmi"]
+    assert bmi.value == 35.6
+    assert bmi.reference_min == 18.5
+    assert bmi.reference_max == 24.9
+    assert bmi.status == "high"
+    assert bmi.position_label == "Obesidade grau II"
+    assert bmi.origin_label == "Calculado por peso e altura"
+
+    body_fat = metrics["body_fat_used_percent"]
+    assert body_fat.reference_min is None
+    assert body_fat.reference_max is None
+    assert body_fat.status == "unknown"
+    assert body_fat.position_label == "Sem classificação clínica validada"
+    assert body_fat.hint == "Intervalo estimado do método: 31,23% a 37,23%; não é faixa clínica."
+
+    visceral = metrics["visceral_fat_level"]
+    assert visceral.reference_min == 1
+    assert visceral.reference_max == 12
+    assert visceral.status == "high"
+    assert visceral.hint == "Faixa operacional masculina: 1 a 12."
+
+    skeletal = next(metric for metric in report.composition_metrics if metric.key == "skeletal_muscle_percent")
+    assert skeletal.value == 38
+    assert skeletal.unit == "%"
+    assert skeletal.formatted_value == "38%"
+    assert all(metric.value is None for metric in report.composition_metrics if metric.key == "skeletal_muscle_kg")
+
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+    assert "Calculado por peso e altura" in html
+    assert "Estimada pela bioimpedância" in html
+    assert "Estimado pela bioimpedância" in html
+    assert "Tezewa" not in html
+    assert "tezewa" not in html

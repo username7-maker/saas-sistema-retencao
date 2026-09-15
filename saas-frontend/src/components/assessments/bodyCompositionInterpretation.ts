@@ -14,6 +14,7 @@ const RANGE_FIELD_ORDER: Array<keyof BodyCompositionEvaluation> = [
   "body_fat_used_percent",
   "waist_hip_ratio",
   "skeletal_muscle_kg",
+  "skeletal_muscle_percent",
   "muscle_mass_kg",
   "visceral_fat_level",
   "bmi",
@@ -25,6 +26,7 @@ const RANGE_LABELS: Partial<Record<keyof BodyCompositionEvaluation, string>> = {
   body_fat_used_percent: "Gordura corporal estimada",
   waist_hip_ratio: "Relacao cintura-quadril",
   skeletal_muscle_kg: "Musculo esqueletico",
+  skeletal_muscle_percent: "Músculo esquelético",
   muscle_mass_kg: "Massa muscular",
   visceral_fat_level: "Gordura visceral",
   bmi: "IMC",
@@ -116,16 +118,21 @@ export function resolveMemberSummary(evaluation: BodyCompositionEvaluation | nul
 export function buildBodyCompositionRangeClassifications(
   evaluation?: BodyCompositionEvaluation | null,
 ): Array<{ label: string; status: "abaixo" | "dentro" | "acima" }> {
-  if (!evaluation?.measured_ranges_json) return [];
+  if (!evaluation) return [];
 
   const results: Array<{ label: string; status: "abaixo" | "dentro" | "acima" }> = [];
   for (const field of RANGE_FIELD_ORDER) {
-    const range = field === "body_fat_used_percent"
-      ? {
-          min: evaluation.body_fat_range_min ?? null,
-          max: evaluation.body_fat_range_max ?? null,
-        }
-      : evaluation.measured_ranges_json[field];
+    if (field === "body_fat_used_percent" && evaluation.body_fat_used_source === "anthropometry") continue;
+    const range = field === "bmi" && evaluation.age_years != null && evaluation.age_years >= 20
+      ? { min: 18.5, max: 24.9 }
+      : field === "visceral_fat_level" && evaluation.sex === "male"
+        ? { min: 1, max: 12 }
+        : field === "body_fat_used_percent"
+          ? {
+              min: evaluation.body_fat_range_min ?? null,
+              max: evaluation.body_fat_range_max ?? null,
+            }
+          : evaluation.measured_ranges_json?.[field];
     const currentValue = field === "body_fat_used_percent"
       ? evaluation.body_fat_used_percent
       : evaluation[field];
