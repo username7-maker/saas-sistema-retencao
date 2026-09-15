@@ -79,5 +79,5 @@ test("login flow redirects to executive dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Entrar" }).click();
 
   await expect(page).toHaveURL(/dashboard\/executive/);
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "IA de risco em tempo real" })).toBeVisible();
 });

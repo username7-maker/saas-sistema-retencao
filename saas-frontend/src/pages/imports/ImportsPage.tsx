@@ -15,6 +15,7 @@ import type {
   MissingMemberEntry,
 } from "../../types";
 import {
+  buildPendingImportCsvRows,
   getIgnoredRowsHint,
   getImportSummaryNotice,
   getVisibleImportErrors,
@@ -62,11 +63,7 @@ function exportMissingMembersEntries(missingMembers: MissingMemberEntry[]): void
 }
 
 function exportImportErrors(errors: ImportErrorEntry[]): void {
-  const rows: string[][] = [["linha", "motivo"]];
-  for (const error of errors) {
-    rows.push([String(error.row_number), error.reason]);
-  }
-  downloadCsv("erros-importacao.csv", rows);
+  downloadCsv("pendencias-importacao.csv", buildPendingImportCsvRows(errors));
 }
 
 function MissingMembersPanel({ missingMembers }: { missingMembers: MissingMemberEntry[] }) {
@@ -420,14 +417,14 @@ function PreviewResult({
       ) : null}
 
       {preview.errors.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-lovable-danger/40 bg-lovable-danger/10 px-3 py-2 text-lovable-danger">
+        <div className="mt-3 rounded-lg border border-lovable-warning/40 bg-lovable-warning/10 px-3 py-2 text-lovable-ink">
           <p className="font-semibold">
-            {blockOnErrors ? "Importacao bloqueada" : "Linhas com erro"}: {preview.errors.length} linha(s) precisam de correcao
+            {blockOnErrors ? "Importacao bloqueada" : "Pendencias detectadas"}: {preview.errors.length} linha(s)
           </p>
           <p className="mt-1 text-[11px] leading-relaxed">
             {blockOnErrors
               ? "Nenhum check-in sera gravado enquanto houver erro. Corrija as linhas indicadas e valide o arquivo novamente."
-              : "Corrija as linhas indicadas e valide o arquivo novamente antes de confirmar."}
+              : `${preview.errors.length} linha(s) ficarao pendentes e nao entrarao na Retencao. As linhas validas serao importadas normalmente.`}
           </p>
           <ul className="mt-2 max-h-36 list-disc space-y-1 overflow-auto pl-5">
             {preview.errors.slice(0, 20).map((error, index) => (
@@ -442,7 +439,7 @@ function PreviewResult({
             className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-danger/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider hover:bg-lovable-danger/10"
           >
             <Download size={14} />
-            Baixar erros CSV
+            Baixar pendencias CSV
           </button>
         </div>
       ) : null}
@@ -482,7 +479,7 @@ function ImportResult({
       <p>Duplicados ignorados: {summary.skipped_duplicates}</p>
       <p>Linhas ignoradas: {summary.ignored_rows}</p>
       {summary.provisional_members_created > 0 ? <p>Cadastros provisorios criados: {summary.provisional_members_created}</p> : null}
-      <p>Erros tecnicos: {visibleErrors.length}</p>
+      <p>Pendencias da importacao: {visibleErrors.length}</p>
       {summary.missing_members.length > 0 ? <p>Pendencias de cadastro: {summary.missing_members.length}</p> : null}
       {ignoredRowsHint ? <p className="mt-2 text-[11px] text-lovable-ink-muted">{ignoredRowsHint}</p> : null}
 
@@ -515,7 +512,7 @@ function ImportResult({
             className="mt-3 inline-flex items-center gap-1 rounded-lg border border-lovable-danger/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider hover:bg-lovable-danger/10"
           >
             <Download size={14} />
-            Baixar erros CSV
+            Baixar pendencias CSV
           </button>
         </div>
       ) : null}
@@ -606,7 +603,6 @@ export function ImportsPage() {
       checkinsPreview &&
       checkinsPreview.valid_rows > 0 &&
       checkinsPreview.can_confirm &&
-      checkinsPreview.errors.length === 0 &&
       !checkinsPreviewDirty,
   );
   const canConfirmAssessmentsImport = Boolean(
@@ -673,7 +669,7 @@ export function ImportsPage() {
       setCheckinsPreviewDirty(false);
       refreshImportedDataViews();
       if (summary.errors.length > 0) {
-        toast.error(`Importacao incompleta: ${summary.errors.length} linha(s) precisam de correcao.`);
+        toast.success(`${summary.imported} check-in(s) importado(s); ${summary.errors.length} linha(s) ficaram pendentes.`);
         return;
       }
       if (isDuplicateOnlyImport(summary)) {
@@ -958,7 +954,11 @@ export function ImportsPage() {
               className="inline-flex items-center gap-1 rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-success hover:bg-lovable-success/18 disabled:opacity-60"
             >
               <FileUp size={14} />
-              {importCheckinsMutation.isPending ? "Confirmando..." : "Confirmar importacao"}
+              {importCheckinsMutation.isPending
+                ? "Importando..."
+                : checkinsPreview && checkinsPreview.errors.length > 0
+                  ? "Importar linhas validas"
+                  : "Confirmar importacao"}
             </button>
             <button
               type="button"
@@ -984,7 +984,7 @@ export function ImportsPage() {
               Voce alterou o mapeamento. Revalide o preview antes de confirmar a importacao final.
             </p>
           ) : null}
-          <PreviewResult preview={checkinsPreview} allowMissingExport blockOnErrors />
+          <PreviewResult preview={checkinsPreview} allowMissingExport />
           <ReconciliationPanel
             preview={checkinsPreview}
             options={CHECKIN_MAPPING_OPTIONS}

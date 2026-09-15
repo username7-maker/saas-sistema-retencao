@@ -216,7 +216,7 @@ def build_database_storage_audit(
             db.execute(
                 # Both the table and predicate come exclusively from the static
                 # CleanupPolicy allowlist above; no user input enters this SQL.
-                text(f'SELECT count(*) FROM public."{policy.table}" WHERE {policy.where_sql}'),  # noqa: S608
+                text(f'SELECT count(*) FROM public."{policy.table}" WHERE {policy.where_sql}'),  # nosec B608
                 params,
             ).scalar_one()
             or 0

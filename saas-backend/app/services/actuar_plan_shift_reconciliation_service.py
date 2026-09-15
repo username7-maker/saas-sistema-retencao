@@ -740,7 +740,7 @@ def rollback_reconciliation(db: Session, *, gym_id: UUID, batch_id: UUID) -> App
             .where(Checkin.member_id.in_(affected_member_ids))
             .group_by(Checkin.member_id)
         ).all()
-        latest_by_member = dict(latest_rows)
+        latest_by_member: dict[UUID, datetime] = dict(latest_rows)
         for member_id in affected_member_ids:
             member = members.get(member_id)
             if member:

@@ -56,3 +56,4 @@ saas-backend/data/
 .DS_Store
 .vscode/
 .tools/
+.worktrees/

@@ -805,7 +805,7 @@ def preview_checkins_csv(
             time_raw=_pick_first(mapped_row, CHECKIN_TIME_KEYS),
         )
         if not parsed:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=mapped_row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
             continue
 
         parsed_checkin_dates.add(parsed.date())
@@ -837,12 +837,11 @@ def preview_checkins_csv(
             if missing_name:
                 missing_member_counts[missing_name] += 1
                 missing_member_plans.setdefault(missing_name, _extract_plan_name(mapped_row))
-            would_skip += 1
             errors.append(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
-                    payload=mapped_row,
+                    payload=row,
                 )
             )
             continue
@@ -926,11 +925,11 @@ def preview_checkins_csv(
         ignored_columns=normalized_ignored,
         valid_rows=valid_rows,
     )
-    if errors:
-        blocking_issues.append(
-            f"Existem {len(errors)} linha(s) de check-in com erro. Corrija as pendencias e valide o arquivo novamente."
+    if errors and valid_rows > 0:
+        warnings.append(
+            f"{len(errors)} linha(s) nao puderam ser validadas e ficarao pendentes. "
+            "As linhas validas podem ser importadas normalmente."
         )
-        can_confirm = False
     return ImportPreview(
         preview_kind="checkins",
         total_rows=total_rows,
@@ -1418,6 +1417,7 @@ def import_checkins_csv(
     auto_create_missing_members: bool = False,
     column_mappings: dict[str, str] | None = None,
     ignored_columns: list[str] | None = None,
+    commit: bool = True,
 ) -> ImportSummary:
     errors: list[ImportErrorEntry] = []
     duplicates = 0
@@ -1451,7 +1451,7 @@ def import_checkins_csv(
         checkin_raw = _pick_first(mapped_row, CHECKIN_AT_KEYS)
         parsed = _parse_checkin_datetime(checkin_raw=checkin_raw, date_raw=date_raw, time_raw=time_raw)
         if not parsed:
-            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=mapped_row))
+            errors.append(ImportErrorEntry(row_number=row_number, reason="Formato de data invalido", payload=row))
             continue
 
         member = _resolve_member_from_row(mapped_row, lookup)
@@ -1471,7 +1471,7 @@ def import_checkins_csv(
                 ImportErrorEntry(
                     row_number=row_number,
                     reason="Membro nao encontrado na base de alunos importada (use member_id, email, matricula, cpf ou nome)",
-                    payload=mapped_row,
+                    payload=row,
                 )
             )
             continue
@@ -1520,14 +1520,15 @@ def import_checkins_csv(
     db.flush()
     if touched_member_ids:
         sync_preferred_shifts_from_checkins(db, member_ids=touched_member_ids, commit=False, flush=False)
-    db.commit()
     if touched_member_ids:
         refresh_member_risk_snapshot(db, member_ids=touched_member_ids, sync_alerts=True)
+    if commit:
         db.commit()
-    if touched_member_ids:
         invalidate_dashboard_cache("checkins", "risk")
-    if provisional_created:
-        invalidate_dashboard_cache("members")
+        if provisional_created:
+            invalidate_dashboard_cache("members")
+    else:
+        db.flush()
     return ImportSummary(
         imported=imported,
         skipped_duplicates=duplicates,
@@ -2407,7 +2408,10 @@ def _parse_time(value: str | None) -> time | None:
     if serial is not None and 0 <= serial < 1:
         return _excel_serial_to_datetime(serial).time()
 
-    for fmt in ("%H:%M:%S", "%H:%M"):
+    if re.fullmatch(r"\d{1,2}[hH.]\d{2}", raw):
+        raw = re.sub(r"[hH.]", ":", raw, count=1)
+
+    for fmt in ("%H:%M:%S.%f", "%H:%M:%S", "%H:%M"):
         try:
             return datetime.strptime(raw, fmt).time()
         except ValueError:
@@ -2421,6 +2425,9 @@ def _parse_checkin_datetime(*, checkin_raw: str | None, date_raw: str | None, ti
         parsed_time = _parse_time(time_raw)
         if parsed_date and parsed_time:
             return datetime.combine(parsed_date, parsed_time, tzinfo=timezone.utc)
+        # An explicit time must be valid. Falling back to the date-only value
+        # would silently invent a midnight check-in.
+        return None
 
     candidate = checkin_raw or date_raw
     parsed = _parse_datetime(candidate)

@@ -6,10 +6,27 @@ export interface ImportSummaryNotice {
   description: string;
 }
 
-const MISSING_MEMBER_REASON_FRAGMENT = "base de alunos importada";
+function pendingCellValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+export function buildPendingImportCsvRows(errors: ImportErrorEntry[]): string[][] {
+  const payloadColumns = Array.from(new Set(errors.flatMap((error) => Object.keys(error.payload)))).sort();
+  return [
+    ["linha", "motivo", ...payloadColumns],
+    ...errors.map((error) => [
+      String(error.row_number),
+      error.reason,
+      ...payloadColumns.map((column) => pendingCellValue(error.payload[column])),
+    ]),
+  ];
+}
 
 export function getVisibleImportErrors(summary: ImportSummary): ImportErrorEntry[] {
-  return summary.errors.filter((error) => !error.reason.includes(MISSING_MEMBER_REASON_FRAGMENT));
+  return summary.errors;
 }
 
 export function isDuplicateOnlyImport(summary: ImportSummary): boolean {
