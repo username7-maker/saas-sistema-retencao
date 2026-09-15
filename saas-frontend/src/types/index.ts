@@ -1441,6 +1441,8 @@ export interface BodyCompositionMetricCard {
   value: number | null;
   unit: string | null;
   formatted_value: string;
+  origin?: string | null;
+  origin_label?: string | null;
   delta_absolute: number | null;
   delta_percent: number | null;
   trend: BodyCompositionTrend;
@@ -1452,6 +1454,8 @@ export interface BodyCompositionReferenceMetric {
   value: number | null;
   unit: string | null;
   formatted_value: string;
+  origin?: string | null;
+  origin_label?: string | null;
   reference_min: number | null;
   reference_max: number | null;
   status: BodyCompositionRangeStatus;

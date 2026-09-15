@@ -18,3 +18,11 @@ Para homens, gordura visceral usara a faixa operacional 1-12 solicitada pela
 academia; para mulheres, permanece a faixa impressa no exame quando disponivel.
 Nomes de fabricante ficam apenas em metadados tecnicos, e a interface publica
 usa o termo bioimpedancia.
+
+Decisao de score e procedencia (15/09/2026): o relatorio web deve consumir o
+`origin_label` especifico devolvido pela API, preservando os fallbacks para
+avaliacoes historicas. Componentes sem valor ou sem referencia clinica valida
+nao entram no score; o total e normalizado para 0-100 apenas entre os
+componentes realmente avaliaveis. Um valor ruim continua valendo zero e nao e
+descartado da media. Essa regra evita penalizar o aluno por dado ausente ou por
+uma classificacao que o sistema explicitamente nao pode sustentar.
