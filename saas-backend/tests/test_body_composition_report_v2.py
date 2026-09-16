@@ -184,6 +184,7 @@ def test_v2_perimetry_keeps_current_and_previous_states_unambiguous() -> None:
 
 def test_pdf_compares_perimetry_and_skinfolds_with_latest_available_measurement() -> None:
     measured = _evaluation(datetime(2026, 7, 1, 12, tzinfo=UTC))
+    measured.measured_at = None
     measured.waist_cm = 94
     measured.skinfold_triceps_mm = 18
     intermediate = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC))

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
 
@@ -193,14 +193,19 @@ def build_semantic_metrics(
 
 def _latest_previous_with_value(current: Any, history: Sequence[Any], key: str) -> Any | None:
     current_time = _measured_at(current)
-    candidates = [
-        item
-        for item in history
-        if str(getattr(item, "id", "")) != str(getattr(current, "id", ""))
-        and not is_future_evaluation(item)
-        and _measured_at(item) < current_time
-        and _metric_value(item, key) is not None
-    ]
+    if current_time is None:
+        return None
+    candidates = []
+    for item in history:
+        item_time = _measured_at(item)
+        if (
+            item_time is not None
+            and str(getattr(item, "id", "")) != str(getattr(current, "id", ""))
+            and not is_future_evaluation(item)
+            and item_time < current_time
+            and _metric_value(item, key) is not None
+        ):
+            candidates.append(item)
     return max(candidates, key=_measured_at, default=None)
 
 
@@ -509,11 +514,14 @@ def _score_band(value: int | None) -> tuple[str | None, str | None]:
 
 def _measured_at(item: Any) -> datetime | None:
     value = getattr(item, "measured_at", None)
-    if not isinstance(value, datetime):
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    evaluation_date = getattr(item, "evaluation_date", None)
+    if isinstance(evaluation_date, date):
+        return datetime.combine(evaluation_date, time(hour=12), tzinfo=UTC)
+    return None
 
 
 def _number(value: Any) -> float | None:
