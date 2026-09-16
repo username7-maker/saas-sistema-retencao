@@ -72,7 +72,7 @@ function buildSignature(values: Float32Array, width: number, height: number, cen
 function largestBrightComponent(values: Float32Array, width: number, height: number, threshold: number) {
   const visited = new Uint8Array(values.length);
   const stack = new Int32Array(values.length);
-  let best = { count: 0, minX: width, maxX: -1, minY: height, maxY: -1 };
+  let best = { count: 0, minX: width, maxX: -1, minY: height, maxY: -1, corners: null as FrameCorners | null };
   for (let start = 0; start < values.length; start += 1) {
     if (visited[start] || values[start] < threshold) continue;
     let size = 0;
@@ -81,6 +81,7 @@ function largestBrightComponent(values: Float32Array, width: number, height: num
     cursor += 1;
     visited[start] = 1;
     let minX = width; let maxX = -1; let minY = height; let maxY = -1;
+    const corners: FrameCorners = [{ x: width, y: height }, { x: 0, y: height }, { x: 0, y: 0 }, { x: width, y: 0 }];
     while (cursor > 0) {
       cursor -= 1;
       const pixel = stack[cursor];
@@ -89,6 +90,10 @@ function largestBrightComponent(values: Float32Array, width: number, height: num
       size += 1;
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      if (x + y < corners[0].x + corners[0].y) corners[0] = { x, y };
+      if (x - y > corners[1].x - corners[1].y) corners[1] = { x, y };
+      if (x + y > corners[2].x + corners[2].y) corners[2] = { x, y };
+      if (x - y < corners[3].x - corners[3].y) corners[3] = { x, y };
       let neighbor = pixel - 1;
       if (x > 0 && !visited[neighbor] && values[neighbor] >= threshold) {
         visited[neighbor] = 1; stack[cursor] = neighbor; cursor += 1;
@@ -106,9 +111,30 @@ function largestBrightComponent(values: Float32Array, width: number, height: num
         visited[neighbor] = 1; stack[cursor] = neighbor; cursor += 1;
       }
     }
-    if (size > best.count) best = { count: size, minX, maxX, minY, maxY };
+    if (size > best.count) best = { count: size, minX, maxX, minY, maxY, corners };
   }
   return best;
+}
+
+// A bright paper alone is not glare. Look for a saturated, textureless patch
+// surrounded by darker paper/text; this remains a conservative capture hint.
+function hasLocalGlare(values: Float32Array, width: number, minX: number, maxX: number, minY: number, maxY: number): boolean {
+  const tile = Math.max(8, Math.floor((maxX - minX) / 8));
+  for (let y = minY + tile; y + 2 * tile < maxY; y += tile) {
+    for (let x = minX + tile; x + 2 * tile < maxX; x += tile) {
+      let bright = 0; let inside = 0; let ring = 0; let ringCount = 0;
+      for (let yy = y - tile; yy < y + 2 * tile; yy++) {
+        for (let xx = x - tile; xx < x + 2 * tile; xx++) {
+          const value = values[yy * width + xx];
+          if (yy >= y && yy < y + tile && xx >= x && xx < x + tile) {
+            inside++; if (value > 250) bright++;
+          } else { ring += value; ringCount++; }
+        }
+      }
+      if (bright / inside > .95 && ring / ringCount < 225) return true;
+    }
+  }
+  return false;
 }
 
 export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature | null): FrameAnalysis {
@@ -128,7 +154,7 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
   const component = largestBrightComponent(values, width, height, threshold);
   const { minX, maxX, minY, maxY } = component;
 
-  const found = component.count > width * height * 0.08 && maxX > minX && maxY > minY;
+  const found = contrast >= 8 && component.count > width * height * 0.08 && maxX > minX && maxY > minY;
   const boxWidth = found ? maxX - minX + 1 : 0;
   const boxHeight = found ? maxY - minY + 1 : 0;
   const coverage = boxWidth * boxHeight / Math.max(1, width * height);
@@ -157,26 +183,24 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
   if (found && (Math.abs(centerX - 0.5) > 0.13 || Math.abs(centerY - 0.5) > 0.13)) codes.push("document_off_center");
   if (found && (aspect < 1.35 || aspect > 8.5)) codes.push("document_bad_aspect");
   if (mean < 45) codes.push("document_dark");
-  if (mean > 235 && contrast < 20) codes.push("document_glare");
-  if (sharpnessTop < 5) codes.push("top_blurred");
-  if (sharpnessMiddle < 5) codes.push("middle_blurred");
-  if (sharpnessBottom < 5) codes.push("bottom_blurred");
+  if (found && ((mean > 235 && contrast < 20) || hasLocalGlare(values, width, minX, maxX, minY, maxY))) codes.push("document_glare");
+  const sharpnessFloor = Math.max(5, Math.max(sharpnessTop, sharpnessMiddle, sharpnessBottom) * .2);
+  if (found && sharpnessTop < sharpnessFloor) codes.push("top_blurred");
+  if (found && sharpnessMiddle < sharpnessFloor) codes.push("middle_blurred");
+  if (found && sharpnessBottom < sharpnessFloor) codes.push("bottom_blurred");
   if (previous && motion > 18) codes.push("camera_moving");
 
   let instruction: FrameAnalysis["instruction"] = "Foto pronta";
-  if (codes.includes("camera_moving") || codes.some((code) => code.endsWith("_blurred"))) instruction = "Mantenha firme";
-  else if (codes.includes("document_dark")) instruction = "Melhore a iluminação";
+  if (codes.includes("document_dark")) instruction = "Melhore a iluminação";
   else if (codes.includes("document_glare")) instruction = "Evite reflexo";
   else if (codes.includes("document_clipped") || codes.includes("document_too_close")) instruction = "Afaste";
   else if (codes.includes("document_off_center") || codes.includes("document_not_found") || codes.includes("document_bad_aspect")) instruction = "Centralize";
   else if (codes.includes("document_too_far")) instruction = "Aproxime";
+  else if (codes.includes("camera_moving") || codes.some((code) => code.endsWith("_blurred"))) instruction = "Mantenha firme";
 
-  const corners: FrameCorners | null = found ? [
-    { x: minX / width, y: minY / height },
-    { x: (maxX + 1) / width, y: minY / height },
-    { x: (maxX + 1) / width, y: (maxY + 1) / height },
-    { x: minX / width, y: (maxY + 1) / height },
-  ] : null;
+  const corners = found && component.corners
+    ? component.corners.map((p) => ({ x: p.x / width, y: p.y / height })) as FrameCorners
+    : null;
   const confidence = found
     ? Math.max(0, Math.min(1, 0.42 + Math.min(0.3, coverage * 0.7) + Math.min(0.2, contrast / 250) - Math.abs(centerX - 0.5) * 0.2))
     : 0;

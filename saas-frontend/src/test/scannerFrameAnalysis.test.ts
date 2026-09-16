@@ -21,6 +21,57 @@ function receiptFrame({ blankBottom = false, offsetX = 0 }: { blankBottom?: bool
 }
 
 describe("live scanner frame analysis", () => {
+  it("asks for framing when no document exists instead of claiming blur", () => {
+    const frame = receiptFrame();
+    frame.data.fill(150);
+    expect(analyzeDocumentFrame(frame).instruction).toBe("Centralize");
+  });
+
+  it("detects a local saturated patch even on a dark background", () => {
+    const frame = receiptFrame();
+    for (let y = 120; y < 160; y++) for (let x = 96; x < 128; x++) {
+      frame.data.set([255, 255, 255, 255], (y * frame.width + x) * 4);
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.qualityCodes).toContain("document_glare");
+    expect(result.instruction).toBe("Evite reflexo");
+    expect(result.ready).toBe(false);
+  });
+
+  it.each([0, 1, 2])("rejects actual blur in region %s with text still present", (region) => {
+    const frame = receiptFrame();
+    const source = new Uint8ClampedArray(frame.data);
+    for (let y = 15 + region * 96; y < 15 + (region + 1) * 96; y++) {
+      for (let x = 55; x < 185; x++) {
+        let total = 0; let count = 0;
+        for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+          total += source[((y + dy) * frame.width + x + dx) * 4]; count++;
+        }
+        const value = total / count;
+        frame.data.set([value, value, value, 255], (y * frame.width + x) * 4);
+      }
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.qualityCodes, JSON.stringify(result.metrics)).toContain(["top_blurred", "middle_blurred", "bottom_blurred"][region]);
+    expect(result.ready).toBe(false);
+  });
+
+  it("tracks slanted paper corners instead of returning its bounding rectangle", () => {
+    const frame = receiptFrame();
+    const source = new Uint8ClampedArray(frame.data);
+    for (let y = 0; y < frame.height; y++) {
+      const shift = Math.round((y - 160) * .10);
+      for (let x = 0; x < frame.width; x++) {
+        const sourceX = x - shift;
+        const value = sourceX >= 0 && sourceX < frame.width ? source[(y * frame.width + sourceX) * 4] : 22;
+        frame.data.set([value, value, value, 255], (y * frame.width + x) * 4);
+      }
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.corners).not.toBeNull();
+    expect(result.corners![3].x - result.corners![0].x).toBeGreaterThan(.08);
+    expect(result.corners![0].y).toBeCloseTo(15 / 320, 2);
+  });
   it("finds a centered vertical receipt and measures all three sharpness regions", () => {
     const result = analyzeDocumentFrame(receiptFrame());
     expect(result.corners).not.toBeNull();

@@ -381,6 +381,7 @@ export const bodyCompositionService = {
     memberId: string,
     file: File,
     corners?: Array<{ x: number; y: number }>,
+    signal?: AbortSignal,
   ): Promise<{ blob: Blob; metadata: BodyCompositionPreparationMetadata }> {
     const formData = new FormData();
     formData.append("file", file);
@@ -388,7 +389,7 @@ export const bodyCompositionService = {
     const response = await api.post<Blob>(
       `/api/v1/members/${memberId}/body-composition/prepare-image`,
       formData,
-      { responseType: "blob", timeout: 45_000 },
+      { responseType: "blob", timeout: 45_000, signal },
     );
     const rawMetadata = response.headers["x-cordex-scan-metadata"];
     if (typeof rawMetadata !== "string") throw new Error("scanner_preparation_metadata_missing");
