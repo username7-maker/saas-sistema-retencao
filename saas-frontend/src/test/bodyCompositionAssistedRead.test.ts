@@ -301,3 +301,38 @@ describe("bodyCompositionService.readWithAssistedFallback", () => {
     expect(readBodyCompositionFromImage).not.toHaveBeenCalled();
   });
 });
+
+describe("bodyCompositionService.prepareImage", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the corrected image and transient preparation metadata", async () => {
+    const corrected = new Blob(["corrected"], { type: "image/jpeg" });
+    vi.mocked(api.post).mockResolvedValue({
+      data: corrected,
+      headers: {
+        "x-cordex-scan-metadata": JSON.stringify({
+          method: "receipt_perspective+clahe",
+          confidence: 0.92,
+          corners: [{ x: 0.1, y: 0.02 }, { x: 0.9, y: 0.03 }, { x: 0.88, y: 0.98 }, { x: 0.12, y: 0.97 }],
+          quality_codes: [],
+          quality_metrics: { sharpness_top: 55, sharpness_middle: 61, sharpness_bottom: 52 },
+          source_width: 1200,
+          source_height: 2200,
+          output_width: 1000,
+          output_height: 2100,
+        }),
+      },
+    });
+
+    const result = await bodyCompositionService.prepareImage("member-1", makeFile());
+
+    expect(result.blob).toBe(corrected);
+    expect(result.metadata.confidence).toBe(0.92);
+    expect(result.metadata.corners).toHaveLength(4);
+    expect(api.post).toHaveBeenCalledWith(
+      "/api/v1/members/member-1/body-composition/prepare-image",
+      expect.any(FormData),
+      expect.objectContaining({ responseType: "blob" }),
+    );
+  });
+});

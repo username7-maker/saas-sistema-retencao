@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
@@ -39,6 +40,7 @@ from app.schemas.body_composition import (
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
     BodyCompositionCaptureMetadata,
+    BodyCompositionCaptureEventInput,
     BodyCompositionKommoDispatchRead,
     BodyCompositionManualSyncSummaryRead,
     BodyCompositionReportRead,
@@ -77,7 +79,8 @@ from app.services.body_composition_delivery_service import (
     send_body_composition_kommo_salesbot,
     send_body_composition_whatsapp_summary,
 )
-from app.services.body_composition_image_parse_service import parse_body_composition_image
+from app.services.body_composition_image_parse_service import MAX_IMAGE_SIZE_BYTES, parse_body_composition_image
+from app.services.document_image_preprocessing import preprocess_receipt_image
 from app.services.body_composition_service import (
     create_body_composition_evaluation,
     delete_body_composition_evaluation,
@@ -641,6 +644,123 @@ async def parse_body_composition_image_endpoint(
         capture_metadata=parsed_capture_metadata,
         supplemental_images=supplemental_images,
     )
+
+
+@router.post("/{member_id}/body-composition/prepare-image")
+async def prepare_body_composition_image_endpoint(
+    member_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER)),
+    ],
+    file: UploadFile = File(...),
+    corners: str | None = Form(default=None),
+) -> Response:
+    """Rectify a receipt in memory and return only the transient JPEG."""
+    get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    if file.content_type not in {"image/jpeg", "image/png"}:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Envie uma imagem JPEG ou PNG.",
+        )
+    image_bytes = await file.read(MAX_IMAGE_SIZE_BYTES + 1)
+    if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="A imagem excede o limite de 8 MB.",
+        )
+
+    manual_corners: list[dict[str, float]] | None = None
+    if corners:
+        try:
+            parsed_corners = json.loads(corners)
+            if not isinstance(parsed_corners, list) or len(parsed_corners) != 4:
+                raise ValueError
+            manual_corners = [
+                {"x": float(point["x"]), "y": float(point["y"])}
+                for point in parsed_corners
+                if isinstance(point, dict)
+            ]
+            if len(manual_corners) != 4 or any(
+                point[axis] < 0 or point[axis] > 1
+                for point in manual_corners
+                for axis in ("x", "y")
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Os quatro cantos informados sao invalidos.",
+            ) from exc
+
+    prepared = preprocess_receipt_image(
+        image_bytes,
+        enabled=True,
+        manual_corners=manual_corners,
+    )
+    if prepared is None or prepared.document_corners is None:
+        logger.info(
+            "Bioimpedance image preparation could not detect the receipt.",
+            extra={"event": "bioimpedance_prepare_blocked", "reason": "document_not_detected"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nao foi possivel detectar os quatro cantos do comprovante.",
+        )
+
+    metadata = {
+        "method": prepared.method,
+        "confidence": prepared.confidence,
+        "corners": prepared.document_corners,
+        "quality_codes": prepared.quality_codes,
+        "quality_metrics": prepared.quality_metrics,
+        "source_width": prepared.source_width,
+        "source_height": prepared.source_height,
+        "output_width": prepared.output_width,
+        "output_height": prepared.output_height,
+    }
+    logger.info(
+        "Bioimpedance image prepared in memory.",
+        extra={
+            "event": "bioimpedance_image_prepared",
+            "method": prepared.method,
+            "confidence": prepared.confidence,
+            "quality_codes": prepared.quality_codes,
+        },
+    )
+    return Response(
+        content=prepared.image_bytes,
+        media_type=prepared.media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "X-Cordex-Scan-Metadata": json.dumps(metadata, separators=(",", ":")),
+        },
+    )
+
+
+@router.post("/{member_id}/body-composition/capture-event", status_code=status.HTTP_204_NO_CONTENT)
+def record_body_composition_capture_event_endpoint(
+    member_id: UUID,
+    payload: BodyCompositionCaptureEventInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER, RoleEnum.RECEPTIONIST, RoleEnum.TRAINER)),
+    ],
+) -> Response:
+    get_member_or_404(db, member_id, gym_id=current_user.gym_id)
+    logger.info(
+        "Bioimpedance scanner event.",
+        extra={
+            "event": f"bioimpedance_{payload.event}",
+            "reason": payload.reason,
+            "confidence": payload.confidence,
+            "quality_codes": payload.quality_codes,
+        },
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{member_id}/body-composition/parse-ocr", response_model=BodyCompositionImageParseResultRead)

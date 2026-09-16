@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import date
 from types import SimpleNamespace
@@ -823,6 +824,148 @@ class TestImageParseService:
 
 
 class TestImageParseRoute:
+    def test_prepares_receipt_without_persisting_or_running_ocr(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+        prepared = DocumentPreprocessingResult(
+            image_bytes=b"corrected-jpeg",
+            media_type="image/jpeg",
+            applied=True,
+            method="receipt_perspective+clahe",
+            confidence=0.91,
+            source_width=1200,
+            source_height=2200,
+            output_width=1000,
+            output_height=2100,
+            quality_codes=["document_blurred"],
+            quality_metrics={"sharpness_top": 44.2, "sharpness_middle": 52.1, "sharpness_bottom": 40.3},
+            document_corners=[
+                {"x": 0.1, "y": 0.03},
+                {"x": 0.9, "y": 0.04},
+                {"x": 0.88, "y": 0.97},
+                {"x": 0.12, "y": 0.96},
+            ],
+        )
+
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ), patch(
+                "app.routers.members.preprocess_receipt_image",
+                return_value=prepared,
+            ) as mock_prepare:
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/prepare-image",
+                    files={"file": ("receipt.png", b"source-image", "image/png")},
+                )
+
+            assert response.status_code == 200
+            assert response.content == b"corrected-jpeg"
+            assert response.headers["cache-control"] == "no-store"
+            metadata = json.loads(response.headers["x-cordex-scan-metadata"])
+            assert metadata["method"] == "receipt_perspective+clahe"
+            assert metadata["confidence"] == 0.91
+            assert metadata["corners"][0] == {"x": 0.1, "y": 0.03}
+            assert metadata["quality_metrics"]["sharpness_bottom"] == 40.3
+            assert mock_prepare.call_args.kwargs["manual_corners"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_prepares_receipt_with_manual_corners(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+        corners = [
+            {"x": 0.1, "y": 0.1}, {"x": 0.9, "y": 0.1},
+            {"x": 0.9, "y": 0.9}, {"x": 0.1, "y": 0.9},
+        ]
+        prepared = DocumentPreprocessingResult(
+            image_bytes=b"manual-jpeg", media_type="image/jpeg", applied=True,
+            method="manual_perspective+clahe", confidence=1.0,
+            source_width=1000, source_height=2000, output_width=900, output_height=1800,
+            document_corners=corners,
+        )
+
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ), patch(
+                "app.routers.members.preprocess_receipt_image",
+                return_value=prepared,
+            ) as mock_prepare:
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/prepare-image",
+                    data={"corners": json.dumps(corners)},
+                    files={"file": ("receipt.jpg", b"source-image", "image/jpeg")},
+                )
+
+            assert response.status_code == 200
+            assert mock_prepare.call_args.kwargs["manual_corners"] == corners
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_prepare_receipt_rejects_invalid_type_and_missing_document(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ):
+                invalid_type = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/prepare-image",
+                    files={"file": ("receipt.txt", b"plain", "text/plain")},
+                )
+                with patch("app.routers.members.preprocess_receipt_image", return_value=None):
+                    missing = client.post(
+                        f"/api/v1/members/{MEMBER_ID}/body-composition/prepare-image",
+                        files={"file": ("receipt.jpg", b"not-a-document", "image/jpeg")},
+                    )
+
+            assert invalid_type.status_code == 415
+            assert missing.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_records_capture_event_without_image_or_student_data(self, app, client, mock_owner, caplog):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+        try:
+            with patch(
+                "app.routers.members.get_member_or_404",
+                return_value=SimpleNamespace(id=MEMBER_ID, gym_id=mock_owner.gym_id),
+            ) as member_lookup:
+                response = client.post(
+                    f"/api/v1/members/{MEMBER_ID}/body-composition/capture-event",
+                    json={
+                        "event": "capture_blocked",
+                        "reason": "camera_moving",
+                        "confidence": 0.61,
+                        "quality_codes": ["bottom_blurred"],
+                    },
+                )
+
+            assert response.status_code == 204
+            assert response.content == b""
+            assert member_lookup.call_args.kwargs["gym_id"] == mock_owner.gym_id
+            assert "Bioimpedance scanner event" in caplog.text
+            assert "image" not in response.headers
+        finally:
+            app.dependency_overrides.clear()
+
     def test_accepts_three_segmented_images(self, app, client, mock_owner):
         from tests.conftest import make_mock_db
 

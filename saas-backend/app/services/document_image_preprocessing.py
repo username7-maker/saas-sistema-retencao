@@ -23,6 +23,7 @@ class DocumentPreprocessingResult:
     output_height: int
     quality_codes: list[str] = field(default_factory=list)
     quality_metrics: dict[str, float] = field(default_factory=dict)
+    document_corners: list[dict[str, float]] | None = None
     recovery_image_bytes: bytes | None = None
     recovery_media_type: str | None = None
     recovery_method: str | None = None
@@ -216,7 +217,47 @@ def build_thermal_recovery_image(image_bytes: bytes) -> bytes | None:
     return _encode_jpeg(_thermal_recovery_variant(image))
 
 
-def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPreprocessingResult | None:
+def _normalized_corners(points: np.ndarray, *, width: int, height: int) -> list[dict[str, float]]:
+    return [
+        {
+            "x": min(1.0, max(0.0, float(point[0]) / max(1, width))),
+            "y": min(1.0, max(0.0, float(point[1]) / max(1, height))),
+        }
+        for point in points
+    ]
+
+
+def _manual_corner_points(
+    corners: list[dict[str, float]], *, width: int, height: int
+) -> np.ndarray | None:
+    if len(corners) != 4:
+        return None
+    try:
+        points = np.array(
+            [
+                [float(point["x"]) * width, float(point["y"]) * height]
+                for point in corners
+            ],
+            dtype="float32",
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not np.isfinite(points).all() or np.any(points < 0):
+        return None
+    if np.any(points[:, 0] > width) or np.any(points[:, 1] > height):
+        return None
+    ordered = _order_points(points)
+    if abs(cv2.contourArea(ordered)) < width * height * 0.02:
+        return None
+    return ordered
+
+
+def preprocess_receipt_image(
+    image_bytes: bytes,
+    *,
+    enabled: bool,
+    manual_corners: list[dict[str, float]] | None = None,
+) -> DocumentPreprocessingResult | None:
     """Prepare a thermal receipt in memory. Returns None when decoding is unavailable."""
     encoded = np.frombuffer(image_bytes, dtype=np.uint8)
     image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
@@ -231,12 +272,26 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
     confidence = 0.0
     receipt_short_side_raw = float(min(source_width, source_height))
     document_area_ratio = 0.0
+    document_corners: list[dict[str, float]] | None = None
     if enabled:
-        points, confidence = _find_receipt(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+        points = (
+            _manual_corner_points(manual_corners, width=source_width, height=source_height)
+            if manual_corners is not None
+            else None
+        )
+        if manual_corners is not None and points is None:
+            return None
+        if points is not None:
+            confidence = 1.0
+            method = "manual_perspective"
+        else:
+            points, confidence = _find_receipt(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
         if points is not None and confidence >= 0.45:
+            document_corners = _normalized_corners(points, width=source_width, height=source_height)
             document_area_ratio = float(abs(cv2.contourArea(points))) / max(1.0, source_width * source_height)
             working = _warp(image, points)
-            method = "receipt_perspective"
+            if manual_corners is None:
+                method = "receipt_perspective"
             receipt_short_side_raw = float(min(working.shape[1], working.shape[0]))
 
         working = _adaptive_resize(working)
@@ -291,6 +346,7 @@ def preprocess_receipt_image(image_bytes: bytes, *, enabled: bool) -> DocumentPr
         output_height=output_height,
         quality_codes=quality_codes,
         quality_metrics=quality_metrics,
+        document_corners=document_corners,
         recovery_image_bytes=None,
         recovery_media_type=None,
         recovery_method=None,

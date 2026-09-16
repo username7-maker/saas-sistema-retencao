@@ -76,6 +76,18 @@ const NUMERIC_FIELDS = [
   "parsing_confidence",
 ] as const;
 
+export interface BodyCompositionPreparationMetadata {
+  method: string;
+  confidence: number;
+  corners: Array<{ x: number; y: number }>;
+  quality_codes: string[];
+  quality_metrics: Record<string, number>;
+  source_width: number;
+  source_height: number;
+  output_width: number;
+  output_height: number;
+}
+
 function toNullableNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   const numeric = Number(value);
@@ -363,6 +375,39 @@ export const bodyCompositionService = {
   ): Promise<ActuarMemberLink> {
     const { data } = await api.put<ActuarMemberLink>(`/api/v1/members/${memberId}/actuar-link`, payload);
     return data;
+  },
+
+  async prepareImage(
+    memberId: string,
+    file: File,
+    corners?: Array<{ x: number; y: number }>,
+  ): Promise<{ blob: Blob; metadata: BodyCompositionPreparationMetadata }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (corners) formData.append("corners", JSON.stringify(corners));
+    const response = await api.post<Blob>(
+      `/api/v1/members/${memberId}/body-composition/prepare-image`,
+      formData,
+      { responseType: "blob", timeout: 45_000 },
+    );
+    const rawMetadata = response.headers["x-cordex-scan-metadata"];
+    if (typeof rawMetadata !== "string") throw new Error("scanner_preparation_metadata_missing");
+    return {
+      blob: response.data,
+      metadata: JSON.parse(rawMetadata) as BodyCompositionPreparationMetadata,
+    };
+  },
+
+  async recordCaptureEvent(
+    memberId: string,
+    payload: {
+      event: "camera_opened" | "camera_closed" | "capture_automatic" | "capture_manual" | "capture_gallery" | "capture_blocked" | "capture_retried" | "segmented_mode";
+      reason?: string | null;
+      confidence?: number | null;
+      quality_codes?: string[];
+    },
+  ): Promise<void> {
+    await api.post(`/api/v1/members/${memberId}/body-composition/capture-event`, payload);
   },
 
   async parseImage(

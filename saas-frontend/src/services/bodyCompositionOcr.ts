@@ -58,6 +58,12 @@ export interface BodyCompositionCaptureMetadata {
   quality_codes: string[];
   document_confidence: number | null;
   capture_mode?: "single" | "segmented";
+  capture_method?: "automatic" | "manual" | "gallery";
+  document_corners?: Array<{ x: number; y: number }>;
+  detection_confidence?: number | null;
+  regional_quality?: Record<string, number>;
+  preparation_method?: string | null;
+  correction_confirmed?: boolean;
   segments?: BodyCompositionCaptureSegment[];
 }
 

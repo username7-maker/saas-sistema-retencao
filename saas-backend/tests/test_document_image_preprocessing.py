@@ -31,6 +31,30 @@ def test_preprocess_receipt_rectifies_bright_thermal_paper_without_persisting_it
     assert max(result.output_width, result.output_height) <= 4000
     assert len(result.image_bytes) <= MAX_OUTPUT_BYTES
     assert result.recovery_image_bytes is None
+    assert result.document_corners is not None
+    assert len(result.document_corners) == 4
+    assert all(0 <= point["x"] <= 1 and 0 <= point["y"] <= 1 for point in result.document_corners)
+
+
+def test_preprocess_receipt_applies_manual_normalized_corners_as_real_perspective_transform():
+    image = np.full((1200, 900, 3), 25, dtype=np.uint8)
+    receipt = np.array([[210, 80], [720, 130], [660, 1140], [150, 1080]], dtype=np.int32)
+    cv2.fillConvexPoly(image, receipt, (240, 240, 240))
+    cv2.putText(image, "Weight 65.1", (260, 350), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (25, 25, 25), 3)
+    manual_corners = [
+        {"x": 210 / 900, "y": 80 / 1200},
+        {"x": 720 / 900, "y": 130 / 1200},
+        {"x": 660 / 900, "y": 1140 / 1200},
+        {"x": 150 / 900, "y": 1080 / 1200},
+    ]
+
+    result = preprocess_receipt_image(_encode(image), enabled=True, manual_corners=manual_corners)
+
+    assert result is not None
+    assert result.method.startswith("manual_perspective")
+    assert result.confidence == 1.0
+    assert result.document_corners == manual_corners
+    assert result.output_height > result.output_width
 
 
 def test_preprocess_receipt_builds_high_contrast_recovery_for_weak_print():

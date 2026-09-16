@@ -2003,6 +2003,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
   return (
     <div className="space-y-6">
       <GuidedDocumentScanner
+        memberId={memberId}
         open={cameraOpen}
         onClose={() => setCameraOpen(false)}
         onConfirm={selectOcrFile}

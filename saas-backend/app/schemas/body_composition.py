@@ -252,6 +252,11 @@ class BodyCompositionCaptureSegment(BaseModel):
     index: int = Field(ge=0, le=2)
 
 
+class BodyCompositionCapturePoint(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+
 class BodyCompositionCaptureMetadata(BaseModel):
     width: int | None = Field(default=None, ge=1, le=12000)
     height: int | None = Field(default=None, ge=1, le=12000)
@@ -260,7 +265,29 @@ class BodyCompositionCaptureMetadata(BaseModel):
     quality_codes: list[str] = Field(default_factory=list, max_length=12)
     document_confidence: float | None = Field(default=None, ge=0, le=1)
     capture_mode: Literal["single", "segmented"] = "single"
+    capture_method: Literal["automatic", "manual", "gallery"] = "manual"
+    document_corners: list[BodyCompositionCapturePoint] = Field(default_factory=list, min_length=0, max_length=4)
+    detection_confidence: float | None = Field(default=None, ge=0, le=1)
+    regional_quality: dict[str, float] = Field(default_factory=dict)
+    preparation_method: str | None = Field(default=None, max_length=120)
+    correction_confirmed: bool = False
     segments: list[BodyCompositionCaptureSegment] = Field(default_factory=list, max_length=3)
+
+
+class BodyCompositionCaptureEventInput(BaseModel):
+    event: Literal[
+        "camera_opened",
+        "camera_closed",
+        "capture_automatic",
+        "capture_manual",
+        "capture_gallery",
+        "capture_blocked",
+        "capture_retried",
+        "segmented_mode",
+    ]
+    reason: str | None = Field(default=None, max_length=80)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    quality_codes: list[str] = Field(default_factory=list, max_length=12)
 
 
 class BodyCompositionCaptureRecommendation(BaseModel):
