@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from base64 import b64encode
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from html import escape
 import re
@@ -1113,114 +1113,193 @@ def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
     if not isinstance(report, dict) or report.get("contract_version") != "body-composition-report-v2":
         return _render_body_composition_report_html_legacy(payload)
 
-    header = report.get("header") or {}
+    return _render_body_composition_report_html_legacy(_classic_body_report_payload(payload, report))
+
+
+def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str, Any]) -> PremiumReportPayload:
+    """Map the semantic V2 contract onto the established PDF presentation model.
+
+    This function only reshapes API decisions for presentation. It deliberately
+    does not infer comparability, references, score, goals, or narrative.
+    """
     metrics = [metric for metric in report.get("metrics", []) if isinstance(metric, dict)]
     score = report.get("score") or {}
     goals = report.get("goals") or {}
     priorities = [item for item in report.get("priorities", []) if isinstance(item, dict)]
     history = [series for series in report.get("history", []) if isinstance(series, dict)]
-    next_assessment = report.get("next_assessment")
-    teacher_notes = str(report.get("teacher_notes") or "").strip()
-    analysis = str(report.get("analysis_cordex") or "").strip()
-    date_consistency = str(report.get("date_consistency") or "valid")
-    technical_scope = payload.report_scope == "technical"
-    measured_label = _format_semantic_measured_at(header)
-    generated_label = payload.generated_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
-    evaluation_number = int(report.get("evaluation_number") or 1)
-    is_baseline = bool(report.get("is_baseline"))
-    evaluation_label = f"Avaliação nº {evaluation_number}" + (" · linha de base" if is_baseline else "")
-    client_footer_note = "Relatório informativo para acompanhar evolução corporal. Os valores são estimativas e não substituem avaliação clínica."
-
-    headline = _semantic_metrics_for_role(metrics, "headline")[:5]
-    key_indicators = _semantic_metrics_for_role(metrics, "key_indicator")
-    details = _semantic_metrics_for_role(metrics, "composition_detail")
-    measurements = _semantic_metrics_for_role(metrics, "body_measurement")
-    comparison_notice = _render_semantic_comparison_notices(metrics)
     eligible_history = [series for series in history if series.get("chart_eligible")]
-    history_page = _render_semantic_history_page(
-        eligible_history,
-        payload=payload,
-        header=header,
-        measured_label=measured_label,
-        footer=client_footer_note,
-        technical_scope=technical_scope,
-    )
-    date_alert = (
-        '<section class="clinical-soft-alert"><strong>Data inconsistente:</strong> '
-        "corrija a data da avaliação para liberar comparações e evolução.</section>"
-        if date_consistency == "future_legacy"
-        else ""
-    )
-    observation = teacher_notes or "Sem observações registradas nesta avaliação."
-    analysis_copy = analysis or (
-        "A evolução está suspensa até a correção da data."
-        if date_consistency == "future_legacy"
-        else "Esta avaliação estabelece uma referência para os próximos acompanhamentos."
-    )
+    eligible_history_keys = {str(series.get("key") or "") for series in eligible_history}
+    visual_metrics = [_semantic_metric_to_classic(metric) for metric in metrics]
 
-    return f"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <title>{escape(payload.title)}</title>
-  <style>{_body_composition_report_css()}</style>
-</head>
-<body>
-  <main class="clinical-shell">
-    <section class="clinical-page clinical-cover-page clinical-semantic-cover clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
-      {_render_semantic_report_header(payload, header, measured_label, evaluation_label, generated_label if technical_scope else None)}
-      {date_alert}
-      <section class="clinical-section">
-        <h2>Resultado da avaliação</h2>
-        <p class="clinical-section-subtitle">Indicadores principais para acompanhar a evolução.</p>
-        {_render_semantic_headline_metrics(headline)}
-      </section>
-      <section class="clinical-cover-evaluation-grid">
-        {_render_semantic_score(score)}
-        <article class="clinical-cover-note">
-          <h3>Análise Cordex</h3>
-          <p>{escape(analysis_copy)}</p>
-        </article>
-      </section>
-      {_render_semantic_priorities(priorities)}
-      <section class="clinical-section clinical-key-indicators-section">
-        <h2>Indicadores-chave</h2>
-        <p class="clinical-section-subtitle">Cada faixa informa se a referência é clínica, de protocolo ou técnica.</p>
-        {_render_semantic_metric_table(key_indicators, technical_scope=technical_scope)}
-      </section>
-      <section class="clinical-section clinical-detail-section">
-        <h2>Composição corporal detalhada</h2>
-        {_render_semantic_detail_grid(details, technical_scope=technical_scope)}
-      </section>
-      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
-    </section>
+    def for_role(role: str) -> list[dict[str, Any]]:
+        return [
+            visual
+            for metric, visual in zip(metrics, visual_metrics, strict=False)
+            if role in (metric.get("display_roles") or []) and visual.get("value") is not None
+        ]
 
-    <section class="clinical-page clinical-semantic-cycle clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
-      {_render_semantic_report_header(payload, header, measured_label, evaluation_label, None, compact=True)}
-      {_render_semantic_measurements(measurements, header.get('sex'))}
-      <section class="clinical-section clinical-cycle-section">
-        <h2>Objetivo e metas do ciclo</h2>
-        {_render_semantic_goals(goals, technical_scope=technical_scope)}
-      </section>
-      {_render_semantic_priorities(priorities, title="Plano até a próxima avaliação")}
-      {_render_body_next_assessment(next_assessment)}
-      {comparison_notice}
-      {_render_semantic_history_summary(metrics)}
-      <section class="clinical-section clinical-observation-section">
-        <h2>Observações do professor</h2>
-        <p class="clinical-empty-copy">{escape(observation)}</p>
-      </section>
-      <section class="clinical-section clinical-observation-section">
-        <h2>Metodologia e fontes</h2>
-        <p>{escape(str(report.get('methodological_note') or ''))}</p>
-      </section>
-      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
-    </section>
-    {history_page}
-  </main>
-</body>
-</html>"""
+    # The classic presentation selects its headline/meta metrics by key. Give it
+    # every visible semantic metric so BMR, BMI and other non-headline values
+    # keep their established positions without recreating domain rules here.
+    primary_cards = [metric for metric in visual_metrics if metric.get("value") is not None]
+    key_indicators = for_role("key_indicator")
+    composition_metrics = for_role("composition_detail")
+    risk_keys = {"physical_age", "bmi", "visceral_fat_level", "waist_hip_ratio", "waist_height_ratio", "ffmi"}
+    risk_metrics = [visual for visual in visual_metrics if visual.get("key") in risk_keys]
+    muscle_fat_keys = {"weight_kg", "body_fat_used_percent", "fat_mass_estimated_kg", "muscle_mass_kg", "skeletal_muscle_kg", "skeletal_muscle_percent"}
+    muscle_fat_metrics = [visual for visual in visual_metrics if visual.get("key") in muscle_fat_keys]
+    if isinstance(score.get("value"), int | float):
+        risk_metrics.insert(0, {
+            "key": "health_score",
+            "label": "Score da avaliação",
+            "value": score.get("value"),
+            "formatted_value": str(int(score["value"])),
+            "status": "unknown",
+        })
 
+    goal_values = goals.get("values") or []
+    if goals.get("status") == "unsafe" and payload.report_scope != "technical":
+        goal_values = []
+    goal_metrics = [
+        {
+            "key": item.get("key"),
+            "label": item.get("label"),
+            "value": item.get("value"),
+            "formatted_value": item.get("formatted_value") or "-",
+            "unit": item.get("unit"),
+            "status": "unknown",
+        }
+        for item in goal_values
+        if isinstance(item, dict)
+    ]
+
+    comparison_rows = []
+    for metric in metrics:
+        if metric.get("comparison_status") != "comparable" or str(metric.get("key") or "") not in eligible_history_keys:
+            continue
+        current = metric.get("current") or {}
+        previous = metric.get("previous") or {}
+        comparison_rows.append({
+            "key": metric.get("key"),
+            "label": metric.get("label"),
+            "unit": current.get("unit"),
+            "previous_value": previous.get("value"),
+            "current_value": current.get("value"),
+            "previous_formatted": previous.get("formatted_value") or "-",
+            "current_formatted": current.get("formatted_value") or "-",
+            "previous_origin_label": previous.get("source_label"),
+            "current_origin_label": current.get("source_label"),
+            "difference_absolute": metric.get("delta"),
+            "difference_percent": metric.get("delta_percent"),
+            "trend": metric.get("trend") or "insufficient",
+        })
+
+    history_series = [
+        {
+            "key": series.get("key"),
+            "label": series.get("label"),
+            "unit": series.get("unit"),
+            "points": [
+                {
+                    "evaluation_id": point.get("evaluation_id"),
+                    "evaluation_date": point.get("evaluation_date"),
+                    "measured_at": point.get("measured_at"),
+                    "value": point.get("value"),
+                    "formatted_value": point.get("formatted_value"),
+                    "origin": point.get("source"),
+                    "origin_label": point.get("source_label") or point.get("source"),
+                }
+                for point in (series.get("points") or [])
+                if isinstance(point, dict)
+            ],
+        }
+        for series in eligible_history
+    ]
+    measurements = []
+    for metric in metrics:
+        if "body_measurement" not in (metric.get("display_roles") or []):
+            continue
+        current = metric.get("current") or {}
+        previous = metric.get("previous") or {}
+        measurements.append({
+            "key": metric.get("key"),
+            "label": metric.get("label"),
+            "current_value": current.get("value"),
+            "previous_value": previous.get("value"),
+            "delta": metric.get("delta"),
+            "unit": current.get("unit") or "cm",
+            "formatted_current": current.get("formatted_value") or "-",
+            "formatted_previous": previous.get("formatted_value") or "-",
+            "formatted_delta": metric.get("formatted_delta") or "-",
+        })
+
+    body_fat_context = dict(report.get("body_fat_context") or {})
+    body_fat_metric = next((metric for metric in metrics if metric.get("key") == "body_fat_used_percent"), None)
+    if body_fat_metric:
+        current = body_fat_metric.get("current") or {}
+        body_fat_context.update(
+            used_percent=current.get("value"),
+            used_source=current.get("source"),
+            method=current.get("method"),
+        )
+
+    classic_report = dict(report)
+    classic_report.update(
+        _semantic_v2_classic=True,
+        primary_cards=primary_cards,
+        composition_metrics=composition_metrics,
+        muscle_fat_metrics=muscle_fat_metrics,
+        risk_metrics=[*risk_metrics, *[metric for metric in key_indicators if metric.get("key") not in {item.get("key") for item in risk_metrics}]],
+        goal_metrics=goal_metrics,
+        comparison_rows=comparison_rows,
+        history_series=history_series,
+        semantic_history=eligible_history,
+        measurement_rows=measurements,
+        insights=[{
+            "key": "semantic_v2",
+            "title": "Análise Cordex",
+            "message": report.get("analysis_cordex") or "Esta avaliação estabelece uma referência para os próximos acompanhamentos.",
+            "tone": priorities[0].get("tone", "neutral") if priorities else "neutral",
+            "reasons": [],
+        }],
+        score_total=score.get("value"),
+        score_breakdown=score.get("components") or [],
+        recommendations=[
+            {"title": item.get("title"), "detail": item.get("detail"), "tone": item.get("tone")}
+            for item in priorities
+        ],
+        body_fat_context=body_fat_context,
+        teacher_notes=report.get("teacher_notes"),
+        methodological_note=report.get("methodological_note"),
+    )
+    parameters = dict(payload.parameters)
+    parameters["report"] = classic_report
+    parameters["methodological_note"] = report.get("methodological_note") or parameters.get("methodological_note")
+    return replace(payload, parameters=parameters)
+
+
+def _semantic_metric_to_classic(metric: dict[str, Any]) -> dict[str, Any]:
+    current = metric.get("current") or {}
+    return {
+        "key": metric.get("key"),
+        "label": metric.get("label"),
+        "value": current.get("value"),
+        "unit": current.get("unit"),
+        "formatted_value": current.get("formatted_value") or "-",
+        "origin": current.get("source"),
+        "origin_label": current.get("source_label") or current.get("method_label"),
+        "reference_min": metric.get("reference_min"),
+        "reference_max": metric.get("reference_max"),
+        "reference_label": metric.get("reference_label"),
+        "reference_source": metric.get("reference_source"),
+        "hint": metric.get("reference_label") or "Sem faixa",
+        "status": metric.get("status") or "unknown",
+        "status_label": metric.get("status_label") or "Sem faixa",
+        "position_label": metric.get("status_label") or "",
+        "delta_absolute": metric.get("delta"),
+        "delta_percent": metric.get("delta_percent"),
+        "trend": metric.get("trend") or "insufficient",
+    }
 
 def _semantic_metrics_for_role(metrics: Sequence[dict[str, Any]], role: str) -> list[dict[str, Any]]:
     def has_visible_value(metric: dict[str, Any]) -> bool:
@@ -1476,6 +1555,7 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
 </html>"""
 
     header = report.get("header", {}) or {}
+    semantic_v2_classic = bool(report.get("_semantic_v2_classic"))
     primary_cards = report.get("primary_cards", []) or []
     composition_metrics = report.get("composition_metrics", []) or []
     muscle_fat_metrics = report.get("muscle_fat_metrics", []) or []
@@ -1552,15 +1632,34 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
         if metric is not None
     ]
 
-    generated_label = payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-    measured_label = _format_human_datetime(header.get("measured_at"))
+    generated_label = (
+        payload.generated_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+        if semantic_v2_classic
+        else payload.generated_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    )
+    measured_label = _format_semantic_measured_at(header) if semantic_v2_classic else _format_human_datetime(header.get("measured_at"))
+    evaluation_number = int(report.get("evaluation_number") or 1)
+    evaluation_name = "Avaliação" if semantic_v2_classic else "Avaliacao"
+    evaluation_label = f"{evaluation_name} nº {evaluation_number}" + (" (linha de base)" if report.get("is_baseline") else "")
+    score_heading = "Score de composição corporal" if semantic_v2_classic else "Score da avaliacao"
+    score_band_label = str((report.get("score") or {}).get("band_label") or "").strip()
+    analysis_heading = "Análise Cordex" if semantic_v2_classic else "Leitura de acompanhamento"
     scope_label = "Relatorio tecnico" if payload.report_scope == "technical" else "Relatorio de bioimpedancia"
-    flags_html = ""
+    flags_html = (
+        "<strong>Data inconsistente:</strong> corrija a data da avaliacao para liberar comparacoes e evolucao."
+        if semantic_v2_classic and report.get("date_consistency") == "future_legacy"
+        else ""
+    )
     score_display = str(int(score_total)) if isinstance(score_total, int | float) else (_body_metric_formatted(score_metric) if score_metric else "--")
 
     lead_insight = insights[0] if insights else None
 
     teacher_notes = str(teacher_notes).strip()
+    observations_html = (
+        f'<p class="clinical-empty-copy">{escape(teacher_notes)}</p>'
+        if teacher_notes
+        else '<p class="clinical-empty-copy">Sem observações registradas nesta avaliação.</p>'
+    ) if semantic_v2_classic else _render_body_client_observations(insights, teacher_notes)
 
     lead_insight_message = str(
         lead_insight.get("message") if lead_insight else "Acompanhe a evolucao comparando peso, medidas e frequencia nas proximas avaliacoes."
@@ -1605,14 +1704,26 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
     ]
     detail_metrics = _body_compact_detail_metrics(composition_metrics, body_fat_context, technical_scope=technical_scope)
     history_section_html = _render_body_history_section(comparison_rows, history_series)
-    history_page_html = _render_body_history_page(
-        history_section_html,
-        payload=payload,
-        header=header,
-        measured_label=measured_label,
-        client_footer_note=client_footer_note,
-        technical_scope=technical_scope,
+    history_page_html = (
+        _render_semantic_history_page(
+            report.get("semantic_history") or [],
+            payload=payload,
+            header=header,
+            measured_label=measured_label,
+            footer=client_footer_note,
+            technical_scope=technical_scope,
+        )
+        if semantic_v2_classic
+        else _render_body_history_page(
+            history_section_html,
+            payload=payload,
+            header=header,
+            measured_label=measured_label,
+            client_footer_note=client_footer_note,
+            technical_scope=technical_scope,
+        )
     )
+    comparison_notice_html = _render_semantic_comparison_notices(report.get("metrics") or []) if semantic_v2_classic else ""
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1634,8 +1745,8 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
         <div class="clinical-professional">
           <span class="clinical-kicker">Relatorio de avaliacao fisica</span>
           <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
-          <p>Avaliacao: {escape(measured_label)}</p>
-          <p>Professor: {escape(str(header.get("trainer_name") or "nao informado"))} · Avaliacao nº 1 (linha de base)</p>
+          <p>Avaliação: {escape(measured_label)}</p>
+          <p>Professor: {escape(str(header.get("trainer_name") or "nao informado"))} · {escape(evaluation_label)}</p>
           {f'<p class="clinical-generated">Gerado em {escape(generated_label)}</p>' if technical_scope else ''}
         </div>
       </header>
@@ -1657,16 +1768,17 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
       {f'<section class="clinical-flags">{flags_html}</section>' if flags_html else ''}
       <section class="clinical-cover-evaluation-grid">
         <article class="clinical-cover-score">
-          <h3>Score da avaliacao</h3>
+          <h3>{score_heading}</h3>
           <div class="clinical-score">
             <strong>{escape(score_display)}</strong>
             <span>/100 pontos</span>
           </div>
+          {f'<p class="clinical-score-band">Faixa {escape(score_band_label.lower())}</p>' if score_band_label else ''}
           <p class="clinical-score-copy">Leitura sintetica da composicao corporal para acompanhamento do progresso.</p>
           {_render_body_score_breakdown(score_breakdown)}
         </article>
         <article class="clinical-cover-note">
-          <h3>Leitura de acompanhamento</h3>
+          <h3>{analysis_heading}</h3>
           <p>{escape(compact_lead_insight_message)}</p>
         </article>
       </section>
@@ -1694,7 +1806,7 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
         <div class="clinical-professional">
           <span class="clinical-kicker">Relatorio de avaliacao fisica</span>
           <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
-          <p>Avaliacao: {escape(measured_label)}</p>
+          <p>Avaliação: {escape(measured_label)}</p>
         </div>
       </header>
       {measurement_section_html}
@@ -1706,11 +1818,12 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
       {_render_body_recommendations(recommendations)}
       {_render_body_next_assessment(next_assessment)}
       {_render_body_fat_pdf_source_panel(body_fat_context)}
+      {comparison_notice_html}
       <section class="clinical-section clinical-observation-section">
         <h2>Observacoes do professor</h2>
-        {_render_body_client_observations(insights, teacher_notes)}
+        {observations_html}
       </section>
-      {f'''<section class="clinical-section clinical-observation-section">
+      {f'''<section class="clinical-section clinical-observation-section clinical-methodology-section">
         <h2>Nota metodologica</h2>
         <p>{escape(methodological_note)}</p>
       </section>''' if methodological_note else ''}
@@ -4533,6 +4646,14 @@ def _body_composition_report_css() -> str:
       .clinical-cover-score .clinical-score-copy {
         color: #c8d2df;
       }
+      .clinical-score-band {
+        margin: 3px 0 0;
+        color: #72d2ef;
+        font-size: 8px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
       .clinical-score-breakdown {
         display: grid;
         gap: 5px;
@@ -4667,8 +4788,8 @@ def _body_composition_report_css() -> str:
         grid-template-columns: minmax(0, 1fr) 74px 60px;
         gap: 8px;
         align-items: center;
-        min-height: 28px;
-        padding: 6px 10px;
+        min-height: 24px;
+        padding: 4px 10px;
         border-top: 1px solid #edf1f5;
       }
       .clinical-detail-item:first-child {
@@ -4943,6 +5064,12 @@ def _body_composition_report_css() -> str:
         font-size: 7.8px;
         line-height: 1.28;
         padding: 6px 9px;
+      }
+      .clinical-methodology-section > p {
+        margin: 0;
+        color: #536173;
+        font-size: 7.4px;
+        line-height: 1.3;
       }
       .clinical-semantic-cover .clinical-headline-grid {
         grid-template-columns: repeat(5, minmax(0, 1fr));

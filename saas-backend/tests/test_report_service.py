@@ -306,6 +306,56 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Proteina" in technical_html
     assert "Comparacoes historicas sao mais confiaveis em condicoes semelhantes." not in technical_html
 
+    v2_report = dict(payload.parameters["report"])
+    v2_report.update(
+        contract_version="body-composition-report-v2",
+        evaluation_number=3,
+        is_baseline=False,
+        date_consistency="valid",
+        score={
+            "value": 88,
+            "band_label": "Excelente",
+            "components": v2_report["score_breakdown"],
+            "disclaimer": "Indice Cordex para acompanhamento individual.",
+        },
+        metrics=[
+            {
+                "key": "weight_kg",
+                "label": "Peso",
+                "display_order": 1,
+                "display_roles": ["headline", "key_indicator", "history"],
+                "current": {"value": 84.5, "formatted_value": "84,5 kg", "unit": "kg", "source": "reported", "source_label": "Medido/informado"},
+                "previous": {"value": 85.7, "formatted_value": "85,7 kg", "unit": "kg", "source": "reported", "source_label": "Medido/informado"},
+                "delta": -1.2,
+                "delta_percent": -1.4,
+                "formatted_delta": "-1,2 kg",
+                "trend": "down",
+                "comparison_status": "comparable",
+                "comparison_message": None,
+                "reference_kind": "equipment",
+                "reference_label": "Faixa tecnica do equipamento",
+                "reference_source": "Escala informada pelo equipamento",
+                "reference_min": 65,
+                "reference_max": 80,
+                "status": "high",
+                "status_label": "Acima",
+            }
+        ],
+        analysis_cordex="Peso reduziu 1,2 kg desde a avaliacao anterior.",
+        priorities=[{"title": "Manter o protocolo", "detail": "Repita as mesmas condicoes.", "display_order": 1}],
+        goals={"status": "unavailable", "requires_review": False, "values": [], "professional_message": "Sem metas.", "member_message": "Sem metas."},
+        history=[],
+    )
+    v2_html = render_premium_report_html(
+        replace(payload, parameters={**payload.parameters, "report": v2_report})
+    )
+
+    assert '<section class="clinical-meta-grid">' in v2_html
+    assert '<div class="clinical-goal-grid clinical-headline-grid">' not in v2_html
+    assert "Score de composição corporal" in v2_html
+    assert "<strong>88</strong>" in v2_html
+    assert "Avaliação nº 3" in v2_html
+
 
 def test_body_composition_report_builds_v3_score_indicators_and_rules():
     member = SimpleNamespace(
