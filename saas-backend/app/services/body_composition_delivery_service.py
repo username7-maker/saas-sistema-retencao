@@ -196,10 +196,12 @@ def generate_body_composition_pdf(
     member: Member,
     evaluation: BodyCompositionEvaluation,
     previous_evaluation: BodyCompositionEvaluation | None = None,
+    *,
+    history: list[BodyCompositionEvaluation] | None = None,
 ) -> tuple[bytes, str]:
     filename = _build_filename(member, evaluation)
-    history = [item for item in (previous_evaluation, evaluation) if item is not None]
-    report = build_body_composition_report_payload(member, evaluation, history=history)
+    report_history = list(history or [item for item in (previous_evaluation, evaluation) if item is not None])
+    report = build_body_composition_report_payload(member, evaluation, history=report_history)
     premium_payload = build_body_composition_premium_pdf_payload(report, technical=False)
     return render_premium_report_pdf(premium_payload), filename
 
@@ -208,10 +210,12 @@ def generate_body_composition_technical_pdf(
     member: Member,
     evaluation: BodyCompositionEvaluation,
     previous_evaluation: BodyCompositionEvaluation | None = None,
+    *,
+    history: list[BodyCompositionEvaluation] | None = None,
 ) -> tuple[bytes, str]:
     filename = _build_filename(member, evaluation, technical=True)
-    history = [item for item in (previous_evaluation, evaluation) if item is not None]
-    report = build_body_composition_report_payload(member, evaluation, history=history)
+    report_history = list(history or [item for item in (previous_evaluation, evaluation) if item is not None])
+    report = build_body_composition_report_payload(member, evaluation, history=report_history)
     premium_payload = build_body_composition_premium_pdf_payload(report, technical=True)
     return render_premium_report_pdf(premium_payload), filename
 

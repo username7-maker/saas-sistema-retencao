@@ -60,6 +60,17 @@ _BODY_MEASUREMENT_LABELS = {
     "right_calf_cm": "Panturrilha direita",
     "left_calf_cm": "Panturrilha esquerda",
 }
+_SKINFOLD_LABELS = {
+    "skinfold_chest_mm": "Dobra peitoral",
+    "skinfold_midaxillary_mm": "Dobra axilar média",
+    "skinfold_subscapular_mm": "Dobra subescapular",
+    "skinfold_triceps_mm": "Dobra tricipital",
+    "skinfold_biceps_mm": "Dobra bicipital",
+    "skinfold_abdominal_mm": "Dobra abdominal",
+    "skinfold_suprailiac_mm": "Dobra supra-ilíaca",
+    "skinfold_thigh_mm": "Dobra da coxa",
+    "skinfold_calf_mm": "Dobra da panturrilha",
+}
 METRIC_DEFINITIONS: tuple[dict[str, Any], ...] = CORE_METRIC_DEFINITIONS + tuple(
     {
         "key": key,
@@ -69,6 +80,15 @@ METRIC_DEFINITIONS: tuple[dict[str, Any], ...] = CORE_METRIC_DEFINITIONS + tuple
         "reference": "none",
     }
     for key, label in _BODY_MEASUREMENT_LABELS.items()
+) + tuple(
+    {
+        "key": key,
+        "label": label,
+        "unit": "mm",
+        "roles": ["skinfold"],
+        "reference": "none",
+    }
+    for key, label in _SKINFOLD_LABELS.items()
 )
 
 HISTORY_KEYS = {"weight_kg", "body_fat_used_percent", "muscle_mass_kg", "visceral_fat_level", "waist_hip_ratio"}
@@ -90,6 +110,7 @@ def build_semantic_metrics(
     current: Any,
     previous: Any | None,
     *,
+    history: Sequence[Any] | None = None,
     now: datetime | None = None,
     reference_resolver: Callable[[Any, str], tuple[float | None, float | None]],
     status_resolver: Callable[[float | None, float | None, float | None], str],
@@ -100,12 +121,17 @@ def build_semantic_metrics(
     for order, definition in enumerate(METRIC_DEFINITIONS):
         key = definition["key"]
         unit = definition["unit"]
+        metric_previous = (
+            _latest_previous_with_value(current, history or (), key) or previous
+            if set(definition["roles"]) & {"body_measurement", "skinfold"}
+            else previous
+        )
         current_value = _metric_value(current, key)
-        previous_value = _metric_value(previous, key) if previous is not None else None
+        previous_value = _metric_value(metric_previous, key) if metric_previous is not None else None
         comparison_status, comparison_message = _comparison_status(
             key,
             current,
-            previous,
+            metric_previous,
             current_value=current_value,
             previous_value=previous_value,
             invalid_date=invalid_date,
@@ -119,7 +145,7 @@ def build_semantic_metrics(
         reference_min, reference_max = reference_resolver(current, key)
         status = status_resolver(current_value, reference_min, reference_max)
         current_source, current_method = _source_method(current, key)
-        previous_source, previous_method = _source_method(previous, key) if previous is not None else (None, None)
+        previous_source, previous_method = _source_method(metric_previous, key) if metric_previous is not None else (None, None)
         reference_kind, reference_label, reference_source = _reference_metadata(definition["reference"])
         metrics.append(
             BodyCompositionReportMetricRead(
@@ -144,7 +170,7 @@ def build_semantic_metrics(
                         origin_label_resolver,
                         key,
                     )
-                    if previous is not None
+                    if metric_previous is not None
                     else None
                 ),
                 delta=delta,
@@ -163,6 +189,19 @@ def build_semantic_metrics(
             )
         )
     return metrics
+
+
+def _latest_previous_with_value(current: Any, history: Sequence[Any], key: str) -> Any | None:
+    current_time = _measured_at(current)
+    candidates = [
+        item
+        for item in history
+        if str(getattr(item, "id", "")) != str(getattr(current, "id", ""))
+        and not is_future_evaluation(item)
+        and _measured_at(item) < current_time
+        and _metric_value(item, key) is not None
+    ]
+    return max(candidates, key=_measured_at, default=None)
 
 
 def build_semantic_score(

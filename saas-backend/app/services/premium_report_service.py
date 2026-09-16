@@ -1216,12 +1216,14 @@ def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str
         for series in eligible_history
     ]
     measurements = []
+    skinfolds = []
     for metric in metrics:
-        if "body_measurement" not in (metric.get("display_roles") or []):
+        roles = metric.get("display_roles") or []
+        if not ({"body_measurement", "skinfold"} & set(roles)):
             continue
         current = metric.get("current") or {}
         previous = metric.get("previous") or {}
-        measurements.append({
+        row = {
             "key": metric.get("key"),
             "label": metric.get("label"),
             "current_value": current.get("value"),
@@ -1231,7 +1233,8 @@ def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str
             "formatted_current": current.get("formatted_value") or "-",
             "formatted_previous": previous.get("formatted_value") or "-",
             "formatted_delta": metric.get("formatted_delta") or "-",
-        })
+        }
+        (measurements if "body_measurement" in roles else skinfolds).append(row)
 
     body_fat_context = dict(report.get("body_fat_context") or {})
     body_fat_metric = next((metric for metric in metrics if metric.get("key") == "body_fat_used_percent"), None)
@@ -1255,6 +1258,7 @@ def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str
         history_series=history_series,
         semantic_history=eligible_history,
         measurement_rows=measurements,
+        skinfold_rows=skinfolds,
         insights=[{
             "key": "semantic_v2",
             "title": "Análise Cordex",
@@ -1565,6 +1569,7 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
     history_series = report.get("history_series", []) or []
     insights = report.get("insights", []) or []
     measurement_rows = report.get("measurement_rows", []) or []
+    skinfold_rows = report.get("skinfold_rows", []) or []
     body_fat_context = report.get("body_fat_context") or {}
     score_total = report.get("score_total")
     score_breakdown = report.get("score_breakdown", []) or []
@@ -1671,6 +1676,7 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
         or "Relatorio informativo para acompanhar evolucao corporal. Os valores sao estimativas e nao substituem avaliacao clinica."
     )
     measurement_section_html = _render_body_measurement_pdf_section(measurement_rows, header.get("sex"))
+    skinfold_section_html = _render_body_skinfold_pdf_section(skinfold_rows)
     bmr_metric = _body_metric_by_key(primary_cards, "basal_metabolic_rate_kcal") or _body_metric_by_key(primary_cards, "bmr")
     weight_metric = _body_metric_by_key(primary_cards, "weight_kg") or _body_metric_by_key(muscle_fat_metrics, "weight_kg")
     weight_header_value = (
@@ -1724,6 +1730,64 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
         )
     )
     comparison_notice_html = _render_semantic_comparison_notices(report.get("metrics") or []) if semantic_v2_classic else ""
+    repeat_header_html = f"""
+      <header class="clinical-header clinical-header-repeat">
+        <div class="clinical-brand">
+          {f'<img class="clinical-cordex-logo" src="{CORDEX_REPORT_LOGO_DATA_URI}" alt="{escape(payload.branding.product_name)}" />' if CORDEX_REPORT_LOGO_DATA_URI else f'<div class="clinical-brand-name">{escape(payload.branding.product_name)}</div>'}
+        </div>
+        <div class="clinical-partner-logo-wrap">
+          <img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" />
+        </div>
+        <div class="clinical-professional">
+          <span class="clinical-kicker">Relatorio de avaliacao fisica</span>
+          <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
+          <p>Avaliação: {escape(measured_label)}</p>
+        </div>
+      </header>
+    """
+    cycle_content_html = f"""
+      <section class="clinical-section clinical-cycle-section">
+        <h2>Metas do ciclo</h2>
+        <p class="clinical-section-subtitle">Valores calculados automaticamente para revisao do professor.</p>
+        {_render_body_goal_cards(goal_metrics)}
+      </section>
+      {_render_body_recommendations(recommendations)}
+      {_render_body_next_assessment(next_assessment)}
+      {_render_body_fat_pdf_source_panel(body_fat_context)}
+      {comparison_notice_html}
+      <section class="clinical-section clinical-observation-section">
+        <h2>Observacoes do professor</h2>
+        {observations_html}
+      </section>
+      {f'''<section class="clinical-section clinical-observation-section clinical-methodology-section">
+        <h2>Nota metodologica</h2>
+        <p>{escape(methodological_note)}</p>
+      </section>''' if methodological_note else ''}
+    """
+    sheet_scope_class = "clinical-sheet-technical" if technical_scope else "clinical-sheet-summary"
+    if skinfold_section_html:
+        measurements_and_cycle_pages_html = f"""
+    <section class="clinical-page clinical-sheet {sheet_scope_class}">
+      {repeat_header_html}
+      {measurement_section_html}
+      {skinfold_section_html}
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
+    <section class="clinical-page clinical-sheet {sheet_scope_class}">
+      {repeat_header_html}
+      {cycle_content_html}
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
+        """
+    else:
+        measurements_and_cycle_pages_html = f"""
+    <section class="clinical-page clinical-sheet {sheet_scope_class}">
+      {repeat_header_html}
+      {measurement_section_html}
+      {cycle_content_html}
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
+        """
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1795,40 +1859,7 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
       <footer class="clinical-footer">{escape(client_footer_note)}</footer>
     </section>
 
-    <section class="clinical-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
-      <header class="clinical-header clinical-header-repeat">
-        <div class="clinical-brand">
-          {f'<img class="clinical-cordex-logo" src="{CORDEX_REPORT_LOGO_DATA_URI}" alt="{escape(payload.branding.product_name)}" />' if CORDEX_REPORT_LOGO_DATA_URI else f'<div class="clinical-brand-name">{escape(payload.branding.product_name)}</div>'}
-        </div>
-        <div class="clinical-partner-logo-wrap">
-          <img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" />
-        </div>
-        <div class="clinical-professional">
-          <span class="clinical-kicker">Relatorio de avaliacao fisica</span>
-          <h1>{escape(str(header.get("member_name") or payload.subject_name or "Aluno"))}</h1>
-          <p>Avaliação: {escape(measured_label)}</p>
-        </div>
-      </header>
-      {measurement_section_html}
-      <section class="clinical-section clinical-cycle-section">
-        <h2>Metas do ciclo</h2>
-        <p class="clinical-section-subtitle">Valores calculados automaticamente para revisao do professor.</p>
-        {_render_body_goal_cards(goal_metrics)}
-      </section>
-      {_render_body_recommendations(recommendations)}
-      {_render_body_next_assessment(next_assessment)}
-      {_render_body_fat_pdf_source_panel(body_fat_context)}
-      {comparison_notice_html}
-      <section class="clinical-section clinical-observation-section">
-        <h2>Observacoes do professor</h2>
-        {observations_html}
-      </section>
-      {f'''<section class="clinical-section clinical-observation-section clinical-methodology-section">
-        <h2>Nota metodologica</h2>
-        <p>{escape(methodological_note)}</p>
-      </section>''' if methodological_note else ''}
-      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
-    </section>
+    {measurements_and_cycle_pages_html}
     {history_page_html}
   </main>
 </body>
@@ -2363,6 +2394,46 @@ def _render_body_measurement_pdf_section(rows: Sequence[dict[str, Any]], sex: An
         </div>
       </div>
     </section>
+    """
+
+
+def _render_body_skinfold_pdf_section(rows: Sequence[dict[str, Any]]) -> str:
+    visible_rows = [
+        row
+        for row in rows
+        if row.get("current_value") is not None or row.get("previous_value") is not None
+    ]
+    if not visible_rows:
+        return ""
+    cards = "".join(_render_body_skinfold_card(row) for row in visible_rows)
+    return f"""
+    <section class="clinical-section clinical-skinfold-section">
+      <h2>Dobras cutâneas</h2>
+      <p class="clinical-section-subtitle">Comparação com a última aferição disponível de cada dobra.</p>
+      <div class="clinical-skinfold-grid">{cards}</div>
+    </section>
+    """
+
+
+def _render_body_skinfold_card(row: dict[str, Any]) -> str:
+    has_current = row.get("current_value") is not None
+    has_previous = row.get("previous_value") is not None
+    current = str(row.get("formatted_current") or "-")
+    previous = str(row.get("formatted_previous") or "-")
+    delta = str(row.get("formatted_delta") or "-")
+    if has_current and has_previous:
+        delta_copy = f" · {delta}" if delta not in {"", "-"} else ""
+        comparison = f"Anterior: {previous}{delta_copy}"
+    elif has_current:
+        comparison = "Primeira aferição registrada"
+    else:
+        comparison = f"Anterior: {previous} · não aferida agora"
+    return f"""
+      <article class="clinical-skinfold-card">
+        <span>{escape(str(row.get("label") or "-"))}</span>
+        <strong>{escape(current if has_current else "Não aferida")}</strong>
+        <small>{escape(comparison)}</small>
+      </article>
     """
 
 
@@ -3593,6 +3664,40 @@ def _body_composition_report_css() -> str:
       .clinical-measurement-bubbles-right,
       .clinical-measurement-bubble.bubble-right {
         text-align: right;
+      }
+      .clinical-skinfold-section {
+        margin-top: 7px;
+      }
+      .clinical-skinfold-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px;
+      }
+      .clinical-skinfold-card {
+        min-height: 38px;
+        border: 1px solid #dce4ec;
+        border-left: 3px solid #1185a6;
+        background: #ffffff;
+        padding: 5px 7px;
+      }
+      .clinical-skinfold-card span {
+        display: block;
+        color: #536173;
+        font-size: 7.4px;
+        font-weight: 800;
+      }
+      .clinical-skinfold-card strong {
+        display: block;
+        margin-top: 2px;
+        color: #172235;
+        font-size: 10px;
+      }
+      .clinical-skinfold-card small {
+        display: block;
+        margin-top: 1px;
+        color: #718096;
+        font-size: 6.3px;
+        line-height: 1.15;
       }
       .clinical-measurement-table-wrap {
         display: none;

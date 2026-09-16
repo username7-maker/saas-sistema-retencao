@@ -425,6 +425,7 @@ def build_body_composition_report_read(
     semantic_metrics = build_semantic_metrics(
         evaluation,
         previous,
+        history=ordered_history,
         reference_resolver=_resolve_reference_range,
         status_resolver=_resolve_range_status,
         origin_label_resolver=body_composition_origin_label,

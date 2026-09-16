@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.schemas.body_composition import BodyCompositionEvaluationCreate
+from app.services.assessment_anthropometry_report_service import build_anthropometric_report_read
 from app.services.body_composition_report_service import (
     build_body_composition_report_read,
     resolve_body_composition_persistence_fields,
@@ -179,6 +180,75 @@ def test_v2_perimetry_keeps_current_and_previous_states_unambiguous() -> None:
     assert "Ombros" in html and "100 cm" in html
     assert "Primeira avaliação" in html
     assert "Pescoço" in html and "Não aferido nesta avaliação" in html
+
+
+def test_pdf_compares_perimetry_and_skinfolds_with_latest_available_measurement() -> None:
+    measured = _evaluation(datetime(2026, 7, 1, 12, tzinfo=UTC))
+    measured.waist_cm = 94
+    measured.skinfold_triceps_mm = 18
+    intermediate = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC))
+    intermediate.waist_cm = None
+    intermediate.skinfold_triceps_mm = None
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    current.waist_cm = 90
+    current.skinfold_triceps_mm = 15
+
+    report = build_body_composition_report_read(
+        _member(),
+        current,
+        history=[measured, intermediate, current],
+    )
+
+    waist = _metric(report, "waist_cm")
+    triceps = _metric(report, "skinfold_triceps_mm")
+    assert waist.previous is not None and waist.previous.value == 94
+    assert waist.delta == -4
+    assert "skinfold" in triceps.display_roles
+    assert triceps.previous is not None and triceps.previous.value == 18
+    assert triceps.delta == -3
+
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+    assert "Dobras cutâneas" in html
+    assert "Dobra tricipital" in html
+    assert "Anterior: 18 mm · -3 mm" in html
+    assert "Anterior: 94 cm &middot; -4 cm" in html
+
+
+def test_anthropometric_pdf_contract_includes_skinfolds_from_snapshot() -> None:
+    def assessment(measured_at: datetime, *, waist: float, triceps: float) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uuid4(),
+            assessment_date=measured_at,
+            created_at=measured_at,
+            height_cm=180,
+            weight_kg=85,
+            bmi=26.2,
+            body_fat_pct=15,
+            fat_mass_kg=12.75,
+            lean_mass_kg=72.25,
+            waist_hip_ratio=0.9,
+            sex_used_for_formula="male",
+            age_used_for_formula=47,
+            observations=None,
+            waist_cm=waist,
+            anthropometry_snapshot_json={
+                "flags": [],
+                "measurements": {
+                    "waist_cm": {"consolidated_value": waist},
+                    "skinfold_triceps_mm": {"consolidated_value": triceps},
+                },
+            },
+            extra_data={},
+        )
+
+    previous = assessment(datetime(2026, 7, 1, 12, tzinfo=UTC), waist=94, triceps=18)
+    current = assessment(datetime(2026, 8, 1, 12, tzinfo=UTC), waist=90, triceps=15)
+    report = build_anthropometric_report_read(_member(), current, history=[previous, current])
+
+    triceps = _metric(report, "skinfold_triceps_mm")
+    assert triceps.current.value == 15
+    assert triceps.previous is not None and triceps.previous.value == 18
+    assert triceps.delta == -3
 
 
 def test_history_eligibility_is_decided_per_series() -> None:

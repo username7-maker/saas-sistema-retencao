@@ -7,8 +7,7 @@ from typing import Any, Sequence
 
 from app.schemas.body_composition import BodyCompositionReportRead
 from app.services.body_composition_anthropometry_service import (
-    ANTHROPOMETRY_CALCULATION_FIELDS,
-    ANTHROPOMETRY_EVOLUTION_FIELDS,
+    ANTHROPOMETRY_FIELDS,
 )
 from app.services.body_composition_report_service import (
     CALCULATION_ORIGIN_LABELS,
@@ -221,7 +220,7 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
         "notes": getattr(assessment, "observations", None),
         "measured_ranges_json": {},
     }
-    for field in ANTHROPOMETRY_CALCULATION_FIELDS + ANTHROPOMETRY_EVOLUTION_FIELDS:
+    for field in ANTHROPOMETRY_FIELDS:
         value = values.get(field)
         if value is not None:
             attributes[field] = value

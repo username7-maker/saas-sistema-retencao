@@ -959,7 +959,8 @@ def export_body_composition_pdf_endpoint(
         evaluation_id=evaluation_id,
     )
     previous_evaluation = _get_previous_body_composition_evaluation(db, member_id=member_id, evaluation_id=evaluation_id)
-    pdf_bytes, filename = generate_body_composition_pdf(member, evaluation, previous_evaluation)
+    history = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=100)
+    pdf_bytes, filename = generate_body_composition_pdf(member, evaluation, previous_evaluation, history=history)
     context = get_request_context(request)
     logger.info(
         "body_composition_pdf_export layout=%s kind=member_summary member_id=%s evaluation_id=%s bytes=%s filename=%s",
@@ -1011,7 +1012,8 @@ def export_body_composition_technical_pdf_endpoint(
         evaluation_id=evaluation_id,
     )
     previous_evaluation = _get_previous_body_composition_evaluation(db, member_id=member_id, evaluation_id=evaluation_id)
-    pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation)
+    history = list_body_composition_evaluations(db, current_user.gym_id, member_id, limit=100)
+    pdf_bytes, filename = generate_body_composition_technical_pdf(member, evaluation, previous_evaluation, history=history)
     context = get_request_context(request)
     logger.info(
         "body_composition_pdf_export layout=%s kind=technical member_id=%s evaluation_id=%s bytes=%s filename=%s",
