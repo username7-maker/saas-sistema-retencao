@@ -1,7 +1,7 @@
 """Add reversible retention exclusions.
 
-Revision ID: 20260916_0065
-Revises: 20260914_0064
+Revision ID: 20260916_0066
+Revises: 20260915_0065
 """
 
 from collections.abc import Sequence
@@ -11,8 +11,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "20260916_0065"
-down_revision: str | None = "20260914_0064"
+revision: str = "20260916_0066"
+down_revision: str | None = "20260915_0065"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
