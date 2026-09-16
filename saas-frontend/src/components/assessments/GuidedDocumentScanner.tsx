@@ -7,7 +7,11 @@ import { Button } from "../ui2/Button";
 import { Select } from "../ui2/Select";
 import { advanceAutoCaptureGate, analyzeDocumentFrame, type FrameAnalysis, type FrameSignature } from "./scanner/frameAnalysis";
 import { containedImageRect, pointToImageCoordinates, type ImageContentRect } from "./scanner/geometry";
-import { CameraAttemptController, stopMediaStream } from "./scanner/streamLifecycle";
+import {
+  CameraAttemptController,
+  requestMediaStreamWithTimeout,
+  stopMediaStream,
+} from "./scanner/streamLifecycle";
 
 type ScannerCapabilities = {
   torch: boolean;
@@ -373,7 +377,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       const preferredDevice = requestedDeviceId || storedDevice || "";
       const requestedResolution = RESOLUTION_LADDER[0];
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        stream = await requestMediaStreamWithTimeout(() => navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
             ...(preferredDevice ? { deviceId: { exact: preferredDevice } } : { facingMode: { ideal: "environment" } }),
@@ -381,11 +385,17 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
             height: { ideal: requestedResolution.height },
             frameRate: { ideal: 30, min: 15 },
           },
-        });
-      } catch {
+        }), 8_000);
+      } catch (error) {
+        if (error instanceof Error && error.message === "camera_request_timeout") throw error;
         stream = null;
       }
-      if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+      if (!stream) {
+        stream = await requestMediaStreamWithTimeout(
+          () => navigator.mediaDevices.getUserMedia({ audio: false, video: true }),
+          8_000,
+        );
+      }
       if (!cameraAttemptsRef.current.accept(attempt, stream)) return;
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;

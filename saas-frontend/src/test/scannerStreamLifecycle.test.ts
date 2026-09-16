@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { CameraAttemptController } from "../components/assessments/scanner/streamLifecycle";
+import {
+  CameraAttemptController,
+  requestMediaStreamWithTimeout,
+} from "../components/assessments/scanner/streamLifecycle";
 
 function stream() {
   const stop = vi.fn();
@@ -35,5 +38,24 @@ describe("CameraAttemptController", () => {
 
     expect(second.stop).toHaveBeenCalledOnce();
     expect(controller.active).toBeNull();
+  });
+});
+
+describe("requestMediaStreamWithTimeout", () => {
+  it("rejects a stalled permission request and stops a stream that resolves later", async () => {
+    vi.useFakeTimers();
+    const stop = vi.fn();
+    let resolveStream!: (stream: MediaStream) => void;
+    const pending = new Promise<MediaStream>((resolve) => { resolveStream = resolve; });
+
+    const result = requestMediaStreamWithTimeout(() => pending, 8_000);
+    const rejection = expect(result).rejects.toThrow("camera_request_timeout");
+    await vi.advanceTimersByTimeAsync(8_000);
+    await rejection;
+
+    resolveStream({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });
