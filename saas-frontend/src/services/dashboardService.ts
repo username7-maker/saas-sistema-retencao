@@ -195,11 +195,13 @@ export const dashboardService = {
     await api.delete(`/api/v1/dashboards/retention/exclusions/${exclusionId}`);
   },
 
-  async exportRetentionCsv(params?: RetentionQueueFilters): Promise<void> {
-    const response = await api.get("/api/v1/dashboards/retention/export.csv", { params, responseType: "blob" });
+  async exportRetentionSpreadsheet(params?: RetentionQueueFilters): Promise<void> {
+    const response = await api.get("/api/v1/dashboards/retention/export.xlsx", { params, responseType: "blob" });
     const disposition = String(response.headers["content-disposition"] ?? "");
-    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `retencao-${new Date().toISOString().slice(0, 10)}.csv`;
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `retencao-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const url = window.URL.createObjectURL(
+      new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    );
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;

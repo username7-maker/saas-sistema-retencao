@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from openpyxl import load_workbook
 from sqlalchemy import select
 
 from app.models import Member
 from app.services.retention_exclusion_service import normalize_plan_name, retention_eligible_condition
-from app.services.export_service import export_retention_csv
+from app.services.export_service import export_retention_xlsx
 
 
 def test_normalize_plan_name_ignores_accents_case_and_repeated_spaces():
@@ -25,7 +26,7 @@ def test_retention_eligibility_covers_member_and_normalized_plan():
 
 
 @patch("app.services.export_service.get_retention_queue")
-def test_retention_csv_exports_filtered_rows_and_escapes_formula_prefixes(mock_queue):
+def test_retention_xlsx_exports_filtered_rows_with_typed_columns_and_escapes_formula_prefixes(mock_queue):
     mock_queue.return_value = SimpleNamespace(
         items=[
             SimpleNamespace(
@@ -47,13 +48,20 @@ def test_retention_csv_exports_filtered_rows_and_escapes_formula_prefixes(mock_q
     )
 
     db = MagicMock()
-    buffer, filename = export_retention_csv(db, search="Aluno", level="red")
-    content = buffer.getvalue().decode("utf-8-sig")
+    buffer, filename = export_retention_xlsx(db, search="Aluno", level="red")
+    workbook = load_workbook(buffer)
+    worksheet = workbook["Retencao"]
 
-    assert filename == "retencao-2026-09-16.csv"
-    assert "Nome,Celular,E-mail,Plano,Dias sem treinar" in content
-    assert "'=Aluno perigoso" in content
-    assert "'+5511999999999" in content
+    assert filename == "retencao-2026-09-16.xlsx"
+    assert [cell.value for cell in worksheet[1]][:5] == ["Nome", "Celular", "E-mail", "Plano", "Dias sem treinar"]
+    assert worksheet["A2"].value == "'=Aluno perigoso"
+    assert worksheet["B2"].value == "+5511999999999"
+    assert worksheet["B2"].data_type == "s"
+    assert worksheet["E2"].value == 17
+    assert isinstance(worksheet["F2"].value, datetime)
+    assert worksheet["F2"].number_format == "dd/mm/yyyy hh:mm"
+    assert worksheet.freeze_panes == "A2"
+    assert worksheet.auto_filter.ref == "A1:M2"
     mock_queue.assert_called_once_with(
         db,
         page=1,

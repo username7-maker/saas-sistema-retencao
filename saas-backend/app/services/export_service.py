@@ -2,13 +2,16 @@ import csv
 from datetime import date, datetime, time, timezone
 from io import BytesIO, StringIO
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Checkin, Member
 from app.services.dashboard_service import get_retention_queue
 
-_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
 def export_members_csv(db: Session) -> tuple[BytesIO, str]:
@@ -177,7 +180,7 @@ def export_checkins_template_csv() -> tuple[BytesIO, str]:
     return _dict_rows_to_csv(headers, rows), "template_checkins.csv"
 
 
-def export_retention_csv(
+def export_retention_xlsx(
     db: Session,
     *,
     search: str | None = None,
@@ -215,34 +218,90 @@ def export_retention_csv(
         "Proxima acao recomendada",
         "Responsavel sugerido",
     ]
-    rows = []
+    rows: list[list[object]] = []
     for item in queue.items:
         rows.append(
-            {
-                "Nome": item.full_name,
-                "Celular": item.phone or "",
-                "E-mail": item.email or "",
-                "Plano": item.plan_name,
-                "Dias sem treinar": "" if item.days_without_checkin is None else str(item.days_without_checkin),
-                "Ultimo check-in": _format_pt_br_datetime(item.last_checkin_at),
-                "Estagio de retencao": item.retention_stage_label or "",
-                "Severidade": item.risk_level.value,
-                "Score de risco": str(item.risk_score),
-                "Tipo de churn": item.churn_type or "",
-                "Ultimo contato": _format_pt_br_datetime(item.last_contact_at),
-                "Proxima acao recomendada": item.next_action or "",
-                "Responsavel sugerido": item.recommended_owner_role or "",
-            }
+            [
+                _xlsx_safe_text(item.full_name),
+                _xlsx_safe_text(item.phone or ""),
+                _xlsx_safe_text(item.email or ""),
+                _xlsx_safe_text(item.plan_name),
+                item.days_without_checkin,
+                _as_local_datetime(item.last_checkin_at),
+                _xlsx_safe_text(item.retention_stage_label or ""),
+                _xlsx_safe_text(item.risk_level.value),
+                item.risk_score,
+                _xlsx_safe_text(item.churn_type or ""),
+                _as_local_datetime(item.last_contact_at),
+                _xlsx_safe_text(item.next_action or ""),
+                _xlsx_safe_text(item.recommended_owner_role or ""),
+            ]
         )
-    return _dict_rows_to_csv(headers, rows), f"retencao-{date.today().isoformat()}.csv"
+    return _rows_to_xlsx(headers, rows), f"retencao-{date.today().isoformat()}.xlsx"
 
 
-def _format_pt_br_datetime(value: datetime | None) -> str:
+def _rows_to_xlsx(headers: list[str], rows: list[list[object]]) -> BytesIO:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Retencao"
+    worksheet.freeze_panes = "A2"
+    worksheet.sheet_view.showGridLines = False
+    worksheet.append(headers)
+
+    for row in rows:
+        worksheet.append(row)
+
+    header_fill = PatternFill(fill_type="solid", fgColor="1E3A5F")
+    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    body_font = Font(name="Arial", size=10, color="1F2937")
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for row in worksheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = body_font
+            cell.alignment = Alignment(vertical="center")
+
+    for column in (6, 11):
+        for cells in worksheet.iter_cols(min_col=column, max_col=column, min_row=2):
+            for cell in cells:
+                cell.number_format = "dd/mm/yyyy hh:mm"
+
+    for column in (5, 9):
+        for cells in worksheet.iter_cols(min_col=column, max_col=column, min_row=2):
+            for cell in cells:
+                cell.number_format = "0"
+
+    widths = [28, 18, 30, 22, 18, 20, 24, 14, 16, 24, 20, 34, 24]
+    for index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(index)].width = width
+
+    worksheet.auto_filter.ref = worksheet.dimensions
+    worksheet.row_dimensions[1].height = 24
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _as_local_datetime(value: datetime | None) -> datetime | None:
     if value is None:
-        return ""
+        return None
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone().strftime("%d/%m/%Y %H:%M")
+    return value.astimezone().replace(tzinfo=None)
+
+
+def _xlsx_safe_text(value: str) -> str:
+    # XLSX stores ordinary strings with an explicit text cell type, so phone
+    # numbers beginning with "+" remain importable by Kommo. Only a leading
+    # equals sign is interpreted by the workbook writer as a formula.
+    if value.startswith("="):
+        return f"'{value}"
+    return value
 
 
 def _dict_rows_to_csv(headers: list[str], rows: list[dict[str, str]]) -> BytesIO:
@@ -259,7 +318,7 @@ def _csv_safe_text(value: object) -> object:
     if not isinstance(value, str):
         return value
 
-    if value.startswith(_CSV_FORMULA_PREFIXES):
+    if value.startswith(_FORMULA_PREFIXES):
         return f"'{value}"
 
     return value

@@ -753,7 +753,7 @@ export function RetentionDashboardPage() {
   });
 
   const exportMutation = useMutation({
-    mutationFn: () => dashboardService.exportRetentionCsv(activeQueueFilters),
+    mutationFn: () => dashboardService.exportRetentionSpreadsheet(activeQueueFilters),
     onSuccess: () => toast.success("Planilha de retenção exportada."),
     onError: (error) => toast.error(getHttpErrorDetail(error, "Não foi possível exportar a planilha.")),
   });
@@ -984,7 +984,7 @@ export function RetentionDashboardPage() {
                   </Button>
                   <Button size="sm" variant="primary" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()}>
                     <Download size={14} />
-                    {exportMutation.isPending ? "Exportando..." : "Exportar CSV"}
+                    {exportMutation.isPending ? "Exportando..." : "Exportar planilha"}
                   </Button>
                 </>
               ) : null}

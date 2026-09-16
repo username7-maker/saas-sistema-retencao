@@ -24,7 +24,7 @@ vi.mock("../services/dashboardService", async () => {
       createRetentionExclusion: vi.fn(),
       retentionExclusions: vi.fn(),
       revokeRetentionExclusion: vi.fn(),
-      exportRetentionCsv: vi.fn(),
+      exportRetentionSpreadsheet: vi.fn(),
     },
   };
 });
@@ -241,7 +241,7 @@ describe("RetentionDashboardPage", () => {
     });
     vi.mocked(dashboardService.retentionExclusions).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(dashboardService.revokeRetentionExclusion).mockResolvedValue();
-    vi.mocked(dashboardService.exportRetentionCsv).mockResolvedValue();
+    vi.mocked(dashboardService.exportRetentionSpreadsheet).mockResolvedValue();
   });
 
   it("distinguishes import freshness from access coverage", async () => {
@@ -392,10 +392,10 @@ describe("RetentionDashboardPage", () => {
     await screen.findByRole("button", { name: /Ana Silva/i });
     fireEvent.change(screen.getByLabelText("Severidade"), { target: { value: "yellow" } });
     await screen.findByRole("button", { name: /Daniel Costa/i });
-    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar planilha" }));
 
     await waitFor(() => {
-      expect(dashboardService.exportRetentionCsv).toHaveBeenCalledWith(
+      expect(dashboardService.exportRetentionSpreadsheet).toHaveBeenCalledWith(
         expect.objectContaining({ level: "yellow", member_status: "all" }),
       );
     });

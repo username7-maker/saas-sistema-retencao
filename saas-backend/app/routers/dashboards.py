@@ -49,7 +49,7 @@ from app.services.dashboard_service import (
     get_retention_queue,
     get_weekly_summary,
 )
-from app.services.export_service import export_retention_csv
+from app.services.export_service import export_retention_xlsx
 from app.services.audit_service import log_audit_event
 from app.services.retention_exclusion_service import (
     create_retention_exclusion,
@@ -179,7 +179,7 @@ def retention_queue(
     )
 
 
-@router.get("/retention/export.csv")
+@router.get("/retention/export.xlsx")
 def retention_export(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -191,7 +191,7 @@ def retention_export(
     preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = Query(None),
     retention_stage: Literal["monitoring", "attention", "recovery", "reactivation", "manager_escalation", "cold_base"] | None = Query(None),
 ) -> StreamingResponse:
-    buffer, filename = export_retention_csv(
+    buffer, filename = export_retention_xlsx(
         db,
         search=search,
         level=level,
@@ -220,7 +220,7 @@ def retention_export(
     buffer.seek(0)
     return StreamingResponse(
         buffer,
-        media_type="text/csv; charset=utf-8",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
