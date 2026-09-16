@@ -697,7 +697,7 @@ class TestBodyCompositionPremiumReportDomain:
             reviewer_user_id=reviewer_user_id,
         )
 
-        assert payload["measured_at"].date() == date(2026, 4, 14)
+        assert "measured_at" not in payload
         assert payload["reviewer_user_id"] == reviewer_user_id
         assert "missing_body_fat_percent" in payload["data_quality_flags_json"]
         assert "missing_muscle_mass" in payload["data_quality_flags_json"]
@@ -868,7 +868,13 @@ class TestBodyCompositionPremiumReportDomain:
         assert "skeletal_muscle_kg" in composition_keys
         body_water_percent = next(metric for metric in payload.composition_metrics if metric.key == "body_water_percent")
         assert body_water_percent.formatted_value == "51.2%"
-        assert len(payload.history_series) == 4
+        assert {series.key for series in payload.history_series} == {
+            "weight_kg",
+            "body_fat_used_percent",
+            "muscle_mass_kg",
+            "visceral_fat_level",
+            "waist_hip_ratio",
+        }
         assert any(row.key == "weight_kg" for row in payload.comparison_rows)
         assert payload.methodological_note
         assert "bioimpedancia" in payload.methodological_note.lower()

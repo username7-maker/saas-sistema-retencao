@@ -266,6 +266,30 @@ def _omit_unavailable_report_metrics(report: Any, *, has_muscle_mass: bool) -> N
         for series in report.history_series
         if getattr(series, "key", None) not in unavailable_keys and any(point.value is not None for point in series.points)
     ]
+    report.metrics = [
+        metric
+        for metric in report.metrics
+        if metric.key not in unavailable_keys and metric.current.value is not None
+    ]
+    report.history = [
+        series
+        for series in report.history
+        if series.key not in unavailable_keys and bool(series.points)
+    ]
+    score_components = [item for item in report.score.components if item.key != "visceral_fat"]
+    if not has_muscle_mass:
+        score_components = [
+            item.model_copy(
+                update={
+                    "label": "Massa livre / FFMI",
+                    "description": "Usa massa livre de gordura e altura. Nao representa massa muscular medida.",
+                }
+            )
+            if item.key == "muscle"
+            else item
+            for item in score_components
+        ]
+    report.score = report.score.model_copy(update={"components": score_components})
 
 
 def _apply_anthropometry_metric_source_labels(payload: PremiumReportPayload) -> None:

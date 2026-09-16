@@ -109,18 +109,16 @@ def test_report_cards_history_and_pdf_keep_metric_provenance_and_weight_header_f
     assert bmr_card.origin_label == "TMB estimada por Schofield-HW (1985)"
     assert muscle_comparison.previous_origin == "reported"
     assert muscle_comparison.current_origin == "poortmans_2005"
-    assert [point.origin for point in muscle_history.points] == ["reported", "poortmans_2005"]
+    assert [point.origin for point in muscle_history.points] == ["poortmans_2005"]
 
     html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
-    weight_meta = html.index('<article class="clinical-meta-card clinical-meta-prominent">')
+    weight_card = html.index(">Peso<")
 
-    assert html.index("Altura") < weight_meta < html.index("Idade")
-    assert weight_meta < html.index('<section class="clinical-cover-evaluation-grid">')
-    assert "Data / hora" in html
-    assert "grid-template-columns: repeat(7, minmax(0, 1fr))" in html
+    assert weight_card < html.index('<section class="clinical-cover-evaluation-grid">')
+    assert "Avaliação:" in html
     assert "Massa muscular estimada por Poortmans (2005)" in html
     assert "TMB estimada por Schofield-HW (1985)" in html
-    assert "Estimado pela bioimpedância" in html
+    assert "Medido/informado" in html
 
 
 def test_anthropometry_payload_uses_poortmans_and_schofield_instead_of_hardcoded_lee():

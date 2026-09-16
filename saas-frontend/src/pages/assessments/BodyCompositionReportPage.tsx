@@ -11,15 +11,14 @@ import { bodyCompositionService } from "../../services/bodyCompositionService";
 import { assessmentService } from "../../services/assessmentService";
 import type {
   BodyCompositionBodyFatContext,
-  BodyCompositionComparisonRow,
-  BodyCompositionHistorySeries,
   BodyCompositionInsight,
   BodyCompositionMeasurementRow,
   BodyCompositionMetricCard,
   BodyCompositionReferenceMetric,
+  BodyCompositionReport,
   BodyCompositionReportHeader,
+  BodyCompositionReportMetric,
   BodyCompositionSex,
-  BodyCompositionTrend,
   CalculationOrigin,
 } from "../../types";
 import { calculationOriginLabel } from "../../utils/calculationOrigins";
@@ -238,13 +237,6 @@ function bodyMapAsset(sex: BodyCompositionSex | null | undefined): string {
   return sex === "female" ? "/body-maps/body-map-front-female.png" : "/body-maps/body-map-front-male.png";
 }
 
-function trendLabel(trend: BodyCompositionTrend): string {
-  if (trend === "up") return "Subiu";
-  if (trend === "down") return "Caiu";
-  if (trend === "stable") return "Estavel";
-  return "Sem base";
-}
-
 function BodyCompositionReportPage() {
   const { memberId, evaluationId, assessmentId } = useParams<{
     memberId: string;
@@ -289,6 +281,10 @@ function BodyCompositionReportPage() {
   }
 
   const report = reportQuery.data;
+  const isSemanticV2 = report.contract_version === "body-composition-report-v2"
+    && Array.isArray(report.metrics)
+    && report.score != null
+    && report.goals != null;
   const reportHeader: BodyCompositionReportHeader = report.header && typeof report.header === "object"
     ? report.header
     : {
@@ -310,8 +306,6 @@ function BodyCompositionReportPage() {
   const riskMetrics = Array.isArray(report.risk_metrics) ? report.risk_metrics : [];
   const goalMetrics = Array.isArray(report.goal_metrics) ? report.goal_metrics : [];
   const measurementRows = Array.isArray(report.measurement_rows) ? report.measurement_rows : [];
-  const comparisonRows = Array.isArray(report.comparison_rows) ? report.comparison_rows : [];
-  const historySeries = Array.isArray(report.history_series) ? report.history_series : [];
   const insights = Array.isArray(report.insights) ? report.insights : [];
   const allReferenceMetrics = [...compositionMetrics, ...riskMetrics, ...goalMetrics, ...muscleFatMetrics];
   const scoreMetric = metricByKey([...riskMetrics, ...primaryCards], "health_score");
@@ -416,6 +410,10 @@ function BodyCompositionReportPage() {
       >
         <article className="clinical-web-document body-composition-report-document mx-auto max-w-[1180px] overflow-hidden rounded-[30px] border border-[#d2ccc4] bg-[#fcfbf7] text-[#15110f] shadow-[0_24px_60px_rgba(0,0,0,0.18)] print:overflow-visible print:rounded-none print:border-none print:bg-white print:shadow-none">
           <div className="body-composition-report-content">
+          {isSemanticV2 ? (
+            <SemanticReportV2 report={report} header={reportHeader} isAnthropometry={isAnthropometry} />
+          ) : (
+          <>
           <section className="clinical-web-page">
             {isAnthropometry ? (
               <p className="mb-3 inline-flex rounded-full border border-[#157ca5]/30 bg-[#eaf6fa] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-[#0b668a]">
@@ -446,14 +444,16 @@ function BodyCompositionReportPage() {
 
           <section className="clinical-web-page">
             <ReportMiniHeader header={reportHeader} />
-            <MeasurementsSection rows={measurementRows} sex={reportHeader.sex} />
+            <MeasurementsSection rows={measurementRows} sex={reportHeader.sex} conservative />
             <section className="clinical-web-page-grid clinical-web-late-grid">
               <GoalCards metrics={cleanGoalMetrics} />
               <BodyFatSourcePanel context={report.body_fat_context ?? null} />
             </section>
-            <HistoryTable comparisonRows={comparisonRows} historySeries={historySeries} />
-            <ClientObservations insights={insights} teacherNotes={report.teacher_notes} />
+            <LegacyComparisonNotice />
+            <ClientObservations insights={[]} teacherNotes={report.teacher_notes} />
           </section>
+          </>
+          )}
           </div>
         </article>
       </ErrorBoundary>
@@ -462,6 +462,252 @@ function BodyCompositionReportPage() {
 }
 
 export default BodyCompositionReportPage;
+
+function SemanticReportV2({
+  report,
+  header,
+  isAnthropometry,
+}: {
+  report: BodyCompositionReport;
+  header: BodyCompositionReportHeader;
+  isAnthropometry: boolean;
+}) {
+  const metrics = [...(report.metrics ?? [])].sort((a, b) => a.display_order - b.display_order);
+  const role = (name: BodyCompositionReportMetric["display_roles"][number]) =>
+    metrics.filter((metric) => metric.display_roles.includes(name) && metric.current.value != null);
+  const headlines = role("headline").slice(0, 5);
+  const indicators = role("key_indicator");
+  const details = role("composition_detail");
+  const measurements = role("body_measurement").map((metric): BodyCompositionMeasurementRow => ({
+    key: metric.key,
+    label: metric.label,
+    current_value: metric.current.value,
+    previous_value: metric.previous?.value ?? null,
+    delta: metric.delta,
+    unit: metric.current.unit ?? "",
+    used_for_body_fat_calculation: false,
+    formatted_current: metric.current.formatted_value,
+    formatted_previous: metric.previous?.formatted_value ?? "-",
+    formatted_delta: metric.formatted_delta ?? "-",
+  }));
+  const physicalAge = metrics.find((metric) => metric.key === "physical_age")?.current.formatted_value ?? "-";
+  const bmr = metrics.find((metric) => ["basal_metabolic_rate_kcal", "bmr"].includes(metric.key));
+  const comparisonMessages = Array.from(new Set(metrics
+    .filter((metric) => metric.comparison_status !== "comparable" && metric.comparison_message)
+    .map((metric) => metric.comparison_message as string)));
+  const eligibleHistory = (report.history ?? []).filter((series) => series.chart_eligible);
+
+  return (
+    <>
+      <section className="clinical-web-page">
+        {isAnthropometry ? (
+          <p className="mb-3 inline-flex rounded-full border border-[#157ca5]/30 bg-[#eaf6fa] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-[#0b668a]">
+            Antropometria — sem bioimpedancia
+          </p>
+        ) : null}
+        {report.date_consistency === "future_legacy" ? (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            Registro histórico com data futura. Comparações e evolução foram desativadas.
+          </div>
+        ) : null}
+        <ReportHeader
+          header={header}
+          physicalAge={physicalAge}
+          bmr={bmr?.current.formatted_value ?? "-"}
+          basalMetabolicRateOriginLabel={bmr?.current.source_label ?? "Fonte não informada"}
+          muscleMassOriginLabel={metrics.find((metric) => metric.key === "muscle_mass_kg")?.current.source_label ?? "Fonte não informada"}
+        />
+        <SemanticHeadlineMetrics metrics={headlines} evaluationNumber={report.evaluation_number} />
+        <section className="clinical-web-page-grid">
+          <SemanticScore report={report} />
+          <SemanticMetricTable metrics={indicators} title="Indicadores-chave" />
+        </section>
+        <SemanticAnalysis report={report} />
+        <SemanticMetricDetails metrics={details} />
+      </section>
+
+      <section className="clinical-web-page">
+        <ReportMiniHeader header={header} />
+        <MeasurementsSection rows={measurements} sex={header.sex} />
+        <SemanticGoals report={report} />
+        <SemanticPriorities report={report} />
+        <SemanticComparisonNotices messages={comparisonMessages} />
+        {eligibleHistory.length > 0 ? <SemanticHistory series={eligibleHistory} /> : null}
+        <section className="clinical-web-section clinical-web-observations">
+          <ReportSectionTitle title="Observações do professor" subtitle="Registro escrito pelo profissional responsável." />
+          <div className="clinical-web-note">
+            <p>{report.teacher_notes || "Sem observações registradas nesta avaliação."}</p>
+          </div>
+        </section>
+        <section className="clinical-web-section">
+          <ReportSectionTitle title="Metodologia" subtitle="Critérios e limites deste relatório." />
+          <p className="text-sm text-[#554d46]">{report.methodological_note}</p>
+        </section>
+      </section>
+    </>
+  );
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
+}
+
+function reportDateLabel(header: BodyCompositionReportHeader): string {
+  return header.measured_at ? formatDateTime(header.measured_at) : formatDate(header.evaluation_date);
+}
+
+function SemanticHeadlineMetrics({ metrics, evaluationNumber }: { metrics: BodyCompositionReportMetric[]; evaluationNumber?: number }) {
+  if (metrics.length === 0) return null;
+  return (
+    <section className="clinical-web-detail-grid mt-4" aria-label="Destaques da avaliação">
+      {metrics.map((metric) => (
+        <article key={metric.key} className="clinical-web-detail-item">
+          <div>
+            <span>{metric.current.source_label || `Avaliação ${evaluationNumber ?? "-"}`}</span>
+            <strong>{metric.label}</strong>
+            <small>{metric.comparison_status === "comparable" && metric.formatted_delta ? metric.formatted_delta : metric.status_label}</small>
+          </div>
+          <em>{metric.current.formatted_value}</em>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function SemanticScore({ report }: { report: BodyCompositionReport }) {
+  const score = report.score;
+  if (!score) return null;
+  return (
+    <section className="clinical-web-score-card">
+      <div>
+        <p>Score de composição corporal</p>
+        <strong>{score.value ?? "-"}</strong>
+        <span>/100</span>
+      </div>
+      <article>
+        <h3>{score.band_label || "Sem classificação"}</h3>
+        {score.comparison_status === "comparable" && score.formatted_delta ? <p>{score.formatted_delta}</p> : null}
+        {score.disclaimer ? <small>{score.disclaimer}</small> : null}
+      </article>
+    </section>
+  );
+}
+
+function semanticReference(metric: BodyCompositionReportMetric): string {
+  const range = metric.reference_min != null && metric.reference_max != null
+    ? `${formatNumber(metric.reference_min)} – ${formatNumber(metric.reference_max)}${metric.current.unit ? ` ${metric.current.unit}` : ""}`
+    : metric.reference_label || "Sem faixa";
+  return metric.reference_source ? `${range} · ${metric.reference_source}` : range;
+}
+
+function SemanticMetricTable({ metrics, title }: { metrics: BodyCompositionReportMetric[]; title: string }) {
+  if (metrics.length === 0) return null;
+  return (
+    <section className="clinical-web-section clinical-web-key-section">
+      <ReportSectionTitle title={title} subtitle="Valores, fontes e referências definidos pela API." />
+      <div className="clinical-web-table-wrap">
+        <table>
+          <thead><tr><th>Métrica</th><th>Fonte</th><th>Valor</th><th>Referência</th></tr></thead>
+          <tbody>{metrics.map((metric) => (
+            <tr key={metric.key}>
+              <td><strong>{metric.label}</strong><span className={statusClass(metric.status)}>{metric.status_label}</span></td>
+              <td><span className="clinical-web-source-pill">{metric.current.source_label || "Fonte não informada"}</span></td>
+              <td><strong>{metric.current.formatted_value}</strong></td>
+              <td>{semanticReference(metric)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function SemanticAnalysis({ report }: { report: BodyCompositionReport }) {
+  if (!report.analysis_cordex) return null;
+  return (
+    <section className="clinical-web-section clinical-web-observations">
+      <ReportSectionTitle title="Análise Cordex" subtitle="Leitura semântica gerada a partir de comparações válidas." />
+      <div className="clinical-web-note"><p>{report.analysis_cordex}</p></div>
+    </section>
+  );
+}
+
+function SemanticMetricDetails({ metrics }: { metrics: BodyCompositionReportMetric[] }) {
+  if (metrics.length === 0) return null;
+  return (
+    <section className="clinical-web-section clinical-web-detail-section">
+      <ReportSectionTitle title="Composição corporal detalhada" subtitle="Cada valor conserva sua fonte e seu método." />
+      <div className="clinical-web-detail-grid">{metrics.map((metric) => (
+        <article key={metric.key} className="clinical-web-detail-item">
+          <div>
+            <span>{metric.current.source_label || "Fonte não informada"}</span>
+            <strong>{metric.label}</strong>
+            <small>{metric.current.method_label || metric.status_label}</small>
+          </div>
+          <em>{metric.current.formatted_value}</em>
+        </article>
+      ))}</div>
+    </section>
+  );
+}
+
+function SemanticGoals({ report }: { report: BodyCompositionReport }) {
+  const goals = report.goals;
+  if (!goals) return null;
+  return (
+    <section className="clinical-web-section clinical-web-goals-card">
+      <ReportSectionTitle title="Metas do ciclo" subtitle={goals.professional_message} />
+      <p className="mb-3 text-sm font-semibold text-[#7c3f19]">{goals.member_message}</p>
+      {goals.values?.length ? <div>{goals.values.map((goal) => (
+        <p key={goal.key}><span>{goal.label}</span><strong>{goal.formatted_value}</strong></p>
+      ))}</div> : null}
+    </section>
+  );
+}
+
+function SemanticPriorities({ report }: { report: BodyCompositionReport }) {
+  if (!report.priorities?.length) return null;
+  return (
+    <section className="clinical-web-section clinical-web-observations">
+      <ReportSectionTitle title="Prioridades" subtitle="Orientações ordenadas pela API." />
+      <div className="clinical-web-insight-grid">{report.priorities.map((priority) => (
+        <article key={priority.key}><h3>{priority.title}</h3><p>{priority.detail}</p></article>
+      ))}</div>
+    </section>
+  );
+}
+
+function SemanticComparisonNotices({ messages }: { messages: string[] }) {
+  if (messages.length === 0) return null;
+  return (
+    <section className="clinical-web-section">
+      <ReportSectionTitle title="Comparabilidade" subtitle="Motivos fornecidos pelo contrato do relatório." />
+      {messages.map((message) => <p key={message} className="mb-2 text-sm text-[#554d46]">{message}</p>)}
+    </section>
+  );
+}
+
+function SemanticHistory({ series }: { series: NonNullable<BodyCompositionReport["history"]> }) {
+  return (
+    <section className="clinical-web-section clinical-web-history-card">
+      <ReportSectionTitle title="Histórico" subtitle="Séries com pelo menos três pontos metodologicamente compatíveis." />
+      <div className="clinical-web-table-wrap"><table><thead><tr><th>Série</th><th>Pontos comparáveis</th><th>Excluídos</th></tr></thead>
+        <tbody>{series.map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.points.length}</td><td>{item.excluded_points_count}</td></tr>)}</tbody>
+      </table></div>
+    </section>
+  );
+}
+
+function LegacyComparisonNotice() {
+  return (
+    <section className="clinical-web-section clinical-web-history-card">
+      <ReportSectionTitle title="Historico" subtitle="Compatibilidade defensiva para relatórios anteriores." />
+      <p className="text-sm font-semibold text-[#554d46]">Comparação indisponível neste relatório antigo</p>
+    </section>
+  );
+}
 
 function ReportHeader({
   header,
@@ -495,7 +741,7 @@ function ReportHeader({
         <MetaCell label="Sexo" value={sexLabel(header.sex)} />
         <MetaCell label="Idade fisica" value={physicalAge} />
         <MetaCell label="Metab. basal" value={bmr} />
-        <MetaCell label="Data / hora" value={formatDateTime(header.measured_at)} />
+        <MetaCell label={header.measured_at ? "Data / hora" : "Data"} value={reportDateLabel(header)} />
       </section>
       <section className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Origem dos calculos">
         <div className="rounded-lg border border-[#d8d2ca] bg-[#f7f4ef] px-4 py-3">
@@ -518,7 +764,7 @@ function ReportMiniHeader({ header }: { header: BodyCompositionReportHeader }) {
       <div>
         <p>Relatorio de avaliacao fisica</p>
         <strong>{header.member_name}</strong>
-        <span>{formatDateTime(header.measured_at)}</span>
+        <span>{reportDateLabel(header)}</span>
       </div>
     </header>
   );
@@ -659,18 +905,18 @@ function ContextMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MeasurementsSection({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null }) {
+function MeasurementsSection({ rows, sex, conservative = false }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null; conservative?: boolean }) {
   const visibleRows = rows.filter((row) => row.current_value != null || row.previous_value != null);
   if (visibleRows.length === 0) return null;
   return (
     <section className="clinical-web-section clinical-web-measurement-section">
       <ReportSectionTitle title="Medidas corporais" subtitle="Mapa anatomico generico para localizar perimetria. Nao usa foto do aluno." />
-      <MeasurementMap rows={visibleRows} sex={sex} />
+      <MeasurementMap rows={visibleRows} sex={sex} conservative={conservative} />
     </section>
   );
 }
 
-function MeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null }) {
+function MeasurementMap({ rows, sex, conservative = false }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null; conservative?: boolean }) {
   const preferredOrder = [
     "neck_cm",
     "shoulders_cm",
@@ -696,32 +942,32 @@ function MeasurementMap({ rows, sex }: { rows: BodyCompositionMeasurementRow[]; 
     <div className="clinical-web-measurement-map">
       <div className="clinical-web-bubble-column">
         {leftRows.map((row) => (
-          <MeasurementBubble key={row.key} row={row} />
+          <MeasurementBubble key={row.key} row={row} conservative={conservative} />
         ))}
       </div>
       <img src={bodyMapAsset(sex)} alt={alt} />
       <div className="clinical-web-bubble-column clinical-web-bubble-column-right">
         {rightRows.map((row) => (
-          <MeasurementBubble key={row.key} row={row} />
+          <MeasurementBubble key={row.key} row={row} conservative={conservative} />
         ))}
       </div>
     </div>
   );
 }
 
-function MeasurementBubble({ row }: { row: BodyCompositionMeasurementRow }) {
+function MeasurementBubble({ row, conservative = false }: { row: BodyCompositionMeasurementRow; conservative?: boolean }) {
   const hasCurrent = row.current_value != null;
-  const hasPrevious = row.previous_value != null;
+  const hasPrevious = !conservative && row.previous_value != null;
   const comparison = hasCurrent && hasPrevious
     ? `Anterior: ${row.formatted_previous}${row.formatted_delta !== "-" ? ` · ${row.formatted_delta}` : ""}`
     : hasCurrent
       ? "Primeira avaliação"
-      : "Sem medida atual";
+      : "Não aferido nesta avaliação";
   return (
     <article className="clinical-web-measurement-bubble">
       <span>{hasCurrent ? "Atual" : "Anterior"}</span>
       <strong>{row.label}</strong>
-      <em>{hasCurrent ? row.formatted_current : row.formatted_previous}</em>
+      <em>{hasCurrent ? row.formatted_current : (conservative ? "-" : row.formatted_previous)}</em>
       <small>{comparison}</small>
     </article>
   );
@@ -739,46 +985,6 @@ function GoalCards({ metrics }: { metrics: BodyCompositionReferenceMetric[] }) {
             <strong>{metric.formatted_value}</strong>
           </p>
         ))}
-      </div>
-    </section>
-  );
-}
-
-function HistoryTable({ comparisonRows, historySeries }: { comparisonRows: BodyCompositionComparisonRow[]; historySeries: BodyCompositionHistorySeries[] }) {
-  const columns = Array.from(
-    new Set(
-      historySeries
-        .flatMap((series) => Array.isArray(series?.points) ? series.points : [])
-        .map((point) => point.evaluation_date)
-        .filter(Boolean),
-    ),
-  ).slice(-2);
-  const rows = comparisonRows.slice(0, 8);
-  if (rows.length === 0 && columns.length === 0) return null;
-  return (
-    <section className="clinical-web-section clinical-web-history-card">
-      <ReportSectionTitle title="Historico" subtitle="Anterior x atual para acompanhar tendencia." />
-      <div className="clinical-web-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Metrica</th>
-              <th>{columns[0] || "Anterior"}</th>
-              <th>{columns[1] || "Atual"}</th>
-              <th>Tendencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <td>{row.label}</td>
-                <td>{row.previous_formatted}</td>
-                <td>{row.current_formatted}</td>
-                <td>{trendLabel(row.trend)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </section>
   );

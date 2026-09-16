@@ -2,6 +2,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
@@ -60,6 +61,7 @@ BODY_COMPOSITION_MEASUREMENT_FIELDS = (
     "body_fat_manual_override_percent",
     *ANTHROPOMETRY_FIELDS,
 )
+BUSINESS_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 
 def create_body_composition_evaluation(
@@ -510,6 +512,27 @@ def _normalize_datetime(value: datetime) -> datetime:
 def _validate_body_composition_payload(
     payload: BodyCompositionEvaluationCreate | BodyCompositionEvaluationUpdate,
 ) -> None:
+    now = datetime.now(tz=timezone.utc)
+    if payload.evaluation_date > now.astimezone(BUSINESS_TIMEZONE).date():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A data da avaliacao nao pode estar no futuro.",
+        )
+    if payload.measured_at is not None:
+        measured_at = payload.measured_at
+        if measured_at.tzinfo is None:
+            measured_at = measured_at.replace(tzinfo=BUSINESS_TIMEZONE)
+        measured_at_utc = measured_at.astimezone(timezone.utc)
+        if measured_at_utc > now:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="O horario da avaliacao nao pode estar no futuro.",
+            )
+        if measured_at.astimezone(BUSINESS_TIMEZONE).date() != payload.evaluation_date:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A data da avaliacao deve coincidir com o horario informado.",
+            )
     has_any_measurement = any(getattr(payload, field, None) is not None for field in BODY_COMPOSITION_MEASUREMENT_FIELDS)
     if has_any_measurement:
         return

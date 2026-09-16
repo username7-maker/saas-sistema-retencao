@@ -54,6 +54,12 @@ PreferredBodyFatSource = Literal["bioimpedance", "anthropometry", "geneos_compos
 BodyFatUsedSource = Literal["bioimpedance", "anthropometry", "manual_override"]
 BodyFatMethod = Literal["legacy_bioimpedance", "navy_circumference", "rfm", "geneos_composite", "skinfold_protocol", "manual_override"]
 BodyFatConfidence = Literal["high", "medium_high", "medium", "low", "inconsistent"]
+BodyCompositionComparisonStatus = Literal["comparable", "missing_value", "incompatible_method", "invalid_date"]
+BodyCompositionReferenceKind = Literal["clinical", "protocol", "equipment", "none"]
+BodyCompositionMetricRole = Literal["headline", "key_indicator", "composition_detail", "body_measurement", "history"]
+BodyCompositionDateConsistency = Literal["valid", "future_legacy"]
+BodyCompositionScoreBand = Literal["attention", "intermediate", "good", "excellent"]
+BodyCompositionGoalStatus = Literal["available", "unsafe", "unavailable"]
 BodyCompositionDataQualityFlag = Literal[
     "missing_body_fat_percent",
     "missing_muscle_mass",
@@ -514,7 +520,8 @@ class BodyCompositionReportHeaderRead(BaseModel):
     member_name: str
     gym_name: str | None = None
     trainer_name: str | None = None
-    measured_at: datetime
+    measured_at: datetime | None = None
+    evaluation_date: date | None = None
     age_years: int | None = None
     sex: BodyCompositionSex | None = None
     height_cm: float | None = None
@@ -590,6 +597,96 @@ class BodyCompositionBodyFatContextRead(BaseModel):
     quality_flags: list[BodyCompositionDataQualityFlag] = Field(default_factory=list)
 
 
+class BodyCompositionMetricObservationRead(BaseModel):
+    value: float | int | None = None
+    formatted_value: str
+    unit: str | None = None
+    source: str | None = None
+    source_label: str | None = None
+    method: str | None = None
+    method_label: str | None = None
+
+
+class BodyCompositionReportMetricRead(BaseModel):
+    key: str
+    label: str
+    display_order: int
+    display_roles: list[BodyCompositionMetricRole] = Field(default_factory=list)
+    current: BodyCompositionMetricObservationRead
+    previous: BodyCompositionMetricObservationRead | None = None
+    delta: float | None = None
+    delta_percent: float | None = None
+    formatted_delta: str | None = None
+    trend: Literal["up", "down", "stable"] | None = None
+    comparison_status: BodyCompositionComparisonStatus
+    comparison_message: str | None = None
+    reference_kind: BodyCompositionReferenceKind = "none"
+    reference_label: str | None = None
+    reference_source: str | None = None
+    reference_min: float | None = None
+    reference_max: float | None = None
+    status: BodyCompositionRangeStatus = "unknown"
+    status_label: str
+
+
+class BodyCompositionReportScoreRead(BaseModel):
+    value: int | None = None
+    band: BodyCompositionScoreBand | None = None
+    band_label: str | None = None
+    delta: int | None = None
+    formatted_delta: str | None = None
+    comparison_status: BodyCompositionComparisonStatus
+    comparison_message: str | None = None
+    components: list[BodyCompositionScoreBreakdownItemRead] = Field(default_factory=list)
+    disclaimer: str
+
+
+class BodyCompositionReportPriorityRead(BaseModel):
+    key: str
+    title: str
+    detail: str
+    tone: BodyCompositionInsightTone = "neutral"
+    display_order: int
+
+
+class BodyCompositionGoalValueRead(BaseModel):
+    key: str
+    label: str
+    value: float | int
+    formatted_value: str
+    unit: str | None = None
+
+
+class BodyCompositionGoalsRead(BaseModel):
+    status: BodyCompositionGoalStatus
+    requires_review: bool
+    professional_message: str
+    member_message: str
+    values: list[BodyCompositionGoalValueRead] | None = None
+
+
+class BodyCompositionSemanticHistoryPointRead(BaseModel):
+    evaluation_id: UUID
+    measured_at: datetime | None = None
+    evaluation_date: date | None = None
+    evaluation_date: date
+    value: float | int
+    formatted_value: str
+    source: str | None = None
+    method: str | None = None
+
+
+class BodyCompositionSemanticHistorySeriesRead(BaseModel):
+    key: str
+    label: str
+    unit: str | None = None
+    method_signature: str | None = None
+    points: list[BodyCompositionSemanticHistoryPointRead] = Field(default_factory=list)
+    excluded_points_count: int = 0
+    chart_eligible: bool = False
+    comparison_message: str | None = None
+
+
 class BodyCompositionMeasurementRowRead(BaseModel):
     key: str
     label: str
@@ -645,9 +742,19 @@ class BodyCompositionInsightRead(BaseModel):
 
 
 class BodyCompositionReportRead(BaseModel):
+    contract_version: Literal["body-composition-report-v2"] = "body-composition-report-v2"
     header: BodyCompositionReportHeaderRead
     current_evaluation_id: UUID
     previous_evaluation_id: UUID | None = None
+    evaluation_number: int = 1
+    is_baseline: bool = True
+    date_consistency: BodyCompositionDateConsistency = "valid"
+    score: BodyCompositionReportScoreRead
+    metrics: list[BodyCompositionReportMetricRead] = Field(default_factory=list)
+    analysis_cordex: str | None = None
+    priorities: list[BodyCompositionReportPriorityRead] = Field(default_factory=list)
+    goals: BodyCompositionGoalsRead
+    history: list[BodyCompositionSemanticHistorySeriesRead] = Field(default_factory=list)
     basal_metabolic_rate_origin: CalculationOrigin | None = None
     muscle_mass_origin: CalculationOrigin | None = None
     reviewed_manually: bool

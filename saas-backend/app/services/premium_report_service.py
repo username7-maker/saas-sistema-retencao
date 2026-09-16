@@ -7,6 +7,7 @@ from html import escape
 import re
 from pathlib import Path
 from typing import Any, Sequence
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -726,9 +727,15 @@ def _format_dateish(value: Any) -> str:
     if value is None:
         return "Sem registro"
     if isinstance(value, str):
-        return value[:10]
-    if hasattr(value, "date"):
-        return value.date().isoformat()
+        raw = value[:10]
+        try:
+            return datetime.fromisoformat(raw).strftime("%d/%m/%Y")
+        except ValueError:
+            return raw
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y")
     return str(value)
 
 
@@ -1102,6 +1109,359 @@ def _restore_pdf_portuguese_accents(value: str) -> str:
 
 
 def _render_body_composition_report_html(payload: PremiumReportPayload) -> str:
+    report = payload.parameters.get("report") if isinstance(payload.parameters, dict) else None
+    if not isinstance(report, dict) or report.get("contract_version") != "body-composition-report-v2":
+        return _render_body_composition_report_html_legacy(payload)
+
+    header = report.get("header") or {}
+    metrics = [metric for metric in report.get("metrics", []) if isinstance(metric, dict)]
+    score = report.get("score") or {}
+    goals = report.get("goals") or {}
+    priorities = [item for item in report.get("priorities", []) if isinstance(item, dict)]
+    history = [series for series in report.get("history", []) if isinstance(series, dict)]
+    next_assessment = report.get("next_assessment")
+    teacher_notes = str(report.get("teacher_notes") or "").strip()
+    analysis = str(report.get("analysis_cordex") or "").strip()
+    date_consistency = str(report.get("date_consistency") or "valid")
+    technical_scope = payload.report_scope == "technical"
+    measured_label = _format_semantic_measured_at(header)
+    generated_label = payload.generated_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+    evaluation_number = int(report.get("evaluation_number") or 1)
+    is_baseline = bool(report.get("is_baseline"))
+    evaluation_label = f"Avaliação nº {evaluation_number}" + (" · linha de base" if is_baseline else "")
+    client_footer_note = "Relatório informativo para acompanhar evolução corporal. Os valores são estimativas e não substituem avaliação clínica."
+
+    headline = _semantic_metrics_for_role(metrics, "headline")[:5]
+    key_indicators = _semantic_metrics_for_role(metrics, "key_indicator")
+    details = _semantic_metrics_for_role(metrics, "composition_detail")
+    measurements = _semantic_metrics_for_role(metrics, "body_measurement")
+    comparison_notice = _render_semantic_comparison_notices(metrics)
+    eligible_history = [series for series in history if series.get("chart_eligible")]
+    history_page = _render_semantic_history_page(
+        eligible_history,
+        payload=payload,
+        header=header,
+        measured_label=measured_label,
+        footer=client_footer_note,
+        technical_scope=technical_scope,
+    )
+    date_alert = (
+        '<section class="clinical-soft-alert"><strong>Data inconsistente:</strong> '
+        "corrija a data da avaliação para liberar comparações e evolução.</section>"
+        if date_consistency == "future_legacy"
+        else ""
+    )
+    observation = teacher_notes or "Sem observações registradas nesta avaliação."
+    analysis_copy = analysis or (
+        "A evolução está suspensa até a correção da data."
+        if date_consistency == "future_legacy"
+        else "Esta avaliação estabelece uma referência para os próximos acompanhamentos."
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>{escape(payload.title)}</title>
+  <style>{_body_composition_report_css()}</style>
+</head>
+<body>
+  <main class="clinical-shell">
+    <section class="clinical-page clinical-cover-page clinical-semantic-cover clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
+      {_render_semantic_report_header(payload, header, measured_label, evaluation_label, generated_label if technical_scope else None)}
+      {date_alert}
+      <section class="clinical-section">
+        <h2>Resultado da avaliação</h2>
+        <p class="clinical-section-subtitle">Indicadores principais para acompanhar a evolução.</p>
+        {_render_semantic_headline_metrics(headline)}
+      </section>
+      <section class="clinical-cover-evaluation-grid">
+        {_render_semantic_score(score)}
+        <article class="clinical-cover-note">
+          <h3>Análise Cordex</h3>
+          <p>{escape(analysis_copy)}</p>
+        </article>
+      </section>
+      {_render_semantic_priorities(priorities)}
+      <section class="clinical-section clinical-key-indicators-section">
+        <h2>Indicadores-chave</h2>
+        <p class="clinical-section-subtitle">Cada faixa informa se a referência é clínica, de protocolo ou técnica.</p>
+        {_render_semantic_metric_table(key_indicators, technical_scope=technical_scope)}
+      </section>
+      <section class="clinical-section clinical-detail-section">
+        <h2>Composição corporal detalhada</h2>
+        {_render_semantic_detail_grid(details, technical_scope=technical_scope)}
+      </section>
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
+
+    <section class="clinical-page clinical-semantic-cycle clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
+      {_render_semantic_report_header(payload, header, measured_label, evaluation_label, None, compact=True)}
+      {_render_semantic_measurements(measurements, header.get('sex'))}
+      <section class="clinical-section clinical-cycle-section">
+        <h2>Objetivo e metas do ciclo</h2>
+        {_render_semantic_goals(goals, technical_scope=technical_scope)}
+      </section>
+      {_render_semantic_priorities(priorities, title="Plano até a próxima avaliação")}
+      {_render_body_next_assessment(next_assessment)}
+      {comparison_notice}
+      {_render_semantic_history_summary(metrics)}
+      <section class="clinical-section clinical-observation-section">
+        <h2>Observações do professor</h2>
+        <p class="clinical-empty-copy">{escape(observation)}</p>
+      </section>
+      <section class="clinical-section clinical-observation-section">
+        <h2>Metodologia e fontes</h2>
+        <p>{escape(str(report.get('methodological_note') or ''))}</p>
+      </section>
+      <footer class="clinical-footer">{escape(client_footer_note)}</footer>
+    </section>
+    {history_page}
+  </main>
+</body>
+</html>"""
+
+
+def _semantic_metrics_for_role(metrics: Sequence[dict[str, Any]], role: str) -> list[dict[str, Any]]:
+    def has_visible_value(metric: dict[str, Any]) -> bool:
+        current_value = _read_value(metric.get("current") or {}, "value")
+        previous_value = _read_value(metric.get("previous") or {}, "value")
+        return current_value is not None or (role == "body_measurement" and previous_value is not None)
+
+    return sorted(
+        [metric for metric in metrics if role in (metric.get("display_roles") or []) and has_visible_value(metric)],
+        key=lambda metric: int(metric.get("display_order") or 0),
+    )
+
+
+def _render_semantic_report_header(
+    payload: PremiumReportPayload,
+    header: dict[str, Any],
+    measured_label: str,
+    evaluation_label: str,
+    generated_label: str | None,
+    *,
+    compact: bool = False,
+) -> str:
+    generated = f'<p class="clinical-generated">Gerado em {escape(generated_label)}</p>' if generated_label else ""
+    compact_class = " clinical-header-repeat" if compact else ""
+    return f"""
+      <header class="clinical-header{compact_class}">
+        <div class="clinical-brand">
+          {f'<img class="clinical-cordex-logo" src="{CORDEX_REPORT_LOGO_DATA_URI}" alt="{escape(payload.branding.product_name)}" />' if CORDEX_REPORT_LOGO_DATA_URI else escape(payload.branding.product_name)}
+        </div>
+        <div class="clinical-partner-logo-wrap"><img class="clinical-progym-logo" src="{PROGYM_LOGO_DATA_URI}" alt="ProGym" /></div>
+        <div class="clinical-professional">
+          <span class="clinical-kicker">Relatório de avaliação física</span>
+          <h1>{escape(str(header.get('member_name') or payload.subject_name or 'Aluno'))}</h1>
+          <p>Avaliação: {escape(measured_label)}</p>
+          <p>Professor: {escape(str(header.get('trainer_name') or 'não informado'))} · {escape(evaluation_label)}</p>
+          {generated}
+        </div>
+      </header>
+    """
+
+
+def _render_semantic_headline_metrics(metrics: Sequence[dict[str, Any]]) -> str:
+    cards = "".join(
+        f"""
+        <article class="clinical-goal-card">
+          <span>{escape(str(metric.get('label') or '-'))}</span>
+          <strong>{escape(str(_read_value(metric.get('current') or {}, 'formatted_value') or '-'))}</strong>
+          <small>{escape(str(_read_value(metric.get('current') or {}, 'source_label') or ''))}</small>
+        </article>
+        """
+        for metric in metrics
+    )
+    return f'<div class="clinical-goal-grid clinical-headline-grid">{cards}</div>'
+
+
+def _render_semantic_score(score: dict[str, Any]) -> str:
+    value = score.get("value")
+    display = str(int(value)) if isinstance(value, int | float) else "--"
+    band = str(score.get("band_label") or "Sem classificação")
+    delta = score.get("delta")
+    delta_copy = f" · {int(delta):+d} pontos" if isinstance(delta, int | float) else ""
+    return f"""
+      <article class="clinical-cover-score">
+        <h3>Score de composição corporal</h3>
+        <div class="clinical-score"><strong>{escape(display)}</strong><span>/100 pontos</span></div>
+        <p class="clinical-score-copy">Faixa {escape(band.lower())}{escape(delta_copy)}</p>
+        {_render_body_score_breakdown(score.get('components') or [])}
+        <small>{escape(str(score.get('disclaimer') or ''))}</small>
+      </article>
+    """
+
+
+def _render_semantic_priorities(priorities: Sequence[dict[str, Any]], *, title: str = "Prioridades") -> str:
+    if not priorities:
+        return ""
+    rows = "".join(
+        f"<li><strong>{escape(str(item.get('title') or '-'))}</strong><span>{escape(str(item.get('detail') or ''))}</span></li>"
+        for item in sorted(priorities, key=lambda item: int(item.get("display_order") or 0))[:3]
+    )
+    return f'<section class="clinical-section clinical-recommendations-section"><h2>{escape(title)}</h2><ol class="clinical-recommendations-list">{rows}</ol></section>'
+
+
+def _render_semantic_metric_table(metrics: Sequence[dict[str, Any]], *, technical_scope: bool) -> str:
+    rows = []
+    for metric in metrics:
+        current = metric.get("current") or {}
+        reference = str(metric.get("reference_label") or "Sem referência")
+        if technical_scope and metric.get("reference_source"):
+            reference += f" · {metric['reference_source']}"
+        rows.append(
+            f"<tr><td>{escape(str(metric.get('label') or '-'))}</td>"
+            f"<td>{escape(str(current.get('source_label') or current.get('method_label') or 'Fonte não informada'))}</td>"
+            f"<td>{escape(str(current.get('formatted_value') or '-'))}</td>"
+            f"<td>{escape(reference)}</td>"
+            f"<td>{escape(str(metric.get('status_label') or 'Sem faixa'))}</td></tr>"
+        )
+    if not rows:
+        return '<p class="clinical-empty-copy">Sem indicadores disponíveis.</p>'
+    return f'<div class="clinical-table-wrap"><table class="clinical-history-simple-table"><thead><tr><th>Indicador</th><th>Fonte</th><th>Valor</th><th>Referência</th><th>Status</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+
+
+def _render_semantic_detail_grid(metrics: Sequence[dict[str, Any]], *, technical_scope: bool) -> str:
+    items = []
+    for metric in metrics:
+        current = metric.get("current") or {}
+        source = current.get("source_label") or current.get("method_label") or "Fonte não informada"
+        if not technical_scope and metric.get("reference_kind") == "none" and current.get("value") is None:
+            continue
+        items.append(
+            f'<article class="clinical-detail-item"><span>{escape(str(source))}</span><strong>{escape(str(metric.get("label") or "-"))}</strong><em>{escape(str(current.get("formatted_value") or "-"))}</em></article>'
+        )
+    return f'<div class="clinical-detail-grid">{"".join(items)}</div>' if items else '<p class="clinical-empty-copy">Sem dados detalhados.</p>'
+
+
+def _render_semantic_comparison_notices(metrics: Sequence[dict[str, Any]]) -> str:
+    messages = []
+    for metric in metrics:
+        if metric.get("comparison_status") not in {"incompatible_method", "invalid_date"}:
+            continue
+        message = str(metric.get("comparison_message") or "")
+        item = f"{metric.get('label')}: {message}"
+        if item not in messages:
+            messages.append(item)
+    if not messages:
+        return ""
+    return '<section class="clinical-soft-alert"><strong>Comparações suspensas:</strong> ' + escape("; ".join(messages)) + "</section>"
+
+
+def _render_semantic_goals(goals: dict[str, Any], *, technical_scope: bool) -> str:
+    status = str(goals.get("status") or "unavailable")
+    message_key = "professional_message" if technical_scope else "member_message"
+    message = str(goals.get(message_key) or "Meta pendente de validação do professor.")
+    values = goals.get("values") or []
+    if status == "unsafe" and not technical_scope:
+        values = []
+    cards = "".join(
+        f'<article class="clinical-goal-card"><span>{escape(str(item.get("label") or "-"))}</span><strong>{escape(str(item.get("formatted_value") or "-"))}</strong></article>'
+        for item in values
+    )
+    alert_class = "clinical-soft-alert" if status == "unsafe" else "clinical-history-empty"
+    return f'{f"<div class=\"clinical-goal-grid\">{cards}</div>" if cards else ""}<div class="{alert_class}">{escape(message)}</div>'
+
+
+def _render_semantic_measurements(metrics: Sequence[dict[str, Any]], sex: Any) -> str:
+    if not metrics:
+        return ""
+    rows = []
+    for metric in metrics:
+        current = metric.get("current") or {}
+        previous = metric.get("previous") or None
+        rows.append({
+            "key": metric.get("key"),
+            "label": metric.get("label"),
+            "current_value": current.get("value"),
+            "previous_value": previous.get("value") if previous else None,
+            "formatted_current": current.get("formatted_value"),
+            "formatted_previous": previous.get("formatted_value") if previous else "-",
+            "formatted_delta": metric.get("formatted_delta") or "-",
+        })
+    return _render_body_measurement_pdf_section(rows, sex)
+
+
+def _render_semantic_history_summary(metrics: Sequence[dict[str, Any]]) -> str:
+    comparable = [metric for metric in metrics if metric.get("comparison_status") == "comparable" and metric.get("previous")]
+    if not comparable:
+        return ""
+    rows = "".join(
+        f'<tr><td>{escape(str(metric.get("label") or "-"))}</td><td>{escape(str((metric.get("previous") or {}).get("formatted_value") or "-"))}</td><td>{escape(str((metric.get("current") or {}).get("formatted_value") or "-"))}</td><td>{escape(str(metric.get("formatted_delta") or "-"))}</td></tr>'
+        for metric in comparable[:6]
+    )
+    return f'<section class="clinical-section"><h2>Histórico resumido</h2><div class="clinical-table-wrap"><table class="clinical-history-simple-table"><thead><tr><th>Métrica</th><th>Anterior</th><th>Atual</th><th>Variação</th></tr></thead><tbody>{rows}</tbody></table></div></section>'
+
+
+def _render_semantic_history_page(
+    series_list: Sequence[dict[str, Any]],
+    *,
+    payload: PremiumReportPayload,
+    header: dict[str, Any],
+    measured_label: str,
+    footer: str,
+    technical_scope: bool,
+) -> str:
+    if not series_list:
+        return ""
+    charts = []
+    for series in series_list:
+        points = series.get("points") or []
+        rows = "".join(
+            f'<div class="clinical-history-row"><span>{escape(_format_dateish(point.get("evaluation_date")))}</span><strong>{escape(str(point.get("formatted_value") or "-"))}</strong></div>'
+            for point in points
+        )
+        chart_svg = _render_semantic_history_chart(points)
+        charts.append(f'<article class="clinical-history-card"><h3>{escape(str(series.get("label") or "-"))}</h3>{chart_svg}{rows}</article>')
+    return f"""
+    <section class="clinical-page clinical-history-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
+      {_render_semantic_report_header(payload, header, measured_label, "Evolução histórica", None, compact=True)}
+      <section class="clinical-section"><h2>Evolução histórica</h2><p class="clinical-section-subtitle">Somente séries com três ou mais pontos metodologicamente comparáveis.</p><div class="clinical-history-grid">{''.join(charts)}</div></section>
+      <footer class="clinical-footer">{escape(footer)}</footer>
+    </section>
+    """
+
+
+def _render_semantic_history_chart(points: Sequence[dict[str, Any]]) -> str:
+    values = [float(point["value"]) for point in points if isinstance(point.get("value"), int | float)]
+    if len(values) < 3:
+        return ""
+    width, height, padding = 300.0, 72.0, 8.0
+    low, high = min(values), max(values)
+    span = high - low
+    coordinates = []
+    for index, value in enumerate(values):
+        x = padding + index * ((width - 2 * padding) / max(1, len(values) - 1))
+        ratio = 0.5 if span == 0 else (value - low) / span
+        y = height - padding - ratio * (height - 2 * padding)
+        coordinates.append((x, y))
+    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in coordinates)
+    circles = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.8" />'
+        for x, y in coordinates
+    )
+    return (
+        f'<svg class="clinical-history-chart" viewBox="0 0 {int(width)} {int(height)}" role="img" '
+        f'aria-label="Gráfico histórico"><line x1="{padding}" y1="{height - padding}" '
+        f'x2="{width - padding}" y2="{height - padding}" /><polyline points="{polyline}" />{circles}</svg>'
+    )
+
+
+def _format_semantic_measured_at(header: dict[str, Any]) -> str:
+    value = header.get("measured_at")
+    if not value:
+        return _format_dateish(header.get("evaluation_date"))
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+
+
+def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -> str:
     report = payload.parameters.get("report") if isinstance(payload.parameters, dict) else None
     if not isinstance(report, dict):
         sections_html = "".join(_render_section(section) for section in payload.sections)
@@ -1904,9 +2264,9 @@ def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
         delta_detail = f" &middot; {escape(delta)}" if delta not in {"", "-"} else ""
         comparison = f"Anterior: {escape(previous)}{delta_detail}"
     elif has_current:
-        comparison = "Primeira avaliacao"
+        comparison = "Primeira avaliação"
     else:
-        comparison = "Sem medida atual"
+        comparison = "Não aferido nesta avaliação"
     side_class = "bubble-left" if side == "left" else "bubble-right"
     return f"""
     <article class="clinical-measurement-bubble {side_class}">
@@ -4583,6 +4943,101 @@ def _body_composition_report_css() -> str:
         font-size: 7.8px;
         line-height: 1.28;
         padding: 6px 9px;
+      }
+      .clinical-semantic-cover .clinical-headline-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+      .clinical-semantic-cover .clinical-goal-card {
+        min-height: 32px;
+        padding: 5px 6px;
+      }
+      .clinical-semantic-cover .clinical-cover-evaluation-grid {
+        margin-top: 8px;
+      }
+      .clinical-semantic-cover .clinical-cover-score,
+      .clinical-semantic-cover .clinical-cover-note {
+        padding: 9px 12px;
+      }
+      .clinical-semantic-cover .clinical-cover-score h3,
+      .clinical-semantic-cover .clinical-cover-note h3 {
+        margin: 0 0 5px;
+        font-size: 14px;
+      }
+      .clinical-semantic-cover .clinical-score strong {
+        font-size: 34px;
+      }
+      .clinical-semantic-cover .clinical-score::after {
+        width: 140px;
+      }
+      .clinical-semantic-cover .clinical-score-breakdown {
+        gap: 3px;
+        margin-top: 5px;
+      }
+      .clinical-semantic-cover .clinical-recommendations-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .clinical-semantic-cover .clinical-section {
+        margin-top: 7px;
+      }
+      .clinical-semantic-cycle .clinical-observation-section > p:not(.clinical-empty-copy) {
+        margin: 0;
+        color: #536173;
+        font-size: 7.4px;
+        line-height: 1.3;
+      }
+      .clinical-history-page .clinical-history-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        border: 0;
+        background: transparent;
+      }
+      .clinical-history-page .clinical-history-card {
+        break-inside: avoid;
+        border: 1px solid #dce4ec;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 10px 12px;
+      }
+      .clinical-history-page .clinical-history-card h3 {
+        margin: 0 0 7px;
+        color: #172235;
+        font-size: 12px;
+      }
+      .clinical-history-page .clinical-history-chart {
+        display: block;
+        width: 100%;
+        height: 62px;
+        margin: 0 0 6px;
+        overflow: visible;
+      }
+      .clinical-history-page .clinical-history-chart line {
+        stroke: #dce4ec;
+        stroke-width: 1;
+      }
+      .clinical-history-page .clinical-history-chart polyline {
+        fill: none;
+        stroke: #1185a6;
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .clinical-history-page .clinical-history-chart circle {
+        fill: #ffffff;
+        stroke: #1185a6;
+        stroke-width: 2;
+      }
+      .clinical-history-page .clinical-history-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border-top: 1px solid #edf1f5;
+        padding: 5px 0;
+        color: #536173;
+        font-size: 8px;
+      }
+      .clinical-history-page .clinical-history-row strong {
+        color: #172235;
       }
       @page {
         size: A4;

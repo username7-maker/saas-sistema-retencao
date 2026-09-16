@@ -181,11 +181,10 @@ export function ReportHeaderCard({
         <HeaderDatum label="Idade" value={header.age_years != null ? `${header.age_years} anos` : "-"} />
         <HeaderDatum label="Sexo" value={formatSexLabel(header.sex)} />
         <HeaderDatum
-          label="Data / Hora"
-          value={new Date(header.measured_at).toLocaleString("pt-BR", {
-            dateStyle: "short",
-            timeStyle: "short",
-          })}
+          label={header.measured_at ? "Data / Hora" : "Data"}
+          value={header.measured_at
+            ? new Date(header.measured_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+            : (header.evaluation_date?.split("-").reverse().join("/") || "-")}
           last
         />
       </div>

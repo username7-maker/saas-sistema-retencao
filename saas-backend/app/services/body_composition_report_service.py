@@ -19,6 +19,7 @@ from app.schemas.body_composition import (
     BodyCompositionRangeStatus,
     BodyCompositionReferenceMetricRead,
     BodyCompositionReportHeaderRead,
+    BodyCompositionReportMetricRead,
     BodyCompositionReportRead,
     BodyCompositionScoreBreakdownItemRead,
 )
@@ -33,6 +34,15 @@ from app.services.body_composition_calculation_service import (
     ORIGIN_UNAVAILABLE,
     calculate_basal_metabolic_rate as calculate_bmr_result,
     calculate_muscle_mass as calculate_muscle_mass_result,
+)
+from app.services.body_composition_report_domain import (
+    BUSINESS_TIMEZONE,
+    build_analysis_and_priorities,
+    build_goals,
+    build_history,
+    build_semantic_metrics,
+    build_semantic_score,
+    is_future_evaluation,
 )
 from app.services.premium_report_service import (
     PremiumReportAction,
@@ -293,10 +303,11 @@ def resolve_body_composition_persistence_fields(
 
     measured_at = data.get("measured_at")
     evaluation_date = data.get("evaluation_date")
-    if measured_at is None and evaluation_date is not None:
-        data["measured_at"] = datetime.combine(evaluation_date, time(hour=12), tzinfo=UTC)
-    elif measured_at is not None and evaluation_date is None:
-        data["evaluation_date"] = measured_at.date() if isinstance(measured_at, datetime) else evaluation_date
+    if isinstance(measured_at, datetime):
+        localized = measured_at.replace(tzinfo=BUSINESS_TIMEZONE) if measured_at.tzinfo is None else measured_at
+        data["measured_at"] = localized.astimezone(UTC)
+        if evaluation_date is None:
+            data["evaluation_date"] = localized.astimezone(BUSINESS_TIMEZONE).date()
 
     parsing_confidence = data.get("parsing_confidence")
     if parsing_confidence is None:
@@ -409,21 +420,74 @@ def build_body_composition_report_read(
     risk_metrics = [_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _RISK_DEFS]
     score_breakdown = _build_score_breakdown(evaluation)
     score_total = _normalize_available_score(score_breakdown)
+    previous_score_breakdown = _build_score_breakdown(previous) if previous is not None else []
+    previous_score_total = _normalize_available_score(previous_score_breakdown)
+    semantic_metrics = build_semantic_metrics(
+        evaluation,
+        previous,
+        reference_resolver=_resolve_reference_range,
+        status_resolver=_resolve_range_status,
+        origin_label_resolver=body_composition_origin_label,
+    )
+    date_invalid = is_future_evaluation(evaluation)
+    semantic_score = build_semantic_score(
+        score_total,
+        previous_score_total,
+        score_breakdown,
+        previous_score_breakdown,
+        semantic_metrics,
+        invalid_date=date_invalid,
+    )
+    goals = build_goals(evaluation)
+    semantic_history = build_history(evaluation, ordered_history)
+    analysis_cordex, priorities = build_analysis_and_priorities(
+        semantic_metrics,
+        goals,
+        invalid_date=date_invalid,
+    )
+    valid_prior = [
+        item
+        for item in ordered_history
+        if str(getattr(item, "id", "")) != str(getattr(evaluation, "id", ""))
+        and not is_future_evaluation(item)
+        and _measured_at(item) < _measured_at(evaluation)
+    ]
+    evaluation_number = 1 + sum(
+        1
+        for item in ordered_history
+        if str(getattr(item, "id", "")) != str(getattr(evaluation, "id", ""))
+        and _measured_at(item) <= _measured_at(evaluation)
+        and not is_future_evaluation(item)
+    )
     header = BodyCompositionReportHeaderRead(
         member_name=member.full_name,
         gym_name=getattr(getattr(member, "gym", None), "name", None),
         trainer_name=getattr(getattr(member, "assigned_user", None), "full_name", None),
-        measured_at=_measured_at(evaluation),
+        measured_at=getattr(evaluation, "measured_at", None),
+        evaluation_date=getattr(evaluation, "evaluation_date", None),
         age_years=getattr(evaluation, "age_years", None) or _resolve_member_age(member, evaluation),
         sex=getattr(evaluation, "sex", None),
         height_cm=_read_float(evaluation, "height_cm"),
         weight_kg=_read_float(evaluation, "weight_kg"),
     )
-    insights = generate_body_composition_insights(evaluation, ordered_history)
+    legacy_primary_cards = _legacy_metric_cards_from_v2(semantic_metrics)
+    legacy_comparison_rows = _legacy_comparison_rows_from_v2(semantic_metrics)
+    legacy_history_series = _legacy_history_from_v2(semantic_history)
+    legacy_measurement_rows = _legacy_measurements_from_v2(semantic_metrics)
+    legacy_insights = _legacy_insights_from_v2(analysis_cordex, priorities)
     return BodyCompositionReportRead(
         header=header,
         current_evaluation_id=evaluation.id,
         previous_evaluation_id=previous.id if previous else None,
+        evaluation_number=evaluation_number,
+        is_baseline=not valid_prior,
+        date_consistency="future_legacy" if date_invalid else "valid",
+        score=semantic_score,
+        metrics=semantic_metrics,
+        analysis_cordex=analysis_cordex,
+        priorities=priorities,
+        goals=goals,
+        history=semantic_history,
         basal_metabolic_rate_origin=_metric_origin(evaluation, "basal_metabolic_rate_kcal"),
         muscle_mass_origin=_metric_origin(evaluation, "muscle_mass_kg"),
         reviewed_manually=bool(getattr(evaluation, "reviewed_manually", False)),
@@ -434,19 +498,119 @@ def build_body_composition_report_read(
         score_breakdown=score_breakdown,
         recommendations=_build_body_composition_recommendations(evaluation, risk_metrics),
         next_assessment=_build_next_assessment(evaluation),
-        measurement_rows=_build_measurement_rows(evaluation, previous),
-        primary_cards=[_build_metric_card(evaluation, previous, key, label, unit) for key, label, unit in _CARD_DEFS],
+        measurement_rows=legacy_measurement_rows,
+        primary_cards=legacy_primary_cards,
         composition_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _COMPOSITION_DEFS],
         muscle_fat_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _MUSCLE_FAT_DEFS],
         risk_metrics=risk_metrics,
         goal_metrics=[_build_reference_metric(evaluation, key, label, unit) for key, label, unit in _GOAL_DEFS],
-        comparison_rows=[_build_comparison_row(evaluation, previous, key, label, unit) for key, label, unit in _COMPARISON_DEFS],
-        history_series=[_build_history_series(ordered_history, key, label, unit) for key, label, unit in _HISTORY_DEFS],
-        insights=insights,
+        comparison_rows=legacy_comparison_rows,
+        history_series=legacy_history_series,
+        insights=legacy_insights,
         teacher_notes=getattr(evaluation, "notes", None),
         methodological_note=METHODOLOGICAL_NOTE,
         segmental_analysis_available=False,
     )
+
+
+def _legacy_metric_cards_from_v2(metrics: Sequence[BodyCompositionReportMetricRead]) -> list[BodyCompositionMetricCardRead]:
+    wanted = {key for key, _, _ in _CARD_DEFS}
+    return [
+        BodyCompositionMetricCardRead(
+            key=metric.key,
+            label=metric.label,
+            value=metric.current.value,
+            unit=metric.current.unit,
+            formatted_value=metric.current.formatted_value,
+            origin=metric.current.source,
+            origin_label=metric.current.source_label,
+            delta_absolute=metric.delta,
+            delta_percent=metric.delta_percent,
+            trend=metric.trend or "insufficient",
+        )
+        for metric in metrics
+        if metric.key in wanted
+    ]
+
+
+def _legacy_comparison_rows_from_v2(metrics: Sequence[BodyCompositionReportMetricRead]) -> list[BodyCompositionComparisonRowRead]:
+    wanted = {key for key, _, _ in _COMPARISON_DEFS}
+    return [
+        BodyCompositionComparisonRowRead(
+            key=metric.key,
+            label=metric.label,
+            unit=metric.current.unit,
+            previous_value=metric.previous.value if metric.previous else None,
+            current_value=metric.current.value,
+            previous_formatted=metric.previous.formatted_value if metric.previous else "-",
+            current_formatted=metric.current.formatted_value,
+            previous_origin=metric.previous.source if metric.previous else None,
+            previous_origin_label=metric.previous.source_label if metric.previous else None,
+            current_origin=metric.current.source,
+            current_origin_label=metric.current.source_label,
+            difference_absolute=metric.delta,
+            difference_percent=metric.delta_percent,
+            trend=metric.trend or "insufficient",
+        )
+        for metric in metrics
+        if metric.key in wanted
+    ]
+
+
+def _legacy_history_from_v2(semantic_history: Sequence[Any]) -> list[BodyCompositionHistorySeriesRead]:
+    return [
+        BodyCompositionHistorySeriesRead(
+            key=series.key,
+            label=series.label,
+            unit=series.unit,
+            points=[
+                BodyCompositionHistoryPointRead(
+                    evaluation_id=point.evaluation_id,
+                    measured_at=point.measured_at,
+                    evaluation_date=point.evaluation_date,
+                    value=point.value,
+                    origin=point.source,
+                    origin_label=point.source,
+                )
+                for point in series.points
+            ],
+        )
+        for series in semantic_history
+    ]
+
+
+def _legacy_measurements_from_v2(metrics: Sequence[BodyCompositionReportMetricRead]) -> list[BodyCompositionMeasurementRowRead]:
+    return [
+        BodyCompositionMeasurementRowRead(
+            key=metric.key,
+            label=metric.label,
+            current_value=metric.current.value,
+            previous_value=metric.previous.value if metric.previous else None,
+            delta=metric.delta,
+            unit=metric.current.unit or "cm",
+            used_for_body_fat_calculation=False,
+            formatted_current=metric.current.formatted_value,
+            formatted_previous=metric.previous.formatted_value if metric.previous else "-",
+            formatted_delta=metric.formatted_delta or "-",
+        )
+        for metric in metrics
+        if "body_measurement" in metric.display_roles
+    ]
+
+
+def _legacy_insights_from_v2(analysis: str | None, priorities: Sequence[Any]) -> list[BodyCompositionInsightRead]:
+    if analysis is None:
+        return []
+    first = priorities[0] if priorities else None
+    return [
+        BodyCompositionInsightRead(
+            key="semantic_v2",
+            title=getattr(first, "title", None) or "Análise Cordex",
+            message=analysis,
+            tone=getattr(first, "tone", "neutral") if first else "neutral",
+            reasons=[],
+        )
+    ]
 
 
 def build_body_composition_premium_pdf_payload(
@@ -454,6 +618,13 @@ def build_body_composition_premium_pdf_payload(
     *,
     technical: bool,
 ) -> PremiumReportPayload:
+    report_date_label = (
+        report.header.measured_at.strftime("%d/%m/%Y %H:%M")
+        if report.header.measured_at is not None
+        else report.header.evaluation_date.strftime("%d/%m/%Y")
+        if report.header.evaluation_date is not None
+        else "sem data"
+    )
     comparison_rows = [
         [
             row.label,
@@ -487,7 +658,7 @@ def build_body_composition_premium_pdf_payload(
         report_kind="body_composition",
         report_scope="technical" if technical else "member_summary",
         title="Relatorio tecnico de composicao corporal" if technical else "Relatorio premium de bioimpedancia",
-        subtitle=f"{report.header.member_name} · {report.header.measured_at.strftime('%d/%m/%Y %H:%M')}",
+        subtitle=f"{report.header.member_name} · {report_date_label}",
         generated_at=datetime.now(tz=UTC),
         generated_by="Sistema",
         version="premium-v3",

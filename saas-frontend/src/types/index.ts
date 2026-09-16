@@ -1428,7 +1428,8 @@ export interface BodyCompositionReportHeader {
   member_name: string;
   gym_name: string | null;
   trainer_name: string | null;
-  measured_at: string;
+  measured_at: string | null;
+  evaluation_date?: string | null;
   age_years: number | null;
   sex: BodyCompositionSex | null;
   height_cm: number | null;
@@ -1544,6 +1545,105 @@ export interface BodyCompositionHistorySeries {
   points: BodyCompositionHistoryPoint[];
 }
 
+export type BodyCompositionComparisonStatus =
+  | "comparable"
+  | "missing_value"
+  | "incompatible_method"
+  | "invalid_date";
+
+export type BodyCompositionReferenceKind = "clinical" | "protocol" | "equipment" | "none";
+export type BodyCompositionMetricRole =
+  | "headline"
+  | "key_indicator"
+  | "composition_detail"
+  | "body_measurement"
+  | "history";
+
+export interface BodyCompositionMetricObservation {
+  value: number | null;
+  formatted_value: string;
+  unit: string | null;
+  source: string | null;
+  source_label: string | null;
+  method: string | null;
+  method_label: string | null;
+}
+
+export interface BodyCompositionReportMetric {
+  key: string;
+  label: string;
+  display_order: number;
+  display_roles: BodyCompositionMetricRole[];
+  current: BodyCompositionMetricObservation;
+  previous: BodyCompositionMetricObservation | null;
+  delta: number | null;
+  delta_percent: number | null;
+  formatted_delta: string | null;
+  trend: "up" | "down" | "stable" | null;
+  comparison_status: BodyCompositionComparisonStatus;
+  comparison_message: string | null;
+  reference_kind: BodyCompositionReferenceKind;
+  reference_label: string | null;
+  reference_source: string | null;
+  reference_min: number | null;
+  reference_max: number | null;
+  status: BodyCompositionRangeStatus;
+  status_label: string;
+}
+
+export interface BodyCompositionReportScore {
+  value: number | null;
+  band: "attention" | "intermediate" | "good" | "excellent" | null;
+  band_label: string | null;
+  delta: number | null;
+  formatted_delta: string | null;
+  comparison_status: BodyCompositionComparisonStatus;
+  comparison_message: string | null;
+  components: BodyCompositionScoreBreakdownItem[];
+  disclaimer: string | null;
+}
+
+export interface BodyCompositionReportPriority {
+  key: string;
+  title: string;
+  detail: string;
+  tone: BodyCompositionInsightTone;
+  display_order: number;
+}
+
+export interface BodyCompositionReportGoalValue {
+  key: string;
+  label: string;
+  value: number | null;
+  formatted_value: string;
+  unit: string | null;
+}
+
+export interface BodyCompositionReportGoals {
+  status: "available" | "unsafe" | "unavailable";
+  requires_review: boolean;
+  professional_message: string;
+  member_message: string;
+  values: BodyCompositionReportGoalValue[] | null;
+}
+
+export interface BodyCompositionSemanticHistoryPoint {
+  evaluation_id: string;
+  evaluation_date: string;
+  value: number;
+  formatted_value: string;
+}
+
+export interface BodyCompositionSemanticHistorySeries {
+  key: string;
+  label: string;
+  unit: string | null;
+  method_signature: string | null;
+  points: BodyCompositionSemanticHistoryPoint[];
+  excluded_points_count: number;
+  chart_eligible: boolean;
+}
+
 export interface BodyCompositionInsight {
   key: string;
   title: string;
@@ -1553,6 +1653,16 @@ export interface BodyCompositionInsight {
 }
 
 export interface BodyCompositionReport {
+  contract_version?: "body-composition-report-v2";
+  evaluation_number?: number;
+  is_baseline?: boolean;
+  date_consistency?: "valid" | "future_legacy";
+  score?: BodyCompositionReportScore;
+  metrics?: BodyCompositionReportMetric[];
+  analysis_cordex?: string | null;
+  priorities?: BodyCompositionReportPriority[];
+  goals?: BodyCompositionReportGoals;
+  history?: BodyCompositionSemanticHistorySeries[];
   header: BodyCompositionReportHeader;
   current_evaluation_id: string;
   previous_evaluation_id: string | null;

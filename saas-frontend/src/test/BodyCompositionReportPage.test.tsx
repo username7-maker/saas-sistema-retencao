@@ -242,8 +242,8 @@ describe("BodyCompositionReportPage", () => {
     expect(document.querySelector(".clinical-web-score-card strong")).toHaveTextContent("71");
     expect(document.querySelector(".clinical-web-meta-grid")).toHaveTextContent("Peso84,5 kg");
     expect(document.querySelector(".clinical-web-meta-cell-prominent")).toHaveTextContent("Peso84,5 kg");
-    expect(screen.getByText("Anterior: 85 cm · -3 cm")).toBeInTheDocument();
-    expect(screen.getByText("Primeira avaliação")).toBeInTheDocument();
+    expect(screen.queryByText("Anterior: 85 cm · -3 cm")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Primeira avaliação").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Agua corporal (%)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Musculo esqueletico").length).toBeGreaterThan(0);
     expect(screen.getByText("Controle de musculo")).toBeInTheDocument();
@@ -371,5 +371,109 @@ describe("BodyCompositionReportPage", () => {
     expect(await screen.findByText("Relatorio da avaliacao")).toBeInTheDocument();
     expect(screen.getByText(/relatorio completo continua disponivel em PDF/i)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Abrir PDF" }).length).toBeGreaterThan(0);
+  });
+
+  it("renders the semantic v2 contract without rebuilding domain decisions", async () => {
+    const report = makeReport();
+    Object.assign(report as unknown as Record<string, unknown>, {
+      contract_version: "body-composition-report-v2",
+      evaluation_number: 2,
+      is_baseline: false,
+      date_consistency: "valid",
+      score: {
+        value: 67,
+        band: "intermediate",
+        band_label: "Intermediária",
+        delta: null,
+        comparison_status: "incompatible_method",
+        comparison_message: "Comparação indisponível — métodos/fontes diferentes",
+        components: [],
+        disclaimer: "Índice Cordex para acompanhamento individual; não representa diagnóstico clínico.",
+      },
+      metrics: [
+        {
+          key: "weight_kg",
+          label: "Peso",
+          display_order: 0,
+          display_roles: ["headline", "key_indicator", "history"],
+          current: { value: 82.2, formatted_value: "82,2 kg", unit: "kg", source: "reported", source_label: "Medido/informado", method: "weight_kg", method_label: "weight_kg" },
+          previous: { value: 99, formatted_value: "99 kg", unit: "kg", source: "reported", source_label: "Medido/informado", method: "weight_kg", method_label: "weight_kg" },
+          delta: -16.8,
+          delta_percent: -16.97,
+          formatted_delta: "-16,8 kg",
+          trend: "down",
+          comparison_status: "comparable",
+          comparison_message: null,
+          reference_kind: "equipment",
+          reference_label: "Faixa técnica do equipamento",
+          reference_source: "Escala informada pelo equipamento",
+          reference_min: 20,
+          reference_max: 220,
+          status: "adequate",
+          status_label: "Normal",
+        },
+        {
+          key: "muscle_mass_kg",
+          label: "Massa muscular",
+          display_order: 1,
+          display_roles: ["headline", "composition_detail", "history"],
+          current: { value: 40, formatted_value: "40 kg", unit: "kg", source: "legacy_unknown", source_label: "Origem desconhecida", method: "legacy_unknown", method_label: "Origem desconhecida" },
+          previous: { value: 62.4, formatted_value: "62,4 kg", unit: "kg", source: "reported", source_label: "Bioimpedância", method: "reported", method_label: "Bioimpedância" },
+          delta: null,
+          delta_percent: null,
+          formatted_delta: null,
+          trend: null,
+          comparison_status: "incompatible_method",
+          comparison_message: "Comparação indisponível — métodos/fontes diferentes",
+          reference_kind: "protocol",
+          reference_label: "Referência do protocolo",
+          reference_source: "Cordex — protocolo operacional",
+          reference_min: 20,
+          reference_max: 60,
+          status: "adequate",
+          status_label: "Normal",
+        },
+      ],
+      analysis_cordex: "Peso reduziu 16,8 kg desde a avaliação anterior.",
+      priorities: [{ key: "review", title: "Validar a meta", detail: "Revisar com o professor.", tone: "warning", display_order: 1 }],
+      goals: {
+        status: "unsafe",
+        requires_review: true,
+        professional_message: "A sugestão implica redução de massa muscular.",
+        member_message: "Meta pendente de validação do professor.",
+        values: [],
+      },
+      history: [],
+      primary_cards: [],
+      composition_metrics: [],
+      muscle_fat_metrics: [],
+      risk_metrics: [],
+      goal_metrics: [],
+      comparison_rows: [],
+      history_series: [],
+      insights: [],
+      measurement_rows: [],
+      teacher_notes: null,
+    });
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(report);
+
+    renderPage();
+
+    expect(await screen.findByText("Score de composição corporal")).toBeInTheDocument();
+    expect(screen.getByText("Análise Cordex")).toBeInTheDocument();
+    expect(screen.getByText("Peso reduziu 16,8 kg desde a avaliação anterior.")).toBeInTheDocument();
+    expect(screen.getByText("Comparação indisponível — métodos/fontes diferentes")).toBeInTheDocument();
+    expect(screen.getByText("Meta pendente de validação do professor.")).toBeInTheDocument();
+    expect(screen.getByText("Sem observações registradas nesta avaliação.")).toBeInTheDocument();
+    expect(screen.queryByText("-22,4 kg")).not.toBeInTheDocument();
+  });
+
+  it("uses a conservative fallback for legacy report comparisons", async () => {
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(makeReport());
+
+    renderPage();
+
+    expect(await screen.findByText("Comparação indisponível neste relatório antigo")).toBeInTheDocument();
+    expect(screen.queryByText("Caiu")).not.toBeInTheDocument();
   });
 });
