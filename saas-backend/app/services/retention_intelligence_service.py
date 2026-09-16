@@ -28,6 +28,7 @@ from app.services.retention_stage_service import (
     calculate_member_retention_stage,
     retention_stage_meta,
 )
+from app.services.retention_exclusion_service import retention_eligible_condition
 from app.services.task_event_service import record_task_event
 
 logger = logging.getLogger(__name__)
@@ -371,6 +372,7 @@ def run_daily_retention_intelligence(db: Session) -> dict:
             Member.deleted_at.is_(None),
             Member.status == MemberStatus.ACTIVE,
             Member.risk_level.in_([RiskLevel.YELLOW, RiskLevel.RED]),
+            retention_eligible_condition(),
         )
     ).all())
 

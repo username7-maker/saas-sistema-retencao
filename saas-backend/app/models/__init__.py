@@ -62,6 +62,7 @@ from app.models.nurturing_sequence import NurturingSequence
 from app.models.objection_response import ObjectionResponse
 from app.models.risk_alert import RiskAlert
 from app.models.risk_recalculation_request import RiskRecalculationRequest
+from app.models.retention_exclusion import RetentionExclusion
 from app.models.task import Task
 from app.models.task_event import TaskEvent
 from app.models.user import User
@@ -131,6 +132,7 @@ __all__ = [
     "Person",
     "RiskAlert",
     "RiskRecalculationRequest",
+    "RetentionExclusion",
     "RiskLevel",
     "RoleEnum",
     "Segment",

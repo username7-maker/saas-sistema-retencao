@@ -69,6 +69,27 @@ export type RetentionQueueResponse = PaginatedResponse<RetentionQueueItem> & {
   stage_counts?: Record<string, number>;
 };
 
+export interface RetentionExclusion {
+  id: string;
+  scope: "member" | "plan";
+  member_id: string | null;
+  member_name: string | null;
+  plan_name: string | null;
+  reason: string | null;
+  created_by_name: string;
+  created_at: string;
+}
+
+export interface RetentionQueueFilters {
+  search?: string;
+  level?: "all" | "red" | "yellow";
+  member_status?: "all" | "active" | "inactive";
+  churn_type?: string;
+  plan_cycle?: "monthly" | "semiannual" | "annual";
+  preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";
+  retention_stage?: "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
+}
+
 export const dashboardService = {
   async executive(): Promise<ExecutiveDashboard> {
     const { data } = await api.get<ExecutiveDashboard>("/api/v1/dashboards/executive");
@@ -142,21 +163,50 @@ export const dashboardService = {
     return data;
   },
 
-  async retentionQueue(params?: {
+  async retentionQueue(params?: RetentionQueueFilters & {
     page?: number;
     page_size?: number;
-    search?: string;
-    level?: "all" | "red" | "yellow";
-    member_status?: "all" | "active" | "inactive";
-    churn_type?: string;
-    plan_cycle?: "monthly" | "semiannual" | "annual";
-    preferred_shift?: "overnight" | "morning" | "afternoon" | "evening";
-    retention_stage?: "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
   }): Promise<RetentionQueueResponse> {
     const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
       params,
     });
     return data;
+  },
+
+  async createRetentionExclusion(payload: {
+    scope: "member" | "plan";
+    member_id?: string;
+    plan_name?: string;
+    reason?: string;
+  }): Promise<RetentionExclusion> {
+    const { data } = await api.post<RetentionExclusion>("/api/v1/dashboards/retention/exclusions", payload);
+    return data;
+  },
+
+  async retentionExclusions(search?: string): Promise<{ items: RetentionExclusion[]; total: number }> {
+    const { data } = await api.get<{ items: RetentionExclusion[]; total: number }>(
+      "/api/v1/dashboards/retention/exclusions",
+      { params: { search: search || undefined } },
+    );
+    return data;
+  },
+
+  async revokeRetentionExclusion(exclusionId: string): Promise<void> {
+    await api.delete(`/api/v1/dashboards/retention/exclusions/${exclusionId}`);
+  },
+
+  async exportRetentionCsv(params?: RetentionQueueFilters): Promise<void> {
+    const response = await api.get("/api/v1/dashboards/retention/export.csv", { params, responseType: "blob" });
+    const disposition = String(response.headers["content-disposition"] ?? "");
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `retencao-${new Date().toISOString().slice(0, 10)}.csv`;
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
   },
 
   async weeklySummary(): Promise<WeeklySummary> {

@@ -74,6 +74,7 @@ from app.services.retention_stage_service import (
     calculate_retention_stage,
     retention_stage_payload,
 )
+from app.services.retention_exclusion_service import retention_eligible_condition
 from app.utils.birthday import birthday_label_matches_today
 from app.schemas.member import MemberOut
 
@@ -1166,7 +1167,7 @@ def get_retention_queue(
         else_=2,
     )
 
-    filters = [Member.deleted_at.is_(None)]
+    filters = [Member.deleted_at.is_(None), retention_eligible_condition(gym_id=resolved_gym_id)]
     if resolved_gym_id is not None:
         filters.append(RiskAlert.gym_id == resolved_gym_id)
     if level in {"red", "yellow"}:
@@ -1325,8 +1326,9 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
 
     latest_open_alerts = _latest_open_retention_alert_subquery()
     has_open_alert = Member.id.in_(select(latest_open_alerts.c.member_id))
-    base_red = (Member.deleted_at.is_(None), has_open_alert, Member.risk_level == RiskLevel.RED)
-    base_yellow = (Member.deleted_at.is_(None), has_open_alert, Member.risk_level == RiskLevel.YELLOW)
+    eligibility = retention_eligible_condition()
+    base_red = (Member.deleted_at.is_(None), eligibility, has_open_alert, Member.risk_level == RiskLevel.RED)
+    base_yellow = (Member.deleted_at.is_(None), eligibility, has_open_alert, Member.risk_level == RiskLevel.YELLOW)
 
     red_total = db.scalar(select(func.count()).select_from(Member).where(*base_red)) or 0
     yellow_total = db.scalar(select(func.count()).select_from(Member).where(*base_yellow)) or 0
@@ -1343,6 +1345,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         db.scalar(
             select(func.coalesce(func.sum(Member.monthly_fee), Decimal("0"))).where(
                 Member.deleted_at.is_(None),
+                eligibility,
                 has_open_alert,
                 Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
             )
@@ -1364,6 +1367,7 @@ def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1
         )
         .where(
             Member.deleted_at.is_(None),
+            eligibility,
             has_open_alert,
             Member.risk_level.in_([RiskLevel.RED, RiskLevel.YELLOW]),
         )

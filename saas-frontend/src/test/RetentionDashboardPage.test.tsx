@@ -21,6 +21,10 @@ vi.mock("../services/dashboardService", async () => {
     dashboardService: {
       ...actual.dashboardService,
       retentionQueue: vi.fn(),
+      createRetentionExclusion: vi.fn(),
+      retentionExclusions: vi.fn(),
+      revokeRetentionExclusion: vi.fn(),
+      exportRetentionCsv: vi.fn(),
     },
   };
 });
@@ -225,6 +229,19 @@ describe("RetentionDashboardPage", () => {
       if (params?.page === 2) return queuePage2;
       return queuePage1;
     });
+    vi.mocked(dashboardService.createRetentionExclusion).mockResolvedValue({
+      id: "exclusion-1",
+      scope: "member",
+      member_id: "member-1",
+      member_name: "Ana Silva",
+      plan_name: null,
+      reason: null,
+      created_by_name: "Owner Teste",
+      created_at: "2026-09-16T10:00:00Z",
+    });
+    vi.mocked(dashboardService.retentionExclusions).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(dashboardService.revokeRetentionExclusion).mockResolvedValue();
+    vi.mocked(dashboardService.exportRetentionCsv).mockResolvedValue();
   });
 
   it("distinguishes import freshness from access coverage", async () => {
@@ -348,5 +365,39 @@ describe("RetentionDashboardPage", () => {
       screen.getByText("MRR em risco ainda sem base financeira útil porque as mensalidades dessa base não estão consolidadas."),
     ).toBeInTheDocument();
     expect(screen.getByText("Sem base")).toBeInTheDocument();
+  });
+
+  it("removes a member from retention without deleting the profile", async () => {
+    renderPage();
+
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remover$/i })[0]);
+
+    expect(await screen.findByText(/cadastro, os check-ins e as avaliações serão preservados/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar remoção" }));
+
+    await waitFor(() => {
+      expect(dashboardService.createRetentionExclusion).toHaveBeenCalledWith({
+        scope: "member",
+        member_id: "member-1",
+        plan_name: undefined,
+        reason: undefined,
+      });
+    });
+  });
+
+  it("exports all rows matching the active filters", async () => {
+    renderPage();
+
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    fireEvent.change(screen.getByLabelText("Severidade"), { target: { value: "yellow" } });
+    await screen.findByRole("button", { name: /Daniel Costa/i });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+
+    await waitFor(() => {
+      expect(dashboardService.exportRetentionCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ level: "yellow", member_status: "all" }),
+      );
+    });
   });
 });

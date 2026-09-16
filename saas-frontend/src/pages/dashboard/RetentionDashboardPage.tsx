@@ -7,10 +7,13 @@ import {
   CalendarClock,
   CheckCheck,
   Clock3,
+  Download,
   MessageCircle,
   PhoneCall,
   RefreshCw,
   ShieldAlert,
+  Settings2,
+  UserMinus,
   UserSearch,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -24,16 +27,16 @@ import { PreferredShiftBadge } from "../../components/common/PreferredShiftBadge
 import { QuickActions } from "../../components/common/QuickActions";
 import { useAuth } from "../../hooks/useAuth";
 import { useRetentionDashboard } from "../../hooks/useDashboard";
-import { dashboardService, type RetentionQueueItem } from "../../services/dashboardService";
+import { dashboardService, type RetentionExclusion, type RetentionQueueItem } from "../../services/dashboardService";
 import { kommoMessageService } from "../../services/kommoMessageService";
 import { memberService } from "../../services/memberService";
 import { riskAlertService } from "../../services/riskAlertService";
-import { Badge, Button, Drawer, Pagination, Skeleton, cn } from "../../components/ui2";
+import { Badge, Button, Dialog, Drawer, Input, Pagination, Skeleton, Textarea, cn } from "../../components/ui2";
 import { CommandCard, MetricCard } from "../../components/ui2/command";
 import { EmptyState, FilterBar, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
 import { getHttpErrorDetail, getPermissionAwareMessage } from "../../utils/httpErrors";
 import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
-import { canResolveRetentionAlert } from "../../utils/roleAccess";
+import { canManageRetentionExclusions, canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
 
 type QueueLevel = "all" | "red" | "yellow";
@@ -303,6 +306,8 @@ function RetentionQueueDrawer({
   onResolve,
   resolving,
   canResolve,
+  onExclude,
+  canExclude,
 }: {
   item: RetentionQueueItem | null;
   onClose: () => void;
@@ -310,6 +315,8 @@ function RetentionQueueDrawer({
   onResolve: (alertId: string) => void;
   resolving: boolean;
   canResolve: boolean;
+  onExclude: (item: RetentionQueueItem) => void;
+  canExclude: boolean;
 }) {
   const normalizedPhone = normalizeWhatsAppPhone(item?.phone);
   const phoneDisplay = formatPhoneDisplay(item?.phone);
@@ -594,6 +601,12 @@ function RetentionQueueDrawer({
                   {resolving ? "Resolvendo..." : "Marcar resolvido"}
                 </Button>
               ) : null}
+              {canExclude ? (
+                <Button size="sm" variant="danger" onClick={() => onExclude(item)}>
+                  <UserMinus size={14} />
+                  Remover da retenção
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -622,10 +635,26 @@ export function RetentionDashboardPage() {
   const [shiftPreferenceTouched, setShiftPreferenceTouched] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedItem, setSelectedItem] = useState<RetentionQueueItem | null>(null);
+  const [exclusionTarget, setExclusionTarget] = useState<RetentionQueueItem | null>(null);
+  const [exclusionScope, setExclusionScope] = useState<"member" | "plan">("member");
+  const [exclusionReason, setExclusionReason] = useState("");
+  const [exclusionsOpen, setExclusionsOpen] = useState(false);
+  const [exclusionSearch, setExclusionSearch] = useState("");
+  const [exclusionTab, setExclusionTab] = useState<"member" | "plan">("member");
   const currentUserShift = getPreferredShiftKey(user?.work_shift);
   const currentShiftLabel = getPreferredShiftLabel(currentUserShift);
   const effectivePreferredShift =
     useCurrentShift && currentUserShift ? currentUserShift : preferredShift === "all" ? undefined : preferredShift;
+  const canManageExclusions = canManageRetentionExclusions(user?.role);
+  const activeQueueFilters = {
+    search: search || undefined,
+    level,
+    member_status: memberStatus,
+    churn_type: churnType === "all" ? undefined : churnType,
+    plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
+    preferred_shift: effectivePreferredShift,
+    retention_stage: retentionStage === "all" ? undefined : retentionStage,
+  } as const;
 
   useEffect(() => {
     if (shiftPreferenceTouched) return;
@@ -655,13 +684,7 @@ export function RetentionDashboardPage() {
       dashboardService.retentionQueue({
         page,
         page_size: 50,
-        search: search || undefined,
-        level,
-        member_status: memberStatus,
-        churn_type: churnType === "all" ? undefined : churnType,
-        plan_cycle: planCycle === "all" ? undefined : (planCycle as "monthly" | "semiannual" | "annual"),
-        preferred_shift: effectivePreferredShift,
-        retention_stage: retentionStage === "all" ? undefined : retentionStage,
+        ...activeQueueFilters,
       }),
     staleTime: 60_000,
     placeholderData: (previous, previousQuery) => {
@@ -693,6 +716,53 @@ export function RetentionDashboardPage() {
     },
     onError: () => toast.error("Falha ao resolver alerta."),
   });
+
+  const exclusionsQuery = useQuery({
+    queryKey: ["dashboard", "retention", "exclusions", exclusionSearch],
+    queryFn: () => dashboardService.retentionExclusions(exclusionSearch),
+    enabled: exclusionsOpen && canManageExclusions,
+  });
+
+  const exclusionMutation = useMutation({
+    mutationFn: () => {
+      if (!exclusionTarget) throw new Error("ALUNO_INVALIDO");
+      return dashboardService.createRetentionExclusion({
+        scope: exclusionScope,
+        member_id: exclusionScope === "member" ? exclusionTarget.member_id : undefined,
+        plan_name: exclusionScope === "plan" ? exclusionTarget.plan_name : undefined,
+        reason: exclusionReason.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      setExclusionTarget(null);
+      setSelectedItem(null);
+      setExclusionReason("");
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+      toast.success(exclusionScope === "plan" ? "Plano removido da retenção." : "Aluno removido da retenção.");
+    },
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Não foi possível remover da retenção.")),
+  });
+
+  const revokeExclusionMutation = useMutation({
+    mutationFn: (id: string) => dashboardService.revokeRetentionExclusion(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+      toast.success("Acompanhamento de retenção reativado.");
+    },
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Não foi possível reativar.")),
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: () => dashboardService.exportRetentionCsv(activeQueueFilters),
+    onSuccess: () => toast.success("Planilha de retenção exportada."),
+    onError: (error) => toast.error(getHttpErrorDetail(error, "Não foi possível exportar a planilha.")),
+  });
+
+  const openExclusionDialog = (item: RetentionQueueItem) => {
+    setExclusionTarget(item);
+    setExclusionScope("member");
+    setExclusionReason("");
+  };
 
   const activeFilterCount = [
     searchInput.trim().length > 0,
@@ -899,12 +969,26 @@ export function RetentionDashboardPage() {
           subtitle="Todos os avisos ativos ficam acessíveis por busca e paginação, sem truncamento escondido."
           count={queueTotal}
           actions={
-            queueQuery.isFetching ? (
-              <span className="inline-flex items-center gap-2 text-xs text-lovable-ink-muted">
-                <RefreshCw size={12} className="animate-spin" />
-                Atualizando fila...
-              </span>
-            ) : undefined
+            <div className="flex flex-wrap items-center gap-2">
+              {queueQuery.isFetching ? (
+                <span className="inline-flex items-center gap-2 text-xs text-lovable-ink-muted">
+                  <RefreshCw size={12} className="animate-spin" />
+                  Atualizando fila...
+                </span>
+              ) : null}
+              {canManageExclusions ? (
+                <>
+                  <Button size="sm" variant="secondary" onClick={() => setExclusionsOpen(true)}>
+                    <Settings2 size={14} />
+                    Gerenciar exclusões
+                  </Button>
+                  <Button size="sm" variant="primary" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()}>
+                    <Download size={14} />
+                    {exportMutation.isPending ? "Exportando..." : "Exportar CSV"}
+                  </Button>
+                </>
+              ) : null}
+            </div>
           }
         />
 
@@ -1159,6 +1243,12 @@ export function RetentionDashboardPage() {
                           Resolver
                         </Button>
                       ) : null}
+                      {canManageExclusions ? (
+                        <Button size="sm" variant="danger" onClick={() => openExclusionDialog(item)}>
+                          <UserMinus size={14} />
+                          Remover
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -1190,7 +1280,132 @@ export function RetentionDashboardPage() {
         onResolve={(alertId) => resolveMutation.mutate(alertId)}
         resolving={resolveMutation.isPending && resolveMutation.variables === selectedItem?.alert_id}
         canResolve={canResolveAlerts}
+        onExclude={openExclusionDialog}
+        canExclude={canManageExclusions}
       />
+
+      <Dialog
+        open={Boolean(exclusionTarget)}
+        onClose={() => setExclusionTarget(null)}
+        title="Remover da retenção"
+        description="O cadastro, os check-ins e as avaliações serão preservados. Apenas o acompanhamento de retenção será interrompido."
+      >
+        {exclusionTarget ? (
+          <div className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setExclusionScope("member")}
+                className={cn(
+                  "rounded-xl border p-3 text-left text-sm",
+                  exclusionScope === "member" ? "border-lovable-primary bg-lovable-primary/10" : "border-lovable-border",
+                )}
+              >
+                <span className="block font-semibold text-lovable-ink">Somente este aluno</span>
+                <span className="mt-1 block text-xs text-lovable-ink-muted">{exclusionTarget.full_name}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setExclusionScope("plan")}
+                className={cn(
+                  "rounded-xl border p-3 text-left text-sm",
+                  exclusionScope === "plan" ? "border-lovable-primary bg-lovable-primary/10" : "border-lovable-border",
+                )}
+              >
+                <span className="block font-semibold text-lovable-ink">Todo o plano</span>
+                <span className="mt-1 block text-xs text-lovable-ink-muted">{exclusionTarget.plan_name}</span>
+              </button>
+            </div>
+            <Textarea
+              value={exclusionReason}
+              onChange={(event) => setExclusionReason(event.target.value)}
+              maxLength={500}
+              placeholder="Motivo ou observação (opcional)"
+            />
+            {exclusionScope === "plan" ? (
+              <p className="rounded-xl border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-xs text-lovable-ink-muted">
+                Alunos atuais e futuras importações deste plano ficarão fora da retenção até o plano ser reativado.
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setExclusionTarget(null)}>Cancelar</Button>
+              <Button variant="danger" disabled={exclusionMutation.isPending} onClick={() => exclusionMutation.mutate()}>
+                {exclusionMutation.isPending ? "Removendo..." : "Confirmar remoção"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={exclusionsOpen}
+        onClose={() => setExclusionsOpen(false)}
+        title="Gerenciar exclusões da retenção"
+        description="Reative alunos ou planos quando eles voltarem a fazer parte da operação."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Tipos de exclusão">
+            <Button
+              size="sm"
+              variant={exclusionTab === "member" ? "primary" : "secondary"}
+              onClick={() => setExclusionTab("member")}
+            >
+              Alunos
+            </Button>
+            <Button
+              size="sm"
+              variant={exclusionTab === "plan" ? "primary" : "secondary"}
+              onClick={() => setExclusionTab("plan")}
+            >
+              Planos
+            </Button>
+          </div>
+          <Input
+            value={exclusionSearch}
+            onChange={(event) => setExclusionSearch(event.target.value)}
+            placeholder="Buscar aluno ou plano..."
+          />
+          {exclusionsQuery.isLoading ? (
+            <SkeletonList rows={3} />
+          ) : exclusionsQuery.isError ? (
+            <p className="text-sm text-lovable-danger">Não foi possível carregar as exclusões.</p>
+          ) : (exclusionsQuery.data?.items.filter((item) => item.scope === exclusionTab).length ?? 0) === 0 ? (
+            <p className="rounded-xl border border-dashed border-lovable-border p-4 text-sm text-lovable-ink-muted">
+              Nenhuma exclusão ativa encontrada.
+            </p>
+          ) : (
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+              {exclusionsQuery.data?.items.filter((item) => item.scope === exclusionTab).map((exclusion: RetentionExclusion) => (
+                <div key={exclusion.id} className="flex flex-col gap-3 rounded-xl border border-lovable-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={exclusion.scope === "plan" ? "warning" : "neutral"} size="sm">
+                        {exclusion.scope === "plan" ? "Plano" : "Aluno"}
+                      </Badge>
+                      <p className="truncate text-sm font-semibold text-lovable-ink">
+                        {exclusion.member_name || exclusion.plan_name}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-lovable-ink-muted">
+                      Por {exclusion.created_by_name} em {new Date(exclusion.created_at).toLocaleString("pt-BR")}
+                      {exclusion.reason ? ` · ${exclusion.reason}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={revokeExclusionMutation.isPending && revokeExclusionMutation.variables === exclusion.id}
+                    onClick={() => revokeExclusionMutation.mutate(exclusion.id)}
+                  >
+                    Reativar
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Dialog>
     </section>
   );
 }

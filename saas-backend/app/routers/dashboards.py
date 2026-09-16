@@ -1,6 +1,9 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -18,6 +21,9 @@ from app.schemas import (
     OperationalDashboard,
     RetentionDashboard,
     RetentionQueueResponse,
+    RetentionExclusionCreate,
+    RetentionExclusionListOut,
+    RetentionExclusionOut,
     RevenuePoint,
     WeeklySummary,
 )
@@ -42,6 +48,13 @@ from app.services.dashboard_service import (
     get_retention_dashboard,
     get_retention_queue,
     get_weekly_summary,
+)
+from app.services.export_service import export_retention_csv
+from app.services.audit_service import log_audit_event
+from app.services.retention_exclusion_service import (
+    create_retention_exclusion,
+    list_retention_exclusions,
+    revoke_retention_exclusion,
 )
 
 
@@ -164,6 +177,80 @@ def retention_queue(
         preferred_shift=preferred_shift,
         retention_stage=retention_stage,
     )
+
+
+@router.get("/retention/export.csv")
+def retention_export(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    search: str | None = Query(None),
+    level: Literal["all", "red", "yellow"] = Query("all"),
+    member_status: Literal["all", "active", "inactive"] = Query("all"),
+    churn_type: str | None = Query(None),
+    plan_cycle: Literal["monthly", "semiannual", "annual"] | None = Query(None),
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = Query(None),
+    retention_stage: Literal["monitoring", "attention", "recovery", "reactivation", "manager_escalation", "cold_base"] | None = Query(None),
+) -> StreamingResponse:
+    buffer, filename = export_retention_csv(
+        db,
+        search=search,
+        level=level,
+        member_status=member_status,
+        churn_type=churn_type,
+        plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
+        retention_stage=retention_stage,
+    )
+    log_audit_event(
+        db,
+        action="retention_queue_exported",
+        entity="retention_queue",
+        user=current_user,
+        details={
+            "search_applied": bool(search and search.strip()),
+            "level": level,
+            "member_status": member_status,
+            "churn_type": churn_type,
+            "plan_cycle": plan_cycle,
+            "preferred_shift": preferred_shift,
+            "retention_stage": retention_stage,
+        },
+    )
+    db.commit()
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/retention/exclusions", response_model=RetentionExclusionListOut)
+def retention_exclusions(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+    search: str | None = Query(None),
+) -> RetentionExclusionListOut:
+    return list_retention_exclusions(db, current_user=current_user, search=search)
+
+
+@router.post("/retention/exclusions", response_model=RetentionExclusionOut, status_code=status.HTTP_201_CREATED)
+def add_retention_exclusion(
+    payload: RetentionExclusionCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> RetentionExclusionOut:
+    return create_retention_exclusion(db, payload=payload, current_user=current_user)
+
+
+@router.delete("/retention/exclusions/{exclusion_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_retention_exclusion(
+    exclusion_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> Response:
+    revoke_retention_exclusion(db, exclusion_id=exclusion_id, current_user=current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/weekly-summary", response_model=WeeklySummary)

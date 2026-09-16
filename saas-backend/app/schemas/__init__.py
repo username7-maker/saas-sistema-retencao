@@ -149,6 +149,7 @@ from app.schemas.imports import (
     ImportSummary,
     MissingMemberEntry,
 )
+from app.schemas.retention_exclusion import RetentionExclusionCreate, RetentionExclusionListOut, RetentionExclusionOut
 from app.schemas.lead import LeadConversionHandoff, LeadCreate, LeadNoteCreate, LeadOut, LeadUpdate
 from app.schemas.lgpd import MemberLGPDExport
 from app.schemas.member import (
@@ -393,6 +394,9 @@ __all__ = [
     "RetentionPlaybookStep",
     "RetentionQueueItem",
     "RetentionQueueResponse",
+    "RetentionExclusionCreate",
+    "RetentionExclusionListOut",
+    "RetentionExclusionOut",
     "RevenuePoint",
     "RiskAlertOut",
     "RiskRecalculationRequestOut",

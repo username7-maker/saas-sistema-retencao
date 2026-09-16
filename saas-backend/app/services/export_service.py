@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Checkin, Member
+from app.services.dashboard_service import get_retention_queue
 
 _CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
@@ -174,6 +175,74 @@ def export_checkins_template_csv() -> tuple[BytesIO, str]:
         }
     ]
     return _dict_rows_to_csv(headers, rows), "template_checkins.csv"
+
+
+def export_retention_csv(
+    db: Session,
+    *,
+    search: str | None = None,
+    level: str = "all",
+    member_status: str = "all",
+    churn_type: str | None = None,
+    plan_cycle: str | None = None,
+    preferred_shift: str | None = None,
+    retention_stage: str | None = None,
+) -> tuple[BytesIO, str]:
+    queue = get_retention_queue(
+        db,
+        page=1,
+        page_size=100_000,
+        search=search,
+        level=level,
+        member_status=member_status,
+        churn_type=churn_type,
+        plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
+        retention_stage=retention_stage,
+    )
+    headers = [
+        "Nome",
+        "Celular",
+        "E-mail",
+        "Plano",
+        "Dias sem treinar",
+        "Ultimo check-in",
+        "Estagio de retencao",
+        "Severidade",
+        "Score de risco",
+        "Tipo de churn",
+        "Ultimo contato",
+        "Proxima acao recomendada",
+        "Responsavel sugerido",
+    ]
+    rows = []
+    for item in queue.items:
+        rows.append(
+            {
+                "Nome": item.full_name,
+                "Celular": item.phone or "",
+                "E-mail": item.email or "",
+                "Plano": item.plan_name,
+                "Dias sem treinar": "" if item.days_without_checkin is None else str(item.days_without_checkin),
+                "Ultimo check-in": _format_pt_br_datetime(item.last_checkin_at),
+                "Estagio de retencao": item.retention_stage_label or "",
+                "Severidade": item.risk_level.value,
+                "Score de risco": str(item.risk_score),
+                "Tipo de churn": item.churn_type or "",
+                "Ultimo contato": _format_pt_br_datetime(item.last_contact_at),
+                "Proxima acao recomendada": item.next_action or "",
+                "Responsavel sugerido": item.recommended_owner_role or "",
+            }
+        )
+    return _dict_rows_to_csv(headers, rows), f"retencao-{date.today().isoformat()}.csv"
+
+
+def _format_pt_br_datetime(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone().strftime("%d/%m/%Y %H:%M")
 
 
 def _dict_rows_to_csv(headers: list[str], rows: list[dict[str, str]]) -> BytesIO:

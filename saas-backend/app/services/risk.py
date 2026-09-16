@@ -14,6 +14,7 @@ from app.models import Assessment, AuditLog, Checkin, Member, MemberRiskHistory,
 from app.services.audit_service import log_audit_event
 from app.services.notification_service import create_notification
 from app.services.retention_stage_service import calculate_retention_stage
+from app.services.retention_exclusion_service import retention_eligible_condition
 from app.services.websocket_manager import websocket_manager
 from app.utils.email import send_email_result
 
@@ -121,6 +122,7 @@ def _active_member_filters():
     return (
         Member.deleted_at.is_(None),
         Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+        retention_eligible_condition(),
     )
 
 
@@ -353,6 +355,7 @@ def refresh_member_risk_snapshot(
             Member.id.in_(normalized_member_ids),
             Member.deleted_at.is_(None),
             Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+            retention_eligible_condition(),
         )
     ).all()
     if not members:
@@ -431,6 +434,7 @@ def sync_retention_alerts_from_member_activity(
             Member.id.in_(normalized_member_ids),
             Member.deleted_at.is_(None),
             Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+            retention_eligible_condition(),
         )
     ).all()
     member_ids_set = {member.id for member in members}

@@ -7,6 +7,7 @@ from app.core.cache import invalidate_dashboard_cache
 from app.models import AuditLog, Member, MemberStatus, RiskAlert
 from app.services.audit_service import log_audit_event
 from app.services.retention_stage_service import calculate_member_retention_stage, days_without_checkin_from_dates
+from app.services.retention_exclusion_service import retention_eligible_condition
 from app.services.risk import _retention_episode_key, sync_retention_alerts_from_member_activity
 
 
@@ -62,7 +63,9 @@ def repair_retention_stage_resolutions_for_current_gym(db: Session) -> dict[str,
     now = datetime.now(tz=timezone.utc)
     members = {
         member.id: member
-        for member in db.scalars(select(Member).where(Member.deleted_at.is_(None))).all()
+        for member in db.scalars(
+            select(Member).where(Member.deleted_at.is_(None), retention_eligible_condition())
+        ).all()
     }
     if not members:
         return {"resolved_repaired": 0, "open_deduplicated": 0, "keys_updated": 0}
@@ -180,6 +183,7 @@ def backfill_retention_alerts_for_current_gym(db: Session) -> dict[str, int | bo
             select(Member.id).where(
                 Member.deleted_at.is_(None),
                 Member.status.in_([MemberStatus.ACTIVE, MemberStatus.PAUSED]),
+                retention_eligible_condition(),
             )
         ).all()
     )

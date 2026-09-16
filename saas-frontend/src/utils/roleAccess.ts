@@ -242,6 +242,10 @@ export function canManageBodyComposition(role: Role | null | undefined): boolean
   return role === "owner" || role === "manager" || role === "receptionist" || role === "trainer";
 }
 
+export function canManageRetentionExclusions(role: Role | null | undefined): boolean {
+  return role === "owner" || role === "manager";
+}
+
 export function canDeleteBodyComposition(role: Role | null | undefined): boolean {
   return role === "owner" || role === "manager" || role === "trainer";
 }
