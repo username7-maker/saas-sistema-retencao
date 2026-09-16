@@ -29,7 +29,7 @@ export function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamValue = searchParams.get("search") ?? "";
 
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("execution");
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>(() => searchParamValue ? "operations" : "execution");
   const [createOpen, setCreateOpen] = useState(false);
   const [sourcePreset, setSourcePreset] = useState<SourceFilter | null>(null);
   const [sourcePresetToken, setSourcePresetToken] = useState(0);

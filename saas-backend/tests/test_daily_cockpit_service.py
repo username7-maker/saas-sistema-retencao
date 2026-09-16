@@ -94,7 +94,7 @@ class TestLeadsNeedingFollowup:
         assert item.stage == "contact"
         assert item.days_since_contact == 3
         assert item.reason == "Sem contato há 3 dias"
-        assert item.href == "/crm"
+        assert item.href == f"/crm?leadId={lead.id}"
 
     def test_never_contacted_lead(self):
         db = _db(scalar_value=1, scalars_list=[_lead(days_ago=None)])
@@ -127,7 +127,7 @@ class TestMembersAttention:
         assert item.retention_stage == "recovery"
         assert item.days_without_checkin == 12
         assert item.reason == "12 dias sem treinar · estágio recuperação"
-        assert item.href == "/dashboard/retention"
+        assert item.href == "/dashboard/retention?search=Aluno%20Teste"
 
 
 class TestActionsToday:
@@ -141,7 +141,7 @@ class TestActionsToday:
         assert item.overdue is True
         assert item.target_name == "Aluno Alvo"
         assert item.priority == "high"
-        assert item.href == "/tasks"
+        assert item.href == "/tasks?search=Ligar%20pro%20aluno"
 
     def test_future_today_not_overdue_and_lead_target(self):
         lead = SimpleNamespace(full_name="Lead Alvo")

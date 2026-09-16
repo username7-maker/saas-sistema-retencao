@@ -9,6 +9,7 @@ Sem cache de propósito: cockpit é operacional, dado fresco na recepção.
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
+from urllib.parse import quote
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -120,7 +121,7 @@ def _leads_needing_followup(
                 stage=_enum_value(lead.stage),
                 days_since_contact=days,
                 reason=_followup_reason(days),
-                href="/crm",
+                href=f"/crm?leadId={lead.id}",
             )
         )
     return items, int(total)
@@ -155,7 +156,7 @@ def _members_attention(
                 retention_stage=member.retention_stage,
                 days_without_checkin=days,
                 reason=_attention_reason(risk_level, member.retention_stage, days),
-                href="/dashboard/retention",
+                href=f"/dashboard/retention?search={quote(member.full_name)}",
             )
         )
     return items, int(total)
@@ -205,7 +206,7 @@ def _actions_today(
                 due_date=due,
                 overdue=bool(due is not None and due < now),
                 target_name=target_name,
-                href="/tasks",
+                href=f"/tasks?search={quote(task.title)}",
             )
         )
     return items, int(total)

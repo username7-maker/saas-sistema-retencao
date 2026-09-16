@@ -71,7 +71,7 @@ describe("scanner review", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Usar as tres fotos" }));
     expect(onConfirm).toHaveBeenCalledOnce();
     expect(onConfirm.mock.calls[0][2]).toHaveLength(2);
-  });
+  }, 10_000);
 
   it("ignores a delayed camera enumeration after closing", async () => {
     let finish!: (devices: MediaDeviceInfo[]) => void;

@@ -121,19 +121,29 @@ def _count_risk_recovered(db: Session, *, gym_id: UUID, start: datetime, end: da
 
 
 def _count_conversions(db: Session, *, gym_id: UUID, start: datetime, end: datetime) -> ConversionBreakdown:
+    # The converted member is created in the same transaction that marks the
+    # lead as won. Its creation time is stable; Lead.updated_at changes on
+    # ordinary edits and must not move an old sale into a new week.
     leads_won = db.scalar(
-        select(func.count())
+        select(func.count(func.distinct(Lead.id)))
         .select_from(Lead)
+        .join(Member, Member.id == Lead.converted_member_id)
         .where(
             Lead.gym_id == gym_id,
             Lead.deleted_at.is_(None),
             Lead.stage == LeadStage.WON,
-            Lead.updated_at >= start,
-            Lead.updated_at < end,
+            Member.created_at >= start,
+            Member.created_at < end,
         )
     ) or 0
     start_date = start.astimezone(SAO_PAULO_TZ).date()
-    end_date = end.astimezone(SAO_PAULO_TZ).date()
+    end_sp = end.astimezone(SAO_PAULO_TZ)
+    end_date = end_sp.date()
+    end_boundary = (
+        Member.join_date < end_date
+        if end_sp.time() == time(0, 0)
+        else Member.join_date <= end_date
+    )
     members_joined = db.scalar(
         select(func.count())
         .select_from(Member)
@@ -142,7 +152,7 @@ def _count_conversions(db: Session, *, gym_id: UUID, start: datetime, end: datet
             Member.deleted_at.is_(None),
             Member.join_date.is_not(None),
             Member.join_date >= start_date,
-            Member.join_date <= end_date,
+            end_boundary,
         )
     ) or 0
     return ConversionBreakdown(

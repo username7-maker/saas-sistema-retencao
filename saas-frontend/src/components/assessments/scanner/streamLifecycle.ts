@@ -30,6 +30,31 @@ export function requestMediaStreamWithTimeout(
   });
 }
 
+export function requestWithTimeout<T>(
+  request: () => Promise<T>,
+  timeoutMs: number,
+  errorCode: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      settled = true;
+      reject(new Error(errorCode));
+    }, timeoutMs);
+    request().then((value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    }, (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 export class CameraAttemptController {
   private generation = 0;
   active: MediaStream | null = null;

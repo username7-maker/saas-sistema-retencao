@@ -86,9 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (payload: LoginPayload) => {
     await authService.login(payload);
     const currentUser = await authService.me();
+    await queryClient.cancelQueries();
+    queryClient.clear();
     setUser(currentUser);
     return currentUser;
-  }, []);
+  }, [queryClient]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -121,10 +123,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (prefixes.some((prefix) => key.startsWith(prefix))) window.sessionStorage.removeItem(key);
         }
       } finally {
+        await queryClient.cancelQueries();
+        queryClient.clear();
         setUser(null);
       }
     }
-  }, []);
+  }, [queryClient]);
 
   const value = useMemo(
     () => ({

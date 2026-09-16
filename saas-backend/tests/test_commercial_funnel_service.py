@@ -10,6 +10,7 @@ from app.schemas.commercial_funnel import ConversionBreakdown
 from app.services.commercial_funnel_service import (
     SAO_PAULO_TZ,
     _count_contacts,
+    _count_conversions,
     _count_responses,
     _count_risk_recovered,
     _week_window,
@@ -62,6 +63,28 @@ class TestCountResponses:
         db.scalar.return_value = 18
         start, end = _week_window(NOW, 0)
         assert _count_responses(db, gym_id=GYM_ID, start=start, end=end) == 18
+
+
+class TestCountConversions:
+    def test_uses_member_creation_time_instead_of_mutable_lead_update_time(self):
+        db = MagicMock()
+        db.scalar.side_effect = [2, 3]
+        db.scalars.return_value.all.return_value = []
+        start, end = _week_window(NOW, 0)
+        _count_conversions(db, gym_id=GYM_ID, start=start, end=end)
+        sales_query = str(db.scalar.call_args_list[0].args[0])
+        assert "members.created_at" in sales_query
+        assert "leads.updated_at" not in sales_query
+
+    def test_closed_week_excludes_next_monday_from_member_join_count(self):
+        db = MagicMock()
+        db.scalar.side_effect = [0, 0]
+        db.scalars.return_value.all.return_value = []
+        start, end = _week_window(NOW, -1)
+        _count_conversions(db, gym_id=GYM_ID, start=start, end=end)
+        members_query = str(db.scalar.call_args_list[1].args[0])
+        assert "members.join_date < :join_date_2" in members_query
+        assert "members.join_date <=" not in members_query
 
 
 def _history_row(member_id, level, days_ago):

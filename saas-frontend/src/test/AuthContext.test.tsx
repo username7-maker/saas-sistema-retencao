@@ -27,13 +27,13 @@ vi.mock("../services/storage", () => ({
 }));
 
 function AuthProbe() {
-  const { loading, user, logout } = useAuth();
+  const { loading, user, login, logout } = useAuth();
 
   if (loading) {
     return <div>loading</div>;
   }
 
-  return <div>{user ? user.full_name : "anonymous"}<button onClick={() => void logout().catch(() => undefined)}>Logout</button></div>;
+  return <div>{user ? user.full_name : "anonymous"}<button onClick={() => void login({ email: "b@example.com", password: "x", gym_slug: "gym-b" })}>Login B</button><button onClick={() => void logout().catch(() => undefined)}>Logout</button></div>;
 }
 
 function renderAuthProvider(queryClient = new QueryClient()) {
@@ -65,12 +65,27 @@ describe("AuthProvider", () => {
     authServiceMock.logout.mockRejectedValue(new Error("offline"));
     window.sessionStorage.setItem("cordex:assessment-draft:v2:sample", "draft");
     window.sessionStorage.setItem("unrelated", "keep");
-    renderAuthProvider();
+    const queryClient = renderAuthProvider();
+    queryClient.setQueryData(["dashboard", "executive"], { gym: "gym-1" });
     await screen.findByText("Owner");
     fireEvent.click(screen.getByText("Logout"));
     await screen.findByText("anonymous");
     expect(window.sessionStorage.getItem("cordex:assessment-draft:v2:sample")).toBeNull();
     expect(window.sessionStorage.getItem("unrelated")).toBe("keep");
+    expect(queryClient.getQueryData(["dashboard", "executive"])).toBeUndefined();
+  });
+
+  it("clears cached data before exposing a newly authenticated identity", async () => {
+    tokenStorageMock.getAccessToken.mockReturnValue(null);
+    authServiceMock.restoreSession.mockRejectedValue(new Error("anonymous"));
+    authServiceMock.login.mockResolvedValue({ access_token: "token" });
+    authServiceMock.me.mockResolvedValueOnce({ id: "user-2", gym_id: "gym-2", full_name: "Owner B" });
+    const queryClient = renderAuthProvider();
+    queryClient.setQueryData(["dashboard", "executive"], { gym: "gym-1" });
+    await screen.findByText("anonymous");
+    fireEvent.click(screen.getByText("Login B"));
+    await screen.findByText("Owner B");
+    expect(queryClient.getQueryData(["dashboard", "executive"])).toBeUndefined();
   });
 
   it("restores the session from the refresh cookie when no access token is cached", async () => {

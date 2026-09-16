@@ -10,6 +10,7 @@ import { containedImageRect, pointToImageCoordinates, validDocumentCorners, type
 import {
   CameraAttemptController,
   requestMediaStreamWithTimeout,
+  requestWithTimeout,
   stopMediaStream,
 } from "./scanner/streamLifecycle";
 
@@ -94,6 +95,8 @@ interface GuidedDocumentScannerProps {
 
 const MAX_SIDE = 4000;
 const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_INPUT_BYTES = 32 * 1024 * 1024;
+const PHOTO_CAPTURE_TIMEOUT_MS = 8_000;
 const SCANNER_V2_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_SCANNER_V2 === "true";
 const CAPTURE_GUIDE_V3_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_CAPTURE_GUIDE_V3 === "true";
 const SMART_CAPTURE_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_SMART_CAPTURE_V1 === "true";
@@ -694,9 +697,22 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   }
 
   async function acceptRawCapture(blob: Blob, method: "automatic" | "manual" | "gallery") {
-    if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > MAX_BYTES) {
-      toast.error("Escolha uma imagem JPEG ou PNG de ate 8 MB.");
+    if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > MAX_INPUT_BYTES) {
+      toast.error("Escolha uma imagem JPEG ou PNG de ate 32 MB.");
       return;
+    }
+    let acceptedBlob = blob;
+    if (blob.size > MAX_BYTES) {
+      try {
+        acceptedBlob = (await normalizeCapture(blob, FULL_CROP, 0)).blob;
+      } catch {
+        toast.error("Nao foi possivel compactar a foto. Escolha outra imagem.");
+        return;
+      }
+      if (acceptedBlob.size > MAX_BYTES) {
+        toast.error("A foto continua acima de 8 MB apos a compactacao.");
+        return;
+      }
     }
     reviewActiveRef.current = true;
     setRotation(0);
@@ -709,7 +725,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       quality_codes: liveAnalysis?.qualityCodes ?? [],
     });
     setCaptureMethod(method);
-    setRawCapture(blob);
+    setRawCapture(acceptedBlob);
     setCorrectedCapture(null);
     setPreparation(null);
     setPreparationError(null);
@@ -725,7 +741,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     }
     cameraAttemptsRef.current.invalidate();
     streamRef.current = null;
-    await prepareCapturedBlob(blob);
+    await prepareCapturedBlob(acceptedBlob);
   }
 
   async function capture(method: "automatic" | "manual" = "manual") {
@@ -747,12 +763,14 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       const ImageCaptureCtor = (window as typeof window & { ImageCapture?: new (track: MediaStreamTrack) => ImageCaptureLike }).ImageCapture;
       if (ImageCaptureCtor) {
         try {
-          const imageCapture = new ImageCaptureCtor(track);
-          const photoCapabilities = SCANNER_V2_ENABLED ? await imageCapture.getPhotoCapabilities?.() : undefined;
-          const photoSettings = photoCapabilities?.imageWidth?.max && photoCapabilities?.imageHeight?.max
-            ? { imageWidth: photoCapabilities.imageWidth.max, imageHeight: photoCapabilities.imageHeight.max }
-            : undefined;
-          blob = await imageCapture.takePhoto(photoSettings);
+          blob = await requestWithTimeout(async () => {
+            const imageCapture = new ImageCaptureCtor(track);
+            const photoCapabilities = SCANNER_V2_ENABLED ? await imageCapture.getPhotoCapabilities?.() : undefined;
+            const photoSettings = photoCapabilities?.imageWidth?.max && photoCapabilities?.imageHeight?.max
+              ? { imageWidth: photoCapabilities.imageWidth.max, imageHeight: photoCapabilities.imageHeight.max }
+              : undefined;
+            return imageCapture.takePhoto(photoSettings);
+          }, PHOTO_CAPTURE_TIMEOUT_MS, "camera_capture_timeout");
         } catch { blob = null; }
       }
       if (!blob) {
@@ -1001,8 +1019,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
             {SMART_CAPTURE_ENABLED ? (
               <div className="mt-4 flex items-center justify-between gap-2">
                 <div className="inline-flex rounded-lg border border-lovable-border p-1" role="group" aria-label="Versao da imagem">
-                  <Button type="button" size="sm" variant={reviewVersion === "original" ? "secondary" : "ghost"} onClick={() => setReviewVersion("original")}>Original</Button>
-                  <Button type="button" size="sm" variant={reviewVersion === "corrected" ? "secondary" : "ghost"} disabled={!correctedCapture} onClick={() => setReviewVersion("corrected")}>Corrigida</Button>
+                  <Button type="button" size="sm" variant={reviewVersion === "original" ? "secondary" : "ghost"} disabled={processing} onClick={() => setReviewVersion("original")}>Original</Button>
+                  <Button type="button" size="sm" variant={reviewVersion === "corrected" ? "secondary" : "ghost"} disabled={processing || !correctedCapture} onClick={() => setReviewVersion("corrected")}>Corrigida</Button>
                 </div>
                 {preparingImage ? <span className="text-xs text-lovable-ink-muted">Corrigindo perspectiva...</span> : null}
               </div>
@@ -1052,8 +1070,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button type="button" variant="secondary" onClick={() => { setRotation((value) => value - 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCcw size={14} />Girar esquerda</Button>
-              <Button type="button" variant="secondary" onClick={() => { setRotation((value) => value + 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCw size={14} />Girar direita</Button>
+              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value - 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCcw size={14} />Girar esquerda</Button>
+              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value + 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCw size={14} />Girar direita</Button>
               <Button type="button" variant="secondary" disabled={preparingImage || processing} onClick={() => {
                 setReviewVersion("original");
                 if (adjustingCrop && SMART_CAPTURE_ENABLED) setCropCorners(preparation ? { topLeft: preparation.corners[0], topRight: preparation.corners[1], bottomRight: preparation.corners[2], bottomLeft: preparation.corners[3] } : FULL_CROP);
@@ -1071,13 +1089,13 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
               <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
                 <p>A foto pode ser lida, mas {quality.warnings[0].toLocaleLowerCase("pt-BR")}</p>
                 <div className="mt-2 flex gap-2">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => setAcceptWarnings(true)}>Usar esta foto</Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setRawCapture(null); setCorrectedCapture(null); setPreparation(null); setPreparationError(null); setQuality({ blocking: [], warnings: [] }); setAcceptWarnings(false); void startCamera(deviceId || undefined); }}>Refazer</Button>
+                  <Button type="button" size="sm" variant="secondary" disabled={processing} onClick={() => setAcceptWarnings(true)}>Usar esta foto</Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={processing} onClick={() => { setRawCapture(null); setCorrectedCapture(null); setPreparation(null); setPreparationError(null); setQuality({ blocking: [], warnings: [] }); setAcceptWarnings(false); void startCamera(deviceId || undefined); }}>Refazer</Button>
                 </div>
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => { setRawCapture(null); setCorrectedCapture(null); setPreparation(null); setPreparationError(null); setQuality({ blocking: [], warnings: [] }); void startCamera(deviceId || undefined); }}><RefreshCcw size={14} />Refazer</Button>
+              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRawCapture(null); setCorrectedCapture(null); setPreparation(null); setPreparationError(null); setQuality({ blocking: [], warnings: [] }); void startCamera(deviceId || undefined); }}><RefreshCcw size={14} />Refazer</Button>
               <Button type="button" variant="primary" onClick={() => void confirm()} disabled={processing || preparingImage || adjustingCrop || (quality.warnings.length > 0 && !acceptWarnings)}><Check size={14} />{processing || preparingImage ? "Preparando..." : captureMode === "segmented" && segmentFiles.length < 2 ? "Confirmar e continuar" : `Confirmar foto ${reviewVersion === "corrected" ? "corrigida" : "original"}`}</Button>
             </div>
           </>
