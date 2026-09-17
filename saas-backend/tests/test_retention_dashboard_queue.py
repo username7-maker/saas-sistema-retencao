@@ -600,6 +600,29 @@ class TestRetentionQueueBulkResolveService:
         assert "members.full_name" in compiled
         assert "FOR UPDATE" in compiled
 
+    @patch("app.services.dashboard_service.invalidate_dashboard_cache")
+    @patch("app.services.dashboard_service.log_audit_event")
+    def test_postgresql_lock_query_does_not_contain_a_window_function(
+        self,
+        mock_log_audit,
+        mock_invalidate,
+        mock_owner,
+    ):
+        from sqlalchemy.dialects import postgresql
+        from app.services.dashboard_service import resolve_retention_queue
+
+        rows = MagicMock()
+        rows.all.return_value = []
+        db = MagicMock()
+        db.execute.return_value = rows
+
+        resolve_retention_queue(db, current_user=mock_owner, expected_count=0)
+
+        statement = db.execute.call_args.args[0]
+        compiled = str(statement.compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in compiled
+        assert " OVER " not in compiled
+
     @patch("app.services.dashboard_service._apply_risk_alert_resolution")
     def test_count_change_returns_conflict_without_modifying_rows(self, mock_apply_resolution, mock_owner):
         from fastapi import HTTPException

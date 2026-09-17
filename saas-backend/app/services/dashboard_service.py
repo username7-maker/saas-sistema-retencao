@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from pydantic import TypeAdapter
 from sqlalchemy import DateTime, and_, case, func, not_, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.cache import dashboard_cache, invalidate_dashboard_cache, make_cache_key
 from app.database import get_current_gym_id
@@ -858,27 +858,32 @@ def _resolve_dashboard_gym_id(gym_id=None):
 
 
 def _latest_open_retention_alert_subquery():
-    ranked_alerts = (
+    newer_alert = aliased(RiskAlert)
+    has_newer_open_alert = (
+        select(newer_alert.id)
+        .where(
+            newer_alert.member_id == RiskAlert.member_id,
+            newer_alert.resolved.is_(False),
+            or_(
+                newer_alert.created_at > RiskAlert.created_at,
+                and_(
+                    newer_alert.created_at == RiskAlert.created_at,
+                    newer_alert.id > RiskAlert.id,
+                ),
+            ),
+        )
+        .correlate(RiskAlert)
+        .exists()
+    )
+    return (
         select(
             RiskAlert.id.label("alert_id"),
             RiskAlert.member_id.label("member_id"),
-            func.row_number()
-            .over(
-                partition_by=RiskAlert.member_id,
-                order_by=(RiskAlert.created_at.desc(), RiskAlert.id.desc()),
-            )
-            .label("row_number"),
         )
-        .where(RiskAlert.resolved.is_(False))
-        .subquery()
-    )
-
-    return (
-        select(
-            ranked_alerts.c.alert_id.label("alert_id"),
-            ranked_alerts.c.member_id.label("member_id"),
+        .where(
+            RiskAlert.resolved.is_(False),
+            ~has_newer_open_alert,
         )
-        .where(ranked_alerts.c.row_number == 1)
         .subquery()
     )
 
