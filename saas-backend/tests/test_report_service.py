@@ -286,7 +286,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "84,5 kg" in html[weight_meta : weight_meta + 250]
     assert "Data / hora" in html
     assert "14/04/2026 10:00" in html
-    assert "grid-template-columns: repeat(7, minmax(0, 1fr))" in html
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(125px, 1.5fr)" in html
 
     technical_html = render_premium_report_html(replace(payload, report_scope="technical"))
 

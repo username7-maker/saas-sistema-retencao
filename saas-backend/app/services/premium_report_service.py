@@ -1488,27 +1488,39 @@ def _render_semantic_history_page(
 ) -> str:
     if not series_list:
         return ""
-    charts = []
-    for series in series_list:
-        points = series.get("points") or []
-        rows = "".join(
-            f'<div class="clinical-history-row"><span>{escape(_format_dateish(point.get("evaluation_date")))}</span><strong>{escape(str(point.get("formatted_value") or "-"))}</strong></div>'
-            for point in points
-        )
-        chart_svg = _render_semantic_history_chart(points)
-        charts.append(f'<article class="clinical-history-card"><h3>{escape(str(series.get("label") or "-"))}</h3>{chart_svg}{rows}</article>')
-    return f"""
+    pages = []
+    for page_index in range(0, len(series_list), 4):
+        charts = []
+        for series in series_list[page_index : page_index + 4]:
+            unique_points = _recent_unique_history_points(series.get("points") or [], limit=12)
+            table_points = unique_points[-6:]
+            rows = "".join(
+                f'<div class="clinical-history-row"><span>{escape(_format_dateish(point.get("evaluation_date")))}</span><strong>{escape(str(point.get("formatted_value") or "-"))}</strong></div>'
+                for point in table_points
+            )
+            chart_svg = _render_semantic_history_chart(unique_points)
+            charts.append(f'<article class="clinical-history-card"><h3>{escape(str(series.get("label") or "-"))}</h3>{chart_svg}{rows}</article>')
+        pages.append(f"""
     <section class="clinical-page clinical-history-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       {_render_semantic_report_header(payload, header, measured_label, "Evolução histórica", None, compact=True)}
-      <section class="clinical-section"><h2>Evolução histórica</h2><p class="clinical-section-subtitle">Somente séries com três ou mais pontos metodologicamente comparáveis.</p><div class="clinical-history-grid">{''.join(charts)}</div></section>
+      <section class="clinical-section"><h2>Evolução histórica</h2><p class="clinical-section-subtitle">Comparação disponível a partir de uma avaliação anterior. Gráfico com até 12 datas recentes; tabela com as 6 mais recentes.</p><div class="clinical-history-grid">{''.join(charts)}</div></section>
       <footer class="clinical-footer">{escape(footer)}</footer>
     </section>
-    """
+        """)
+    return "".join(pages)
+
+
+def _recent_unique_history_points(points: Sequence[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    by_date: dict[str, dict[str, Any]] = {}
+    for index, point in enumerate(points):
+        date_key = str(point.get("evaluation_date") or point.get("measured_at") or point.get("evaluation_id") or index)
+        by_date[date_key] = point
+    return list(by_date.values())[-limit:]
 
 
 def _render_semantic_history_chart(points: Sequence[dict[str, Any]]) -> str:
     values = [float(point["value"]) for point in points if isinstance(point.get("value"), int | float)]
-    if len(values) < 3:
+    if len(values) < 2:
         return ""
     width, height, padding = 300.0, 72.0, 8.0
     low, high = min(values), max(values)
@@ -4714,7 +4726,7 @@ def _body_composition_report_css() -> str:
         letter-spacing: 0.24em;
       }
       .clinical-meta-grid {
-        grid-template-columns: repeat(7, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(125px, 1.5fr);
         margin-top: 18px;
         border-radius: 8px;
         overflow: hidden;
@@ -4726,6 +4738,12 @@ def _body_composition_report_css() -> str:
       }
       .clinical-meta-card strong {
         font-size: 12.5px;
+      }
+      .clinical-meta-last strong {
+        white-space: normal;
+        word-break: normal;
+        overflow-wrap: normal;
+        font-size: 10.5px;
       }
       .clinical-meta-prominent {
         background: #e9f3ff;

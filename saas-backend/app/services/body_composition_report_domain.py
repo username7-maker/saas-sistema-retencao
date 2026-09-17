@@ -19,6 +19,7 @@ from app.schemas.body_composition import (
 
 BUSINESS_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 INCOMPATIBLE_MESSAGE = "Comparação indisponível — métodos/fontes diferentes"
+IMPLAUSIBLE_MEASUREMENT_MESSAGE = "Comparação suspensa — variação corporal improvável; revise as medidas registradas"
 OLD_REPORT_MESSAGE = "Comparação indisponível neste relatório antigo"
 SCORE_DISCLAIMER = "Índice Cordex para acompanhamento individual; não representa diagnóstico clínico."
 
@@ -346,7 +347,7 @@ def build_history(
                 method_signature=_method_signature(current, key),
                 points=points,
                 excluded_points_count=excluded,
-                chart_eligible=len(points) >= 3,
+                chart_eligible=len(points) >= 2,
                 comparison_message=INCOMPATIBLE_MESSAGE if excluded else None,
             )
         )
@@ -420,7 +421,15 @@ def _comparison_status(
         return "missing_value", "Comparação indisponível — valor anterior ausente"
     if not _history_item_compatible(key, current, previous):
         return "incompatible_method", INCOMPATIBLE_MESSAGE
+    if key in _BODY_MEASUREMENT_LABELS and _implausible_body_measurement_change(current_value, previous_value):
+        return "incompatible_method", IMPLAUSIBLE_MEASUREMENT_MESSAGE
     return "comparable", None
+
+
+def _implausible_body_measurement_change(current_value: float, previous_value: float) -> bool:
+    absolute_change = abs(current_value - previous_value)
+    relative_change = absolute_change / max(abs(previous_value), 1.0)
+    return absolute_change >= 30 and relative_change >= 0.35
 
 
 def _history_item_compatible(key: str, current: Any, item: Any) -> bool:

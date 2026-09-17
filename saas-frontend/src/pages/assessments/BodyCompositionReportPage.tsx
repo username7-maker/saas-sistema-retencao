@@ -692,7 +692,7 @@ function SemanticComparisonNotices({ messages }: { messages: string[] }) {
 function SemanticHistory({ series }: { series: NonNullable<BodyCompositionReport["history"]> }) {
   return (
     <section className="clinical-web-section clinical-web-history-card">
-      <ReportSectionTitle title="Histórico" subtitle="Séries com pelo menos três pontos metodologicamente compatíveis." />
+      <ReportSectionTitle title="Histórico" subtitle="Séries com ao menos uma avaliação anterior metodologicamente compatível." />
       <div className="clinical-web-table-wrap"><table><thead><tr><th>Série</th><th>Pontos comparáveis</th><th>Excluídos</th></tr></thead>
         <tbody>{series.map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.points.length}</td><td>{item.excluded_points_count}</td></tr>)}</tbody>
       </table></div>

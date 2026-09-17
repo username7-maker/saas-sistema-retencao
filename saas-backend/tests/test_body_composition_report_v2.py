@@ -182,6 +182,21 @@ def test_v2_perimetry_keeps_current_and_previous_states_unambiguous() -> None:
     assert "Pescoço" in html and "Não aferido nesta avaliação" in html
 
 
+def test_implausible_perimetry_change_is_not_used_in_narrative() -> None:
+    previous = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC))
+    previous.shoulders_cm = 112
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    current.shoulders_cm = 12
+
+    report = build_body_composition_report_read(_member(), current, history=[previous, current])
+    shoulders = _metric(report, "shoulders_cm")
+
+    assert shoulders.comparison_status == "incompatible_method"
+    assert shoulders.delta is None
+    assert shoulders.comparison_message == "Comparação suspensa — variação corporal improvável; revise as medidas registradas"
+    assert "Ombros reduziu" not in (report.analysis_cordex or "")
+
+
 def test_pdf_compares_perimetry_and_skinfolds_with_latest_available_measurement() -> None:
     measured = _evaluation(datetime(2026, 7, 1, 12, tzinfo=UTC))
     measured.measured_at = None
@@ -375,7 +390,7 @@ def test_payload_rejects_divergence_between_local_date_and_measured_at() -> None
     assert "coincidir" in str(exc_info.value.detail).lower()
 
 
-def test_pdf_html_consumes_v2_semantics_and_uses_two_pages_for_short_history() -> None:
+def test_pdf_html_consumes_v2_semantics_and_adds_history_with_one_prior_evaluation() -> None:
     previous = _evaluation(
         datetime(2026, 8, 1, 12, tzinfo=UTC),
         weight=99,
@@ -407,10 +422,11 @@ def test_pdf_html_consumes_v2_semantics_and_uses_two_pages_for_short_history() -
     assert "-22,4 kg" not in html
     assert "Sem observações registradas nesta avaliação." in html
     assert "UTC" not in html
-    assert html.count('<section class="clinical-page') == 2
+    assert html.count('<section class="clinical-page') == 3
+    assert "Comparação disponível a partir de uma avaliação anterior" in html
 
 
-def test_pdf_adds_history_page_when_any_series_has_three_valid_points() -> None:
+def test_pdf_paginates_eligible_history_series_in_groups_of_four() -> None:
     history = [
         _evaluation(datetime(2026, month, 1, 12, tzinfo=UTC), weight=100 - month)
         for month in (6, 7, 8, 9)
@@ -419,6 +435,20 @@ def test_pdf_adds_history_page_when_any_series_has_three_valid_points() -> None:
 
     html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
 
-    assert html.count('<section class="clinical-page') == 3
+    assert html.count('<section class="clinical-page') == 4
     assert "Evolução histórica" in html
     assert '<svg class="clinical-history-chart"' in html
+
+
+def test_pdf_history_limits_rows_to_recent_unique_dates() -> None:
+    history = [
+        _evaluation(datetime(2026, 1, day, 12, tzinfo=UTC), weight=100 - day)
+        for day in range(1, 16)
+    ]
+    report = build_body_composition_report_read(_member(), history[-1], history=history)
+
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert "01/01/2026" not in html
+    assert "10/01/2026" in html
+    assert "15/01/2026" in html
