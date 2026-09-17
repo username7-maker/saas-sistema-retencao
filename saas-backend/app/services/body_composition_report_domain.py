@@ -308,6 +308,7 @@ def build_history(
     now: datetime | None = None,
 ) -> list[BodyCompositionSemanticHistorySeriesRead]:
     current_invalid = is_future_evaluation(current, now=now)
+    current_time = _measured_at(current)
     definitions = [definition for definition in METRIC_DEFINITIONS if definition["key"] in HISTORY_KEYS]
     series_list: list[BodyCompositionSemanticHistorySeriesRead] = []
     for definition in definitions:
@@ -316,6 +317,11 @@ def build_history(
         points: list[BodyCompositionSemanticHistoryPointRead] = []
         excluded = 0
         for item in history:
+            measured_at = _measured_at(item)
+            # A report is a snapshot at the selected evaluation. Later
+            # assessments must never leak into an older report.
+            if current_time is None or measured_at is None or measured_at > current_time:
+                continue
             value = _metric_value(item, key)
             comparable = not current_invalid and not is_future_evaluation(item, now=now) and value is not None and _history_item_compatible(key, current, item)
             if not comparable:
@@ -323,10 +329,6 @@ def build_history(
                     excluded += 1
                 continue
             source, method = _source_method(item, key)
-            measured_at = _measured_at(item)
-            if measured_at is None:
-                excluded += 1
-                continue
             points.append(
                 BodyCompositionSemanticHistoryPointRead(
                     evaluation_id=item.id,

@@ -178,8 +178,9 @@ def test_v2_perimetry_keeps_current_and_previous_states_unambiguous() -> None:
 
     html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
     assert "Ombros" in html and "100 cm" in html
-    assert "Primeira avaliação" in html
-    assert "Pescoço" in html and "Não aferido nesta avaliação" in html
+    assert "Sem aferição anterior" in html
+    assert "Pescoço" in html and "Não aferido" in html
+    assert "Última aferição: 39 cm" in html
 
 
 def test_implausible_perimetry_change_is_not_used_in_narrative() -> None:
@@ -452,3 +453,60 @@ def test_pdf_history_limits_rows_to_recent_unique_dates() -> None:
     assert "01/01/2026" not in html
     assert "10/01/2026" in html
     assert "15/01/2026" in html
+
+
+def test_history_for_older_report_does_not_include_later_assessments() -> None:
+    previous = _evaluation(datetime(2026, 7, 1, 12, tzinfo=UTC), weight=90)
+    current = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC), weight=85)
+    later = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC), weight=80)
+
+    report = build_body_composition_report_read(_member(), current, history=[previous, current, later])
+    weight = next(series for series in report.history if series.key == "weight_kg")
+
+    assert [point.evaluation_id for point in weight.points] == [previous.id, current.id]
+    assert report.evaluation_number == 2
+
+
+def test_pdf_history_keeps_two_assessments_from_the_same_day() -> None:
+    previous = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC), weight=90)
+    current = _evaluation(datetime(2026, 9, 1, 18, tzinfo=UTC), weight=85)
+
+    report = build_body_composition_report_read(_member(), current, history=[previous, current])
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert '<svg class="clinical-history-chart"' in html
+    assert "01/09/2026 09:00" in html
+    assert "01/09/2026 15:00" in html
+
+
+def test_pdf_does_not_invent_anthropometry_when_body_fat_source_is_unknown() -> None:
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC), body_fat_source=None)
+
+    report = build_body_composition_report_read(_member(), current, history=[current])
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert "Fonte e metodo nao informados nesta avaliacao." in html
+    assert "Percentual estimado por dobras e medidas conforme o protocolo selecionado." not in html
+
+
+def test_pdf_formats_integral_height_without_decimal_suffix() -> None:
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    current.height_cm = 180.0
+
+    report = build_body_composition_report_read(_member(), current, history=[current])
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert "180 cm" in html
+    assert "180.0 cm" not in html
+
+
+def test_pdf_abbreviates_long_teacher_notes_explicitly_without_overflow() -> None:
+    notes = " ".join(f"observacao-{index}" for index in range(220))
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC), notes=notes)
+
+    report = build_body_composition_report_read(_member(), current, history=[current])
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert "Texto completo disponível no sistema." in html
+    assert "observacao-0" in html
+    assert "observacao-219" not in html

@@ -1240,11 +1240,11 @@ def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str
     body_fat_metric = next((metric for metric in metrics if metric.get("key") == "body_fat_used_percent"), None)
     if body_fat_metric:
         current = body_fat_metric.get("current") or {}
-        body_fat_context.update(
-            used_percent=current.get("value"),
-            used_source=current.get("source"),
-            method=current.get("method"),
-        )
+        body_fat_context["used_percent"] = current.get("value")
+        if current.get("source") is not None:
+            body_fat_context["used_source"] = current.get("source")
+        if current.get("method") is not None:
+            body_fat_context["method"] = current.get("method")
 
     classic_report = dict(report)
     classic_report.update(
@@ -1492,30 +1492,43 @@ def _render_semantic_history_page(
     for page_index in range(0, len(series_list), 4):
         charts = []
         for series in series_list[page_index : page_index + 4]:
-            unique_points = _recent_unique_history_points(series.get("points") or [], limit=12)
-            table_points = unique_points[-6:]
+            recent_points = _recent_history_points(series.get("points") or [], limit=12)
+            table_points = recent_points[-6:]
+            date_counts: dict[str, int] = {}
+            for point in table_points:
+                date_key = str(point.get("evaluation_date") or "")
+                date_counts[date_key] = date_counts.get(date_key, 0) + 1
             rows = "".join(
-                f'<div class="clinical-history-row"><span>{escape(_format_dateish(point.get("evaluation_date")))}</span><strong>{escape(str(point.get("formatted_value") or "-"))}</strong></div>'
+                f'<div class="clinical-history-row"><span>{escape(_semantic_history_point_label(point, show_time=date_counts.get(str(point.get("evaluation_date") or ""), 0) > 1))}</span><strong>{escape(str(point.get("formatted_value") or "-"))}</strong></div>'
                 for point in table_points
             )
-            chart_svg = _render_semantic_history_chart(unique_points)
+            chart_svg = _render_semantic_history_chart(recent_points)
             charts.append(f'<article class="clinical-history-card"><h3>{escape(str(series.get("label") or "-"))}</h3>{chart_svg}{rows}</article>')
         pages.append(f"""
     <section class="clinical-page clinical-history-page clinical-sheet {'clinical-sheet-technical' if technical_scope else 'clinical-sheet-summary'}">
       {_render_semantic_report_header(payload, header, measured_label, "Evolução histórica", None, compact=True)}
-      <section class="clinical-section"><h2>Evolução histórica</h2><p class="clinical-section-subtitle">Comparação disponível a partir de uma avaliação anterior. Gráfico com até 12 datas recentes; tabela com as 6 mais recentes.</p><div class="clinical-history-grid">{''.join(charts)}</div></section>
+      <section class="clinical-section"><h2>Evolução histórica</h2><p class="clinical-section-subtitle">Comparação disponível a partir de uma avaliação anterior. Gráfico com até 12 avaliações recentes; tabela com as 6 mais recentes.</p><div class="clinical-history-grid">{''.join(charts)}</div></section>
       <footer class="clinical-footer">{escape(footer)}</footer>
     </section>
         """)
     return "".join(pages)
 
 
-def _recent_unique_history_points(points: Sequence[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    by_date: dict[str, dict[str, Any]] = {}
-    for index, point in enumerate(points):
-        date_key = str(point.get("evaluation_date") or point.get("measured_at") or point.get("evaluation_id") or index)
-        by_date[date_key] = point
-    return list(by_date.values())[-limit:]
+def _recent_history_points(points: Sequence[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    return list(points)[-limit:]
+
+
+def _semantic_history_point_label(point: dict[str, Any], *, show_time: bool) -> str:
+    if not show_time:
+        return _format_dateish(point.get("evaluation_date"))
+    value = point.get("measured_at")
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return _format_dateish(point.get("evaluation_date"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
 
 
 def _render_semantic_history_chart(points: Sequence[dict[str, Any]]) -> str:
@@ -1672,8 +1685,14 @@ def _render_body_composition_report_html_legacy(payload: PremiumReportPayload) -
     lead_insight = insights[0] if insights else None
 
     teacher_notes = str(teacher_notes).strip()
+    has_long_teacher_notes = len(teacher_notes) > 700
+    teacher_notes_for_pdf = (
+        f"{_truncate_body_text(teacher_notes, 620)} Texto completo disponível no sistema."
+        if has_long_teacher_notes
+        else teacher_notes
+    )
     observations_html = (
-        f'<p class="clinical-empty-copy">{escape(teacher_notes)}</p>'
+        f'<p class="clinical-empty-copy">{escape(teacher_notes_for_pdf)}</p>'
         if teacher_notes
         else '<p class="clinical-empty-copy">Sem observações registradas nesta avaliação.</p>'
     ) if semantic_v2_classic else _render_body_client_observations(insights, teacher_notes)
@@ -2251,11 +2270,16 @@ def _render_body_client_observations(insights: Sequence[dict[str, Any]], teacher
 
 
 def _body_fat_panel_description(source: Any) -> str:
-    if str(source or "") == "bioimpedance":
+    normalized = str(source or "").strip()
+    if normalized == "bioimpedance":
         return "Percentual lido da bioimpedancia porque esta avaliacao nao tem medidas/protocolo suficientes."
-    if str(source or "") == "manual_override":
+    if normalized == "manual_override":
         return "Percentual informado manualmente pelo profissional responsavel."
-    return "Percentual estimado por dobras e medidas conforme o protocolo selecionado."
+    if normalized in {"anthropometry", "manual_anthropometry"}:
+        return "Percentual estimado por dobras e medidas conforme o protocolo selecionado."
+    if normalized in {"geneos_composite", "composite_geneos"}:
+        return "Percentual calculado pelo metodo composto GeneOS."
+    return "Fonte e metodo nao informados nesta avaliacao."
 
 
 def _filter_body_composition_metrics_for_pdf(metrics: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2437,9 +2461,9 @@ def _render_body_skinfold_card(row: dict[str, Any]) -> str:
         delta_copy = f" · {delta}" if delta not in {"", "-"} else ""
         comparison = f"Anterior: {previous}{delta_copy}"
     elif has_current:
-        comparison = "Primeira aferição registrada"
+        comparison = "Sem aferição anterior"
     else:
-        comparison = f"Anterior: {previous} · não aferida agora"
+        comparison = f"Última aferição: {previous} · não aferida agora"
     return f"""
       <article class="clinical-skinfold-card">
         <span>{escape(str(row.get("label") or "-"))}</span>
@@ -2452,17 +2476,17 @@ def _render_body_skinfold_card(row: dict[str, Any]) -> str:
 def _render_body_measurement_bubble(row: dict[str, Any], *, side: str) -> str:
     has_current = row.get("current_value") is not None
     has_previous = row.get("previous_value") is not None
-    value = row.get("formatted_current") if has_current else row.get("formatted_previous")
-    caption = "Atual" if has_current else "Anterior"
+    value = row.get("formatted_current") if has_current else "Não aferido"
+    caption = "Atual"
     previous = str(row.get("formatted_previous") or "-")
     delta = str(row.get("formatted_delta") or "-")
     if has_current and has_previous:
         delta_detail = f" &middot; {escape(delta)}" if delta not in {"", "-"} else ""
         comparison = f"Anterior: {escape(previous)}{delta_detail}"
     elif has_current:
-        comparison = "Primeira avaliação"
+        comparison = "Sem aferição anterior"
     else:
-        comparison = "Não aferido nesta avaliação"
+        comparison = f"Última aferição: {escape(previous)}"
     side_class = "bubble-left" if side == "left" else "bubble-right"
     return f"""
     <article class="clinical-measurement-bubble {side_class}">
@@ -3131,7 +3155,7 @@ def _body_flag_label(flag: str) -> str:
 def _body_header_value(value: Any, suffix: str) -> str:
     if value in (None, ""):
         return "-"
-    return f"{value} {suffix}"
+    return f"{_body_reference_number(value)} {suffix}"
 
 
 def _body_sex_label(value: Any) -> str:

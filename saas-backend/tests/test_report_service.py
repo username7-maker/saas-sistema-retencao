@@ -252,7 +252,7 @@ def test_render_premium_report_html_uses_clinical_layout_for_body_composition():
     assert "Bioimpedância" in html
     assert "Medidas corporais" in html
     assert "Anterior: 37 cm &middot; +1 cm" in html
-    assert "Primeira avaliação" in html
+    assert "Sem aferição anterior" in html
     assert "Mapa corporal frontal masculino de medidas" in html
     assert 'data-report-asset="body-map"' in html
     assert "https://report-assets.local/body-map-front-male.png" in html
