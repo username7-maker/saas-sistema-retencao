@@ -1,3 +1,5 @@
+import { documentRegions, edgeDocument, polygonArea, sideAspect, validQuadrilateral } from "./documentGeometry";
+
 export type FramePoint = { x: number; y: number };
 export type FrameCorners = [FramePoint, FramePoint, FramePoint, FramePoint];
 export type FrameSignature = { values: Uint8Array; centerX: number; centerY: number };
@@ -6,7 +8,8 @@ export type FrameAnalysis = {
   corners: FrameCorners | null;
   confidence: number;
   ready: boolean;
-  instruction: "Aproxime" | "Afaste" | "Centralize" | "Melhore a iluminação" | "Evite reflexo" | "Mantenha firme" | "Foto pronta";
+  instruction: "Aproxime" | "Afaste" | "Centralize" | "Melhore a iluminação" | "Evite reflexo" | "Mantenha firme" | "Foto pronta" | "Ajuste o foco no topo" | "Ajuste o foco no meio" | "Ajuste o foco na parte inferior" | "Enquadre o texto do documento";
+  regions: Record<"top" | "middle" | "bottom", "sharp" | "blurred" | "no_evidence">;
   qualityCodes: string[];
   metrics: {
     luminance: number;
@@ -40,19 +43,6 @@ export function advanceAutoCaptureGate(
 function luminance(data: Uint8ClampedArray, pixel: number): number {
   const offset = pixel * 4;
   return data[offset] * 0.2126 + data[offset + 1] * 0.7152 + data[offset + 2] * 0.0722;
-}
-
-function sharpnessRegion(values: Float32Array, width: number, startY: number, endY: number, minX: number, maxX: number): number {
-  let total = 0;
-  let count = 0;
-  for (let y = Math.max(1, startY + 3); y < Math.min(endY - 3, values.length / width - 1); y += 1) {
-    for (let x = Math.max(1, minX + 3); x < Math.min(maxX - 3, width - 1); x += 1) {
-      const index = y * width + x;
-      total += Math.abs(values[index - 1] + values[index + 1] + values[index - width] + values[index + width] - 4 * values[index]);
-      count += 1;
-    }
-  }
-  return total / Math.max(1, count);
 }
 
 function buildSignature(values: Float32Array, width: number, height: number, centerX: number, centerY: number): FrameSignature {
@@ -152,19 +142,21 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
   const contrast = Math.sqrt(Math.max(0, squareSum / Math.max(1, values.length) - mean * mean));
   const threshold = Math.max(105, mean + Math.min(55, contrast * 0.45));
   const component = largestBrightComponent(values, width, height, threshold);
-  const { minX, maxX, minY, maxY } = component;
-
-  const found = contrast >= 8 && component.count > width * height * 0.08 && maxX > minX && maxY > minY;
-  const boxWidth = found ? maxX - minX + 1 : 0;
-  const boxHeight = found ? maxY - minY + 1 : 0;
-  const coverage = boxWidth * boxHeight / Math.max(1, width * height);
+  const bright = component.corners;
+  const brightValid = bright && validQuadrilateral(bright, width, height)
+    && polygonArea(bright) / (width * height) < .95 && sideAspect(bright) >= 1.35 && sideAspect(bright) <= 8.5;
+  const candidate = brightValid ? bright : edgeDocument(values, width, height);
+  const found = candidate !== null;
+  const minX = candidate ? Math.min(...candidate.map(p => p.x)) : 0;
+  const maxX = candidate ? Math.max(...candidate.map(p => p.x)) : 0;
+  const minY = candidate ? Math.min(...candidate.map(p => p.y)) : 0;
+  const maxY = candidate ? Math.max(...candidate.map(p => p.y)) : 0;
+  const coverage = candidate ? polygonArea(candidate) / Math.max(1, width * height) : 0;
   const centerX = found ? (minX + maxX) / (2 * width) : 0.5;
   const centerY = found ? (minY + maxY) / (2 * height) : 0.5;
-  const aspect = boxWidth > 0 ? boxHeight / boxWidth : 0;
-  const regionHeight = Math.max(1, Math.floor(boxHeight / 3));
-  const sharpnessTop = found ? sharpnessRegion(values, width, minY, minY + regionHeight, minX, maxX + 1) : 0;
-  const sharpnessMiddle = found ? sharpnessRegion(values, width, minY + regionHeight, minY + regionHeight * 2, minX, maxX + 1) : 0;
-  const sharpnessBottom = found ? sharpnessRegion(values, width, minY + regionHeight * 2, maxY + 1, minX, maxX + 1) : 0;
+  const aspect = candidate ? sideAspect(candidate) : 0;
+  const evidence = candidate ? documentRegions(values, width, height, candidate) : [0, 1, 2].map(() => ({ sharpness: 0, edgeRatio: 0, content: false }));
+  const [sharpnessTop, sharpnessMiddle, sharpnessBottom] = evidence.map(region => region.sharpness);
   const signature = buildSignature(values, width, height, centerX, centerY);
   let motion = 0;
   if (previous) {
@@ -185,9 +177,14 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
   if (mean < 45) codes.push("document_dark");
   if (found && ((mean > 235 && contrast < 20) || hasLocalGlare(values, width, minX, maxX, minY, maxY))) codes.push("document_glare");
   const sharpnessFloor = Math.max(5, Math.max(sharpnessTop, sharpnessMiddle, sharpnessBottom) * .2);
-  if (found && sharpnessTop < sharpnessFloor) codes.push("top_blurred");
-  if (found && sharpnessMiddle < sharpnessFloor) codes.push("middle_blurred");
-  if (found && sharpnessBottom < sharpnessFloor) codes.push("bottom_blurred");
+  const regionNames = ["top", "middle", "bottom"] as const;
+  const regions = {} as FrameAnalysis["regions"];
+  regionNames.forEach((name, index) => {
+    regions[name] = !evidence[index].content ? "no_evidence"
+      : evidence[index].sharpness < sharpnessFloor || evidence[index].edgeRatio < .25 ? "blurred" : "sharp";
+    if (found && regions[name] === "blurred") codes.push(`${name}_blurred`);
+  });
+  if (found && evidence.every(region => !region.content)) codes.push("document_no_content");
   if (previous && motion > 18) codes.push("camera_moving");
 
   let instruction: FrameAnalysis["instruction"] = "Foto pronta";
@@ -196,10 +193,14 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
   else if (codes.includes("document_clipped") || codes.includes("document_too_close")) instruction = "Afaste";
   else if (codes.includes("document_off_center") || codes.includes("document_not_found") || codes.includes("document_bad_aspect")) instruction = "Centralize";
   else if (codes.includes("document_too_far")) instruction = "Aproxime";
-  else if (codes.includes("camera_moving") || codes.some((code) => code.endsWith("_blurred"))) instruction = "Mantenha firme";
+  else if (codes.includes("camera_moving")) instruction = "Mantenha firme";
+  else if (codes.includes("top_blurred")) instruction = "Ajuste o foco no topo";
+  else if (codes.includes("middle_blurred")) instruction = "Ajuste o foco no meio";
+  else if (codes.includes("bottom_blurred")) instruction = "Ajuste o foco na parte inferior";
+  else if (codes.includes("document_no_content")) instruction = "Enquadre o texto do documento";
 
-  const corners = found && component.corners
-    ? component.corners.map((p) => ({ x: p.x / width, y: p.y / height })) as FrameCorners
+  const corners = candidate
+    ? candidate.map((p) => ({ x: p.x / width, y: p.y / height })) as FrameCorners
     : null;
   const confidence = found
     ? Math.max(0, Math.min(1, 0.42 + Math.min(0.3, coverage * 0.7) + Math.min(0.2, contrast / 250) - Math.abs(centerX - 0.5) * 0.2))
@@ -210,6 +211,7 @@ export function analyzeDocumentFrame(image: ImageData, previous?: FrameSignature
     ready: codes.length === 0,
     instruction,
     qualityCodes: codes,
+    regions,
     metrics: {
       luminance: mean,
       contrast,

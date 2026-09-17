@@ -24,7 +24,11 @@ describe("live scanner frame analysis", () => {
   it("asks for framing when no document exists instead of claiming blur", () => {
     const frame = receiptFrame();
     frame.data.fill(150);
-    expect(analyzeDocumentFrame(frame).instruction).toBe("Centralize");
+    const result = analyzeDocumentFrame(frame);
+    expect(result.instruction).toBe("Centralize");
+    expect(result.ready).toBe(false);
+    expect(result.corners).toBeNull();
+    expect(result.qualityCodes.some(code => code.endsWith("_blurred"))).toBe(false);
   });
 
   it("detects a local saturated patch even on a dark background", () => {
@@ -53,17 +57,21 @@ describe("live scanner frame analysis", () => {
     }
     const result = analyzeDocumentFrame(frame);
     expect(result.qualityCodes, JSON.stringify(result.metrics)).toContain(["top_blurred", "middle_blurred", "bottom_blurred"][region]);
+    expect(result.instruction).toBe(["Ajuste o foco no topo", "Ajuste o foco no meio", "Ajuste o foco na parte inferior"][region]);
     expect(result.ready).toBe(false);
   });
 
-  it("tracks slanted paper corners instead of returning its bounding rectangle", () => {
+  it.each([22, 248])("tracks slanted paper corners against background %s", (background) => {
     const frame = receiptFrame();
+    for (let p = 0; p < frame.data.length; p += 4) {
+      if (frame.data[p] === 22) frame.data.set([background, background, background, 255], p);
+    }
     const source = new Uint8ClampedArray(frame.data);
     for (let y = 0; y < frame.height; y++) {
       const shift = Math.round((y - 160) * .10);
       for (let x = 0; x < frame.width; x++) {
         const sourceX = x - shift;
-        const value = sourceX >= 0 && sourceX < frame.width ? source[(y * frame.width + sourceX) * 4] : 22;
+        const value = sourceX >= 0 && sourceX < frame.width ? source[(y * frame.width + sourceX) * 4] : background;
         frame.data.set([value, value, value, 255], (y * frame.width + x) * 4);
       }
     }
@@ -71,6 +79,8 @@ describe("live scanner frame analysis", () => {
     expect(result.corners).not.toBeNull();
     expect(result.corners![3].x - result.corners![0].x).toBeGreaterThan(.08);
     expect(result.corners![0].y).toBeCloseTo(15 / 320, 2);
+    expect(result.metrics.coverage).toBeCloseTo(.51, 1);
+    expect(result.ready).toBe(true);
   });
   it("finds a centered vertical receipt and measures all three sharpness regions", () => {
     const result = analyzeDocumentFrame(receiptFrame());
@@ -82,11 +92,63 @@ describe("live scanner frame analysis", () => {
     expect(result.ready).toBe(true);
   });
 
-  it("does not become ready when the bottom region is blurred", () => {
+  it("allows a blank footer without misreporting blur", () => {
     const result = analyzeDocumentFrame(receiptFrame({ blankBottom: true }));
-    expect(result.qualityCodes).toContain("bottom_blurred");
+    expect(result.qualityCodes).not.toContain("bottom_blurred");
+    expect(result.regions.bottom).toBe("no_evidence");
+    expect(result.ready).toBe(true);
+  });
+
+  it("finds paper edges against a white desk", () => {
+    const frame = receiptFrame();
+    for (let p = 0; p < frame.data.length; p += 4) {
+      if (frame.data[p] === 22) frame.data.set([248, 248, 248, 255], p);
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.ready, JSON.stringify(result)).toBe(true);
+    expect(result.corners![0].x).toBeCloseTo(52 / 240, 1);
+  });
+
+  it("does not infer paper from text when white edges are indistinguishable", () => {
+    const frame = receiptFrame();
+    for (let p = 0; p < frame.data.length; p += 4) {
+      if (frame.data[p] === 22) frame.data.set([238, 238, 238, 255], p);
+    }
+    expect(analyzeDocumentFrame(frame).ready).toBe(false);
+  });
+
+  it("requires printed content even when all paper edges are visible", () => {
+    const frame = receiptFrame();
+    for (let p = 0; p < frame.data.length; p += 4) {
+      if (frame.data[p] === 35) frame.data.set([238, 238, 238, 255], p);
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.qualityCodes).toContain("document_no_content");
+    expect(result.qualityCodes.some(code => code.endsWith("_blurred"))).toBe(false);
+    expect(result.regions).toEqual({ top: "no_evidence", middle: "no_evidence", bottom: "no_evidence" });
     expect(result.ready).toBe(false);
-    expect(result.instruction).toBe("Mantenha firme");
+  });
+
+  it("rejects uniformly blurred text across the entire document", () => {
+    const frame = receiptFrame();
+    const source = new Uint8ClampedArray(frame.data);
+    for (let y = 20; y < 300; y++) for (let x = 60; x < 180; x++) {
+      let value = 0;
+      // A broad triangular point-spread function keeps text visible, but unfocused.
+      for (let dy = -5; dy <= 5; dy++) value += source[((y + dy) * frame.width + x) * 4] * (6 - Math.abs(dy));
+      value /= 36;
+      frame.data.set([value, value, value, 255], (y * frame.width + x) * 4);
+    }
+    const result = analyzeDocumentFrame(frame);
+    expect(result.qualityCodes, JSON.stringify(result.metrics)).toEqual(expect.arrayContaining(["top_blurred", "middle_blurred", "bottom_blurred"]));
+    expect(result.ready).toBe(false);
+  });
+
+  it("prioritizes clipping guidance over regional focus", () => {
+    const frame = receiptFrame({ offsetX: -52 });
+    const result = analyzeDocumentFrame(frame);
+    expect(result.qualityCodes).toContain("document_clipped");
+    expect(result.instruction).toBe("Afaste");
   });
 
   it("detects motion between frames and asks the operator to hold still", () => {

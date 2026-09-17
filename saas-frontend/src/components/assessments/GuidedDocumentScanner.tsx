@@ -5,7 +5,8 @@ import toast from "react-hot-toast";
 import { bodyCompositionService, type BodyCompositionPreparationMetadata } from "../../services/bodyCompositionService";
 import { Button } from "../ui2/Button";
 import { Select } from "../ui2/Select";
-import { advanceAutoCaptureGate, type FrameAnalysis } from "./scanner/frameAnalysis";
+import { type FrameAnalysis } from "./scanner/frameAnalysis";
+import { startAnalysisLoop } from "./scanner/analysisLoop";
 import { containedImageRect, pointToImageCoordinates, validDocumentCorners, type ImageContentRect } from "./scanner/geometry";
 import {
   CameraAttemptController,
@@ -284,7 +285,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   const preparationAbortRef = useRef<AbortController | null>(null);
   const reviewActiveRef = useRef(false);
   const captureBusyRef = useRef(false);
-  const validSinceRef = useRef<number | null>(null);
+  const analysisLoopRef = useRef<ReturnType<typeof startAnalysisLoop> | null>(null);
   const autoCaptureInFlightRef = useRef(false);
   const captureActionRef = useRef<(method: "automatic" | "manual") => void>(() => undefined);
   const reviewFrameRef = useRef<HTMLDivElement | null>(null);
@@ -303,6 +304,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   const [captureMethod, setCaptureMethod] = useState<"automatic" | "manual" | "gallery">("manual");
   const [liveAnalysis, setLiveAnalysis] = useState<FrameAnalysis | null>(null);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(() => SMART_CAPTURE_ENABLED && isMobileCaptureDevice());
+  const autoCaptureEnabledRef = useRef(autoCaptureEnabled);
+  autoCaptureEnabledRef.current = autoCaptureEnabled;
   const [countdown, setCountdown] = useState<number | null>(null);
   const [reviewImageRect, setReviewImageRect] = useState<ImageContentRect>({ left: 0, top: 0, width: 0, height: 0 });
   const [cropCorners, setCropCorners] = useState<CropCorners>(FULL_CROP);
@@ -336,6 +339,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   }, [memberId]);
 
   const close = useCallback(() => {
+    analysisLoopRef.current?.stop();
     preparationAttemptRef.current += 1;
     preparationAbortRef.current?.abort();
     reviewActiveRef.current = false;
@@ -353,7 +357,6 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     setPreparationError(null);
     setLiveAnalysis(null);
     setCountdown(null);
-    validSinceRef.current = null;
     autoCaptureInFlightRef.current = false;
     setError(null);
     setTorch(false);
@@ -367,6 +370,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   }, [onClose, recordCaptureEvent]);
 
   const startCamera = useCallback(async (requestedDeviceId?: string, rememberManualChoice = false) => {
+    analysisLoopRef.current?.stop();
     preparationAttemptRef.current += 1;
     preparationAbortRef.current?.abort();
     reviewActiveRef.current = false;
@@ -383,7 +387,6 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     setCameraHint("Preparando camera...");
     setLiveAnalysis(null);
     setCountdown(null);
-    validSinceRef.current = null;
     autoCaptureInFlightRef.current = false;
     setTorch(false);
     setCapabilities(EMPTY_CAPABILITIES);
@@ -584,68 +587,55 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
 
   useEffect(() => {
     if (!SMART_CAPTURE_ENABLED || !open || !cameraReady || rawCapture || !videoRef.current) return;
+    const unavailable = () => {
+      setLiveAnalysis(null);
+      setCountdown(null);
+      setCameraHint("Análise automática indisponível. Confira o enquadramento e fotografe manualmente.");
+    };
     if (typeof Worker === "undefined") {
-      setCameraHint("Confira o enquadramento e fotografe manualmente.");
+      unavailable();
       return;
     }
-    let worker: Worker;
-    try {
-      worker = new Worker(new URL("./scanner/frameAnalysis.worker.ts", import.meta.url), { type: "module" });
-    } catch {
-      setCameraHint("Confira o enquadramento e fotografe manualmente.");
-      return;
-    }
-    let busy = false;
-    let disposed = false;
-    let sentAt = 0;
     const sample = document.createElement("canvas");
-    worker.onmessage = (event: MessageEvent<FrameAnalysis>) => {
-      busy = false;
-      if (disposed || reviewActiveRef.current) return;
-      const result = event.data;
-      setLiveAnalysis(result);
-      setCameraHint(result.instruction);
-      const now = performance.now();
-      const gate = advanceAutoCaptureGate(autoCaptureEnabled && result.ready && !document.hidden && now - sentAt < 500, now, validSinceRef.current);
-      validSinceRef.current = gate.validSince;
-      setCountdown(gate.countdown);
-      if (gate.shouldCapture && !autoCaptureInFlightRef.current) {
+    const context = sample.getContext("2d", { willReadFrequently: true });
+    if (!context) { unavailable(); return; }
+    const loop = startAnalysisLoop({
+      createWorker: () => new Worker(new URL("./scanner/frameAnalysis.worker.ts", import.meta.url), { type: "module" }),
+      isActive: () => !document.hidden && !reviewActiveRef.current && !captureBusyRef.current && !!streamRef.current,
+      autoEnabled: () => autoCaptureEnabledRef.current,
+      sample: () => {
+        const video = videoRef.current;
+        if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return null;
+        const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+        const width = Math.max(1, Math.round(video.videoWidth * scale));
+        const height = Math.max(1, Math.round(video.videoHeight * scale));
+        if (sample.width !== width) sample.width = width;
+        if (sample.height !== height) sample.height = height;
+        context.drawImage(video, 0, 0, width, height);
+        return context.getImageData(0, 0, width, height);
+      },
+      onResult: (result) => { setLiveAnalysis(result); setCameraHint(result.instruction); },
+      onReset: () => { setLiveAnalysis(null); setCameraHint("Confira o enquadramento e mantenha firme."); },
+      onUnavailable: unavailable,
+      onCountdown: setCountdown,
+      onCapture: () => {
+        if (autoCaptureInFlightRef.current) return;
         autoCaptureInFlightRef.current = true;
         captureActionRef.current("automatic");
-      }
+      },
+    });
+    analysisLoopRef.current = loop;
+    const visibilityChanged = () => loop.setPaused(document.hidden || captureBusyRef.current || reviewActiveRef.current);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    visibilityChanged();
+    return () => {
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      loop.stop();
+      if (analysisLoopRef.current === loop) analysisLoopRef.current = null;
     };
-    worker.onerror = () => {
-      worker.terminate();
-      busy = true;
-      validSinceRef.current = null;
-      setCountdown(null);
-      setCameraHint("Confira o enquadramento e fotografe manualmente.");
-    };
-    const timer = window.setInterval(() => {
-      if (document.hidden || busy || reviewActiveRef.current) {
-        validSinceRef.current = null;
-        setCountdown(null);
-        return;
-      }
-      const video = videoRef.current;
-      if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
-        validSinceRef.current = null;
-        setCountdown(null);
-        return;
-      }
-      const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
-      sample.width = Math.max(1, Math.round(video.videoWidth * scale));
-      sample.height = Math.max(1, Math.round(video.videoHeight * scale));
-      const context = sample.getContext("2d", { willReadFrequently: true });
-      if (!context) return;
-      context.drawImage(video, 0, 0, sample.width, sample.height);
-      const image = context.getImageData(0, 0, sample.width, sample.height);
-      busy = true;
-      sentAt = performance.now();
-      worker.postMessage(image, [image.data.buffer]);
-    }, 170);
-    return () => { disposed = true; window.clearInterval(timer); worker.terminate(); validSinceRef.current = null; };
-  }, [autoCaptureEnabled, cameraReady, open, rawCapture]);
+  }, [cameraReady, open, rawCapture]);
+
+  useEffect(() => { analysisLoopRef.current?.resetStability(); }, [autoCaptureEnabled]);
 
   async function prepareCapturedBlob(blob: Blob, manualCorners?: CropCorners) {
     if (!SMART_CAPTURE_ENABLED) return;
@@ -715,6 +705,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       }
     }
     reviewActiveRef.current = true;
+    analysisLoopRef.current?.stop();
     setRotation(0);
     setReviewZoom(1);
     setAdjustingCrop(false);
@@ -755,6 +746,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     }
     try {
       captureBusyRef.current = true;
+      analysisLoopRef.current?.setPaused(true);
       let blob: Blob | null = null;
       type ImageCaptureLike = {
         takePhoto: (settings?: { imageWidth?: number; imageHeight?: number }) => Promise<Blob>;

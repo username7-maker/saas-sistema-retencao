@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-test("scanner uses a real worker, reviews the selected photo and stops the stream", async ({ page }) => {
+for (const automatic of [false, true]) {
+test(`scanner uses a real worker, ${automatic ? "automatically captures" : "manually captures"}, reviews the selected photo and stops the stream`, async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/__scanner_test", (route) => route.fulfill({
@@ -46,8 +47,12 @@ test("scanner uses a real worker, reviews the selected photo and stops the strea
   await page.goto("/__scanner_test");
   await expect(page.getByRole("button", { name: "Fotografar agora" })).toBeEnabled().catch((error) => { throw new Error(`${String(error)}; browser errors: ${errors.join("; ")}`); });
   await expect.poll(() => page.workers().length).toBe(1);
-  await page.getByRole("button", { name: "Fotografar agora" }).click();
-  await expect(page.getByRole("button", { name: "Confirmar foto corrigida" })).toBeEnabled();
+  if (automatic) {
+    await page.getByRole("checkbox", { name: "Captura automatica assistida" }).check();
+  } else {
+    await page.getByRole("button", { name: "Fotografar agora" }).click();
+  }
+  await expect(page.getByRole("button", { name: "Confirmar foto corrigida" })).toBeEnabled({ timeout: 15_000 });
   await expect.poll(() => page.evaluate(() => (window as unknown as { scannerStream: MediaStream }).scannerStream.getTracks().every((track) => track.readyState === "ended"))).toBe(true);
   await page.getByRole("button", { name: "Original", exact: true }).click();
   await page.getByRole("button", { name: "Girar direita" }).click();
@@ -60,3 +65,4 @@ test("scanner uses a real worker, reviews the selected photo and stops the strea
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(errors).toEqual([]);
 });
+}
