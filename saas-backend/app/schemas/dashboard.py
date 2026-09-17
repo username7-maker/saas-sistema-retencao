@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -243,3 +244,21 @@ class RetentionDataFreshness(BaseModel):
 class RetentionQueueResponse(PaginatedResponse[RetentionQueueItem]):
     stage_counts: dict[str, int] = {}
     data_freshness: RetentionDataFreshness | None = None
+
+
+class RetentionQueueBulkResolveInput(BaseModel):
+    search: str | None = Field(default=None, max_length=200)
+    level: Literal["all", "red", "yellow"] = "all"
+    member_status: Literal["all", "active", "inactive"] = "all"
+    churn_type: str | None = None
+    plan_cycle: Literal["monthly", "semiannual", "annual"] | None = None
+    preferred_shift: Literal["overnight", "morning", "afternoon", "evening"] | None = None
+    retention_stage: Literal["monitoring", "attention", "recovery", "reactivation", "manager_escalation", "cold_base"] | None = None
+    expected_count: int = Field(ge=0)
+    resolution_note: str | None = Field(default=None, max_length=500)
+
+
+class RetentionQueueBulkResolveOut(BaseModel):
+    matched_count: int
+    resolved_count: int
+    skipped_count: int

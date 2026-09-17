@@ -53,17 +53,41 @@ def resolve_risk_alert(
     resolution_note: str | None = None,
 ) -> RiskAlert:
     alert = db.get(RiskAlert, alert_id)
-    if not alert:
+    if not alert or getattr(alert, "gym_id", None) != current_user.gym_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RiskAlert nao encontrado")
 
     if alert.resolved:
         return alert
 
-    now = datetime.now(tz=timezone.utc)
-    member = getattr(alert, "member", None)
+    _apply_risk_alert_resolution(
+        db,
+        alert=alert,
+        current_user=current_user,
+        resolution_note=resolution_note,
+    )
+    db.commit()
+    db.refresh(alert)
+    invalidate_dashboard_cache("risk", gym_id=getattr(alert, "gym_id", None))
+    return alert
+
+
+def _apply_risk_alert_resolution(
+    db: Session,
+    *,
+    alert: RiskAlert,
+    current_user: User,
+    resolution_note: str | None = None,
+    member=None,
+    now: datetime | None = None,
+) -> bool:
+    if alert.resolved:
+        return False
+
+    resolved_at = now or datetime.now(tz=timezone.utc)
+    member = member or getattr(alert, "member", None)
     resolved_stage = None
     if member is not None:
-        resolved_stage, days_without_checkin = calculate_member_retention_stage(member, now=now)
+        resolved_stage, days_without_checkin = calculate_member_retention_stage(member, now=resolved_at)
         alert.episode_key = _retention_episode_key(
             member,
             days_without_checkin=days_without_checkin,
@@ -76,7 +100,7 @@ def resolve_risk_alert(
     history.append(
         {
             "type": "manual_resolution",
-            "timestamp": now.isoformat(),
+            "timestamp": resolved_at.isoformat(),
             "resolved_by_user_id": str(current_user.id),
             "resolution_note": resolution_note or "",
         }
@@ -84,7 +108,7 @@ def resolve_risk_alert(
     alert.action_history = history
     alert.resolved = True
     alert.resolved_by_user_id = current_user.id
-    alert.resolved_at = now
+    alert.resolved_at = resolved_at
     db.add(alert)
 
     log_audit_event(
@@ -98,8 +122,6 @@ def resolve_risk_alert(
             "resolution_note": resolution_note or "",
             "retention_stage": resolved_stage,
         },
+        flush=False,
     )
-    db.commit()
-    db.refresh(alert)
-    invalidate_dashboard_cache("risk", gym_id=getattr(alert, "gym_id", None))
-    return alert
+    return True

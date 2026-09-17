@@ -34,7 +34,7 @@ import { riskAlertService } from "../../services/riskAlertService";
 import { Badge, Button, Dialog, Drawer, Input, Pagination, Skeleton, Textarea, cn } from "../../components/ui2";
 import { CommandCard, MetricCard } from "../../components/ui2/command";
 import { EmptyState, FilterBar, RiskBadge, SectionHeader, SkeletonList } from "../../components/ui";
-import { getHttpErrorDetail, getPermissionAwareMessage } from "../../utils/httpErrors";
+import { getHttpErrorDetail, getPermissionAwareMessage, isHttpErrorStatus } from "../../utils/httpErrors";
 import { getPreferredShiftKey, getPreferredShiftLabel } from "../../utils/preferredShift";
 import { canManageRetentionExclusions, canResolveRetentionAlert } from "../../utils/roleAccess";
 import { buildWhatsAppHref, buildWhatsAppMessage, formatPhoneDisplay, normalizeWhatsAppPhone } from "../../utils/whatsapp";
@@ -641,6 +641,7 @@ export function RetentionDashboardPage() {
   const [exclusionsOpen, setExclusionsOpen] = useState(false);
   const [exclusionSearch, setExclusionSearch] = useState("");
   const [exclusionTab, setExclusionTab] = useState<"member" | "plan">("member");
+  const [bulkResolveOpen, setBulkResolveOpen] = useState(false);
   const currentUserShift = getPreferredShiftKey(user?.work_shift);
   const currentShiftLabel = getPreferredShiftLabel(currentUserShift);
   const effectivePreferredShift =
@@ -715,6 +716,31 @@ export function RetentionDashboardPage() {
       toast.success("Alerta marcado como resolvido.");
     },
     onError: () => toast.error("Falha ao resolver alerta."),
+  });
+
+  const bulkResolveMutation = useMutation({
+    mutationFn: (expectedCount: number) =>
+      dashboardService.resolveRetentionQueue({
+        ...activeQueueFilters,
+        expected_count: expectedCount,
+        resolution_note: "Resolvido em lote no dashboard de retenção",
+      }),
+    onSuccess: (result) => {
+      setBulkResolveOpen(false);
+      setSelectedItem(null);
+      setPage(1);
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention", "queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+      toast.success(`${result.resolved_count} alertas foram resolvidos.`);
+    },
+    onError: (error) => {
+      if (isHttpErrorStatus(error, 409)) {
+        void queueQuery.refetch();
+        toast.error("A fila mudou. Revise a quantidade atualizada e confirme novamente.");
+        return;
+      }
+      toast.error(getHttpErrorDetail(error, "Não foi possível resolver os alertas. Nenhum alerta foi alterado."));
+    },
   });
 
   const exclusionsQuery = useQuery({
@@ -836,6 +862,21 @@ export function RetentionDashboardPage() {
   const queuePage = queueQuery.data?.page ?? page;
   const queuePageSize = queueQuery.data?.page_size ?? 50;
   const stageCounts = queueQuery.data?.stage_counts ?? {};
+  const bulkFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (search) labels.push(`Busca: ${search}`);
+    if (level !== "all") labels.push(`Severidade: ${level === "red" ? "alto risco" : "atenção"}`);
+    if (memberStatus !== "all") labels.push(`Status: ${memberStatus === "active" ? "ativo" : "inativo"}`);
+    if (churnType !== "all") labels.push(`Churn: ${formatChurnType(churnType)}`);
+    if (planCycle !== "all") {
+      labels.push(`Plano: ${{ monthly: "mensal", semiannual: "semestral", annual: "anual" }[planCycle]}`);
+    }
+    if (effectivePreferredShift) labels.push(`Turno: ${getPreferredShiftLabel(effectivePreferredShift)}`);
+    if (retentionStage !== "all") {
+      labels.push(`Estágio: ${RETENTION_STAGE_OPTIONS.find((option) => option.value === retentionStage)?.label ?? retentionStage}`);
+    }
+    return labels;
+  }, [churnType, effectivePreferredShift, level, memberStatus, planCycle, retentionStage, search]);
   const laneOptions = RETENTION_STAGE_OPTIONS.filter((option) =>
     ["attention", "recovery", "reactivation", "manager_escalation", "cold_base"].includes(option.value),
   );
@@ -987,6 +1028,17 @@ export function RetentionDashboardPage() {
                     {exportMutation.isPending ? "Exportando..." : "Exportar planilha"}
                   </Button>
                 </>
+              ) : null}
+              {canResolveAlerts && queueTotal > 0 ? (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={queueQuery.isFetching || bulkResolveMutation.isPending}
+                  onClick={() => setBulkResolveOpen(true)}
+                >
+                  <CheckCheck size={14} />
+                  Resolver todos ({queueTotal})
+                </Button>
               ) : null}
             </div>
           }
@@ -1283,6 +1335,48 @@ export function RetentionDashboardPage() {
         onExclude={openExclusionDialog}
         canExclude={canManageExclusions}
       />
+
+      <Dialog
+        open={bulkResolveOpen}
+        onClose={() => {
+          if (!bulkResolveMutation.isPending) setBulkResolveOpen(false);
+        }}
+        title="Resolver todos os alertas filtrados"
+        description={`Esta ação encerrará ${queueTotal} alertas em todas as páginas da fila atual.`}
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">Filtros aplicados</p>
+            {bulkFilterLabels.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {bulkFilterLabels.map((label) => (
+                  <Badge key={label} variant="neutral" size="sm" className="normal-case tracking-normal">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-lovable-ink">Sem filtros adicionais: toda a fila ativa será resolvida.</p>
+            )}
+          </div>
+          <div className="rounded-xl border border-lovable-warning/40 bg-lovable-warning/10 p-3 text-sm text-lovable-ink-muted">
+            Os alertas resolvidos deixam esta fila. Um novo episódio ou estágio futuro poderá gerar outro alerta para o aluno.
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" disabled={bulkResolveMutation.isPending} onClick={() => setBulkResolveOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              disabled={bulkResolveMutation.isPending || queueTotal === 0 || queueQuery.isFetching}
+              onClick={() => bulkResolveMutation.mutate(queueTotal)}
+            >
+              <CheckCheck size={14} />
+              {bulkResolveMutation.isPending ? "Resolvendo alertas..." : `Resolver ${queueTotal} alertas`}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       <Dialog
         open={Boolean(exclusionTarget)}

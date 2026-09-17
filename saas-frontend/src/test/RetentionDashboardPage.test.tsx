@@ -21,6 +21,7 @@ vi.mock("../services/dashboardService", async () => {
     dashboardService: {
       ...actual.dashboardService,
       retentionQueue: vi.fn(),
+      resolveRetentionQueue: vi.fn(),
       createRetentionExclusion: vi.fn(),
       retentionExclusions: vi.fn(),
       revokeRetentionExclusion: vi.fn(),
@@ -177,7 +178,7 @@ const authUser: User = {
   created_at: "2026-03-20T10:00:00Z",
 };
 
-function renderPage() {
+function renderPage(currentUser: User = authUser) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -189,12 +190,12 @@ function renderPage() {
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider
         value={{
-          user: authUser,
+          user: currentUser,
           loading: false,
           isAuthenticated: true,
           login: vi.fn(),
           logout: vi.fn(),
-          refreshUser: vi.fn().mockResolvedValue(authUser),
+          refreshUser: vi.fn().mockResolvedValue(currentUser),
         }}
       >
         <MemoryRouter>
@@ -228,6 +229,11 @@ describe("RetentionDashboardPage", () => {
       if (params?.level === "yellow") return yellowOnly;
       if (params?.page === 2) return queuePage2;
       return queuePage1;
+    });
+    vi.mocked(dashboardService.resolveRetentionQueue).mockResolvedValue({
+      matched_count: 3,
+      resolved_count: 3,
+      skipped_count: 0,
     });
     vi.mocked(dashboardService.createRetentionExclusion).mockResolvedValue({
       id: "exclusion-1",
@@ -344,6 +350,58 @@ describe("RetentionDashboardPage", () => {
     await waitFor(() => {
       expect(riskAlertService.resolve).toHaveBeenCalledWith("alert-member-1", "Resolvido no dashboard de retenção");
     });
+  });
+
+  it("resolves every alert matching the active filters across all pages", async () => {
+    renderPage();
+
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    expect(screen.getByRole("button", { name: "Resolver todos (3)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resolver todos (3)" }));
+
+    expect(await screen.findByText("Resolver todos os alertas filtrados")).toBeInTheDocument();
+    expect(screen.getByText(/3 alertas em todas as páginas/i)).toBeInTheDocument();
+    expect(screen.getByText(/toda a fila ativa será resolvida/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resolver 3 alertas" }));
+
+    await waitFor(() => {
+      expect(dashboardService.resolveRetentionQueue).toHaveBeenCalledWith({
+        search: undefined,
+        level: "all",
+        member_status: "all",
+        churn_type: undefined,
+        plan_cycle: undefined,
+        preferred_shift: undefined,
+        retention_stage: undefined,
+        expected_count: 3,
+        resolution_note: "Resolvido em lote no dashboard de retenção",
+      });
+    });
+  });
+
+  it("uses the filtered total and applied filters in bulk resolution", async () => {
+    renderPage();
+
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    fireEvent.change(screen.getByLabelText("Severidade"), { target: { value: "yellow" } });
+    await screen.findByRole("button", { name: /Daniel Costa/i });
+    fireEvent.click(screen.getByRole("button", { name: "Resolver todos (1)" }));
+
+    expect(await screen.findByText("Severidade: atenção")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resolver 1 alertas" }));
+
+    await waitFor(() => {
+      expect(dashboardService.resolveRetentionQueue).toHaveBeenCalledWith(
+        expect.objectContaining({ level: "yellow", expected_count: 1 }),
+      );
+    });
+  });
+
+  it("does not expose bulk resolution to receptionists", async () => {
+    renderPage({ ...authUser, role: "receptionist" });
+
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    expect(screen.queryByRole("button", { name: /Resolver todos/ })).not.toBeInTheDocument();
   });
 
   it("shows contextual notes when NPS and financial base are not available", async () => {

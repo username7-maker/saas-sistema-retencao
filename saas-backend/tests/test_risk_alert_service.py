@@ -37,11 +37,11 @@ class TestResolveRiskAlert:
     @patch("app.services.risk_alert_service.log_audit_event")
     def test_resolves(self, mock_audit):
         alert = SimpleNamespace(
-            id=uuid.uuid4(), member_id=MEMBER_ID,
+            id=uuid.uuid4(), gym_id=GYM_ID, member_id=MEMBER_ID,
             resolved=False, resolved_at=None, resolved_by_user_id=None,
             action_history=[],
         )
-        user = SimpleNamespace(id=USER_ID)
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
         db = MagicMock()
         db.get.return_value = alert
         db.refresh = MagicMock()
@@ -71,7 +71,7 @@ class TestResolveRiskAlert:
             episode_key=None,
             automation_stage=None,
         )
-        user = SimpleNamespace(id=USER_ID)
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
         db = MagicMock()
         db.get.return_value = alert
 
@@ -87,7 +87,7 @@ class TestResolveRiskAlert:
     def test_not_found_raises(self):
         db = MagicMock()
         db.get.return_value = None
-        user = SimpleNamespace(id=USER_ID)
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
         from app.services.risk_alert_service import resolve_risk_alert
         with pytest.raises(HTTPException) as exc_info:
             resolve_risk_alert(db, alert_id=uuid.uuid4(), current_user=user)
@@ -96,13 +96,32 @@ class TestResolveRiskAlert:
     @patch("app.services.risk_alert_service.log_audit_event")
     def test_already_resolved_returns(self, mock_audit):
         alert = SimpleNamespace(
-            id=uuid.uuid4(), member_id=MEMBER_ID,
+            id=uuid.uuid4(), gym_id=GYM_ID, member_id=MEMBER_ID,
             resolved=True, resolved_at="2026-01-01",
         )
-        user = SimpleNamespace(id=USER_ID)
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
         db = MagicMock()
         db.get.return_value = alert
         from app.services.risk_alert_service import resolve_risk_alert
         result = resolve_risk_alert(db, alert_id=alert.id, current_user=user)
         assert result.resolved is True
+        db.commit.assert_not_called()
+
+    def test_does_not_resolve_alert_from_another_gym(self):
+        alert = SimpleNamespace(
+            id=uuid.uuid4(),
+            gym_id=uuid.uuid4(),
+            member_id=MEMBER_ID,
+            resolved=False,
+        )
+        user = SimpleNamespace(id=USER_ID, gym_id=GYM_ID)
+        db = MagicMock()
+        db.get.return_value = alert
+
+        from app.services.risk_alert_service import resolve_risk_alert
+
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_risk_alert(db, alert_id=alert.id, current_user=user)
+
+        assert exc_info.value.status_code == 404
         db.commit.assert_not_called()

@@ -52,7 +52,7 @@ def test_retention_xlsx_exports_filtered_rows_with_typed_columns_and_escapes_for
     workbook = load_workbook(buffer)
     worksheet = workbook["Retencao"]
 
-    assert filename == "retencao-2026-09-16.xlsx"
+    assert filename == f"retencao-{datetime.now().date().isoformat()}.xlsx"
     assert [cell.value for cell in worksheet[1]][:5] == ["Nome", "Celular", "E-mail", "Plano", "Dias sem treinar"]
     assert worksheet["A2"].value == "'=Aluno perigoso"
     assert worksheet["B2"].value == "+5511999999999"

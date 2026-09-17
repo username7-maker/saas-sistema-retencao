@@ -20,6 +20,8 @@ from app.schemas import (
     LTVPoint,
     OperationalDashboard,
     RetentionDashboard,
+    RetentionQueueBulkResolveInput,
+    RetentionQueueBulkResolveOut,
     RetentionQueueResponse,
     RetentionExclusionCreate,
     RetentionExclusionListOut,
@@ -48,6 +50,7 @@ from app.services.dashboard_service import (
     get_retention_dashboard,
     get_retention_queue,
     get_weekly_summary,
+    resolve_retention_queue,
 )
 from app.services.export_service import export_retention_xlsx
 from app.services.audit_service import log_audit_event
@@ -176,6 +179,19 @@ def retention_queue(
         plan_cycle=plan_cycle,
         preferred_shift=preferred_shift,
         retention_stage=retention_stage,
+    )
+
+
+@router.post("/retention/queue/resolve", response_model=RetentionQueueBulkResolveOut)
+def resolve_retention_queue_endpoint(
+    payload: RetentionQueueBulkResolveInput,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
+) -> RetentionQueueBulkResolveOut:
+    return resolve_retention_queue(
+        db,
+        current_user=current_user,
+        **payload.model_dump(),
     )
 
 

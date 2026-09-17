@@ -2,11 +2,12 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from fastapi import HTTPException, status
 from pydantic import TypeAdapter
 from sqlalchemy import DateTime, and_, case, func, not_, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.cache import dashboard_cache, make_cache_key
+from app.core.cache import dashboard_cache, invalidate_dashboard_cache, make_cache_key
 from app.database import get_current_gym_id
 from app.models import (
     AITriageRecommendation,
@@ -24,6 +25,7 @@ from app.models import (
     RiskLevel,
     Task,
     TaskStatus,
+    User,
 )
 from app.models.enums import ChurnType
 from app.schemas import (
@@ -48,12 +50,14 @@ from app.schemas import (
     ProjectionPoint,
     RetentionDashboard,
     RetentionPlaybookStep,
+    RetentionQueueBulkResolveOut,
     RetentionQueueItem,
     RetentionQueueResponse,
     RevenuePoint,
     WeeklySummary,
 )
 from app.services.ai_assistant_service import build_retention_assistant
+from app.services.audit_service import log_audit_event
 from app.services.retention_freshness_service import get_retention_freshness
 from app.services.analytics_view_service import get_monthly_member_kpis
 from app.services.assessment_intelligence_service import get_assessment_forecast
@@ -62,6 +66,7 @@ from app.services.finance_service import get_finance_foundation_summary, get_mon
 from app.services.nps_service import nps_evolution
 from app.services.preferred_shift_service import preferred_shift_filter_condition
 from app.services.risk import _MIN_RELIABLE_BASELINE_AVG_WEEKLY, _determine_level, _inactivity_points
+from app.services.risk_alert_service import _apply_risk_alert_resolution
 from app.services.retention_intelligence_service import build_retention_playbook, classify_churn_type
 from app.services.retention_stage_service import (
     RETENTION_STAGE_ATTENTION,
@@ -1145,6 +1150,51 @@ def _extract_retention_cooldown_until(extra_data: dict | None) -> datetime | Non
     return parsed
 
 
+def _retention_queue_query_parts(
+    *,
+    gym_id,
+    search: str | None = None,
+    level: str = "all",
+    member_status: str = "all",
+    churn_type: str | None = None,
+    plan_cycle: str | None = None,
+    preferred_shift: str | None = None,
+    retention_stage: str | None = None,
+):
+    latest_alert_subquery = _latest_open_retention_alert_subquery()
+    filters = [Member.deleted_at.is_(None), retention_eligible_condition(gym_id=gym_id)]
+    if gym_id is not None:
+        filters.append(RiskAlert.gym_id == gym_id)
+    if level in {"red", "yellow"}:
+        filters.append(RiskAlert.level == RiskLevel(level))
+    if member_status == "active":
+        filters.append(Member.status == MemberStatus.ACTIVE)
+    elif member_status == "inactive":
+        filters.append(Member.status.in_([MemberStatus.PAUSED, MemberStatus.CANCELLED]))
+    if churn_type:
+        filters.append(Member.churn_type == churn_type)
+    if plan_cycle:
+        filters.append(_retention_plan_cycle_filter(plan_cycle))
+    preferred_shift_filter = _retention_preferred_shift_filter(preferred_shift or "")
+    if preferred_shift_filter is not None:
+        filters.append(preferred_shift_filter)
+
+    stage_count_filters = list(filters)
+    retention_stage_filter = _retention_stage_filter_condition(retention_stage)
+    if retention_stage_filter is not None:
+        filters.append(retention_stage_filter)
+    if search and search.strip():
+        search_value = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Member.full_name.ilike(search_value),
+                Member.email.ilike(search_value),
+                Member.plan_name.ilike(search_value),
+            )
+        )
+    return latest_alert_subquery, filters, stage_count_filters
+
+
 def get_retention_queue(
     db: Session,
     *,
@@ -1160,42 +1210,21 @@ def get_retention_queue(
     gym_id=None,
 ) -> RetentionQueueResponse:
     resolved_gym_id = _resolve_dashboard_gym_id(gym_id)
-    latest_alert_subquery = _latest_open_retention_alert_subquery()
+    latest_alert_subquery, filters, stage_count_filters = _retention_queue_query_parts(
+        gym_id=resolved_gym_id,
+        search=search,
+        level=level,
+        member_status=member_status,
+        churn_type=churn_type,
+        plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
+        retention_stage=retention_stage,
+    )
     level_priority = case(
         (RiskAlert.level == RiskLevel.RED, 0),
         (RiskAlert.level == RiskLevel.YELLOW, 1),
         else_=2,
     )
-
-    filters = [Member.deleted_at.is_(None), retention_eligible_condition(gym_id=resolved_gym_id)]
-    if resolved_gym_id is not None:
-        filters.append(RiskAlert.gym_id == resolved_gym_id)
-    if level in {"red", "yellow"}:
-        filters.append(RiskAlert.level == RiskLevel(level))
-    if member_status == "active":
-        filters.append(Member.status == MemberStatus.ACTIVE)
-    elif member_status == "inactive":
-        filters.append(Member.status.in_([MemberStatus.PAUSED, MemberStatus.CANCELLED]))
-    if churn_type:
-        filters.append(Member.churn_type == churn_type)
-    if plan_cycle:
-        filters.append(_retention_plan_cycle_filter(plan_cycle))
-    preferred_shift_filter = _retention_preferred_shift_filter(preferred_shift or "")
-    if preferred_shift_filter is not None:
-        filters.append(preferred_shift_filter)
-    stage_count_filters = list(filters)
-    retention_stage_filter = _retention_stage_filter_condition(retention_stage)
-    if retention_stage_filter is not None:
-        filters.append(retention_stage_filter)
-    if search and search.strip():
-        search_value = f"%{search.strip()}%"
-        filters.append(
-            or_(
-                Member.full_name.ilike(search_value),
-                Member.email.ilike(search_value),
-                Member.plan_name.ilike(search_value),
-            )
-        )
 
     base_stmt = (
         select(RiskAlert, Member)
@@ -1316,6 +1345,97 @@ def get_retention_queue(
 
     return RetentionQueueResponse(items=items, total=total, page=page, page_size=page_size, stage_counts=stage_counts,
                                   data_freshness=get_retention_freshness(db, resolved_gym_id))
+
+
+def resolve_retention_queue(
+    db: Session,
+    *,
+    current_user: User,
+    expected_count: int,
+    resolution_note: str | None = None,
+    search: str | None = None,
+    level: str = "all",
+    member_status: str = "all",
+    churn_type: str | None = None,
+    plan_cycle: str | None = None,
+    preferred_shift: str | None = None,
+    retention_stage: str | None = None,
+) -> RetentionQueueBulkResolveOut:
+    latest_alert_subquery, filters, _ = _retention_queue_query_parts(
+        gym_id=current_user.gym_id,
+        search=search,
+        level=level,
+        member_status=member_status,
+        churn_type=churn_type,
+        plan_cycle=plan_cycle,
+        preferred_shift=preferred_shift,
+        retention_stage=retention_stage,
+    )
+    rows = db.execute(
+        select(RiskAlert, Member)
+        .join(latest_alert_subquery, latest_alert_subquery.c.alert_id == RiskAlert.id)
+        .join(Member, Member.id == RiskAlert.member_id)
+        .where(and_(*filters))
+        .with_for_update()
+    ).all()
+    matched_count = len(rows)
+    if matched_count != expected_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "retention_queue_count_changed",
+                "message": "A fila mudou. Atualize os dados e confirme novamente.",
+                "expected_count": expected_count,
+                "current_count": matched_count,
+            },
+        )
+
+    note = resolution_note or "Resolvido em lote no dashboard de retenção"
+    resolved_count = 0
+    resolved_at = datetime.now(tz=timezone.utc)
+    try:
+        for alert, member in rows:
+            if _apply_risk_alert_resolution(
+                db,
+                alert=alert,
+                member=member,
+                current_user=current_user,
+                resolution_note=note,
+                now=resolved_at,
+            ):
+                resolved_count += 1
+
+        skipped_count = matched_count - resolved_count
+        log_audit_event(
+            db,
+            action="retention_queue_bulk_resolved",
+            entity="retention_queue",
+            user=current_user,
+            details={
+                "matched_count": matched_count,
+                "resolved_count": resolved_count,
+                "skipped_count": skipped_count,
+                "search_applied": bool(search and search.strip()),
+                "level": level,
+                "member_status": member_status,
+                "churn_type": churn_type,
+                "plan_cycle": plan_cycle,
+                "preferred_shift": preferred_shift,
+                "retention_stage": retention_stage,
+            },
+            flush=False,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    invalidate_dashboard_cache("risk", gym_id=current_user.gym_id)
+    return RetentionQueueBulkResolveOut(
+        matched_count=matched_count,
+        resolved_count=resolved_count,
+        skipped_count=skipped_count,
+    )
 
 
 def get_retention_dashboard(db: Session, red_page: int = 1, yellow_page: int = 1, page_size: int = 20) -> dict:

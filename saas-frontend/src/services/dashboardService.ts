@@ -90,6 +90,12 @@ export interface RetentionQueueFilters {
   retention_stage?: "monitoring" | "attention" | "recovery" | "reactivation" | "manager_escalation" | "cold_base";
 }
 
+export interface RetentionQueueBulkResolveResult {
+  matched_count: number;
+  resolved_count: number;
+  skipped_count: number;
+}
+
 export const dashboardService = {
   async executive(): Promise<ExecutiveDashboard> {
     const { data } = await api.get<ExecutiveDashboard>("/api/v1/dashboards/executive");
@@ -170,6 +176,16 @@ export const dashboardService = {
     const { data } = await api.get<RetentionQueueResponse>("/api/v1/dashboards/retention/queue", {
       params,
     });
+    return data;
+  },
+
+  async resolveRetentionQueue(
+    payload: RetentionQueueFilters & { expected_count: number; resolution_note?: string },
+  ): Promise<RetentionQueueBulkResolveResult> {
+    const { data } = await api.post<RetentionQueueBulkResolveResult>(
+      "/api/v1/dashboards/retention/queue/resolve",
+      payload,
+    );
     return data;
   },
 

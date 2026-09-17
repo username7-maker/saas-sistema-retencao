@@ -5,8 +5,8 @@ from uuid import UUID
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
-from app.models import Member, MemberStatus, RiskLevel
-from app.schemas import PaginatedResponse
+from app.models import Member, MemberStatus, RiskLevel, RoleEnum
+from app.schemas import PaginatedResponse, RetentionQueueBulkResolveOut
 from app.schemas.dashboard import RetentionPlaybookStep, RetentionQueueItem
 
 
@@ -497,3 +497,161 @@ class TestRetentionQueueRoute:
             assert mock_get_retention_queue.call_args.kwargs["retention_stage"] == "reactivation"
         finally:
             app.dependency_overrides.clear()
+
+    def test_bulk_resolve_forwards_all_filters_and_expected_count(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: mock_owner
+        payload = {
+            "search": "Ana",
+            "level": "red",
+            "member_status": "inactive",
+            "churn_type": "voluntary_dissatisfaction",
+            "plan_cycle": "annual",
+            "preferred_shift": "morning",
+            "retention_stage": "reactivation",
+            "expected_count": 7,
+            "resolution_note": "Resolvido em lote no dashboard de retenção",
+        }
+
+        try:
+            with patch(
+                "app.routers.dashboards.resolve_retention_queue",
+                return_value=RetentionQueueBulkResolveOut(matched_count=7, resolved_count=7, skipped_count=0),
+            ) as mock_resolve:
+                response = client.post("/api/v1/dashboards/retention/queue/resolve", json=payload)
+
+            assert response.status_code == 200
+            assert response.json() == {"matched_count": 7, "resolved_count": 7, "skipped_count": 0}
+            mock_resolve.assert_called_once_with(mock_db, current_user=mock_owner, **payload)
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_bulk_resolve_rejects_receptionist(self, app, client, mock_owner):
+        from tests.conftest import make_mock_db
+
+        mock_db = make_mock_db()
+        receptionist = SimpleNamespace(**vars(mock_owner))
+        receptionist.role = RoleEnum.RECEPTIONIST
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_current_user] = lambda: receptionist
+
+        try:
+            response = client.post(
+                "/api/v1/dashboards/retention/queue/resolve",
+                json={"expected_count": 1, "resolution_note": "Lote"},
+            )
+
+            assert response.status_code == 403
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestRetentionQueueBulkResolveService:
+    @patch("app.services.dashboard_service.invalidate_dashboard_cache")
+    @patch("app.services.dashboard_service.log_audit_event")
+    @patch("app.services.dashboard_service._apply_risk_alert_resolution")
+    def test_resolves_all_matching_rows_in_one_transaction(
+        self,
+        mock_apply_resolution,
+        mock_log_audit,
+        mock_invalidate,
+        mock_owner,
+    ):
+        from app.services.dashboard_service import resolve_retention_queue
+
+        alerts = [
+            SimpleNamespace(id=UUID("44444444-4444-4444-4444-444444444451"), resolved=False),
+            SimpleNamespace(id=UUID("44444444-4444-4444-4444-444444444452"), resolved=False),
+        ]
+        members = [
+            SimpleNamespace(id=UUID("33333333-3333-3333-3333-333333333351")),
+            SimpleNamespace(id=UUID("33333333-3333-3333-3333-333333333352")),
+        ]
+        rows = MagicMock()
+        rows.all.return_value = list(zip(alerts, members, strict=True))
+        db = MagicMock()
+        db.execute.return_value = rows
+        mock_apply_resolution.return_value = True
+
+        result = resolve_retention_queue(
+            db,
+            current_user=mock_owner,
+            expected_count=2,
+            search="Ana",
+            level="red",
+            member_status="active",
+            churn_type="voluntary_dissatisfaction",
+            plan_cycle="annual",
+            preferred_shift="morning",
+            retention_stage="attention",
+        )
+
+        assert result == RetentionQueueBulkResolveOut(matched_count=2, resolved_count=2, skipped_count=0)
+        assert mock_apply_resolution.call_count == 2
+        db.commit.assert_called_once_with()
+        db.rollback.assert_not_called()
+        mock_log_audit.assert_called_once()
+        mock_invalidate.assert_called_once_with("risk", gym_id=mock_owner.gym_id)
+        compiled = str(db.execute.call_args.args[0])
+        assert "risk_alerts.gym_id" in compiled
+        assert "members.full_name" in compiled
+        assert "FOR UPDATE" in compiled
+
+    @patch("app.services.dashboard_service._apply_risk_alert_resolution")
+    def test_count_change_returns_conflict_without_modifying_rows(self, mock_apply_resolution, mock_owner):
+        from fastapi import HTTPException
+        from app.services.dashboard_service import resolve_retention_queue
+
+        rows = MagicMock()
+        rows.all.return_value = [(SimpleNamespace(), SimpleNamespace())]
+        db = MagicMock()
+        db.execute.return_value = rows
+
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_retention_queue(db, current_user=mock_owner, expected_count=2)
+
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["current_count"] == 1
+        mock_apply_resolution.assert_not_called()
+        db.commit.assert_not_called()
+
+    @patch("app.services.dashboard_service.invalidate_dashboard_cache")
+    @patch("app.services.dashboard_service.log_audit_event")
+    def test_empty_matching_batch_is_a_successful_noop(self, mock_log_audit, mock_invalidate, mock_owner):
+        from app.services.dashboard_service import resolve_retention_queue
+
+        rows = MagicMock()
+        rows.all.return_value = []
+        db = MagicMock()
+        db.execute.return_value = rows
+
+        result = resolve_retention_queue(db, current_user=mock_owner, expected_count=0)
+
+        assert result == RetentionQueueBulkResolveOut(matched_count=0, resolved_count=0, skipped_count=0)
+        db.commit.assert_called_once_with()
+        mock_log_audit.assert_called_once()
+        mock_invalidate.assert_called_once_with("risk", gym_id=mock_owner.gym_id)
+
+    @patch("app.services.dashboard_service.log_audit_event")
+    @patch("app.services.dashboard_service._apply_risk_alert_resolution")
+    def test_failure_rolls_back_entire_batch(self, mock_apply_resolution, mock_log_audit, mock_owner):
+        from app.services.dashboard_service import resolve_retention_queue
+
+        rows = MagicMock()
+        rows.all.return_value = [
+            (SimpleNamespace(), SimpleNamespace()),
+            (SimpleNamespace(), SimpleNamespace()),
+        ]
+        db = MagicMock()
+        db.execute.return_value = rows
+        mock_apply_resolution.side_effect = [True, RuntimeError("falha controlada")]
+
+        with pytest.raises(RuntimeError, match="falha controlada"):
+            resolve_retention_queue(db, current_user=mock_owner, expected_count=2)
+
+        db.rollback.assert_called_once_with()
+        db.commit.assert_not_called()
+        mock_log_audit.assert_not_called()
