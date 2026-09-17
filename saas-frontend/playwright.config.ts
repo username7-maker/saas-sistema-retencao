@@ -11,6 +11,12 @@ export default defineConfig({
     port: 5173,
     timeout: 120_000,
     reuseExistingServer: true,
+    env: {
+      ...process.env,
+      VITE_BIOIMPEDANCE_SCANNER_V2: "true",
+      VITE_BIOIMPEDANCE_CAPTURE_GUIDE_V3: "true",
+      VITE_BIOIMPEDANCE_SMART_CAPTURE_V1: "true",
+    },
   },
   use: {
     baseURL: "http://127.0.0.1:5173",

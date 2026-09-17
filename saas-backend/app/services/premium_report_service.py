@@ -1215,8 +1215,8 @@ def _classic_body_report_payload(payload: PremiumReportPayload, report: dict[str
         }
         for series in eligible_history
     ]
-    measurements = []
-    skinfolds = []
+    measurements: list[dict[str, Any]] = []
+    skinfolds: list[dict[str, Any]] = []
     for metric in metrics:
         roles = metric.get("display_roles") or []
         if not ({"body_measurement", "skinfold"} & set(roles)):
@@ -1444,7 +1444,8 @@ def _render_semantic_goals(goals: dict[str, Any], *, technical_scope: bool) -> s
         for item in values
     )
     alert_class = "clinical-soft-alert" if status == "unsafe" else "clinical-history-empty"
-    return f'{f"<div class=\"clinical-goal-grid\">{cards}</div>" if cards else ""}<div class="{alert_class}">{escape(message)}</div>'
+    goal_grid = f'<div class="clinical-goal-grid">{cards}</div>' if cards else ""
+    return f'{goal_grid}<div class="{alert_class}">{escape(message)}</div>'
 
 
 def _render_semantic_measurements(metrics: Sequence[dict[str, Any]], sex: Any) -> str:
