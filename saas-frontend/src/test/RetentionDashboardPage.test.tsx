@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import toast from "react-hot-toast";
 
 import { AuthContext } from "../contexts/AuthContext";
 import { RetentionDashboardPage } from "../pages/dashboard/RetentionDashboardPage";
@@ -395,6 +396,20 @@ describe("RetentionDashboardPage", () => {
         expect.objectContaining({ level: "yellow", expected_count: 1 }),
       );
     });
+  });
+
+  it("refreshes the queue after a lost bulk response without claiming nothing changed", async () => {
+    const errorToast = vi.spyOn(toast, "error");
+    vi.mocked(dashboardService.resolveRetentionQueue).mockRejectedValueOnce(new Error("Network Error"));
+    renderPage();
+    await screen.findByRole("button", { name: /Ana Silva/i });
+    const calls = vi.mocked(dashboardService.retentionQueue).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Resolver todos (3)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resolver 3 alertas" }));
+    await waitFor(() => expect(dashboardService.retentionQueue).toHaveBeenCalledTimes(calls + 1));
+    expect(errorToast).toHaveBeenCalledWith(expect.stringContaining("Os alertas podem ter sido resolvidos"));
+    expect(screen.getByText("Resolver todos os alertas filtrados")).toBeInTheDocument();
+    errorToast.mockRestore();
   });
 
   it("does not expose bulk resolution to receptionists", async () => {

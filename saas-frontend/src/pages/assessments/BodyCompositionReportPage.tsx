@@ -906,7 +906,16 @@ function ContextMetric({ label, value }: { label: string; value: string }) {
 }
 
 function MeasurementsSection({ rows, sex, conservative = false }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null; conservative?: boolean }) {
-  const visibleRows = rows.filter((row) => row.current_value != null || row.previous_value != null);
+  return <ErrorBoundary fallback={<p role="status">Não foi possível exibir as medidas corporais. As demais seções continuam disponíveis.</p>}>
+    <MeasurementsContent rows={rows} sex={sex} conservative={conservative} />
+  </ErrorBoundary>;
+}
+
+function MeasurementsContent({ rows, sex, conservative = false }: { rows: BodyCompositionMeasurementRow[]; sex: BodyCompositionSex | null; conservative?: boolean }) {
+  const visibleRows = rows.filter((row) => row != null && typeof row === "object"
+    && typeof row.key === "string" && typeof row.label === "string"
+    && (typeof row.current_value === "number" && Number.isFinite(row.current_value)
+      || typeof row.previous_value === "number" && Number.isFinite(row.previous_value)));
   if (visibleRows.length === 0) return null;
   return (
     <section className="clinical-web-section clinical-web-measurement-section">

@@ -777,12 +777,20 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       if (cameraAttemptsRef.current.active !== activeStream) return;
       await acceptRawCapture(blob, method);
     } catch {
+      if (cameraAttemptsRef.current.active !== activeStream) return;
       toast.error("Nao foi possivel capturar a foto.");
+      analysisLoopRef.current?.stop();
       cameraAttemptsRef.current.invalidate();
       streamRef.current = null;
+      setCameraReady(false);
+      setError("Nao foi possivel capturar a foto. Tente novamente ou escolha uma imagem da galeria.");
+      setCameraHint("Camera indisponivel");
     } finally {
       captureBusyRef.current = false;
       autoCaptureInFlightRef.current = false;
+      if (cameraAttemptsRef.current.active === activeStream && !reviewActiveRef.current) {
+        analysisLoopRef.current?.setPaused(document.hidden);
+      }
     }
   }
 

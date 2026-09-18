@@ -9,6 +9,7 @@ vi.hoisted(() => {
 });
 import { GuidedDocumentScanner } from "../components/assessments/GuidedDocumentScanner";
 import { bodyCompositionService } from "../services/bodyCompositionService";
+import * as analysisLoop from "../components/assessments/scanner/analysisLoop";
 
 const metadata = {
   corners: [{ x: .1, y: .1 }, { x: .9, y: .1 }, { x: .9, y: .9 }, { x: .1, y: .9 }],
@@ -54,6 +55,44 @@ function upload(container: HTMLElement) {
 }
 
 describe("scanner review", () => {
+  it("resumes live analysis when the captured image is rejected", async () => {
+    const loop = { stop: vi.fn(), resetStability: vi.fn(), setPaused: vi.fn() };
+    vi.spyOn(analysisLoop, "startAnalysisLoop").mockReturnValue(loop);
+    vi.stubGlobal("Worker", vi.fn());
+    const track = { stop: vi.fn(), getSettings: () => ({ deviceId: "rear" }) };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(2400);
+    const oversized = new Blob(["synthetic"], { type: "image/jpeg" });
+    Object.defineProperty(oversized, "size", { value: 33 * 1024 * 1024 });
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(oversized));
+    try {
+      render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Fotografar agora" })).toBeEnabled());
+      loop.setPaused.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Fotografar agora" }));
+      await waitFor(() => expect(loop.setPaused).toHaveBeenLastCalledWith(false));
+      expect(loop.setPaused).toHaveBeenCalledWith(true);
+      expect(screen.queryByRole("button", { name: "Original" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Fotografar agora" })).toBeEnabled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("shows retry and disables capture when photographing fails", async () => {
+    const stop = vi.fn();
+    const track = { stop, getSettings: () => ({ deviceId: "rear" }) };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(2400);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(null));
+    render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fotografar agora" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Fotografar agora" }));
+    expect(await screen.findByRole("button", { name: "Tentar novamente" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Camera indisponivel" })).toBeDisabled();
+    expect(stop).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fotografar agora" })).toBeEnabled());
+  });
   it("allows confirming all three segments after restarting the camera", async () => {
     vi.spyOn(bodyCompositionService, "prepareImage").mockResolvedValue({ blob: corrected, metadata });
     const onConfirm = vi.fn();

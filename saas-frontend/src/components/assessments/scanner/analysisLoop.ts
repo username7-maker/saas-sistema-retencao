@@ -122,7 +122,7 @@ export function startAnalysisLoop(options: Options) {
       paused = value;
       terminate();
       reset();
-      if (!paused && !captured) create();
+      if (!paused) { captured = false; create(); }
     },
   };
 }

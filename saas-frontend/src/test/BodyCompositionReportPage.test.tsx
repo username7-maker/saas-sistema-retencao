@@ -361,16 +361,31 @@ describe("BodyCompositionReportPage", () => {
     expect(screen.queryByText("Algo deu errado")).not.toBeInTheDocument();
   });
 
-  it("keeps PDF access available when a report section cannot render", async () => {
+  it("ignores invalid measurement entries while preserving valid measurements and the report", async () => {
     const malformedReport = makeReport();
-    (malformedReport as unknown as Record<string, unknown>).measurement_rows = [null];
+    (malformedReport as unknown as Record<string, unknown>).measurement_rows = [null, {}, ...malformedReport.measurement_rows];
     vi.mocked(bodyCompositionService.getReport).mockResolvedValue(malformedReport);
 
     renderPage();
 
-    expect(await screen.findByText("Relatorio da avaliacao")).toBeInTheDocument();
-    expect(screen.getByText(/relatorio completo continua disponivel em PDF/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Medidas corporais" })).toBeInTheDocument();
+    expect(screen.getByText("82 cm")).toBeInTheDocument();
+    expect(screen.getByText("Indicadores-chave")).toBeInTheDocument();
+    expect(screen.queryByText(/relatorio completo continua disponivel em PDF/i)).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Abrir PDF" }).length).toBeGreaterThan(0);
+  });
+
+  it("isolates a measurement rendering failure from the rest of the report", async () => {
+    const report = makeReport();
+    (report.measurement_rows[0] as unknown as Record<string, unknown>).formatted_current = { invalid: true };
+    vi.mocked(bodyCompositionService.getReport).mockResolvedValue(report);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      renderPage();
+      expect(await screen.findByText(/Não foi possível exibir as medidas corporais/)).toBeInTheDocument();
+      expect(screen.getByText("Indicadores-chave")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Abrir PDF" })).toBeInTheDocument();
+    } finally { consoleError.mockRestore(); }
   });
 
   it("renders the semantic v2 contract without rebuilding domain decisions", async () => {

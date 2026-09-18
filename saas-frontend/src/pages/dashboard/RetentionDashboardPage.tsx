@@ -739,7 +739,8 @@ export function RetentionDashboardPage() {
         toast.error("A fila mudou. Revise a quantidade atualizada e confirme novamente.");
         return;
       }
-      toast.error(getHttpErrorDetail(error, "Não foi possível resolver os alertas. Nenhum alerta foi alterado."));
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", "retention"] });
+      toast.error("Não foi possível confirmar o resultado. Os alertas podem ter sido resolvidos. Confira a fila atualizada antes de tentar novamente.");
     },
   });
 
@@ -1033,7 +1034,7 @@ export function RetentionDashboardPage() {
                 <Button
                   size="sm"
                   variant="danger"
-                  disabled={queueQuery.isFetching || bulkResolveMutation.isPending}
+                  disabled={queueQuery.isFetching || queueQuery.isError || bulkResolveMutation.isPending}
                   onClick={() => setBulkResolveOpen(true)}
                 >
                   <CheckCheck size={14} />
@@ -1368,7 +1369,7 @@ export function RetentionDashboardPage() {
             </Button>
             <Button
               variant="danger"
-              disabled={bulkResolveMutation.isPending || queueTotal === 0 || queueQuery.isFetching}
+              disabled={bulkResolveMutation.isPending || queueTotal === 0 || queueQuery.isFetching || queueQuery.isError}
               onClick={() => bulkResolveMutation.mutate(queueTotal)}
             >
               <CheckCheck size={14} />

@@ -35,6 +35,23 @@ beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "perf
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe("scanner analysis scheduling", () => {
+  it("starts fresh after a rejected automatic photo is explicitly resumed", () => {
+    const run = setup();
+    for (let i = 0; i < 40 && !run.onCapture.mock.calls.length; i++) {
+      vi.advanceTimersToNextTimer(); vi.advanceTimersByTime(200); run.workers[0].reply();
+    }
+    expect(run.onCapture).toHaveBeenCalledOnce();
+    run.loop.setPaused(true);
+    run.loop.setPaused(false);
+    vi.advanceTimersByTime(170);
+    run.workers[1].reply();
+    expect(run.onCountdown).toHaveBeenLastCalledWith(null);
+    for (let i = 0; i < 40 && run.onCapture.mock.calls.length < 2; i++) {
+      vi.advanceTimersToNextTimer(); vi.advanceTimersByTime(200); run.workers[1].reply();
+    }
+    expect(run.onCapture).toHaveBeenCalledTimes(2);
+    run.loop.stop();
+  });
   it.each([200, 450])("preserves stability across %s ms processing and captures only once", (latency) => {
     const run = setup();
     for (let i = 0; i < 40 && !run.onCapture.mock.calls.length; i++) {
