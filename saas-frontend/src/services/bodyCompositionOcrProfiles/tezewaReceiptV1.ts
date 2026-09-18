@@ -140,6 +140,10 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
 
     const measurement = extractFieldMeasurement(sectionLines, spec, candidate);
     const parsed = measurement.parsed;
+    if (parsed.range.min !== null || parsed.range.max !== null) {
+      ranges[spec.key] = parsed.range;
+      usedLineIndexes.set(`range:${String(spec.key)}`, measurement.index);
+    }
     if (parsed.value == null) {
       warnings.push({
         field: String(spec.key),
@@ -159,9 +163,6 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
     }
 
     (values as Record<string, number | string | undefined>)[String(spec.key)] = parsed.value;
-    if (parsed.range.min !== null || parsed.range.max !== null) {
-      ranges[spec.key] = parsed.range;
-    }
     usedLineIndexes.set(String(spec.key), measurement.index);
 
     if (measurement.rescuedFromNeighbor) {
@@ -384,6 +385,10 @@ function parseValueAndRange(text: string, alias?: string): { value?: number; ran
   if (rangeMatch) {
     range.min = Number(rangeMatch[1]);
     range.max = Number(rangeMatch[2]);
+    const outsideRange = `${scopedText.slice(0, rangeMatch.index)} ${scopedText.slice((rangeMatch.index ?? 0) + rangeMatch[0].length)}`;
+    if (!/-?\d+(?:\.\d+)?/.test(outsideRange)) {
+      return { range };
+    }
   }
   if (allNumbers.length === 0) {
     return { range };
@@ -411,6 +416,22 @@ function extractFieldMeasurement(lines: SectionLine[], spec: FieldSpec, candidat
     hasAlias: true,
     rescuedFromNeighbor: false,
   };
+
+  const candidateNumbers = sliceAfterAlias(candidate.text.replace(/,/g, "."), candidate.alias)
+    .match(/-?\d+(?:\.\d+)?/g) ?? [];
+  const plausibleRangePair = candidateNumbers.length === 2
+    && candidateNumbers.every((value) => plausibilityScore(spec.key, Number(value)) > 0);
+  const hasPrintedRange = base.parsed.range.min !== null || base.parsed.range.max !== null;
+  if (plausibleRangePair && !hasPrintedRange) {
+    base.parsed = { range: base.parsed.range };
+  }
+  if (base.parsed.value == null && (hasPrintedRange || plausibleRangePair)) {
+    return {
+      parsed: base.parsed,
+      index: base.index,
+      rescuedFromNeighbor: false,
+    };
+  }
 
   const neighborhood = [candidate.index - 1, candidate.index + 1]
     .map((index) => ({ line: lines[index], index }))

@@ -652,6 +652,126 @@ class TestImageParseService:
         assert result.values.skeletal_muscle_kg is None
         assert result.needs_review is False
 
+    def test_strict_mode_rejects_range_endpoints_as_principal_measurements(self):
+        payload = _strict_ai_result(weight_kg=65.1, bmi=26.1, body_water_kg=35.8)
+        payload.values.muscle_mass_kg = 18.0
+        payload.values.basal_metabolic_rate_kcal = 1053
+        payload.values.skeletal_muscle_percent = 13.2
+        payload.ranges.update(
+            {
+                "muscle_mass_kg": BodyCompositionRangeValue(min=18.0, max=20.6),
+                "basal_metabolic_rate_kcal": BodyCompositionRangeValue(min=1053, max=1346),
+                "skeletal_muscle_percent": BodyCompositionRangeValue(min=13.2, max=24.8),
+            }
+        )
+        payload.field_metadata.update(
+            {
+                "muscle_mass_kg": BodyCompositionFieldMetadata(
+                    origin="ai_image",
+                    state="accepted",
+                    confidence=0.95,
+                    label="Muscle mass (kg)",
+                    evidence="Muscle mass (kg) 18.0~20.6",
+                    suggested_value=18.0,
+                ),
+                "basal_metabolic_rate_kcal": BodyCompositionFieldMetadata(
+                    origin="ai_image",
+                    state="accepted",
+                    confidence=0.95,
+                    label="Basal metabolism",
+                    evidence="Basal metabolism 1053~1346",
+                    suggested_value=1053,
+                ),
+                "skeletal_muscle_percent": BodyCompositionFieldMetadata(
+                    origin="ai_image",
+                    state="accepted",
+                    confidence=0.95,
+                    label="Skeletal muscle",
+                    evidence="Body parameters (%) Skeletal muscle 13.2~24.8",
+                    suggested_value=13.2,
+                ),
+            }
+        )
+
+        result = _validate_strict(
+            payload,
+            evaluation_date=date(2026, 8, 25),
+            member_birthdate=None,
+            member_sex=None,
+            member_height_cm=None,
+            previous_weight_kg=None,
+        )
+
+        assert result.values.muscle_mass_kg is None
+        assert result.values.basal_metabolic_rate_kcal is None
+        assert result.values.skeletal_muscle_percent is None
+        rejected_fields = {
+            issue.fields[0]
+            for issue in result.validation_issues
+            if issue.code == "ai_range_endpoint_used_as_value" and issue.fields
+        }
+        assert rejected_fields == {
+            "muscle_mass_kg",
+            "basal_metabolic_rate_kcal",
+            "skeletal_muscle_percent",
+        }
+        assert result.needs_review is True
+
+    def test_normalization_discards_ai_value_supported_only_by_a_printed_range(self):
+        from app.services.body_composition_image_parse_service import _normalize_ai_payload
+
+        result = _normalize_ai_payload(
+            {
+                "values": {"basal_metabolic_rate_kcal": 1053},
+                "ranges": {"basal_metabolic_rate_kcal": {"min": 1053, "max": 1346}},
+                "warnings": [],
+                "field_metadata": {
+                    "basal_metabolic_rate_kcal": {
+                        "origin": "ai_image",
+                        "state": "accepted",
+                        "confidence": 0.95,
+                        "label": "Basal metabolism",
+                        "evidence": "Basal metabolism 1053~1346",
+                        "suggested_value": 1053,
+                    }
+                },
+            },
+            device_profile="tezewa_receipt_v1",
+            local_ocr_result=None,
+        )
+
+        assert result.values.basal_metabolic_rate_kcal is None
+        assert result.field_metadata["basal_metabolic_rate_kcal"].state == "unavailable"
+        assert any(
+            warning.field == "basal_metabolic_rate_kcal" and warning.severity == "critical"
+            for warning in result.warnings
+        )
+
+    def test_normalization_discards_range_endpoint_when_ocr_loses_the_separator(self):
+        from app.services.body_composition_image_parse_service import _normalize_ai_payload
+
+        result = _normalize_ai_payload(
+            {
+                "values": {"muscle_mass_kg": 18.0},
+                "ranges": {"muscle_mass_kg": {"min": 18.0, "max": 20.6}},
+                "field_metadata": {
+                    "muscle_mass_kg": {
+                        "origin": "ai_image",
+                        "state": "accepted",
+                        "confidence": 0.95,
+                        "label": "Muscle mass (kg)",
+                        "evidence": "Muscle mass (kg) 18.0 20.6",
+                        "suggested_value": 18.0,
+                    }
+                },
+            },
+            device_profile="tezewa_receipt_v1",
+            local_ocr_result=None,
+        )
+
+        assert result.values.muscle_mass_kg is None
+        assert result.needs_review is True
+
     def test_prefers_openai_provider_when_available(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
             "app.services.body_composition_image_parse_service._parse_with_openai_vision",

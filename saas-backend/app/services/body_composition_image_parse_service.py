@@ -248,6 +248,9 @@ def _build_vision_prompt(
         "- body_water_percent NAO deve ser inferido, calculado ou copiado pela IA; retorne sempre null\n"
         "- o sistema calcula body_water_percent deterministicamente usando body_water_kg / weight_kg * 100\n"
         "- skeletal_muscle_percent e muscle_mass_kg sao campos diferentes e podem coexistir\n"
+        "- nas tabelas Project / Value / Range, o primeiro numero depois do rotulo pertence a Value e os dois "
+        "seguintes pertencem a Range; nunca copie o minimo ou maximo de Range para values\n"
+        "- se somente a faixa estiver legivel, preencha ranges e retorne null no campo correspondente de values\n"
         "- preserve valores negativos em weight_control_kg, muscle_control_kg e fat_control_kg\n"
         "- physical_age e health_score devem ser inteiros quando visiveis\n"
         "- quando houver faixa impressa, preencha ranges com min/max\n"
@@ -663,6 +666,7 @@ def _normalize_ai_payload(
     ]
     field_metadata = _normalize_field_metadata(metadata_source)
     field_metadata.pop("body_water_percent", None)
+    _discard_ai_values_supported_only_by_ranges(values, ranges, field_metadata, warnings)
     confidence = _initial_ai_confidence(values, field_metadata)
 
     return BodyCompositionImageParseResultRead(
@@ -674,7 +678,9 @@ def _normalize_ai_payload(
         warnings=warnings,
         confidence=confidence,
         raw_text=local_ocr_result.raw_text if local_ocr_result else "",
-        needs_review=bool(payload.get("needs_review", False)),
+        needs_review=bool(payload.get("needs_review", False)) or any(
+            warning.severity == "critical" for warning in warnings
+        ),
         engine="ai_assisted",
         fallback_used=False,
         field_metadata=field_metadata,
@@ -1154,6 +1160,8 @@ def _ai_metadata_validation_error(
         return "ai_metadata_value_mismatch"
     if not _evidence_supports_value(field_name, value, metadata.evidence):
         return "ai_evidence_value_mismatch"
+    if _evidence_uses_only_range_endpoint(field_name, value, metadata.evidence):
+        return "ai_range_endpoint_used_as_value"
     return None
 
 
@@ -1217,6 +1225,85 @@ def _evidence_supports_value(field_name: str, value: Any, evidence: str) -> bool
         for token in numeric_tokens
         if (candidate := _coerce_float(token)) is not None
     )
+
+
+def _evidence_uses_only_range_endpoint(field_name: str, value: Any, evidence: str) -> bool:
+    expected_value = _coerce_float(value)
+    if expected_value is None:
+        return False
+
+    range_pattern = re.compile(
+        r"([+-]?\d+(?:[.,]\d+)?)\s*(?:-|~|–|—)\s*([+-]?\d+(?:[.,]\d+)?)"
+    )
+    matches = list(range_pattern.finditer(evidence))
+    if not any(
+        _values_close(field_name, expected_value, endpoint)
+        for match in matches
+        for raw_endpoint in match.groups()
+        if (endpoint := _coerce_float(raw_endpoint)) is not None
+    ):
+        return False
+
+    evidence_without_ranges = evidence
+    for match in reversed(matches):
+        evidence_without_ranges = (
+            evidence_without_ranges[: match.start()]
+            + " " * (match.end() - match.start())
+            + evidence_without_ranges[match.end() :]
+        )
+    remaining_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", evidence_without_ranges)
+    return not any(
+        candidate is not None and _values_close(field_name, expected_value, candidate)
+        for token in remaining_tokens
+        if (candidate := _coerce_float(token)) is not None
+    )
+
+
+def _discard_ai_values_supported_only_by_ranges(
+    values: BodyCompositionOcrValues,
+    ranges: dict[str, BodyCompositionRangeValue],
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    warnings: list[BodyCompositionOcrWarning],
+) -> None:
+    for field_name, range_value in ranges.items():
+        if field_name not in BodyCompositionOcrValues.model_fields:
+            continue
+        value = getattr(values, field_name, None)
+        metadata = field_metadata.get(field_name)
+        if value is None or metadata is None or not metadata.evidence:
+            continue
+        endpoints = (range_value.min, range_value.max)
+        if not any(
+            endpoint is not None and _values_close(field_name, value, endpoint)
+            for endpoint in endpoints
+        ):
+            continue
+        numeric_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", metadata.evidence)
+        matching_evidence_values = sum(
+            candidate is not None and _values_close(field_name, value, candidate)
+            for token in numeric_tokens
+            if (candidate := _coerce_float(token)) is not None
+        )
+        matching_range_endpoints = sum(
+            endpoint is not None and _values_close(field_name, value, endpoint)
+            for endpoint in endpoints
+        )
+        has_distinct_principal_value = matching_evidence_values > matching_range_endpoints
+        if has_distinct_principal_value:
+            continue
+
+        setattr(values, field_name, None)
+        field_metadata[field_name] = metadata.model_copy(update={"state": "unavailable"})
+        warnings.append(
+            BodyCompositionOcrWarning(
+                field=field_name,
+                message=(
+                    f"{field_name} foi descartado porque o numero identificado pertence somente "
+                    "a faixa de referencia impressa."
+                ),
+                severity="critical",
+            )
+        )
 
 
 def _normalize_label_text(value: str) -> str:

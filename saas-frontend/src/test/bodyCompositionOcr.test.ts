@@ -128,6 +128,28 @@ Comprehensive evaluation
 62
 `;
 
+const RANGE_ONLY_RECEIPT = `
+Tezewa
+Body composition
+Project Value Range
+Weight (kg) 65.1 47.5~58.1
+Muscle mass (kg) 18.0~20.6
+Body parameters
+Project Value Range
+Body fat ratio 32.4 18.0~28.0
+Basal metabolism 1053~1346
+Skeletal muscle 13.2~24.8
+Comprehensive evaluation
+Project Value
+Target weight (kg) 58.1kg
+Weight control (kg) -7.0kg
+Muscle control (kg) -2.1kg
+Fat control (kg) -4.9kg
+Total energy 2185.6
+Physical age 44
+Health score 72
+`;
+
 const USER_REAL_OCR_DUMP = `
 / an
 / dl ny
@@ -229,6 +251,18 @@ describe("bodyCompositionOcr", () => {
     expect(result.ranges.body_fat_kg).toEqual({ min: 7.55, max: 14.41 });
     expect(result.ranges.body_fat_percent).toEqual({ min: 11.0, max: 21.0 });
     expect(result.warnings.some((warning) => warning.field === "body_fat_percent" && warning.severity === "critical")).toBe(false);
+  });
+
+  it("keeps a surviving printed range out of the principal measurement when OCR loses the value column", () => {
+    const result = extractBodyCompositionFromText(RANGE_ONLY_RECEIPT);
+
+    expect(result.values.muscle_mass_kg).toBeUndefined();
+    expect(result.values.basal_metabolic_rate_kcal).toBeUndefined();
+    expect(result.values.skeletal_muscle_percent).toBeUndefined();
+    expect(result.ranges.muscle_mass_kg).toEqual({ min: 18.0, max: 20.6 });
+    expect(result.ranges.basal_metabolic_rate_kcal).toEqual({ min: 1053, max: 1346 });
+    expect(result.ranges.skeletal_muscle_percent).toEqual({ min: 13.2, max: 24.8 });
+    expect(result.needs_review).toBe(true);
   });
 
   it("falls back to the expected receipt order when OCR loses most labels but preserves the section blocks", () => {
