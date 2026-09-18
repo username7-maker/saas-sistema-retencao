@@ -363,7 +363,7 @@ describe("BodyCompositionReportPage", () => {
 
   it("ignores invalid measurement entries while preserving valid measurements and the report", async () => {
     const malformedReport = makeReport();
-    (malformedReport as unknown as Record<string, unknown>).measurement_rows = [null, {}, ...malformedReport.measurement_rows];
+    (malformedReport as unknown as Record<string, unknown>).measurement_rows = [null, {}, ...(malformedReport.measurement_rows ?? [])];
     vi.mocked(bodyCompositionService.getReport).mockResolvedValue(malformedReport);
 
     renderPage();
@@ -377,7 +377,7 @@ describe("BodyCompositionReportPage", () => {
 
   it("isolates a measurement rendering failure from the rest of the report", async () => {
     const report = makeReport();
-    (report.measurement_rows[0] as unknown as Record<string, unknown>).formatted_current = { invalid: true };
+    (report.measurement_rows![0] as unknown as Record<string, unknown>).formatted_current = { invalid: true };
     vi.mocked(bodyCompositionService.getReport).mockResolvedValue(report);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
