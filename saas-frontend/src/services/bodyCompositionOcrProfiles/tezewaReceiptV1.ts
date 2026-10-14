@@ -28,7 +28,6 @@ interface FieldCandidate extends SectionLine {
 interface ParsedMeasurement {
   parsed: { value?: number; range: BodyCompositionRangeValue };
   index: number;
-  rescuedFromNeighbor?: boolean;
 }
 
 const SECTION_ALIASES: Record<SectionName, string[]> = {
@@ -41,10 +40,10 @@ const SECTION_ALIASES: Record<SectionName, string[]> = {
 const FIELD_SPECS: FieldSpec[] = [
   { key: "body_fat_percent", aliases: ["body fat ratio", "body fat %", "% body fat", "fat ratio"], sections: ["body_composition", "body_parameters", "general"], disallow: ["kg"] },
   { key: "body_fat_kg", aliases: ["body fat kg", "body fat (kg)", "body fat", "fat mass"], sections: ["body_composition", "general"], disallow: ["ratio", "%"] },
-  { key: "weight_kg", aliases: ["weight"], sections: ["body_composition", "general"], disallow: ["target", "control"] },
-  { key: "waist_hip_ratio", aliases: ["waist hip ratio", "waist hip", "waist-hip ratio"], sections: ["body_composition", "body_parameters", "general"] },
+  { key: "weight_kg", aliases: ["weight"], sections: ["body_composition", "general"], disallow: ["target", "control", "fat free", "fat-free"] },
+  { key: "waist_hip_ratio", aliases: ["waist hip ratio", "waist hip", "waist-hip ratio", "waist hi"], sections: ["body_composition", "body_parameters", "general"] },
   { key: "fat_free_mass_kg", aliases: ["fat free mass", "fat free weight", "fat free", "lean mass", "lean body mass"], sections: ["body_composition", "general"] },
-  { key: "inorganic_salt_kg", aliases: ["inorganic salt"], sections: ["body_composition", "general"] },
+  { key: "inorganic_salt_kg", aliases: ["inorganic salt", "norganic salt", "inorg salt", "inorganic sait"], sections: ["body_composition", "general"] },
   { key: "muscle_mass_kg", aliases: ["muscle mass"], sections: ["body_composition", "general"] },
   { key: "protein_kg", aliases: ["protein"], sections: ["body_composition", "general"] },
   { key: "body_water_kg", aliases: ["body water", "body moisture", "total body water", "water content", "tbw"], sections: ["body_composition", "general"], disallow: ["%", "ratio"] },
@@ -66,7 +65,6 @@ const KNOWN_PHRASES = [
   ...FIELD_SPECS.flatMap((field) => field.aliases),
 ];
 
-const MAX_WINDOW_SIZE = 3;
 const PLAUSIBLE_RANGES: Partial<Record<keyof BodyCompositionOcrValues, { min: number; max: number }>> = {
   weight_kg: { min: 30, max: 300 },
   body_fat_kg: { min: 1, max: 80 },
@@ -89,35 +87,6 @@ const PLAUSIBLE_RANGES: Partial<Record<keyof BodyCompositionOcrValues, { min: nu
   physical_age: { min: 1, max: 120 },
   health_score: { min: 1, max: 100 },
 };
-const POSITIONAL_FALLBACKS: Record<Exclude<SectionName, "general">, Array<keyof BodyCompositionOcrValues>> = {
-  body_composition: [
-    "weight_kg",
-    "body_fat_kg",
-    "waist_hip_ratio",
-    "fat_free_mass_kg",
-    "inorganic_salt_kg",
-    "muscle_mass_kg",
-    "protein_kg",
-    "body_water_kg",
-  ],
-  body_parameters: [
-    "body_fat_percent",
-    "visceral_fat_level",
-    "basal_metabolic_rate_kcal",
-    "bmi",
-    "skeletal_muscle_percent",
-  ],
-  comprehensive_evaluation: [
-    "target_weight_kg",
-    "weight_control_kg",
-    "muscle_control_kg",
-    "fat_control_kg",
-    "total_energy_kcal",
-    "physical_age",
-    "health_score",
-  ],
-};
-
 export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult {
   const normalizedText = normalizeOcrText(rawText);
   const mergedLines = mergeBrokenLines(normalizedText.split("\n").filter(Boolean));
@@ -165,14 +134,6 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
     (values as Record<string, number | string | undefined>)[String(spec.key)] = parsed.value;
     usedLineIndexes.set(String(spec.key), measurement.index);
 
-    if (measurement.rescuedFromNeighbor) {
-      warnings.push({
-        field: String(spec.key),
-        message: `${spec.aliases[0]} foi recuperado de linha vizinha por OCR ruidoso. Revisar manualmente.`,
-        severity: "warning",
-      });
-    }
-
     if (spec.key === "body_fat_kg" && candidate.normalized.includes("ratio")) {
       warnings.push({
         field: String(spec.key),
@@ -189,9 +150,7 @@ export function parseTezewaReceiptV1(rawText: string): BodyCompositionOcrResult 
     }
   }
 
-  if (hasExpectedTezewaStructure(normalizedText)) {
-    applyPositionalFallback(sectionLines, values, ranges, warnings, usedLineIndexes);
-  } else {
+  if (!hasExpectedTezewaStructure(normalizedText)) {
     warnings.push({
       field: null,
       message: "Layout diferente do recibo de bioimpedância detectado. A leitura assistida por IA é obrigatória para esta imagem.",
@@ -306,10 +265,6 @@ function getMergeSeparator(current: string, next: string): "" | " " | null {
     }
   }
 
-  if (!/\d/.test(currentNormalized) && !/\d/.test(normalizeLabel(next))) {
-    return " ";
-  }
-
   return null;
 }
 
@@ -337,22 +292,11 @@ function findFieldCandidate(lines: SectionLine[], spec: FieldSpec): FieldCandida
   for (const line of candidates) {
     if (!spec.sections.includes(line.section) && line.section !== "general") continue;
     if (isNoiseLine(line.text)) continue;
-
-    for (let span = 1; span <= MAX_WINDOW_SIZE; span += 1) {
-      const slice = candidates.slice(line.index, line.index + span);
-      if (slice.length !== span) break;
-      if (slice.some((item) => item.section !== line.section)) break;
-
-      const text = slice.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim();
-      const normalized = normalizeLabel(text);
-      if (isNoiseLine(text)) continue;
-
-      for (const alias of spec.aliases) {
-        const normalizedAlias = normalizeLabel(alias);
-        if (!normalized.includes(normalizedAlias)) continue;
-        if (spec.disallow?.some((token) => normalized.includes(normalizeLabel(token)))) continue;
-        return { text, normalized, section: line.section, alias, index: line.index };
-      }
+    for (const alias of spec.aliases) {
+      const normalizedAlias = normalizeLabel(alias);
+      if (!line.normalized.includes(normalizedAlias)) continue;
+      if (spec.disallow?.some((token) => line.normalized.includes(normalizeLabel(token)))) continue;
+      return { ...line, alias, index: line.index };
     }
   }
 
@@ -363,7 +307,7 @@ function parseValueAndRange(text: string, alias?: string): { value?: number; ran
   const normalizedText = text.replace(/,/g, ".");
   const scopedText = alias ? sliceAfterAlias(normalizedText, alias) : normalizedText;
 
-  const collapsedRangeMatch = scopedText.match(/(-?\d{1,4}\.\d{1,2})(\d{1,4}\.\d{1,2})\s*-\s*(\d{1,4}\.\d{1,2})/);
+  const collapsedRangeMatch = scopedText.match(/(-?\d{1,4}\.\d{1,2})(\d{1,4}\.\d{1,2})\s*(?:-|~|°|–|—)\s*(\d{1,4}\.\d{1,2})/);
   if (collapsedRangeMatch) {
     return {
       value: Number(collapsedRangeMatch[1]),
@@ -371,7 +315,7 @@ function parseValueAndRange(text: string, alias?: string): { value?: number; ran
     };
   }
 
-  const explicitRangeMatch = scopedText.match(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)/);
+  const explicitRangeMatch = scopedText.match(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*(?:-|~|°|–|—)\s*(-?\d+(?:\.\d+)?)/);
   if (explicitRangeMatch) {
     return {
       value: Number(explicitRangeMatch[1]),
@@ -380,7 +324,7 @@ function parseValueAndRange(text: string, alias?: string): { value?: number; ran
   }
 
   const allNumbers = scopedText.match(/-?\d+(?:\.\d+)?/g) ?? [];
-  const rangeMatch = scopedText.match(/(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)/);
+  const rangeMatch = scopedText.match(/(-?\d+(?:\.\d+)?)\s*(?:-|~|°|–|—)\s*(-?\d+(?:\.\d+)?)/);
   const range: BodyCompositionRangeValue = { min: null, max: null };
   if (rangeMatch) {
     range.min = Number(rangeMatch[1]);
@@ -409,13 +353,7 @@ function parseValueAndRange(text: string, alias?: string): { value?: number; ran
 }
 
 function extractFieldMeasurement(lines: SectionLine[], spec: FieldSpec, candidate: FieldCandidate): ParsedMeasurement {
-  const base = {
-    parsed: parseValueAndRange(candidate.text, candidate.alias),
-    index: candidate.index,
-    distance: 0,
-    hasAlias: true,
-    rescuedFromNeighbor: false,
-  };
+  const base = { parsed: parseValueAndRange(candidate.text, candidate.alias), index: candidate.index };
 
   const candidateNumbers = sliceAfterAlias(candidate.text.replace(/,/g, "."), candidate.alias)
     .match(/-?\d+(?:\.\d+)?/g) ?? [];
@@ -426,91 +364,32 @@ function extractFieldMeasurement(lines: SectionLine[], spec: FieldSpec, candidat
     base.parsed = { range: base.parsed.range };
   }
   if (base.parsed.value == null && (hasPrintedRange || plausibleRangePair)) {
+    return base;
+  }
+  if (base.parsed.value != null) return base;
+
+  // A wrapped label may be followed by one isolated Value token and then by
+  // a printed range. Never search backwards or skip across another field.
+  const next = lines[candidate.index + 1];
+  const following = lines[candidate.index + 2];
+  const isolatedNumber = next?.text.match(/^\(?(?:kg|%)?\)?\s*(-?\d+(?:[.,]\d+)?)\s*(?:kg|%)?$/i);
+  const rangeOnlyLine = following?.section === candidate.section &&
+    /^\s*-?\d+(?:[.,]\d+)?\s*[-~°º–—]\s*-?\d+(?:[.,]\d+)?\s*$/.test(following.text);
+  const followingRange = rangeOnlyLine ? parseValueAndRange(following.text).range : null;
+  const isSingleColumn = candidate.section === "comprehensive_evaluation";
+  if (
+    next?.section === candidate.section && isolatedNumber &&
+    (isSingleColumn || (followingRange?.min != null && followingRange.max != null))
+  ) {
     return {
-      parsed: base.parsed,
-      index: base.index,
-      rescuedFromNeighbor: false,
+      parsed: {
+        value: Number(isolatedNumber[1].replace(",", ".")),
+        range: followingRange ?? { min: null, max: null },
+      },
+      index: candidate.index + 1,
     };
   }
-
-  const neighborhood = [candidate.index - 1, candidate.index + 1]
-    .map((index) => ({ line: lines[index], index }))
-    .filter(
-      (entry): entry is { line: SectionLine; index: number } =>
-        Boolean(entry.line) && entry.line.section === candidate.section && hasNumericContent(entry.line.text) && !isNoiseLine(entry.line.text),
-    )
-    .map(({ line, index }) => ({
-      parsed: parseValueAndRange(line.text),
-      index,
-      distance: Math.abs(index - candidate.index),
-      hasAlias: false,
-      rescuedFromNeighbor: true,
-    }));
-
-  const options = [base, ...neighborhood];
-  const best = [...options].sort((left, right) => scoreMeasurementOption(spec.key, right) - scoreMeasurementOption(spec.key, left))[0];
-  return {
-    parsed: best.parsed,
-    index: best.index,
-    rescuedFromNeighbor: best.rescuedFromNeighbor,
-  };
-}
-
-function applyPositionalFallback(
-  lines: SectionLine[],
-  values: BodyCompositionOcrValues,
-  ranges: Record<string, BodyCompositionRangeValue>,
-  warnings: BodyCompositionOcrWarning[],
-  usedLineIndexes: Map<string, number>,
-): void {
-  for (const [section, keys] of Object.entries(POSITIONAL_FALLBACKS) as Array<[Exclude<SectionName, "general">, Array<keyof BodyCompositionOcrValues>]>) {
-    const sectionCandidates = lines
-      .map((line, index) => ({ ...line, index }))
-      .filter((line) => line.section === section && hasNumericContent(line.text) && !isNoiseLine(line.text));
-
-    if (sectionCandidates.length < 3) {
-      continue;
-    }
-
-    let cursor = 0;
-    for (const key of keys) {
-      if (values[key] !== undefined) continue;
-
-      while (cursor < sectionCandidates.length && usedLineIndexesHasValue(usedLineIndexes, sectionCandidates[cursor].index)) {
-        cursor += 1;
-      }
-      if (cursor >= sectionCandidates.length) break;
-
-      const candidate = sectionCandidates[cursor];
-      const parsed = parseValueAndRange(candidate.text);
-      if (parsed.value == null) {
-        cursor += 1;
-        continue;
-      }
-
-      if (plausibilityScore(key, parsed.value) === 0) {
-        warnings.push({
-          field: String(key),
-          message: `${humanizeFieldName(key)} gerou valor fora dos limites plausiveis e foi descartado.`,
-          severity: "critical",
-        });
-        cursor += 1;
-        continue;
-      }
-
-      (values as Record<string, number | string | undefined>)[String(key)] = parsed.value;
-      if (parsed.range.min !== null || parsed.range.max !== null) {
-        ranges[String(key)] = parsed.range;
-      }
-      usedLineIndexes.set(String(key), candidate.index);
-      warnings.push({
-        field: String(key),
-        message: `${humanizeFieldName(key)} foi inferido pela ordem esperada do recibo. Revisar manualmente.`,
-        severity: "warning",
-      });
-      cursor += 1;
-    }
-  }
+  return base;
 }
 
 function extractEvaluationDate(text: string): string | undefined {
@@ -569,38 +448,6 @@ function isNoiseLine(value: string): boolean {
     normalized === "%" ||
     normalized === "consumption"
   );
-}
-
-function hasNumericContent(value: string): boolean {
-  return /-?\d/.test(value);
-}
-
-function usedLineIndexesHasValue(usedLineIndexes: Map<string, number>, index: number): boolean {
-  return Array.from(usedLineIndexes.values()).includes(index);
-}
-
-function humanizeFieldName(field: keyof BodyCompositionOcrValues): string {
-  return String(field).replace(/_/g, " ");
-}
-
-function scoreMeasurementOption(
-  field: keyof BodyCompositionOcrValues,
-  option: {
-    parsed: { value?: number; range: BodyCompositionRangeValue };
-    index: number;
-    distance: number;
-    hasAlias: boolean;
-    rescuedFromNeighbor: boolean;
-  },
-): number {
-  if (option.parsed.value == null) return Number.NEGATIVE_INFINITY;
-
-  let score = plausibilityScore(field, option.parsed.value) * 100;
-  if (option.hasAlias) score += 14;
-  if (option.parsed.range.min !== null || option.parsed.range.max !== null) score += 8;
-  score -= option.distance * 14;
-  if (option.rescuedFromNeighbor) score -= 4;
-  return score;
 }
 
 function plausibilityScore(field: keyof BodyCompositionOcrValues, value: number): number {

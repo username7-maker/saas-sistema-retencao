@@ -12,6 +12,7 @@ from dateutil.relativedelta import relativedelta
 from defusedxml import ElementTree as ET
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
+from time import perf_counter
 
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from app.schemas import (
     ImportSummary,
     MissingMemberEntry,
 )
+from app.services.import_coverage_service import coverage_preview
 from app.services.onboarding_service import create_import_playbook_tasks_for_member
 from app.services.assessment_appointment_service import (
     apply_assessment_appointment_operational_effects,
@@ -644,8 +646,11 @@ def preview_members_csv(
             )
             continue
 
-        valid_rows += 1
         existing_member = _resolve_member_from_row(mapped_row, lookup)
+        if not existing_member and _has_unresolved_shared_phone(mapped_row, lookup):
+            errors.append(_shared_phone_error(row_number, mapped_row))
+            continue
+        valid_rows += 1
         plan_name, _, _ = _extract_plan_metadata(mapped_row, join_date=join_date)
         action = "update_member" if existing_member else "create_member"
 
@@ -765,6 +770,7 @@ def preview_checkins_csv(
     column_mappings: dict[str, str] | None = None,
     ignored_columns: list[str] | None = None,
 ) -> ImportPreview:
+    started_at = perf_counter()
     errors: list[ImportErrorEntry] = []
     warnings: list[str] = []
     sample_rows: list[ImportPreviewRow] = []
@@ -876,17 +882,16 @@ def preview_checkins_csv(
             )
 
     latest_existing_checkin_at = db.scalar(select(func.max(Checkin.checkin_at)))
-    if parsed_checkin_dates and isinstance(latest_existing_checkin_at, datetime):
-        first_incoming_date = min(parsed_checkin_dates)
-        previous_date = latest_existing_checkin_at.date()
-        missing_days = (first_incoming_date - previous_date).days - 1
-        if missing_days > 0:
-            warnings.append(
-                "Existe uma lacuna de "
-                f"{missing_days} dia(s) entre o ultimo acesso salvo ({previous_date.strftime('%d/%m/%Y')}) "
-                f"e o primeiro acesso deste arquivo ({first_incoming_date.strftime('%d/%m/%Y')}). "
-                "Confira o periodo e os filtros do relatorio do Actuar antes de confirmar."
-            )
+    coverage_start, pending_import_dates, coverage_baseline = coverage_preview(
+        db, parsed_checkin_dates, latest_existing_checkin_at,
+    )
+    if pending_import_dates:
+        dates_text = ", ".join(date.fromisoformat(value).strftime("%d/%m/%Y") for value in pending_import_dates)
+        warnings.append(
+            f"Existe uma lacuna de {len(pending_import_dates)} dia(s) sem importacao completa: {dates_text}. "
+            "Confira o periodo e os filtros do relatorio do Actuar antes de confirmar. "
+            "Dias sem acessos podem indicar academia fechada, nao necessariamente arquivo faltante."
+        )
 
     if len(parsed_checkin_dates) > 1:
         first_incoming_date = min(parsed_checkin_dates)
@@ -930,7 +935,15 @@ def preview_checkins_csv(
             f"{len(errors)} linha(s) nao puderam ser validadas e ficarao pendentes. "
             "As linhas validas podem ser importadas normalmente."
         )
+    logger.info("Check-in file processing completed.", extra={"extra_fields": {
+        "event": "checkin_preview_timing", "duration_ms": round((perf_counter() - started_at) * 1000, 1),
+        "rows": total_rows, "pending_rows": len(errors),
+    }})
     return ImportPreview(
+        import_dates=sorted(value.isoformat() for value in parsed_checkin_dates),
+        pending_import_dates=pending_import_dates,
+        coverage_start=coverage_start,
+        coverage_baseline=coverage_baseline,
         preview_kind="checkins",
         total_rows=total_rows,
         valid_rows=valid_rows,
@@ -1323,6 +1336,9 @@ def import_members_csv(
             continue
 
         existing_member = _resolve_member_from_row(mapped_row, lookup)
+        if not existing_member and _has_unresolved_shared_phone(mapped_row, lookup):
+            errors.append(_shared_phone_error(row_number, mapped_row))
+            continue
         if existing_member:
             if _refresh_existing_member_from_import_row(
                 existing_member,
@@ -1419,6 +1435,7 @@ def import_checkins_csv(
     ignored_columns: list[str] | None = None,
     commit: bool = True,
 ) -> ImportSummary:
+    started_at = perf_counter()
     errors: list[ImportErrorEntry] = []
     duplicates = 0
     ignored = 0
@@ -1529,6 +1546,10 @@ def import_checkins_csv(
             invalidate_dashboard_cache("members")
     else:
         db.flush()
+    logger.info("Check-in file processing completed.", extra={"extra_fields": {
+        "event": "checkin_import_timing", "duration_ms": round((perf_counter() - started_at) * 1000, 1),
+        "rows": imported + duplicates + ignored + len(errors), "pending_rows": len(errors),
+    }})
     return ImportSummary(
         imported=imported,
         skipped_duplicates=duplicates,
@@ -2752,10 +2773,15 @@ def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Me
 
     phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
     if phone:
-        candidates = lookup["by_phone"].get(phone, [])
-        best_candidate = _select_best_member_candidate(candidates, row)
-        if best_candidate:
-            return best_candidate
+        name = _extract_member_name(row)
+        candidates = [
+            member for member in lookup["by_phone"].get(phone, [])
+            if _phone_name_matches(member.full_name, name)
+            and _allows_weak_import_match(member, row)
+        ]
+        # A shared phone requires independent name evidence and a unique match.
+        if len(candidates) == 1:
+            return candidates[0]
 
     name = _extract_member_name(row)
     if name:
@@ -2771,11 +2797,52 @@ def _resolve_member_from_row(row: dict[str, str], lookup: dict[str, dict]) -> Me
         best_candidate = _select_best_member_candidate(candidates, row)
         if best_candidate:
             return best_candidate
-        fuzzy = _find_unique_name_candidate(name, lookup["by_name_compact"])
+        compatible_names = {
+            key: [candidate for candidate in candidates if _allows_weak_import_match(candidate, row)]
+            for key, candidates in lookup["by_name_compact"].items()
+        }
+        compatible_names = {key: candidates for key, candidates in compatible_names.items() if candidates}
+        fuzzy = _find_unique_name_candidate(name, compatible_names)
         if fuzzy:
             return fuzzy
 
     return None
+
+
+def _phone_name_matches(current_name: str | None, incoming_name: str | None) -> bool:
+    if not current_name or not incoming_name:
+        return False
+    if _normalize_text(current_name) == _normalize_text(incoming_name):
+        return True
+    current_tokens = _normalize_text(current_name).split()
+    incoming_tokens = _normalize_text(incoming_name).split()
+    # Shared surnames alone do not identify relatives; allow legitimate expansions.
+    current_compact = _compact_name(current_name)
+    incoming_compact = _compact_name(incoming_name)
+    has_name_anchor = (
+        (current_tokens[0] in incoming_tokens and incoming_tokens[0] in current_tokens)
+        or current_compact in incoming_compact
+        or incoming_compact in current_compact
+    )
+    return has_name_anchor and _names_are_compatible_for_refresh(current_name, incoming_name)
+
+
+def _has_unresolved_shared_phone(row: dict[str, str], lookup: dict[str, dict]) -> bool:
+    if any(_pick_first(row, keys) for keys in (MEMBER_ID_KEYS, EMAIL_KEYS, EXTERNAL_ID_KEYS, CPF_KEYS)):
+        return False
+    phone = _normalize_phone(_pick_first(row, PHONE_KEYS))
+    return bool(phone and lookup["by_phone"].get(phone))
+
+
+def _shared_phone_error(row_number: int, row: dict[str, str]) -> ImportErrorEntry:
+    return ImportErrorEntry(
+        row_number=row_number,
+        reason=(
+            "Telefone compartilhado sem identificacao segura. "
+            "Inclua CPF, email ou matricula e revise o cadastro antes de importar."
+        ),
+        payload=row,
+    )
 
 
 def _extract_member_name(row: dict[str, str]) -> str | None:
@@ -3023,7 +3090,29 @@ def _member_candidate_rank(member: Member, row: dict[str, str]) -> tuple:
     )
 
 
+def _allows_weak_import_match(member: Member, row: dict[str, str]) -> bool:
+    """A shared phone or similar name cannot override conflicting identifiers."""
+    email = (_pick_first(row, EMAIL_KEYS) or "").strip().lower()
+    if email and member.email and email != member.email.strip().lower():
+        return False
+    external_id = _normalize_external_id(_pick_first(row, EXTERNAL_ID_KEYS))
+    current_id = str((member.extra_data or {}).get("external_id") or "")
+    if external_id and current_id:
+        if not set(_external_id_candidates(external_id)) & set(_external_id_candidates(current_id)):
+            return False
+    cpf = _digits(_pick_first(row, CPF_KEYS))
+    if cpf and member.cpf_encrypted:
+        try:
+            if cpf != _digits(decrypt_cpf(member.cpf_encrypted)):
+                return False
+        except Exception:
+            # An unreadable identifier cannot establish a safe weak match.
+            return False
+    return True
+
+
 def _select_best_member_candidate(candidates: list[Member], row: dict[str, str]) -> Member | None:
+    candidates = [member for member in candidates if _allows_weak_import_match(member, row)]
     if not candidates:
         return None
     if len(candidates) == 1:

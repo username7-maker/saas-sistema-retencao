@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -103,7 +104,10 @@ def resolve_actuar_member(
 
     document = resolve_member_document_for_actuar(member, link)
     if document:
-        lookup = provider.find_member({"document": document, "strategy": "document"})
+        lookup = provider.find_member({"document": document, "strategy": "document",
+                                       "full_name": member.full_name,
+                                       "email": getattr(member, "email", None),
+                                       "birthdate": member.birthdate.isoformat() if member.birthdate else None})
         action_log.append({"strategy": "document", "result": lookup.get("status")})
         resolution = _resolution_from_lookup(
             db,
@@ -118,6 +122,28 @@ def resolve_actuar_member(
         if resolution.status != "not_found":
             return resolution
 
+    # Generic imports can contain codes from other systems. Treat the code as
+    # a search hint only: the provider must corroborate it with the identity.
+    extra_data = getattr(member, "extra_data", None) or {}
+    imported_code = str(extra_data.get("external_id") or "").strip()
+    if re.fullmatch(r"\d+", imported_code):
+        lookup = provider.find_member({
+            "external_id": imported_code,
+            "full_name": member.full_name,
+            "email": getattr(member, "email", None),
+            "document": document,
+            "birthdate": member.birthdate.isoformat() if member.birthdate else None,
+            "strategy": "imported_code_identity",
+            "require_identity_confirmation": True,
+        })
+        action_log.append({"strategy": "imported_code_identity", "result": lookup.get("status")})
+        resolution = _resolution_from_lookup(
+            db, gym_id=gym_id, member=member, lookup=lookup, action_log=action_log,
+            user_id=user_id, document=document, link=link,
+        )
+        if resolution.status != "not_found":
+            return resolution
+
     if not member.birthdate:
         action_log.append({"strategy": "birthdate_missing", "result": "needs_review"})
         return ActuarMemberResolution(status="needs_review", error_code="member_not_linked", action_log=action_log)
@@ -126,6 +152,7 @@ def resolve_actuar_member(
         {
             "full_name": member.full_name,
             "birthdate": member.birthdate.isoformat(),
+            "email": getattr(member, "email", None),
             "strategy": "exact_name_birthdate",
         }
     )
@@ -147,6 +174,7 @@ def resolve_actuar_member(
         {
             "full_name": member.full_name,
             "birthdate": member.birthdate.isoformat(),
+            "email": getattr(member, "email", None),
             "approximate": True,
             "strategy": "approx_name_birthdate",
         }

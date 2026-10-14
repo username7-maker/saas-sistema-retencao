@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -95,7 +95,7 @@ def create_body_composition_evaluation(
                 )
             return existing, None
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id)
+    previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id, before_date=payload.evaluation_date)
     evaluation_data = resolve_body_composition_persistence_fields(
         payload.model_dump(),
         reviewer_user_id=reviewer_user_id,
@@ -235,11 +235,18 @@ def update_body_composition_evaluation(
         )
 
     before_update = _body_composition_change_snapshot(evaluation)
-    previous_evaluation = _find_previous_evaluation(db, gym_id=gym_id, member_id=member_id, exclude_evaluation_id=evaluation_id)
-    explicit_fields = set(payload.model_fields_set) - {"expected_updated_at"}
-    payload_values = payload.model_dump(exclude={"expected_updated_at"})
+    previous_evaluation = _find_previous_evaluation(
+        db, gym_id=gym_id, member_id=member_id,
+        before_date=payload.evaluation_date, exclude_evaluation_id=evaluation_id,
+    )
+    explicit_fields = set(payload.model_fields_set) - {"expected_updated_at", "cleared_anthropometry_fields"}
+    payload_values = payload.model_dump(exclude={"expected_updated_at", "cleared_anthropometry_fields"})
+    cleared_fields = set(payload.cleared_anthropometry_fields)
+    _validate_anthropometry_removal(payload_values, cleared_fields)
     if payload.source == "ocr_receipt":
-        payload_values = _preserve_existing_anthropometry_for_ocr_update(payload_values, evaluation)
+        payload_values = _preserve_existing_anthropometry_for_ocr_update(
+            payload_values, evaluation, cleared_fields=cleared_fields,
+        )
     update_data = resolve_body_composition_persistence_fields(
         payload_values,
         reviewer_user_id=reviewer_user_id,
@@ -334,15 +341,9 @@ def serialize_body_composition_evaluation(
     evaluation: BodyCompositionEvaluation,
 ) -> BodyCompositionEvaluationRead:
     member = get_member_or_404(db, member_id, gym_id=gym_id)
-    previous_evaluation = db.scalar(
-        select(BodyCompositionEvaluation)
-        .where(
-            BodyCompositionEvaluation.member_id == member_id,
-            BodyCompositionEvaluation.id != evaluation.id,
-            BodyCompositionEvaluation.deleted_at.is_(None),
-        )
-        .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
-        .limit(1)
+    previous_evaluation = _find_previous_evaluation(
+        db, gym_id=gym_id, member_id=member_id,
+        before_date=evaluation.evaluation_date, exclude_evaluation_id=evaluation.id,
     )
     payload = BodyCompositionEvaluationRead.model_validate(evaluation)
     return payload.model_copy(
@@ -438,9 +439,25 @@ def _body_composition_change_snapshot(evaluation: BodyCompositionEvaluation) -> 
     return snapshot
 
 
+def _validate_anthropometry_removal(values: dict, cleared_fields: set[str]) -> None:
+    if not cleared_fields:
+        return
+    if (
+        not cleared_fields.issubset(ANTHROPOMETRY_FIELDS)
+        or not values.get("reviewed_manually")
+        or any(values.get(field) is not None for field in cleared_fields)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A remocao de medidas exige revisao manual e campos antropometricos vazios.",
+        )
+
+
 def _preserve_existing_anthropometry_for_ocr_update(
     values: dict,
     evaluation: BodyCompositionEvaluation,
+    *,
+    cleared_fields: set[str] | None = None,
 ) -> dict:
     """Merge stored anthropometry into an OCR update so bioimpedance cannot erase it."""
     merged = dict(values)
@@ -448,7 +465,6 @@ def _preserve_existing_anthropometry_for_ocr_update(
         "age_years",
         "sex",
         "height_cm",
-        "weight_kg",
         *ANTHROPOMETRY_FIELDS,
         "anthropometry_notes",
         "measurement_protocol",
@@ -460,6 +476,9 @@ def _preserve_existing_anthropometry_for_ocr_update(
         "anthropometry_review_completed",
     )
     for field in preserved_fields:
+        if field in (cleared_fields or set()):
+            merged[field] = None
+            continue
         incoming = merged.get(field)
         stored = getattr(evaluation, field, None)
         is_empty = incoming is None or incoming == "" or (isinstance(incoming, bool) and not incoming)
@@ -486,6 +505,7 @@ def _find_previous_evaluation(
     *,
     gym_id: UUID,
     member_id: UUID,
+    before_date: date,
     exclude_evaluation_id: UUID | None = None,
 ) -> BodyCompositionEvaluation | None:
     statement = (
@@ -494,6 +514,7 @@ def _find_previous_evaluation(
             BodyCompositionEvaluation.gym_id == gym_id,
             BodyCompositionEvaluation.member_id == member_id,
             BodyCompositionEvaluation.deleted_at.is_(None),
+            BodyCompositionEvaluation.evaluation_date < before_date,
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)

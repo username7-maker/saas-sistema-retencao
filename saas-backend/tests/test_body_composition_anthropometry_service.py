@@ -4,6 +4,31 @@ from app.services.body_composition_anthropometry_service import (
 )
 
 
+def test_reviewed_bioimpedance_with_optional_incomplete_perimetry_is_not_blocked() -> None:
+    resolved = resolve_body_fat_fields({
+        "sex": "male", "height_cm": 179, "weight_kg": 99,
+        "neck_cm": 35, "body_fat_percent": 31.15,
+        "preferred_body_fat_source": "bioimpedance",
+        "measurement_protocol": "manual_bioimpedance",
+        "reviewed_manually": True, "needs_review": False,
+    })
+    assert resolved["body_fat_used_percent"] == 31.15
+    assert resolved["body_fat_used_source"] == "bioimpedance"
+    assert resolved["needs_review"] is False
+
+
+def test_bioimpedance_still_requires_review_for_impossible_optional_measurement() -> None:
+    resolved = resolve_body_fat_fields({
+        "sex": "male", "height_cm": 179, "weight_kg": 99,
+        "iliac_cm": 12, "body_fat_percent": 31.15,
+        "preferred_body_fat_source": "bioimpedance",
+        "measurement_protocol": "manual_bioimpedance",
+        "reviewed_manually": True, "needs_review": False,
+    })
+    assert resolved["needs_review"] is True
+    assert "impossible_measurement_value" in resolved["data_quality_flags_json"]
+
+
 def test_male_navy_uses_abdomen_before_waist() -> None:
     result = calculate_anthropometric_body_fat(
         {

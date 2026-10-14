@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-for (const automatic of [false, true]) {
-test(`scanner uses a real worker, ${automatic ? "automatically captures" : "manually captures"}, reviews the selected photo and stops the stream`, async ({ page }) => {
+for (const scenario of ["manual", "automatic", "optional-failure"]) {
+const automatic = scenario === "automatic";
+test(`scanner uses a real worker, ${scenario}, reviews the selected photo and stops the stream`, async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/__scanner_test", (route) => route.fulfill({
@@ -27,7 +28,13 @@ test(`scanner uses a real worker, ${automatic ? "automatically captures" : "manu
       paint(); window.scannerStream = canvas.captureStream(20);
       const timer = setInterval(paint,50);
       navigator.mediaDevices.getUserMedia = async () => window.scannerStream;
-      navigator.mediaDevices.enumerateDevices = async () => [];
+      navigator.mediaDevices.enumerateDevices = async () => { ${scenario === "optional-failure" ? 'throw new Error("enumeration unavailable");' : 'return [];'} };
+      ${scenario === "optional-failure" ? `
+      const track = window.scannerStream.getVideoTracks()[0];
+      track.getCapabilities = () => ({focusMode:['continuous']});
+      track.applyConstraints = () => new Promise(() => {});
+      Storage.prototype.setItem = () => { throw new Error('storage blocked'); };
+      ` : ''}
       window.ImageCapture = undefined;
       bodyCompositionService.recordCaptureEvent = async () => {};
       bodyCompositionService.prepareImage = async (_id,file) => ({ blob:file, metadata:{
@@ -59,9 +66,15 @@ test(`scanner uses a real worker, ${automatic ? "automatically captures" : "manu
   await page.getByRole("button", { name: "Ajustar quatro cantos" }).click();
   await expect(page.getByRole("button", { name: "Confirmar foto original" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Ajustar canto topLeft" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancelar ajuste" }).click();
-  await page.getByRole("button", { name: "Confirmar foto original" }).click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { confirmed: { correction_confirmed: boolean } | null }).confirmed?.correction_confirmed)).toBe(false);
+  if (automatic) {
+    await page.getByRole("button", { name: "Cancelar ajuste" }).click();
+    await page.getByRole("button", { name: "Confirmar foto original" }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { confirmed: { correction_confirmed: boolean } | null }).confirmed?.correction_confirmed)).toBe(false);
+  } else {
+    await page.getByRole("button", { name: "Aplicar correcao" }).click();
+    await page.getByRole("button", { name: "Confirmar foto corrigida" }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { confirmed: { correction_confirmed: boolean; rotation: number } | null }).confirmed)).toMatchObject({ correction_confirmed: true, rotation: 90 });
+  }
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(errors).toEqual([]);
 });

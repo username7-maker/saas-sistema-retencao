@@ -320,6 +320,7 @@ class TestUpdateBodyComposition:
         else:
             raise AssertionError("Expected HTTPException when update payload removes all measurements")
 
+    @pytest.mark.parametrize("clear_waist", [False, True])
     @patch("app.services.body_composition_service.prepare_body_composition_sync_attempt", return_value=None)
     @patch("app.services.body_composition_service.generate_body_composition_ai")
     @patch("app.services.body_composition_service.get_body_composition_evaluation_or_404")
@@ -330,6 +331,7 @@ class TestUpdateBodyComposition:
         mock_get_evaluation,
         mock_generate_ai,
         mock_prepare_sync,
+        clear_waist,
     ):
         evaluation = SimpleNamespace(
             id=EVALUATION_ID,
@@ -387,13 +389,15 @@ class TestUpdateBodyComposition:
                 device_profile="tezewa_receipt_v1",
                 reviewed_manually=True,
                 expected_updated_at=UPDATED_AT,
+                cleared_anthropometry_fields=["waist_cm"] if clear_waist else [],
             ),
             sync_actuar=False,
         )
 
         assert updated.source == "ocr_receipt"
         assert updated.neck_cm == 38.0
-        assert updated.waist_cm == 82.0
+        assert updated.waist_cm == (None if clear_waist else 82.0)
+        assert not hasattr(updated, "cleared_anthropometry_fields")
         assert updated.abdomen_cm == 86.0
         assert updated.skinfold_subscapular_mm == 14.0
         assert updated.skinfold_triceps_mm == 16.0
@@ -402,6 +406,56 @@ class TestUpdateBodyComposition:
         assert updated.anthropometry_maturity == "pubertal"
         assert updated.body_fat_anthropometric_percent is not None
         assert attempt is None
+
+
+def test_new_receipt_does_not_reuse_stored_weight_when_ocr_misses_it():
+    from app.services.body_composition_service import _preserve_existing_anthropometry_for_ocr_update
+
+    old = SimpleNamespace(weight_kg=81.5, age_years=44, waist_cm=82.0)
+    updated = _preserve_existing_anthropometry_for_ocr_update(
+        {"weight_kg": None, "age_years": None, "waist_cm": None}, old,
+    )
+
+    assert updated["weight_kg"] is None
+    assert updated["age_years"] == 44
+    assert updated["waist_cm"] == 82.0
+
+
+def test_explicit_reviewed_removal_does_not_restore_old_ocr_measurement():
+    from app.services.body_composition_service import (
+        _preserve_existing_anthropometry_for_ocr_update,
+        _validate_anthropometry_removal,
+    )
+
+    values = {"waist_cm": None, "hip_cm": None, "reviewed_manually": True}
+    _validate_anthropometry_removal(values, {"waist_cm"})
+    updated = _preserve_existing_anthropometry_for_ocr_update(
+        values, SimpleNamespace(waist_cm=12.0, hip_cm=96.0), cleared_fields={"waist_cm"},
+    )
+    assert updated["waist_cm"] is None
+    assert updated["hip_cm"] == 96.0
+
+
+@pytest.mark.parametrize("values,cleared", [
+    ({"reviewed_manually": False, "waist_cm": None}, {"waist_cm"}),
+    ({"reviewed_manually": True, "waist_cm": 82.0}, {"waist_cm"}),
+    ({"reviewed_manually": True, "weight_kg": None}, {"weight_kg"}),
+    ({"reviewed_manually": True}, {"gym_id"}),
+])
+def test_invalid_anthropometry_removal_is_rejected(values, cleared):
+    from app.services.body_composition_service import _validate_anthropometry_removal
+
+    with pytest.raises(HTTPException) as caught:
+        _validate_anthropometry_removal(values, cleared)
+    assert caught.value.status_code == 422
+
+
+def test_unreviewed_receipt_cannot_be_sent_to_external_channels():
+    from app.services.body_composition_delivery_service import _require_reviewed_receipt
+
+    with pytest.raises(ValueError, match="Revise e confirme"):
+        _require_reviewed_receipt(SimpleNamespace(source="ocr_receipt", reviewed_manually=False, needs_review=True))
+    _require_reviewed_receipt(SimpleNamespace(source="ocr_receipt", reviewed_manually=True, needs_review=False))
 
 
 class TestListBodyComposition:

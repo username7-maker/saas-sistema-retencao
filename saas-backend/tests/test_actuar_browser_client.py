@@ -107,7 +107,8 @@ def test_resolve_member_search_term_prefers_explicit_search_name():
     )
 
 
-def test_select_member_candidate_prefers_exact_external_id_match():
+def test_select_member_candidate_prefers_exact_external_id_match(monkeypatch):
+    monkeypatch.setattr("app.integrations.actuar.browser_client._expected_age", lambda _value: 35)
     client = ActuarBrowserClient(base_url="https://app.actuar.com")
 
     selected = client._select_member_candidate(

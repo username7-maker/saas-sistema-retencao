@@ -711,7 +711,7 @@ async def prepare_body_composition_image_endpoint(
 
     metadata = {
         "method": prepared.method,
-        "confidence": prepared.confidence,
+        "confidence": float(prepared.confidence),
         "corners": prepared.document_corners,
         "quality_codes": prepared.quality_codes,
         "quality_metrics": prepared.quality_metrics,

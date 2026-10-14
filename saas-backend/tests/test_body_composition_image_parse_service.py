@@ -1,8 +1,11 @@
 import json
 import uuid
 from datetime import date
+from time import perf_counter
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import numpy as np
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
@@ -10,6 +13,7 @@ from app.schemas.body_composition import (
     BodyCompositionFieldMetadata,
     BodyCompositionImageOcrPayload,
     BodyCompositionImageParseResultRead,
+    BodyCompositionCaptureMetadata,
     BodyCompositionOcrValues,
     BodyCompositionOcrWarning,
     BodyCompositionRangeValue,
@@ -17,6 +21,42 @@ from app.schemas.body_composition import (
 from app.services.document_image_preprocessing import DocumentPreprocessingResult
 
 MEMBER_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
+
+
+def test_small_blurred_receipt_is_read_with_mandatory_field_review():
+    from app.services.body_composition_image_parse_service import _complete_parse_request
+
+    capture = BodyCompositionCaptureMetadata(
+        capture_mode="single",
+        quality_codes=["document_blurred"],
+        regional_quality={"receipt_short_side_raw": 248.0},
+    )
+    result = _complete_parse_request(
+        _ai_parse_result(), started_at=perf_counter(), provider="openai",
+        image_width=1000, image_height=3400, capture_metadata=capture,
+    )
+
+    issue = next(item for item in result.validation_issues if item.code == "image_resolution_manual_review_required")
+    assert issue.severity == "critical"
+    assert "weight_kg" in issue.fields
+    assert "body_fat_kg" in issue.fields
+    assert result.values.weight_kg == 84.5
+    assert result.needs_review is True
+
+
+def test_clear_small_receipt_does_not_require_resolution_review():
+    from app.services.body_composition_image_parse_service import _complete_parse_request
+
+    capture = BodyCompositionCaptureMetadata(
+        capture_mode="single",
+        quality_codes=[],
+        regional_quality={"receipt_short_side_raw": 248.0},
+    )
+    result = _complete_parse_request(
+        _ai_parse_result(), started_at=perf_counter(), provider="openai",
+        image_width=1000, image_height=3400, capture_metadata=capture,
+    )
+    assert not any(item.code == "image_resolution_manual_review_required" for item in result.validation_issues)
 
 
 def _local_ocr_payload(weight_kg: float = 14.41) -> BodyCompositionImageOcrPayload:
@@ -212,7 +252,7 @@ class TestImageParseService:
 
         assert "height_cm" in _recovery_read_fields(primary)
 
-    def test_recovery_disagreement_is_exposed_as_critical_conflict(self):
+    def test_recovery_disagreement_does_not_override_verified_primary_value(self):
         primary = _strict_ai_result(weight_kg=81)
         recovery = _strict_ai_result(weight_kg=91)
 
@@ -221,11 +261,167 @@ class TestImageParseService:
         merged = _merge_ai_recovery_result(primary, recovery)
 
         assert merged.values.weight_kg == 81
-        assert merged.field_metadata["weight_kg"].state == "conflict"
+        assert merged.field_metadata["weight_kg"].state == "accepted"
         assert any(
-            issue.code == "ai_enhancement_conflict" and issue.severity == "critical"
+            issue.code == "ai_enhancement_disagreement_ignored" and issue.severity == "warning"
             for issue in merged.validation_issues
         )
+
+        validated = _validate_strict(merged)
+        assert validated.field_metadata["weight_kg"].state == "accepted"
+        assert not any(issue.severity == "critical" for issue in validated.validation_issues)
+
+    def test_recovery_detects_conflicting_sex_and_printed_time(self):
+        primary = _strict_ai_result(sex="male")
+        primary.values.measured_at = "2026-09-03T08:18:00"
+        primary.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-03 08:18",
+            suggested_value="2026-09-03T08:18:00",
+        )
+        recovery = _strict_ai_result(sex="female")
+        recovery.values.measured_at = "2026-09-03T09:18:00"
+        recovery.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-03 09:18",
+            suggested_value="2026-09-03T09:18:00",
+        )
+
+        from app.services.body_composition_image_parse_service import _merge_ai_recovery_result
+
+        merged = _merge_ai_recovery_result(primary, recovery)
+
+        assert merged.values.sex == "male"
+        assert merged.values.measured_at == "2026-09-03T08:18:00"
+        assert merged.field_metadata["sex"].state == "accepted"
+        assert {
+            issue.fields[0]
+            for issue in merged.validation_issues
+            if issue.code == "ai_enhancement_disagreement_ignored"
+        } >= {
+            "sex", "measured_at",
+        }
+        assert all(
+            issue.severity == "warning"
+            for issue in merged.validation_issues
+            if issue.code == "ai_enhancement_disagreement_ignored"
+            and issue.fields[0] in {"sex", "measured_at"}
+        )
+
+    def test_recovery_treats_equivalent_local_and_utc_times_as_equal(self):
+        primary = _strict_ai_result()
+        primary.values.measured_at = "2026-09-03T22:18:00"
+        recovery = _strict_ai_result()
+        recovery.values.measured_at = "2026-09-04T01:18:00+00:00"
+
+        from app.services.body_composition_image_parse_service import _merge_ai_recovery_result
+
+        merged = _merge_ai_recovery_result(primary, recovery)
+
+        assert not any(
+            issue.code == "ai_enhancement_conflict" and issue.fields == ["measured_at"]
+            for issue in merged.validation_issues
+        )
+
+    def test_recovery_replaces_primary_value_with_invalid_evidence(self):
+        primary = _strict_ai_result()
+        primary.field_metadata["height_cm"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Height", evidence=None, suggested_value=180,
+        )
+        recovery = _strict_ai_result()
+
+        from app.services.body_composition_image_parse_service import _merge_ai_recovery_result
+
+        merged = _merge_ai_recovery_result(primary, recovery)
+
+        assert merged.values.height_cm == 180
+        assert merged.field_metadata["height_cm"].evidence == "Height (cm) 180"
+
+    def test_value_column_disagreement_prefers_range_free_read_with_review(self):
+        from app.services.body_composition_image_parse_service import _reconcile_value_column_read
+
+        primary = _strict_ai_result(weight_kg=81)
+        focused = _strict_ai_result(weight_kg=91)
+
+        result = _reconcile_value_column_read(primary, focused)
+
+        assert result.values.weight_kg == 91
+        assert result.field_metadata["weight_kg"].state == "conflict"
+        assert result.field_metadata["weight_kg"].suggested_value == 91
+        assert any(
+            issue.code == "ai_value_column_corrected" and "weight_kg" in issue.fields
+            for issue in result.validation_issues
+        )
+        assert result.needs_review is True
+
+    def test_value_column_can_restore_missing_measured_field(self):
+        from app.services.body_composition_image_parse_service import _reconcile_value_column_read
+
+        primary = _strict_ai_result()
+        focused = _strict_ai_result()
+        focused.values.inorganic_salt_kg = 2.9
+        focused.field_metadata["inorganic_salt_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Inorganic salt", evidence="Inorganic salt 2.9", suggested_value=2.9,
+        )
+
+        result = _reconcile_value_column_read(primary, focused)
+
+        assert result.values.inorganic_salt_kg == 2.9
+        assert result.field_metadata["inorganic_salt_kg"].state == "accepted"
+
+    def test_missing_value_column_confirmation_preserves_verified_primary(self):
+        from app.services.body_composition_image_parse_service import _reconcile_value_column_read
+
+        result = _reconcile_value_column_read(_strict_ai_result(), None)
+
+        assert result.values.weight_kg == 81
+        assert result.values.bmi == 25.0
+        assert any(issue.code == "ai_value_column_second_read_unavailable" for issue in result.validation_issues)
+
+    def test_ai_evidence_rejects_number_from_preceding_row(self):
+        from app.services.body_composition_image_parse_service import _ai_metadata_validation_error
+
+        metadata = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Muscle mass", evidence="Inorganic salt 2.9 Muscle mass 23.4",
+            suggested_value=2.9,
+        )
+        assert _ai_metadata_validation_error("muscle_mass_kg", 2.9, metadata) == "ai_evidence_row_mismatch"
+
+    def test_parse_checks_independent_value_column_before_accepting_table_values(self):
+        primary = _strict_ai_result()
+        focused = _strict_ai_result()
+        with patch(
+            "app.services.body_composition_image_parse_service.settings.body_composition_image_ai_validation_enabled",
+            True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key",
+        ), patch(
+            "app.services.body_composition_image_parse_service._image_ai_available", return_value=True,
+        ), patch(
+            "app.services.body_composition_image_parse_service.preprocess_receipt_image", return_value=None,
+        ), patch(
+            "app.services.body_composition_image_parse_service.build_receipt_value_column_image",
+            return_value=b"cropped-value-column",
+        ), patch(
+            "app.services.body_composition_image_parse_service._parse_with_openai_vision",
+            side_effect=[primary, focused],
+        ) as mock_provider:
+            from app.services.body_composition_image_parse_service import parse_body_composition_image
+
+            result = parse_body_composition_image(
+                image_bytes=b"fake-image", media_type="image/jpeg",
+                device_profile="tezewa_receipt_v1", evaluation_date=date(2026, 9, 3),
+                member_sex="male", member_height_cm=180,
+            )
+
+        assert mock_provider.call_count == 2
+        assert mock_provider.call_args_list[1].kwargs["value_column_only"] is True
+        assert mock_provider.call_args_list[1].kwargs["images"][0][0] == b"cropped-value-column"
+        assert result.values.weight_kg == 81
+        assert result.values.bmi == 25
 
     def test_retries_with_safe_enhancement_only_when_essential_fields_are_missing(self):
         primary = _strict_ai_result()
@@ -284,6 +480,7 @@ class TestImageParseService:
         assert mock_provider.call_args_list[1].kwargs["images"][0][0] == b"recovery-high-contrast"
         assert result.values.age_years == 40
         assert result.values.height_cm == 180
+        # A missing second crop must not erase a separately validated read.
         assert result.values.bmi == 25
         assert result.processing.enhancement_retry_used is True
         assert result.processing.enhancement_variant == "thermal_adaptive_threshold+unsharp"
@@ -336,6 +533,7 @@ class TestImageParseService:
             )
 
         assert result.values.weight_kg == 81
+        assert any(issue.code == "ai_value_column_second_read_unavailable" for issue in result.validation_issues)
         assert result.processing.primary_engine == "ai_image"
         assert result.processing.enhancement_retry_used is False
 
@@ -488,6 +686,18 @@ class TestImageParseService:
         assert result.values.sex == "female"
         assert result.field_metadata["sex"].origin == "ai_image"
         assert not any(issue.code == "sex_manual_confirmation_required" for issue in result.validation_issues)
+
+    def test_strict_mode_rejects_male_when_evidence_says_female(self):
+        payload = _strict_ai_result(sex="male")
+        payload.field_metadata["sex"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Sex", evidence="Sex: Female", suggested_value="male",
+        )
+
+        result = _validate_strict(payload, member_sex=None)
+
+        assert result.values.sex is None
+        assert any(issue.code == "ai_evidence_value_mismatch" for issue in result.validation_issues)
 
     def test_strict_mode_validates_bmi_with_configured_tolerance(self):
         accepted = _validate_strict(_strict_ai_result(weight_kg=81, height_cm=180, bmi=25.5))
@@ -772,6 +982,211 @@ class TestImageParseService:
         assert result.values.muscle_mass_kg is None
         assert result.needs_review is True
 
+    def test_normalization_keeps_measured_value_that_legitimately_equals_range_endpoint(self):
+        from app.services.body_composition_image_parse_service import _normalize_ai_payload
+
+        result = _normalize_ai_payload(
+            {
+                "values": {"inorganic_salt_kg": 2.9},
+                "ranges": {"inorganic_salt_kg": {"min": 2.4, "max": 2.9}},
+                "field_metadata": {
+                    "inorganic_salt_kg": {
+                        "origin": "ai_image",
+                        "state": "accepted",
+                        "confidence": 0.95,
+                        "label": "Inorganic salt",
+                        "evidence": "Inorganic salt 2.9",
+                        "suggested_value": 2.9,
+                    }
+                },
+            },
+            device_profile="tezewa_receipt_v1",
+            local_ocr_result=None,
+        )
+
+        assert result.values.inorganic_salt_kg == 2.9
+        assert result.field_metadata["inorganic_salt_kg"].state == "accepted"
+        assert not any(warning.field == "inorganic_salt_kg" for warning in result.warnings)
+
+    def test_normalization_ignores_degenerate_ai_range_for_measured_value(self):
+        from app.services.body_composition_image_parse_service import _normalize_ai_payload
+
+        result = _normalize_ai_payload(
+            {
+                "values": {"waist_hip_ratio": 0.86},
+                "ranges": {"waist_hip_ratio": {"min": 0.86, "max": 0.86}},
+                "field_metadata": {
+                    "waist_hip_ratio": {
+                        "origin": "ai_image",
+                        "state": "accepted",
+                        "confidence": 0.95,
+                        "label": "Waist hip 0.86",
+                        "evidence": "Waist hip 0.86",
+                        "suggested_value": 0.86,
+                    }
+                },
+            },
+            device_profile="tezewa_receipt_v1",
+            local_ocr_result=None,
+        )
+
+        assert result.values.waist_hip_ratio == 0.86
+        assert result.field_metadata["waist_hip_ratio"].state == "accepted"
+        assert not any(warning.field == "waist_hip_ratio" for warning in result.warnings)
+
+    def test_strict_mode_rejects_degree_separated_range_without_ranges_payload(self):
+        payload = _strict_ai_result()
+        payload.values.waist_hip_ratio = 0.75
+        payload.values.muscle_mass_kg = 18.0
+        payload.values.basal_metabolic_rate_kcal = 1053
+        for field_name, label, evidence, value in (
+            ("waist_hip_ratio", "Waist hip", "Waist hip 0.75°0.85", 0.75),
+            ("muscle_mass_kg", "Muscle mass (kg)", "Muscle mass (kg) 18.0°20.6", 18.0),
+            ("basal_metabolic_rate_kcal", "Basal metabolism", "Basal metabolism 1053°1346", 1053),
+        ):
+            payload.field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="ai_image", state="accepted", confidence=0.95,
+                label=label, evidence=evidence, suggested_value=value,
+            )
+
+        result = _validate_strict(payload)
+
+        assert result.values.waist_hip_ratio is None
+        assert result.values.muscle_mass_kg is None
+        assert result.values.basal_metabolic_rate_kcal is None
+        rejected = {
+            issue.fields[0] for issue in result.validation_issues
+            if issue.code == "ai_range_endpoint_used_as_value" and issue.fields
+        }
+        assert rejected == {"waist_hip_ratio", "muscle_mass_kg", "basal_metabolic_rate_kcal"}
+
+    def test_strict_mode_accepts_measured_bmr_joined_to_thermal_receipt_label(self):
+        payload = _strict_ai_result()
+        payload.values.basal_metabolic_rate_kcal = 1366
+        payload.ranges["basal_metabolic_rate_kcal"] = BodyCompositionRangeValue(min=1053, max=1346)
+        payload.field_metadata["basal_metabolic_rate_kcal"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Basal metabolism", evidence="Basal metabolism1366 1053~1346",
+            suggested_value=1366,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.basal_metabolic_rate_kcal == 1366
+        assert result.field_metadata["basal_metabolic_rate_kcal"].state == "accepted"
+
+    def test_strict_mode_rejects_goal_weight_as_current_weight(self):
+        payload = _strict_ai_result()
+        payload.values.bmi = None
+        payload.values.weight_kg = 58.1
+        payload.field_metadata["weight_kg"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Target weight", evidence="Target weight 58.1", suggested_value=58.1,
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.weight_kg is None
+        assert any(issue.code == "ai_label_field_mismatch" for issue in result.validation_issues)
+
+    def test_strict_mode_checks_printed_time_and_date_against_selected_date(self):
+        payload = _strict_ai_result()
+        payload.values.evaluation_date = "2026-09-02"
+        payload.values.measured_at = "2026-09-02T11:00:00"
+        payload.field_metadata["evaluation_date"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-02 08:18", suggested_value="2026-09-02",
+        )
+        payload.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-02 08:18", suggested_value="2026-09-02T11:00:00",
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.measured_at is None
+        assert result.values.evaluation_date == "2026-09-03"
+        assert any(issue.code == "evaluation_date_receipt_conflict" for issue in result.validation_issues)
+
+    def test_strict_mode_checks_printed_timestamp_even_without_separate_date(self):
+        payload = _strict_ai_result()
+        payload.values.measured_at = "2026-09-02T08:18:00"
+        payload.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-02 08:18",
+            suggested_value="2026-09-02T08:18:00",
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.evaluation_date == "2026-09-03"
+        assert result.field_metadata["evaluation_date"].suggested_value == "2026-09-02"
+        assert any(issue.code == "evaluation_date_receipt_conflict" for issue in result.validation_issues)
+
+    def test_strict_mode_checks_both_printed_dates_when_they_disagree(self):
+        payload = _strict_ai_result()
+        payload.values.evaluation_date = "2026-09-03"
+        payload.values.measured_at = "2026-09-02T08:18:00"
+        payload.field_metadata["evaluation_date"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-03 08:18",
+            suggested_value="2026-09-03",
+        )
+        payload.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-02 08:18",
+            suggested_value="2026-09-02T08:18:00",
+        )
+
+        result = _validate_strict(payload)
+
+        assert any(issue.code == "evaluation_date_receipt_conflict" for issue in result.validation_issues)
+
+    def test_strict_mode_matches_timezone_aware_timestamp_to_local_receipt_time(self):
+        payload = _strict_ai_result()
+        payload.values.measured_at = "2026-09-04T01:18:00+00:00"
+        payload.field_metadata["measured_at"] = BodyCompositionFieldMetadata(
+            origin="ai_image", state="accepted", confidence=0.95,
+            label="Test time", evidence="Test time 2026-09-03 22:18",
+            suggested_value="2026-09-04T01:18:00+00:00",
+        )
+
+        result = _validate_strict(payload)
+
+        assert result.values.measured_at == "2026-09-04T01:18:00+00:00"
+        assert result.field_metadata["measured_at"].state == "accepted"
+        assert not any(issue.code == "evaluation_date_receipt_conflict" for issue in result.validation_issues)
+
+    def test_recovery_read_includes_missing_receipt_fields(self):
+        from app.services.body_composition_image_parse_service import _recovery_read_fields
+
+        payload = _strict_ai_result()
+        assert {"inorganic_salt_kg", "waist_hip_ratio", "muscle_mass_kg", "basal_metabolic_rate_kcal"}.issubset(
+            set(_recovery_read_fields(payload))
+        )
+
+    def test_strict_mode_flags_inconsistent_body_fat_and_fat_free_mass(self):
+        payload = _strict_ai_result()
+        payload.values.body_fat_kg = 35.0
+        payload.values.body_fat_percent = 20.0
+        payload.values.fat_free_mass_kg = 40.0
+        for field_name, label in (
+            ("body_fat_kg", "Body fat (kg)"),
+            ("body_fat_percent", "Body fat ratio (%)"),
+            ("fat_free_mass_kg", "Fat free weight (kg)"),
+        ):
+            value = getattr(payload.values, field_name)
+            payload.field_metadata[field_name] = BodyCompositionFieldMetadata(
+                origin="ai_image", state="accepted", confidence=0.95,
+                label=label, evidence=f"{label} {value}", suggested_value=value,
+            )
+
+        result = _validate_strict(payload)
+
+        codes = {issue.code for issue in result.validation_issues}
+        assert "body_fat_consistency_conflict" in codes
+        assert "fat_free_mass_consistency_conflict" in codes
+
     def test_prefers_openai_provider_when_available(self):
         with patch("app.services.body_composition_image_parse_service.settings.openai_api_key", "test-openai-key"), patch(
             "app.services.body_composition_image_parse_service._parse_with_openai_vision",
@@ -955,7 +1370,7 @@ class TestImageParseRoute:
             media_type="image/jpeg",
             applied=True,
             method="receipt_perspective+clahe",
-            confidence=0.91,
+            confidence=np.float32(0.91),
             source_width=1200,
             source_height=2200,
             output_width=1000,
@@ -988,7 +1403,7 @@ class TestImageParseRoute:
             assert response.headers["cache-control"] == "no-store"
             metadata = json.loads(response.headers["x-cordex-scan-metadata"])
             assert metadata["method"] == "receipt_perspective+clahe"
-            assert metadata["confidence"] == 0.91
+            assert abs(metadata["confidence"] - 0.91) < 0.001
             assert metadata["corners"][0] == {"x": 0.1, "y": 0.03}
             assert metadata["quality_metrics"]["sharpness_bottom"] == 40.3
             assert mock_prepare.call_args.kwargs["manual_corners"] is None

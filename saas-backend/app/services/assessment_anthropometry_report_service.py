@@ -4,11 +4,13 @@ from datetime import UTC, date, datetime, time, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, Sequence
+from zoneinfo import ZoneInfo
 
 from app.schemas.body_composition import BodyCompositionReportRead
 from app.services.body_composition_anthropometry_service import (
     ANTHROPOMETRY_FIELDS,
 )
+from app.services.body_composition_protocols import _durnin_coefficients, get_protocol
 from app.services.body_composition_report_service import (
     CALCULATION_ORIGIN_LABELS,
     body_composition_origin_label,
@@ -16,6 +18,8 @@ from app.services.body_composition_report_service import (
     build_body_composition_report_read,
 )
 from app.services.premium_report_service import PremiumReportPayload, render_premium_report_pdf
+
+BUSINESS_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 
 def build_anthropometric_report_read(
@@ -126,7 +130,10 @@ def build_anthropometric_report_payload(
     )
     assessed_at = _assessment_datetime(assessment)
     payload.title = "Relatorio premium de avaliacao antropometrica"
-    payload.subtitle = f"{getattr(member, 'full_name', 'Aluno')} - {assessed_at.strftime('%d/%m/%Y %H:%M')}"
+    payload.subtitle = (
+        f"{getattr(member, 'full_name', 'Aluno')} - "
+        f"{assessed_at.astimezone(BUSINESS_TIMEZONE).strftime('%d/%m/%Y %H:%M')}"
+    )
     payload.generated_by = generated_by or payload.generated_by
     payload.version = "anthropometry-premium-v2"
     payload.parameters = parameters
@@ -168,7 +175,7 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
     attributes: dict[str, Any] = {
         "id": getattr(assessment, "id", None),
         "measured_at": measured_at,
-        "evaluation_date": measured_at.date(),
+        "evaluation_date": measured_at.astimezone(BUSINESS_TIMEZONE).date(),
         "reviewed_manually": True,
         "parsing_confidence": None,
         "ocr_confidence": None,
@@ -183,6 +190,7 @@ def _assessment_to_report_evaluation(assessment: Any) -> SimpleNamespace:
         "body_fat_used_source": "anthropometry",
         "preferred_body_fat_source": "anthropometry",
         "body_fat_method": "skinfold_protocol",
+        "body_fat_comparison_signature": _anthropometric_fat_method(assessment),
         "body_fat_confidence": "high",
         "body_fat_range_min": None,
         "body_fat_range_max": None,
@@ -414,6 +422,39 @@ def _assessment_datetime(assessment: Any) -> datetime:
     if isinstance(assessed_at, date):
         return datetime.combine(assessed_at, time(hour=12), tzinfo=UTC)
     return datetime.now(tz=timezone.utc)
+
+
+def _anthropometric_fat_method(assessment: Any) -> str | None:
+    protocol_key = str(getattr(assessment, "measurement_protocol", None) or "").strip()
+    formula_version = str(getattr(assessment, "formula_version", None) or "").strip()
+    protocol = get_protocol(protocol_key)
+    if not protocol or not protocol.supported or not formula_version or formula_version == "legacy":
+        return None
+    sex = str(getattr(assessment, "sex_used_for_formula", None) or "").strip()
+    if sex not in {"male", "female"} or (protocol.sex and protocol.sex != sex):
+        return None
+    snapshot = getattr(assessment, "anthropometry_snapshot_json", None) or {}
+    inputs = snapshot.get("inputs", {}) if isinstance(snapshot, dict) else {}
+    if not isinstance(inputs, dict):
+        inputs = {}
+    choices = []
+    for field in protocol.required_choice_fields:
+        value = str(inputs.get(field) or "").strip()
+        if not value:
+            return None
+        choices.append(f"{field}={value}")
+    if protocol.calculation == "durnin_womersley_4":
+        age = getattr(assessment, "age_used_for_formula", None)
+        if not isinstance(age, int) or isinstance(age, bool):
+            return None
+        # Reuse the actual calculation coefficients so a change of age band
+        # cannot be presented as a physiological delta.
+        choices.append(f"coefficients={_durnin_coefficients(sex, age)}")
+    # The persisted formula string also contains the independent TMB and Lee
+    # versions. Only the measurement-policy version and fat protocol define
+    # comparability of fat and fat-derived metrics.
+    fat_formula_version = formula_version.split(":", 1)[0]
+    return ":".join(("anthropometry", protocol_key, fat_formula_version, sex, *choices))
 
 
 def _snapshot_measurement_values(assessment: Any) -> dict[str, float]:

@@ -95,7 +95,7 @@ class ActuarBrowserClient:
             }
 
         search_terms = _member_lookup_terms(link_data)
-        if not search_terms:
+        if not search_terms and not linked_external_id:
             return {"status": "not_found", "error_code": "member_not_linked"}
 
         api_candidates = self._fetch_member_candidates_via_api(link_data)
@@ -965,40 +965,54 @@ class ActuarBrowserClient:
     def _select_member_candidate(self, candidates: list[dict[str, Any]], link_data: dict[str, Any]) -> dict[str, Any] | None:
         if not candidates:
             return None
-        if len(candidates) == 1:
-            return candidates[0]
-
         external_id = _strip_text(link_data.get("external_id"))
         normalized_name = _normalize_text(link_data.get("full_name"))
         expected_age = _expected_age(link_data.get("birthdate"))
         document = normalize_document(link_data.get("document"))
+        email = _normalize_text(link_data.get("email"))
+        expected_birthdate = _coerce_date(link_data.get("birthdate"))
+        matched: list[dict[str, Any]] = []
+        for candidate in candidates:
+            candidate_code = _strip_text(candidate.get("external_id"))
+            candidate_document = normalize_document(candidate.get("document"))
+            candidate_email = _normalize_text(candidate.get("email"))
+            candidate_birthdate = _coerce_date(candidate.get("birthdate"))
+            # Conflicting known identifiers cannot be overridden by name,
+            # search-result count, or an approximate age.
+            if external_id and candidate_code and external_id != candidate_code:
+                continue
+            if document and candidate_document and document != candidate_document:
+                continue
+            if email and candidate_email and email != candidate_email:
+                continue
+            if expected_birthdate and candidate_birthdate and expected_birthdate != candidate_birthdate:
+                continue
+            if expected_age is not None and candidate.get("age") is not None and candidate["age"] != expected_age:
+                continue
 
-        if external_id:
-            external_matches = [
-                candidate
-                for candidate in candidates
-                if _strip_text(candidate.get("external_id")) == external_id
-            ]
-            if len(external_matches) == 1:
-                return external_matches[0]
-
-        if document:
-            document_matches = [
-                candidate
-                for candidate in candidates
-                if document in (_extract_digits(candidate.get("text")) or "")
-            ]
-            if len(document_matches) == 1:
-                return document_matches[0]
-
-        exact_name_matches = [candidate for candidate in candidates if candidate.get("name") == normalized_name]
-        if expected_age is not None:
-            age_matches = [candidate for candidate in exact_name_matches if candidate.get("age") == expected_age]
-            if len(age_matches) == 1:
-                return age_matches[0]
-        if len(exact_name_matches) == 1:
-            return exact_name_matches[0]
-        return None
+            code_match = bool(external_id and candidate_code == external_id)
+            name_match = bool(normalized_name and _normalize_text(candidate.get("name")) == normalized_name)
+            email_match = bool(email and candidate_email == email)
+            document_match = bool(document and candidate_document == document)
+            if document and not candidate_document:
+                # Preserve punctuation boundaries; concatenating every digit
+                # in a card can fabricate a matching CPF across other fields.
+                document_match = any(
+                    normalize_document(token) == document
+                    for token in re.findall(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)", candidate.get("text") or "")
+                )
+            birthdate_match = bool(expected_birthdate and candidate_birthdate == expected_birthdate)
+            age_match = bool(expected_age is not None and candidate.get("age") == expected_age)
+            if link_data.get("require_identity_confirmation"):
+                identity_match = code_match and (name_match or email_match or document_match)
+            else:
+                identity_match = (
+                    document_match or code_match or
+                    (name_match and (email_match or birthdate_match or age_match))
+                )
+            if identity_match:
+                matched.append(candidate)
+        return matched[0] if len(matched) == 1 else None
 
     def _log_missing_action(self, action_name: str) -> None:
         assert self.page is not None
@@ -1132,6 +1146,8 @@ def _normalize_api_candidates(
                 "name": _normalize_text(item.get(name_key)) or "",
                 "email": _normalize_text(item.get(email_key)),
                 "age": _coerce_candidate_age(item.get(age_key)),
+                "birthdate": _coerce_date(item.get(age_key)),
+                "document": normalize_document(item.get("Cpf")),
                 "text": _normalize_text(" ".join(part for part in parts if part)) or "",
             }
         )

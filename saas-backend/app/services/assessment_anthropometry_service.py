@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
@@ -28,13 +29,16 @@ from app.services.body_composition_calculation_service import (
     calculate_muscle_mass as calculate_muscle_mass_result,
     calculation_metadata,
 )
-from app.services.body_composition_protocols import calculate_protocol_body_fat, get_protocol, protocol_catalog
+from app.services.body_composition_protocols import (
+    calculate_protocol_body_fat, get_protocol, protocol_catalog, protocol_measurement_limits,
+)
 from app.utils.localized_numbers import LocalizedNumberError, parse_localized_decimal
 
 
 ASSESSMENT_METHOD = "manual_anthropometry"
 RECORD_ORIGIN = "cordex"
 MEASUREMENT_POLICY_VERSION = "anthropometry-v3"
+BUSINESS_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 INDICATOR_MANUAL_MEASURED = "manual_measured"
 INDICATOR_ANTHROPOMETRY_CALCULATED = "anthropometry_calculated"
 INDICATOR_UNAVAILABLE = "unavailable"
@@ -103,7 +107,7 @@ def list_supported_anthropometry_protocols() -> list[dict[str, Any]]:
 
 def preview_anthropometric_assessment(payload: Any, *, member: Member | None = None) -> dict[str, Any]:
     data = _as_dict(payload)
-    assessment_date = _normalize_datetime(data.get("assessment_date"))
+    assessment_date = _normalize_assessment_datetime(data.get("assessment_date"))
     protocol_key = str(data.get("measurement_protocol") or "").strip()
     protocol = get_protocol(protocol_key)
     if protocol is None:
@@ -156,6 +160,15 @@ def preview_anthropometric_assessment(payload: Any, *, member: Member | None = N
         **{field: float(item["decimal_value"]) for field, item in consolidated_measurements.items()},
     }
     protocol_result = calculate_protocol_body_fat(formula_values)
+    if "impossible_measurement_value" in protocol_result.get("flags", []):
+        for field in protocol.required_fields:
+            value = formula_values.get(field)
+            minimum, maximum = protocol_measurement_limits(field)
+            if value is not None and not minimum <= value <= maximum:
+                _raise_unprocessable("implausible_measurement", {
+                    "field": field, "minimum": str(minimum), "maximum": str(maximum),
+                    "unit": "kg" if field == "weight_kg" else "mm" if field.endswith("_mm") else "cm",
+                })
     blocking_protocol_flags = _blocking_protocol_flags(protocol_result.get("flags", []))
     if blocking_protocol_flags or protocol_result.get("body_fat_percent") is None:
         _raise_unprocessable(
@@ -342,8 +355,8 @@ def create_anthropometric_assessment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nao encontrado")
 
     preview = preview_anthropometric_assessment(payload, member=member)
-    assessment_date = _normalize_datetime(_as_dict(payload).get("assessment_date"))
-    next_due = (assessment_date + timedelta(days=90)).date()
+    assessment_date = _normalize_assessment_datetime(_as_dict(payload).get("assessment_date"))
+    next_due = assessment_date.astimezone(BUSINESS_TIMEZONE).date() + timedelta(days=90)
     previous_number = db.scalar(
         select(func.max(Assessment.assessment_number)).where(
             Assessment.gym_id == gym_id,
@@ -472,7 +485,7 @@ def update_anthropometric_assessment(
     before = anthropometry_audit_snapshot(assessment)
     data = _as_dict(payload)
     preview = preview_anthropometric_assessment(data, member=member)
-    assessment_date = _normalize_datetime(data.get("assessment_date"))
+    assessment_date = _normalize_assessment_datetime(data.get("assessment_date"))
     snapshot = dict(preview["snapshot"])
     snapshot["responsible_user_id"] = str(editor_id)
     snapshot["confirmed_at"] = datetime.now(tz=timezone.utc).isoformat()
@@ -605,7 +618,7 @@ def _apply_anthropometric_preview(
         if value.get("consolidated_value") is not None
     }
     assessment.assessment_date = assessment_date
-    assessment.next_assessment_due = (assessment_date + timedelta(days=90)).date()
+    assessment.next_assessment_due = assessment_date.astimezone(BUSINESS_TIMEZONE).date() + timedelta(days=90)
     assessment.height_cm = _round2(measurement_values.get("height_cm"))
     assessment.weight_kg = _round2(measurement_values.get("weight_kg"))
     assessment.bmi = results["bmi"]
@@ -1014,6 +1027,26 @@ def _normalize_datetime(value: Any) -> datetime:
     return parsed
 
 
+def _normalize_assessment_datetime(value: Any) -> datetime:
+    if value is None:
+        return datetime.now(tz=timezone.utc)
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            _raise_unprocessable("assessment_date_invalid", {})
+    else:
+        _raise_unprocessable("assessment_date_invalid", {})
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=BUSINESS_TIMEZONE)
+    normalized = parsed.astimezone(timezone.utc)
+    if normalized > datetime.now(tz=timezone.utc):
+        _raise_unprocessable("assessment_date_future", {})
+    return normalized
+
+
 def _resolve_sex(data: dict[str, Any], member: Member | None) -> str:
     sex = data.get("sex_for_formula") or (getattr(member, "sex_for_clinical_calculation", None) if member is not None else None)
     if sex not in {"male", "female"}:
@@ -1030,8 +1063,9 @@ def _resolve_age(data: dict[str, Any], member: Member | None, assessment_date: d
     birthdate = getattr(member, "birthdate", None) if member is not None else None
     if not isinstance(birthdate, date):
         _raise_unprocessable("age_or_birthdate_required", {})
-    years = assessment_date.date().year - birthdate.year
-    if (assessment_date.date().month, assessment_date.date().day) < (birthdate.month, birthdate.day):
+    local_date = assessment_date.astimezone(BUSINESS_TIMEZONE).date()
+    years = local_date.year - birthdate.year
+    if (local_date.month, local_date.day) < (birthdate.month, birthdate.day):
         years -= 1
     if years <= 0:
         _raise_unprocessable("age_must_be_positive", {})

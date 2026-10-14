@@ -3,6 +3,8 @@ import numpy as np
 
 from app.services.document_image_preprocessing import (
     MAX_OUTPUT_BYTES,
+    _find_receipt,
+    build_receipt_value_column_image,
     build_thermal_recovery_image,
     preprocess_receipt_image,
 )
@@ -34,6 +36,16 @@ def test_preprocess_receipt_rectifies_bright_thermal_paper_without_persisting_it
     assert result.document_corners is not None
     assert len(result.document_corners) == 4
     assert all(0 <= point["x"] <= 1 and 0 <= point["y"] <= 1 for point in result.document_corners)
+
+
+def test_detector_does_not_rectify_nearly_entire_landscape_camera_frame():
+    image = np.full((900, 1600), 210, dtype=np.uint8)
+    cv2.rectangle(image, (10, 10), (1590, 890), 30, 4)
+    cv2.rectangle(image, (300, 200), (1300, 600), 245, -1)
+
+    points, _confidence = _find_receipt(image)
+
+    assert points is None or cv2.contourArea(points) / image.size < 0.9
 
 
 def test_preprocess_receipt_applies_manual_normalized_corners_as_real_perspective_transform():
@@ -86,3 +98,92 @@ def test_white_thermal_paper_is_not_mislabeled_as_glare_when_text_has_contrast()
 
     assert result is not None
     assert "document_glare" not in result.quality_codes
+
+
+def test_value_column_crop_keeps_labels_and_measurements_but_excludes_range():
+    image = np.full((900, 1000, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (30, 250), (260, 300), (0, 0, 0), -1)  # label
+    cv2.rectangle(image, (410, 250), (480, 300), (0, 0, 0), -1)  # Value
+    cv2.rectangle(image, (610, 250), (760, 300), (0, 0, 0), -1)  # Range
+
+    cropped_bytes = build_receipt_value_column_image(_encode(image))
+
+    assert cropped_bytes is not None
+    cropped = cv2.imdecode(np.frombuffer(cropped_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert cropped is not None
+    assert 500 < cropped.shape[1] < 610
+    assert int(cropped[275, 80]) < 40
+    assert int(cropped[275, 450]) < 40
+    assert int(cropped[275, 520]) > 220
+    assert build_receipt_value_column_image(b"invalid") is None
+
+
+def test_value_column_crop_preserves_values_printed_farther_right_after_manual_crop():
+    image = np.full((900, 1000, 3), 255, dtype=np.uint8)
+    for y in range(180, 800, 90):
+        cv2.rectangle(image, (170, y), (490, y + 32), (0, 0, 0), -1)
+        cv2.rectangle(image, (535, y), (625, y + 32), (0, 0, 0), -1)
+        cv2.rectangle(image, (700, y), (860, y + 32), (0, 0, 0), -1)
+
+    cropped_bytes = build_receipt_value_column_image(_encode(image))
+
+    assert cropped_bytes is not None
+    cropped = cv2.imdecode(np.frombuffer(cropped_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert cropped is not None
+    assert 630 <= cropped.shape[1] < 700
+    assert int(cropped[195, 620]) < 40
+
+
+def test_value_column_crop_orients_landscape_receipt_before_excluding_range():
+    portrait = np.full((1800, 1000, 3), 255, dtype=np.uint8)
+    for y in range(220, 1550, 100):
+        cv2.putText(portrait, "Muscle mass", (75, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(portrait, "23.4", (440, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(portrait, "18.0~20.6", (640, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+    for rotation in (cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE):
+        landscape = cv2.rotate(portrait, rotation)
+        cropped_bytes = build_receipt_value_column_image(_encode(landscape))
+
+        assert cropped_bytes is not None
+        cropped = cv2.imdecode(np.frombuffer(cropped_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        assert cropped is not None
+        assert cropped.shape[0] == 1800
+        assert 540 <= cropped.shape[1] < 640
+        assert int((cropped[:, 70:500] < 120).sum()) > 1000
+        assert float((cropped[:, 580:620] < 120).mean()) < 0.02
+
+
+def test_value_column_crop_keeps_upright_landscape_segment_upright():
+    image = np.full((700, 1200, 3), 255, dtype=np.uint8)
+    for y in range(100, 650, 75):
+        cv2.putText(image, "Muscle mass", (70, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "23.4", (500, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "18.0~20.6", (780, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+    cropped_bytes = build_receipt_value_column_image(_encode(image))
+
+    assert cropped_bytes is not None
+    cropped = cv2.imdecode(np.frombuffer(cropped_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert cropped is not None
+    assert cropped.shape[0] == 700
+    assert 550 <= cropped.shape[1] < 780
+
+
+def test_sideways_receipt_crop_starts_at_paper_edge_not_camera_frame():
+    portrait = np.full((1800, 1000, 3), 45, dtype=np.uint8)
+    cv2.rectangle(portrait, (300, 0), (850, 1799), (245, 245, 245), -1)
+    for y in range(220, 1550, 100):
+        cv2.putText(portrait, "Muscle mass", (345, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(portrait, "23.4", (590, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(portrait, "18.0~20.6", (700, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+    for rotation in (cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE):
+        cropped_bytes = build_receipt_value_column_image(_encode(cv2.rotate(portrait, rotation)))
+
+        assert cropped_bytes is not None
+        cropped = cv2.imdecode(np.frombuffer(cropped_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        assert cropped is not None
+        assert cropped.shape[0] == 1800
+        assert 320 <= cropped.shape[1] <= 360
+        assert int((cropped[:, 270:330] < 120).sum()) > 500

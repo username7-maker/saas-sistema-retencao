@@ -106,6 +106,7 @@ const FIELD_LABELS: Record<string, string> = {
   hip_cm: "Quadril",
   abdomen_cm: "Abdomen",
   neck_cm: "Pescoco",
+  iliac_cm: "Circunferencia iliaca",
   shoulders_cm: "Ombros",
   chest_cm: "Torax",
   right_arm_relaxed_cm: "Braco direito relaxado",
@@ -194,14 +195,13 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function calculateAge(birthdate?: string | null): number | null {
+function calculateAge(birthdate?: string | null, assessmentDate?: string): number | null {
   if (!birthdate) return null;
-  const parsed = new Date(`${birthdate}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const today = new Date();
-  let age = today.getFullYear() - parsed.getFullYear();
-  const monthDelta = today.getMonth() - parsed.getMonth();
-  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < parsed.getDate())) age -= 1;
+  const birth = birthdate.slice(0, 10).split("-").map(Number);
+  const assessed = (assessmentDate || defaultDateTimeLocal()).slice(0, 10).split("-").map(Number);
+  if (birth.length !== 3 || assessed.length !== 3 || [...birth, ...assessed].some((part) => !Number.isFinite(part))) return null;
+  let age = assessed[0] - birth[0];
+  if (assessed[1] < birth[1] || (assessed[1] === birth[1] && assessed[2] < birth[2])) age -= 1;
   return age;
 }
 
@@ -282,7 +282,8 @@ function anthropometryErrorMessage(error: unknown, fallback: string): string {
       if (code === "implausible_measurement") {
         const min = payload.minimum != null ? String(payload.minimum).replace(".", ",") : null;
         const max = payload.maximum != null ? String(payload.maximum).replace(".", ",") : null;
-        if (min && max) return `${label} fora do intervalo permitido (${min} a ${max}). Confira o valor digitado.`;
+        const unit = typeof payload.unit === "string" ? payload.unit : unitForField(field);
+        if (min && max) return `${label} fora do intervalo permitido (${min} a ${max} ${unit}). Confira o valor digitado.`;
         return `${label} fora do intervalo permitido. Confira o valor digitado.`;
       }
       if (code === "third_attempt_required") {
@@ -454,14 +455,17 @@ function ConfirmedManualAnthropometricAssessmentForm({
 }: ManualFormProps & { initialDraft: AnthropometryDraft | null }) {
   const mobileAssessmentFlowV3 = import.meta.env.VITE_MOBILE_ASSESSMENT_FLOW_V3 === "true";
   const queryClient = useQueryClient();
-  const ageFromBirthdate = calculateAge(member?.birthdate);
   const [effectiveIdempotencyKey, setEffectiveIdempotencyKey] = useState(initialDraft?.idempotency_key ?? idempotencyKey);
   const [hasUserChanges, setHasUserChanges] = useState(Boolean(initialDraft));
   const [assessmentDate, setAssessmentDate] = useState(initialDraft?.assessment_date ?? defaultDateTimeLocal);
+  const ageFromBirthdate = calculateAge(member?.birthdate, assessmentDate);
   const [sex, setSex] = useState<SexForFormula>(
     initialDraft?.sex ?? (member?.sex_for_clinical_calculation ?? "male") as SexForFormula,
   );
   const [ageYears, setAgeYears] = useState(initialDraft?.age_years ?? ageFromBirthdate?.toString() ?? "");
+  const [ageManuallyEdited, setAgeManuallyEdited] = useState(
+    Boolean(initialDraft?.age_years && initialDraft.age_years !== ageFromBirthdate?.toString()),
+  );
   const [height, setHeight] = useState(initialDraft?.height ?? (member?.height_cm != null ? String(member.height_cm) : ""));
   const [weight, setWeight] = useState(initialDraft?.weight ?? "");
   const [protocolKey, setProtocolKey] = useState(initialDraft?.protocol_key ?? "");
@@ -477,7 +481,7 @@ function ConfirmedManualAnthropometricAssessmentForm({
   );
   const [perimetry, setPerimetry] = useState<Record<string, string>>(initialDraft?.perimetry ?? {});
   const [observations, setObservations] = useState(initialDraft?.observations ?? "");
-  const [preview, setPreview] = useState<AnthropometryPreview | null>(null);
+  const [previewState, setPreviewState] = useState<{ result: AnthropometryPreview; signature: string } | null>(null);
 
   const editingAssessmentQuery = useQuery({
     queryKey: ["anthropometry", "detail", memberId, editingAssessmentId],
@@ -508,9 +512,12 @@ function ConfirmedManualAnthropometricAssessmentForm({
       }
     }
 
-    setAssessmentDate(toDateTimeLocal(assessment.assessment_date));
+    const loadedAssessmentDate = toDateTimeLocal(assessment.assessment_date);
+    const loadedAge = String(inputs.age_used_for_formula ?? assessment.age_used_for_formula ?? "");
+    setAssessmentDate(loadedAssessmentDate);
     setSex((inputs.sex_used_for_formula ?? assessment.sex_used_for_formula ?? "male") as SexForFormula);
-    setAgeYears(String(inputs.age_used_for_formula ?? assessment.age_used_for_formula ?? ""));
+    setAgeYears(loadedAge);
+    setAgeManuallyEdited(loadedAge !== String(calculateAge(member?.birthdate, loadedAssessmentDate) ?? ""));
     setHeight(String(inputs.height_used_for_formula ?? assessment.height_used_for_formula ?? assessment.height_cm ?? ""));
     setWeight(String(inputs.weight_used_for_formula ?? assessment.weight_used_for_formula ?? assessment.weight_kg ?? ""));
     setProtocolKey(String(asRecord(snapshot.protocol).key ?? assessment.measurement_protocol ?? ""));
@@ -520,9 +527,9 @@ function ConfirmedManualAnthropometricAssessmentForm({
     setAttempts(restoredAttempts);
     setPerimetry(restoredPerimetry);
     setObservations(assessment.observations ?? "");
-    setPreview(null);
+    setPreviewState(null);
     setHasUserChanges(false);
-  }, [editingAssessmentId, editingAssessmentQuery.data, initialDraft]);
+  }, [editingAssessmentId, editingAssessmentQuery.data, initialDraft, member?.birthdate]);
 
   useEffect(() => {
     if (!initialDraft) return;
@@ -614,6 +621,16 @@ function ConfirmedManualAnthropometricAssessmentForm({
   const requiresMaturity = selectedProtocol?.required_choice_fields?.includes("anthropometry_maturity") ?? false;
   const requiresEthnicity = requiresSlaughterEthnicity || calculateMuscleMass;
 
+  const currentInputSignature = JSON.stringify({
+    assessmentDate, sex, ageYears, height, weight, protocolKey,
+    anthropometryEthnicity, anthropometryMaturity, calculateMuscleMass,
+    dynamicFields, requiresSlaughterEthnicity, requiresMaturity,
+    attempts, perimetry, observations,
+  });
+  const latestInputSignatureRef = useRef(currentInputSignature);
+  latestInputSignatureRef.current = currentInputSignature;
+  const preview = previewState?.signature === currentInputSignature ? previewState.result : null;
+
   useEffect(() => {
     if (requiresSlaughterEthnicity && anthropometryEthnicity === "asian") {
       setAnthropometryEthnicity("");
@@ -704,8 +721,13 @@ function ConfirmedManualAnthropometricAssessmentForm({
   }
 
   const previewMutation = useMutation({
-    mutationFn: (payload: AnthropometryAssessmentInput) => assessmentService.previewAnthropometry(memberId, payload),
-    onSuccess: (result) => setPreview(result),
+    mutationFn: ({ payload }: { payload: AnthropometryAssessmentInput; signature: string }) =>
+      assessmentService.previewAnthropometry(memberId, payload),
+    onSuccess: (result, variables) => {
+      if (latestInputSignatureRef.current === variables.signature) {
+        setPreviewState({ result, signature: variables.signature });
+      }
+    },
     onError: (error) => toast.error(anthropometryErrorMessage(error, "Nao foi possivel calcular a previa antropometrica.")),
   });
 
@@ -736,7 +758,7 @@ function ConfirmedManualAnthropometricAssessmentForm({
 
   function handlePreview() {
     try {
-      previewMutation.mutate(buildValidatedPayload());
+      previewMutation.mutate({ payload: buildValidatedPayload(), signature: currentInputSignature });
     } catch (error) {
       toast.error(anthropometryErrorMessage(error, "Nao foi possivel calcular a previa antropometrica."));
     }
@@ -744,6 +766,7 @@ function ConfirmedManualAnthropometricAssessmentForm({
 
   function handleConfirm() {
     try {
+      if (!preview) throw new AnthropometryClientValidationError("Recalcule a previa antes de confirmar os dados alterados.");
       const payload = buildValidatedPayload();
       if (draftScope) saveAnthropometryDraft(draftScope, {
         saved_at: Date.now(), idempotency_key: effectiveIdempotencyKey,
@@ -790,6 +813,9 @@ function ConfirmedManualAnthropometricAssessmentForm({
             <Input aria-label="Data da avaliacao" type="datetime-local" value={assessmentDate} onChange={(event) => {
               setHasUserChanges(true);
               setAssessmentDate(event.target.value);
+              if (!ageManuallyEdited) {
+                setAgeYears(String(calculateAge(member?.birthdate, event.target.value) ?? ""));
+              }
             }} />
           </FormField>
           <FormField label="Sexo usado na formula">
@@ -804,6 +830,7 @@ function ConfirmedManualAnthropometricAssessmentForm({
           <FormField label="Idade usada na formula" required>
             <Input aria-label="Idade usada na formula" type="text" inputMode="numeric" value={ageYears} onChange={(event) => {
               setHasUserChanges(true);
+              setAgeManuallyEdited(true);
               setAgeYears(event.target.value);
             }} />
           </FormField>
@@ -892,10 +919,10 @@ function ConfirmedManualAnthropometricAssessmentForm({
       </section>
 
       <MobileSection id="anthropometry-protocol" title="Protocolo e dobras" summary="Pontos obrigatorios e repeticoes do protocolo" collapsible={mobileAssessmentFlowV3}>
-        <p className="mb-3 text-xs text-lovable-ink-muted">Complete a primeira rodada de todos os pontos antes da segunda rodada.</p>
+        <p className="mb-3 text-xs text-lovable-ink-muted">Circunferencias com fita metrica em centimetros (cm); dobras cutaneas em milimetros (mm). Complete a primeira rodada de todos os pontos antes da segunda rodada.</p>
         <div className="grid gap-3 md:grid-cols-2">
           {dynamicFields.map((field) => {
-            const label = FIELD_LABELS[field] ?? field;
+            const label = `${fieldLabel(field)}${field.endsWith("_cm") ? " (cm)" : ""}`;
             return (
               <div key={field} className="rounded-xl border border-lovable-border bg-lovable-surface-soft p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-lovable-ink-muted">{label}</p>

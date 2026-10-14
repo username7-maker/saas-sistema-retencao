@@ -1329,6 +1329,9 @@ export interface ImportPreviewSourceColumn {
 }
 
 export interface ImportPreview {
+  import_dates?: string[];
+  pending_import_dates?: string[];
+  coverage_start?: string | null;
   preview_kind: string;
   total_rows: number;
   valid_rows: number;
@@ -2182,7 +2185,10 @@ export interface BodyCompositionEvaluationCreate {
   measured_ranges_json?: Record<string, BodyCompositionRangeValue> | null;
 }
 
-export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate & { expected_updated_at: string };
+export type BodyCompositionEvaluationUpdate = BodyCompositionEvaluationCreate & {
+  expected_updated_at: string;
+  cleared_anthropometry_fields?: string[];
+};
 export type BodyCompositionEvaluationReviewInput = BodyCompositionEvaluationCreate & { expected_updated_at: string };
 
 export interface SalesHistoryItem {

@@ -171,6 +171,18 @@ def resolve_body_fat_fields(values: dict[str, Any], previous_values: Any | None 
     elif used_source == "bioimpedance":
         data["measurement_source"] = "bioimpedance"
 
+    # Optional circumference coverage is not a prerequisite for an official
+    # device reading. Keep genuine invalid measurements and unsupported
+    # selected calculation protocols subject to review.
+    if (
+        used_source == "bioimpedance"
+        and preferred == "bioimpedance"
+        and data.get("measurement_protocol") in {None, "manual_bioimpedance"}
+    ):
+        flags = [flag for flag in flags if flag not in {
+            "anthropometry_incomplete", "anthropometry_protocol_manual_only",
+        }]
+
     review_required = any(
         flag in set(flags)
         for flag in (

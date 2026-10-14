@@ -20,7 +20,8 @@ function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.URL.revokeObjectURL(url);
+  // Downloads consume the object URL asynchronously (especially Safari).
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
 }
 
 function normalizeImportPreview(data: unknown): ImportPreview {
@@ -29,6 +30,9 @@ function normalizeImportPreview(data: unknown): ImportPreview {
   const sourceColumns = Array.isArray(preview.source_columns) ? preview.source_columns : [];
 
   return {
+    import_dates: Array.isArray(preview.import_dates) ? preview.import_dates : [],
+    pending_import_dates: Array.isArray(preview.pending_import_dates) ? preview.pending_import_dates : [],
+    coverage_start: preview.coverage_start ?? null,
     preview_kind: typeof preview.preview_kind === "string" ? preview.preview_kind : "unknown",
     total_rows: typeof preview.total_rows === "number" ? preview.total_rows : 0,
     valid_rows: typeof preview.valid_rows === "number" ? preview.valid_rows : 0,
@@ -108,8 +112,10 @@ export const importExportService = {
     file: File,
     autoCreateMissingMembers = false,
     mapping?: ImportMappingPayload,
+    acknowledgedPendingDates?: string[],
   ): Promise<ImportSummary> {
     const form = new FormData();
+    if (acknowledgedPendingDates?.length) form.append("acknowledged_pending_dates", JSON.stringify(acknowledgedPendingDates));
     form.append("file", file);
     form.append("auto_create_missing_members", String(autoCreateMissingMembers));
     if (mapping?.columnMappings && Object.keys(mapping.columnMappings).length > 0) {
@@ -175,7 +181,7 @@ export const importExportService = {
   },
 
   async exportMembersCsv(): Promise<void> {
-    const response = await api.get("/api/v1/exports/members.csv", { responseType: "blob" });
+    const response = await api.get("/api/v1/exports/members.csv", { responseType: "blob", timeout: 120_000 });
     const filename = parseFilename(response.headers["content-disposition"]);
     downloadBlob(response.data, filename);
   },
@@ -185,19 +191,19 @@ export const importExportService = {
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    const response = await api.get(`/api/v1/exports/checkins.csv${suffix}`, { responseType: "blob" });
+    const response = await api.get(`/api/v1/exports/checkins.csv${suffix}`, { responseType: "blob", timeout: 120_000 });
     const filename = parseFilename(response.headers["content-disposition"]);
     downloadBlob(response.data, filename);
   },
 
   async downloadMembersTemplateCsv(): Promise<void> {
-    const response = await api.get("/api/v1/exports/templates/members.csv", { responseType: "blob" });
+    const response = await api.get("/api/v1/exports/templates/members.csv", { responseType: "blob", timeout: 120_000 });
     const filename = parseFilename(response.headers["content-disposition"]);
     downloadBlob(response.data, filename);
   },
 
   async downloadCheckinsTemplateCsv(): Promise<void> {
-    const response = await api.get("/api/v1/exports/templates/checkins.csv", { responseType: "blob" });
+    const response = await api.get("/api/v1/exports/templates/checkins.csv", { responseType: "blob", timeout: 120_000 });
     const filename = parseFilename(response.headers["content-disposition"]);
     downloadBlob(response.data, filename);
   },

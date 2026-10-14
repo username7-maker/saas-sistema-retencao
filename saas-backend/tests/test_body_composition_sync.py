@@ -154,6 +154,31 @@ def test_prepare_sync_job_marks_pending_and_not_training_ready():
     assert evaluation.actuar_sync_job_id == job.id
 
 
+def test_unreviewed_receipt_stays_local_even_when_auto_sync_is_enabled():
+    db = MagicMock()
+    evaluation = _evaluation()
+    evaluation.source = "ocr_receipt"
+    evaluation.reviewed_manually = False
+    evaluation.needs_review = True
+    gym = SimpleNamespace(
+        id=GYM_ID, actuar_enabled=True, actuar_auto_sync_body_composition=True,
+        actuar_base_url=None, actuar_username=None, actuar_password_encrypted=None,
+    )
+
+    with patch("app.services.body_composition_actuar_sync_service._get_gym", return_value=gym), patch(
+        "app.services.body_composition_actuar_sync_service._cancel_superseded_jobs"
+    ) as cancel_jobs, patch(
+        "app.services.body_composition_actuar_sync_service.settings.actuar_sync_enabled", True
+    ):
+        job = prepare_body_composition_sync_attempt(db, member=_member(), evaluation=evaluation)
+
+    assert job is None
+    assert evaluation.actuar_sync_status == "saved"
+    assert evaluation.actuar_sync_job_id is None
+    cancel_jobs.assert_called_once_with(db, EVALUATION_ID)
+    db.add.assert_not_called()
+
+
 def test_prepare_sync_job_keeps_saved_when_auto_sync_disabled():
     db = MagicMock()
     gym = SimpleNamespace(id=GYM_ID, actuar_enabled=False, actuar_auto_sync_body_composition=False)

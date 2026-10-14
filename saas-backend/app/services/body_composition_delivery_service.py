@@ -21,6 +21,13 @@ from app.services.public_report_link_service import create_body_composition_repo
 from app.services.whatsapp_service import get_gym_instance, send_whatsapp_document_sync
 
 
+def _require_reviewed_receipt(evaluation: BodyCompositionEvaluation) -> None:
+    if getattr(evaluation, "source", None) == "ocr_receipt" and (
+        not getattr(evaluation, "reviewed_manually", False) or getattr(evaluation, "needs_review", False)
+    ):
+        raise ValueError("Revise e confirme a leitura da bioimpedancia antes de enviar o relatorio.")
+
+
 def send_body_composition_whatsapp_summary(
     db: Session,
     *,
@@ -35,6 +42,7 @@ def send_body_composition_whatsapp_summary(
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
+    _require_reviewed_receipt(evaluation)
     instance = get_gym_instance(db, gym_id)
     if not member.phone:
         raise ValueError("Aluno sem telefone cadastrado para envio por WhatsApp.")
@@ -76,6 +84,7 @@ def send_body_composition_kommo_handoff(
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
+    _require_reviewed_receipt(evaluation)
 
     first_name = (member.full_name or "").split(" ")[0] or "aluno"
     member_summary = build_body_composition_member_summary(evaluation, member_first_name=first_name)
@@ -123,6 +132,7 @@ def send_body_composition_kommo_salesbot(
         member_id=member_id,
         evaluation_id=evaluation_id,
     )
+    _require_reviewed_receipt(evaluation)
     message = build_body_composition_whatsapp_message(member, evaluation)
     previous_evaluation = get_previous_body_composition_evaluation(
         db,
@@ -179,6 +189,16 @@ def get_previous_body_composition_evaluation(
     member_id: UUID,
     evaluation_id: UUID,
 ) -> BodyCompositionEvaluation | None:
+    current = db.scalar(
+        select(BodyCompositionEvaluation).where(
+            BodyCompositionEvaluation.gym_id == gym_id,
+            BodyCompositionEvaluation.member_id == member_id,
+            BodyCompositionEvaluation.id == evaluation_id,
+            BodyCompositionEvaluation.deleted_at.is_(None),
+        )
+    )
+    if current is None:
+        return None
     return db.scalar(
         select(BodyCompositionEvaluation)
         .where(
@@ -186,6 +206,7 @@ def get_previous_body_composition_evaluation(
             BodyCompositionEvaluation.member_id == member_id,
             BodyCompositionEvaluation.id != evaluation_id,
             BodyCompositionEvaluation.deleted_at.is_(None),
+            BodyCompositionEvaluation.evaluation_date < current.evaluation_date,
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)

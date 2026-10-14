@@ -1,9 +1,46 @@
 from unittest.mock import MagicMock
+import threading
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.routers import imports as imports_router
 from app.schemas import ImportErrorEntry, ImportPreview, ImportSummary
+
+
+def test_pending_day_requires_confirmation_before_any_import(app, client, mock_owner, monkeypatch):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: mock_owner
+    preview = _valid_preview()
+    preview.import_dates = ["2026-10-13"]
+    preview.pending_import_dates = ["2026-10-12"]
+    preview.coverage_start = "2026-10-11"
+    preview.coverage_baseline = "2026-10-11"
+    processing_threads = []
+    def preview_file(*args, **kwargs):
+        processing_threads.append(threading.current_thread().name)
+        return preview
+    import_mock = MagicMock(return_value=ImportSummary(imported=1, skipped_duplicates=0))
+    audit = MagicMock()
+    monkeypatch.setattr(imports_router, "preview_checkins_csv", preview_file)
+    monkeypatch.setattr(imports_router, "import_checkins_csv", import_mock)
+    monkeypatch.setattr(imports_router, "log_audit_event", audit)
+    try:
+        files = {"file": ("Acessos.csv", b"data,hora\n2026-10-13,08:00", "text/csv")}
+        response = client.post("/api/v1/imports/checkins", files=files)
+        assert response.status_code == 409
+        assert response.json()["detail"]["pending_dates"] == ["2026-10-12"]
+        import_mock.assert_not_called()
+        db.commit.assert_not_called()
+        response = client.post("/api/v1/imports/checkins", files=files,
+                               data={"acknowledged_pending_dates": '["2026-10-12"]'})
+        assert response.status_code == 200
+        assert audit.call_args.kwargs["details"]["daily_coverage"]["completed_dates"] == ["2026-10-13"]
+        assert all("worker" in name.lower() for name in processing_threads)
+        db.commit.assert_called_once()
+    finally:
+        imports_router.limiter.reset()
+        app.dependency_overrides.clear()
 
 
 def _blocked_preview() -> ImportPreview:

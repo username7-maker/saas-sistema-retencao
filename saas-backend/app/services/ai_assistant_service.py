@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Member, RiskLevel, Task
 from app.models.body_composition import BodyCompositionEvaluation
+from app.services.body_composition_report_domain import comparable_metric_delta
 from app.schemas.assistant import AIAssistantPayload
 from app.services.operational_message_ai_service import OperationalMessageDraft, generate_operational_message_draft
 
@@ -439,23 +440,26 @@ def _body_change_summary(
         return None
 
     deltas: list[str] = []
-    weight_delta = _delta_text(evaluation.weight_kg, previous_evaluation.weight_kg, "peso", "kg")
-    fat_delta = _delta_text(
-        getattr(evaluation, "body_fat_used_percent", None),
-        getattr(previous_evaluation, "body_fat_used_percent", None),
-        "gordura estimada",
-        "pp",
+    weight_delta = _delta_from_semantic(evaluation, previous_evaluation, "weight_kg", "peso", "kg")
+    fat_delta = _delta_from_semantic(
+        evaluation, previous_evaluation, "body_fat_used_percent", "gordura estimada", "pp"
     )
-    muscle_delta = _delta_text(
-        evaluation.muscle_mass_kg,
-        previous_evaluation.muscle_mass_kg,
-        "massa muscular",
-        "kg",
-    )
+    muscle_delta = _delta_from_semantic(evaluation, previous_evaluation, "muscle_mass_kg", "massa muscular", "kg")
     for delta in (weight_delta, fat_delta, muscle_delta):
         if delta:
             deltas.append(delta)
     return "Comparacao com o exame anterior: " + " | ".join(deltas) if deltas else None
+
+
+def _delta_from_semantic(
+    current: BodyCompositionEvaluation,
+    previous: BodyCompositionEvaluation,
+    key: str,
+    label: str,
+    unit: str,
+) -> str | None:
+    delta = comparable_metric_delta(current, previous, key)
+    return _delta_text(delta, 0, label, unit) if delta is not None else None
 
 
 def _delta_text(current: float | None, previous: float | None, label: str, unit: str) -> str | None:

@@ -13,6 +13,7 @@ from app.database import get_db, set_current_gym_id
 from app.models import RoleEnum, User
 from app.schemas import ImportPreview, ImportSummary
 from app.services.audit_service import log_audit_event
+from app.services.import_coverage_service import require_coverage_acknowledgement
 from app.services.import_service import (
     import_assessment_appointments_csv,
     import_assessments_csv,
@@ -155,7 +156,7 @@ def _successful_import_audit_details(
 
 @router.post("/members", response_model=ImportSummary)
 @limiter.limit("5/minute")
-async def import_members_endpoint(
+def import_members_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -167,7 +168,7 @@ async def import_members_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     parsed_mappings = _parse_mapping_dict(column_mappings)
@@ -230,7 +231,7 @@ async def import_members_endpoint(
 
 @router.post("/members/preview", response_model=ImportPreview)
 @limiter.limit("10/minute")
-async def preview_members_endpoint(
+def preview_members_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -242,7 +243,7 @@ async def preview_members_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
@@ -269,7 +270,7 @@ async def preview_members_endpoint(
 
 @router.post("/checkins", response_model=ImportSummary)
 @limiter.limit("5/minute")
-async def import_checkins_endpoint(
+def import_checkins_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -277,12 +278,13 @@ async def import_checkins_endpoint(
     auto_create_missing_members: bool = Form(False),
     column_mappings: str | None = Form(None),
     ignored_columns: str | None = Form(None),
+    acknowledged_pending_dates: str | None = Form(None),
 ) -> ImportSummary:
     lower_filename = (file.filename or "").lower()
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     parsed_mappings = _parse_mapping_dict(column_mappings)
@@ -312,6 +314,7 @@ async def import_checkins_endpoint(
                     "Revise o preview; nenhum check-in foi gravado."
                 ),
             )
+        require_coverage_acknowledgement(preview.pending_import_dates, acknowledged_pending_dates)
         summary = import_checkins_csv(
             db,
             content,
@@ -331,7 +334,7 @@ async def import_checkins_endpoint(
         action="import_checkins_csv",
         entity="checkins",
         user=current_user,
-        details=_successful_import_audit_details(
+        details={**_successful_import_audit_details(
             content=content,
             filename=file.filename,
             column_mappings=parsed_mappings,
@@ -341,7 +344,13 @@ async def import_checkins_endpoint(
                 "lacuna" in warning.lower() or "nao possui acessos" in warning.lower()
                 for warning in preview.warnings
             ) else [],
-        ),
+        ), "daily_coverage": {
+            "start": preview.coverage_start,
+            "baseline": preview.coverage_baseline,
+            "observed_dates": preview.import_dates,
+            "completed_dates": preview.import_dates if not summary.errors else [],
+            "acknowledged_pending_dates": preview.pending_import_dates,
+        }},
         ip_address=context["ip_address"],
         user_agent=context["user_agent"],
     )
@@ -354,7 +363,7 @@ async def import_checkins_endpoint(
 
 @router.post("/checkins/preview", response_model=ImportPreview)
 @limiter.limit("10/minute")
-async def preview_checkins_endpoint(
+def preview_checkins_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -367,7 +376,7 @@ async def preview_checkins_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
@@ -395,7 +404,7 @@ async def preview_checkins_endpoint(
 
 @router.post("/assessments", response_model=ImportSummary)
 @limiter.limit("5/minute")
-async def import_assessments_endpoint(
+def import_assessments_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -407,7 +416,7 @@ async def import_assessments_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     parsed_mappings = _parse_mapping_dict(column_mappings)
@@ -444,7 +453,7 @@ async def import_assessments_endpoint(
 
 @router.post("/assessments/preview", response_model=ImportPreview)
 @limiter.limit("10/minute")
-async def preview_assessments_endpoint(
+def preview_assessments_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -457,7 +466,7 @@ async def preview_assessments_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:
@@ -474,7 +483,7 @@ async def preview_assessments_endpoint(
 
 @router.post("/assessment-appointments/apply", response_model=ImportSummary)
 @limiter.limit("5/minute")
-async def import_assessment_appointments_endpoint(
+def import_assessment_appointments_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -486,7 +495,7 @@ async def import_assessment_appointments_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     parsed_mappings = _parse_mapping_dict(column_mappings)
@@ -523,7 +532,7 @@ async def import_assessment_appointments_endpoint(
 
 @router.post("/assessment-appointments/preview", response_model=ImportPreview)
 @limiter.limit("10/minute")
-async def preview_assessment_appointments_endpoint(
+def preview_assessment_appointments_endpoint(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(RoleEnum.OWNER, RoleEnum.MANAGER))],
@@ -536,7 +545,7 @@ async def preview_assessment_appointments_endpoint(
     if not lower_filename.endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser CSV ou XLSX")
     set_current_gym_id(current_user.gym_id)
-    content = await file.read(_MAX_CSV_SIZE + 1)
+    content = file.file.read(_MAX_CSV_SIZE + 1)
     if len(content) > _MAX_CSV_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     try:

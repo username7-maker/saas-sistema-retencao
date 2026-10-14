@@ -137,6 +137,28 @@ def test_v2_contract_blocks_deltas_for_incompatible_metric_origins() -> None:
     assert "massa muscular" not in (report.analysis_cordex or "").lower()
 
 
+def test_weight_range_is_not_a_health_classification_and_physical_age_is_retained() -> None:
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    current.measured_ranges_json = {"weight_kg": {"min": 20, "max": 220}}
+
+    report = build_body_composition_report_read(_member(), current, history=[current])
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert _metric(report, "weight_kg").status == "unknown"
+    assert _metric(report, "physical_age").current.value == 28
+    assert "28 anos" in html
+
+
+def test_domain_delta_blocks_future_and_incompatible_methods() -> None:
+    from app.services.body_composition_report_domain import comparable_metric_delta
+
+    previous = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC), muscle=40)
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC), muscle=35, muscle_origin="legacy_unknown")
+    assert comparable_metric_delta(current, previous, "weight_kg") == 0
+    assert comparable_metric_delta(current, previous, "muscle_mass_kg") is None
+    assert comparable_metric_delta(previous, current, "weight_kg") is None
+
+
 def test_score_comparison_requires_all_score_components_to_be_comparable() -> None:
     previous = _evaluation(
         datetime(2026, 8, 1, 12, tzinfo=UTC),
@@ -156,6 +178,22 @@ def test_score_comparison_requires_all_score_components_to_be_comparable() -> No
     assert report.score.delta is None
     assert report.score.comparison_status == "incompatible_method"
     assert report.score.disclaimer == "Índice Cordex para acompanhamento individual; não representa diagnóstico clínico."
+
+
+def test_score_does_not_compare_different_waist_subcomponents() -> None:
+    previous = _evaluation(datetime(2026, 8, 1, 12, tzinfo=UTC))
+    current = _evaluation(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    previous.waist_hip_ratio = current.waist_hip_ratio = 0.8
+    previous.waist_cm = None
+    current.waist_cm = 120
+    previous.height_cm = current.height_cm = 170
+
+    report = build_body_composition_report_read(_member(), current, history=[previous, current])
+
+    assert _metric(report, "waist_hip_ratio").comparison_status == "comparable"
+    assert previous.waist_cm is None and current.waist_cm == 120
+    assert report.score.comparison_status == "missing_value"
+    assert report.score.delta is None
 
 
 def test_v2_perimetry_keeps_current_and_previous_states_unambiguous() -> None:
@@ -266,6 +304,139 @@ def test_anthropometric_pdf_contract_includes_skinfolds_from_snapshot() -> None:
     assert triceps.current.value == 15
     assert triceps.previous is not None and triceps.previous.value == 18
     assert triceps.delta == -3
+
+
+def test_anthropometric_fat_comparison_requires_same_protocol_and_formula() -> None:
+    def assessment(
+        measured_at: datetime, protocol: str, formula_version: str, fat: float,
+        *, age: int = 47, sex: str = "male", ethnicity: str | None = None,
+        maturity: str | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uuid4(), assessment_date=measured_at, created_at=measured_at,
+            height_cm=180, weight_kg=85, bmi=26.2, body_fat_pct=fat,
+            fat_mass_kg=round(85 * fat / 100, 2), lean_mass_kg=round(85 * (1 - fat / 100), 2),
+            waist_hip_ratio=None, sex_used_for_formula=sex, age_used_for_formula=age,
+            measurement_protocol=protocol, formula_version=formula_version,
+            observations=None, anthropometry_snapshot_json={
+                "flags": [], "measurements": {},
+                "inputs": {"anthropometry_ethnicity": ethnicity, "anthropometry_maturity": maturity},
+            }, extra_data={},
+        )
+
+    previous = assessment(
+        datetime(2026, 7, 1, 12, tzinfo=UTC),
+        "jackson_pollock_3_male_18_61",
+        "anthropometry-v3:jackson_pollock_3_male_18_61:schofield",
+        20,
+    )
+    current = assessment(
+        datetime(2026, 8, 1, 12, tzinfo=UTC),
+        "petroski_1995_male_18_66",
+        "anthropometry-v3:petroski_1995_male_18_66:schofield",
+        15,
+    )
+    report = build_anthropometric_report_read(_member(), current, history=[previous, current])
+
+    assert _metric(report, "body_fat_used_percent").comparison_status == "incompatible_method"
+    assert _metric(report, "body_fat_used_percent").delta is None
+    assert _metric(report, "fat_mass_estimated_kg").delta is None
+    assert "Gordura corporal reduziu" not in (report.analysis_cordex or "")
+    assert report.score.delta is None
+
+    same_protocol = assessment(
+        datetime(2026, 9, 1, 12, tzinfo=UTC),
+        "petroski_1995_male_18_66",
+        "anthropometry-v3:petroski_1995_male_18_66:mifflin",
+        14,
+    )
+    same_report = build_anthropometric_report_read(_member(), same_protocol, history=[previous, current, same_protocol])
+    assert _metric(same_report, "body_fat_used_percent").comparison_status == "comparable"
+    assert _metric(same_report, "body_fat_used_percent").delta == -1
+
+    changed_formula = assessment(
+        datetime(2026, 9, 15, 12, tzinfo=UTC),
+        "petroski_1995_male_18_66",
+        "anthropometry-v4:petroski_1995_male_18_66:mifflin",
+        13,
+    )
+    formula_report = build_anthropometric_report_read(
+        _member(), changed_formula, history=[current, same_protocol, changed_formula]
+    )
+    assert _metric(formula_report, "body_fat_used_percent").comparison_status == "incompatible_method"
+
+    unknown = assessment(datetime(2026, 9, 20, 12, tzinfo=UTC), "legacy", "legacy", 12)
+    unknown_report = build_anthropometric_report_read(_member(), unknown, history=[same_protocol, unknown])
+    assert _metric(unknown_report, "body_fat_used_percent").comparison_status == "incompatible_method"
+
+    slaughter_protocol = "slaughter_1988_boys_black_white_6_17"
+    slaughter_version = "anthropometry-v3:slaughter:schofield"
+    slaughter_previous = assessment(
+        datetime(2026, 7, 1, 12, tzinfo=UTC), slaughter_protocol, slaughter_version, 20,
+        age=12, ethnicity="black", maturity="prepubertal",
+    )
+    slaughter_current = assessment(
+        datetime(2026, 8, 1, 12, tzinfo=UTC), slaughter_protocol, slaughter_version, 15,
+        age=12, ethnicity="black", maturity="pubertal",
+    )
+    slaughter_report = build_anthropometric_report_read(
+        _member(), slaughter_current, history=[slaughter_previous, slaughter_current]
+    )
+    assert _metric(slaughter_report, "body_fat_used_percent").comparison_status == "incompatible_method"
+    assert _metric(slaughter_report, "body_fat_used_percent").delta is None
+    assert _metric(slaughter_report, "fat_mass_estimated_kg").delta is None
+    assert slaughter_report.score.delta is None
+    slaughter_same_choices = assessment(
+        datetime(2026, 9, 1, 12, tzinfo=UTC), slaughter_protocol, slaughter_version, 14,
+        age=12, ethnicity="black", maturity="pubertal",
+    )
+    same_choices_report = build_anthropometric_report_read(
+        _member(), slaughter_same_choices, history=[slaughter_current, slaughter_same_choices]
+    )
+    assert _metric(same_choices_report, "body_fat_used_percent").comparison_status == "comparable"
+    slaughter_missing_choices = assessment(
+        datetime(2026, 9, 15, 12, tzinfo=UTC), slaughter_protocol, slaughter_version, 13,
+        age=12,
+    )
+    missing_choices_report = build_anthropometric_report_read(
+        _member(), slaughter_missing_choices, history=[slaughter_same_choices, slaughter_missing_choices]
+    )
+    assert _metric(missing_choices_report, "body_fat_used_percent").comparison_status == "incompatible_method"
+
+    durnin_protocol = "durnin_womersley_1974_male_17_72"
+    durnin_version = "anthropometry-v3:durnin:schofield"
+    durnin_previous = assessment(
+        datetime(2026, 7, 1, 12, tzinfo=UTC), durnin_protocol, durnin_version, 20, age=29,
+    )
+    durnin_current = assessment(
+        datetime(2026, 8, 1, 12, tzinfo=UTC), durnin_protocol, durnin_version, 15, age=30,
+    )
+    durnin_report = build_anthropometric_report_read(
+        _member(), durnin_current, history=[durnin_previous, durnin_current]
+    )
+    assert _metric(durnin_report, "body_fat_used_percent").comparison_status == "incompatible_method"
+    assert _metric(durnin_report, "body_fat_used_percent").delta is None
+    assert durnin_report.score.delta is None
+    durnin_same_band = assessment(
+        datetime(2026, 9, 1, 12, tzinfo=UTC), durnin_protocol, durnin_version, 14, age=31,
+    )
+    same_band_report = build_anthropometric_report_read(
+        _member(), durnin_same_band, history=[durnin_current, durnin_same_band]
+    )
+    assert _metric(same_band_report, "body_fat_used_percent").comparison_status == "comparable"
+
+
+def test_anthropometric_report_date_uses_sao_paulo_calendar_day() -> None:
+    assessment = SimpleNamespace(
+        id=uuid4(), assessment_date=datetime(2026, 9, 24, 2, 30, tzinfo=UTC),
+        height_cm=180, weight_kg=85, bmi=26.2, body_fat_pct=15,
+        fat_mass_kg=12.75, lean_mass_kg=72.25, sex_used_for_formula="male", age_used_for_formula=47,
+        anthropometry_snapshot_json={"flags": [], "measurements": {}}, extra_data={},
+    )
+
+    report = build_anthropometric_report_read(_member(), assessment, history=[assessment])
+
+    assert report.header.evaluation_date == date(2026, 9, 23)
 
 
 def test_history_eligibility_is_decided_per_series() -> None:
@@ -427,7 +598,7 @@ def test_pdf_html_consumes_v2_semantics_and_adds_history_with_one_prior_evaluati
     assert "Comparação disponível a partir de uma avaliação anterior" in html
 
 
-def test_pdf_paginates_eligible_history_series_in_groups_of_four() -> None:
+def test_pdf_fits_eligible_history_series_on_one_page() -> None:
     history = [
         _evaluation(datetime(2026, month, 1, 12, tzinfo=UTC), weight=100 - month)
         for month in (6, 7, 8, 9)
@@ -436,7 +607,7 @@ def test_pdf_paginates_eligible_history_series_in_groups_of_four() -> None:
 
     html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
 
-    assert html.count('<section class="clinical-page') == 4
+    assert html.count('<section class="clinical-page') == 3
     assert "Evolução histórica" in html
     assert '<svg class="clinical-history-chart"' in html
 
@@ -453,6 +624,51 @@ def test_pdf_history_limits_rows_to_recent_unique_dates() -> None:
     assert "01/01/2026" not in html
     assert "10/01/2026" in html
     assert "15/01/2026" in html
+
+
+def test_five_history_charts_share_a_page_without_orphan() -> None:
+    history = [_evaluation(datetime(2026, month, 1, 12, tzinfo=UTC)) for month in (7, 8, 9)]
+    for item in history:
+        item.shoulders_cm = 100
+        item.skinfold_triceps_mm = 16
+    report = build_body_composition_report_read(_member(), history[-1], history=history)
+
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    assert html.count('clinical-page clinical-history-page') == 1
+    assert html.count('class="clinical-history-card"') == 5
+
+
+def test_printed_technical_pdf_sheets_have_visible_headers_and_no_overlap() -> None:
+    from playwright.sync_api import sync_playwright
+
+    history = [_evaluation(datetime(2026, month, 1, 12, tzinfo=UTC)) for month in (7, 8, 9)]
+    for item in history:
+        item.shoulders_cm = 100
+        item.skinfold_triceps_mm = 16
+    report = build_body_composition_report_read(_member(), history[-1], history=history)
+    html = render_premium_report_html(build_body_composition_premium_pdf_payload(report, technical=True))
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 794, "height": 1123})
+            page.set_content(html)
+            page.emulate_media(media="print")
+            sheets = page.locator(".clinical-page").evaluate_all("""items => items.map(item => ({
+                height: item.getBoundingClientRect().height,
+                scrollHeight: item.scrollHeight,
+                headerTop: item.querySelector('.clinical-header').getBoundingClientRect().top
+                    - item.getBoundingClientRect().top,
+                footerTop: item.querySelector('.clinical-footer').getBoundingClientRect().top,
+                contentBottom: item.querySelector('.clinical-footer').previousElementSibling.getBoundingClientRect().bottom
+            }))""")
+        finally:
+            browser.close()
+
+    assert len(sheets) == 4
+    assert all(sheet["height"] <= 1110 and sheet["scrollHeight"] <= 1110 for sheet in sheets)
+    assert all(sheet["headerTop"] >= 0 and sheet["contentBottom"] < sheet["footerTop"] for sheet in sheets)
 
 
 def test_history_for_older_report_does_not_include_later_assessments() -> None:

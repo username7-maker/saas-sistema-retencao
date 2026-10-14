@@ -32,6 +32,7 @@ CORE_METRIC_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"key": "waist_hip_ratio", "label": "Relação cintura-quadril", "unit": None, "roles": ["headline", "key_indicator", "history"], "reference": "protocol"},
     {"key": "bmi", "label": "IMC", "unit": None, "roles": ["key_indicator"], "reference": "clinical"},
     {"key": "basal_metabolic_rate_kcal", "label": "Metabolismo basal", "unit": "kcal", "roles": ["composition_detail"], "reference": "none"},
+    {"key": "physical_age", "label": "Idade física", "unit": "anos", "roles": ["composition_detail"], "reference": "none"},
     {"key": "fat_mass_estimated_kg", "label": "Massa de gordura estimada", "unit": "kg", "roles": ["composition_detail"], "reference": "protocol"},
     {"key": "lean_mass_estimated_kg", "label": "Massa livre de gordura estimada", "unit": "kg", "roles": ["composition_detail"], "reference": "protocol"},
     {"key": "body_water_kg", "label": "Água corporal", "unit": "kg", "roles": ["composition_detail"], "reference": "equipment"},
@@ -144,7 +145,8 @@ def build_semantic_metrics(
             else None
         )
         reference_min, reference_max = reference_resolver(current, key)
-        status = status_resolver(current_value, reference_min, reference_max)
+        # A faixa de peso do aparelho é apenas um limite de leitura, não uma faixa saudável.
+        status = "unknown" if key == "weight_kg" else status_resolver(current_value, reference_min, reference_max)
         current_source, current_method = _source_method(current, key)
         previous_source, previous_method = _source_method(metric_previous, key) if metric_previous is not None else (None, None)
         reference_kind, reference_label, reference_source = _reference_metadata(definition["reference"])
@@ -218,12 +220,12 @@ def build_semantic_score(
     metrics: Sequence[BodyCompositionReportMetricRead],
     *,
     invalid_date: bool,
+    waist_height_values: tuple[float | None, float | None] = (None, None),
 ) -> BodyCompositionReportScoreRead:
     component_metric_keys = {
         "body_fat": ("body_fat_used_percent",),
         "muscle": ("ffmi",),
         "visceral_fat": ("visceral_fat_level",),
-        "waist": ("waist_hip_ratio",),
     }
     metric_by_key = {metric.key: metric for metric in metrics}
     current_keys = {item.key for item in current_components}
@@ -244,10 +246,32 @@ def build_semantic_score(
             for key in component_metric_keys.get(component, ())
             if key in metric_by_key
         }
-        comparison_status = "comparable" if component_statuses == {"comparable"} else (
-            "invalid_date" if "invalid_date" in component_statuses else "incompatible_method"
-        )
-        message = None if comparison_status == "comparable" else INCOMPATIBLE_MESSAGE
+        if "waist" in current_keys:
+            waist_hip = metric_by_key.get("waist_hip_ratio")
+            if waist_hip and (
+                waist_hip.current.value is not None
+                or (waist_hip.previous is not None and waist_hip.previous.value is not None)
+            ):
+                component_statuses.add(waist_hip.comparison_status)
+            current_waist_height, previous_waist_height = waist_height_values
+            if current_waist_height is not None or previous_waist_height is not None:
+                component_statuses.add(
+                    "comparable"
+                    if current_waist_height is not None and previous_waist_height is not None
+                    else "missing_value"
+                )
+        if component_statuses == {"comparable"}:
+            comparison_status = "comparable"
+            message = None
+        elif "invalid_date" in component_statuses:
+            comparison_status = "invalid_date"
+            message = "Comparação indisponível — data da avaliação inconsistente"
+        elif "missing_value" in component_statuses or not component_statuses:
+            comparison_status = "missing_value"
+            message = "Comparação indisponível — componentes do score diferentes"
+        else:
+            comparison_status = "incompatible_method"
+            message = INCOMPATIBLE_MESSAGE
     delta = current_score - previous_score if comparison_status == "comparable" and previous_score is not None and current_score is not None else None
     band, band_label = _score_band(current_score)
     return BodyCompositionReportScoreRead(
@@ -428,6 +452,24 @@ def _comparison_status(
     return "comparable", None
 
 
+def comparable_metric_delta(current: Any, previous: Any | None, key: str) -> float | None:
+    """Return a delta only when the report's semantic comparison allows it."""
+    if previous is None:
+        return None
+    current_at, previous_at = _measured_at(current), _measured_at(previous)
+    if current_at is None or previous_at is None or previous_at >= current_at:
+        return None
+    current_value, previous_value = _metric_value(current, key), _metric_value(previous, key)
+    status, _ = _comparison_status(
+        key, current, previous,
+        current_value=current_value, previous_value=previous_value,
+        invalid_date=is_future_evaluation(current),
+    )
+    if status != "comparable":
+        return None
+    return round(current_value - previous_value, 2)
+
+
 def _implausible_body_measurement_change(current_value: float, previous_value: float) -> bool:
     absolute_change = abs(current_value - previous_value)
     relative_change = absolute_change / max(abs(previous_value), 1.0)
@@ -464,7 +506,12 @@ def _source_method(item: Any, key: str) -> tuple[str | None, str | None]:
         origin = _origin(item, key)
         return origin, origin
     if key in BODY_FAT_KEYS:
-        return getattr(item, "body_fat_used_source", None), getattr(item, "body_fat_method", None)
+        method = (
+            getattr(item, "body_fat_comparison_signature")
+            if hasattr(item, "body_fat_comparison_signature")
+            else getattr(item, "body_fat_method", None)
+        )
+        return getattr(item, "body_fat_used_source", None), method
     source = getattr(item, "measurement_source", None) or getattr(item, "source", None) or "reported"
     return str(source), key
 
@@ -582,6 +629,8 @@ def _generic_source_label(source: str | None) -> str | None:
 
 
 def _generic_method_label(method: str | None) -> str | None:
+    if method and method.startswith("anthropometry:"):
+        return "Protocolo antropométrico"
     return {
         "legacy_bioimpedance": "Leitura da bioimpedância",
         "skinfold_protocol": "Protocolo de dobras",

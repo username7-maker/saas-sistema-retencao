@@ -88,6 +88,16 @@ def prepare_body_composition_sync_attempt(
     evaluation.sync_last_error_code = None
     evaluation.sync_last_error_message = None
 
+    # A receipt may be saved as a draft through the API. It must not leave the
+    # system until a professional has reviewed the measurements.
+    if evaluation.source == "ocr_receipt" and (
+        not evaluation.reviewed_manually or evaluation.needs_review
+    ):
+        _cancel_superseded_jobs(db, evaluation.id)
+        evaluation.actuar_sync_status = "saved"
+        evaluation.actuar_sync_job_id = None
+        return None
+
     if not _should_auto_sync(gym):
         evaluation.actuar_sync_status = "saved"
         evaluation.actuar_sync_job_id = None

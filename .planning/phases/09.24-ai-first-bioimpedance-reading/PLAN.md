@@ -30,3 +30,16 @@ silently affecting BMI, BMR or other calculations.
 - Member context is reconciled locally and is never sent to the vision provider.
 - API, worker and frontend are released from the same source commit.
 
+## Tezewa Value/Range verification
+
+- The Tezewa receipt has adjacent `Value` and `Range` columns. Provider text
+  alone cannot prove which column supplied a plausible number. The API must
+  perform a second read of the rectified image cropped before `Range` and
+  reconcile every table measurement against that independent observation.
+- A differing or unavailable second observation leaves the measurement empty
+  with an explicit review issue; it must never substitute a nearby row or a
+  printed reference endpoint. Matching evidence uses the first number after
+  the exact field label on the same printed row.
+- Local OCR remains a failure fallback, but it cannot reconstruct missing
+  values from receipt order, neighboring labels or reference-only lines.
+

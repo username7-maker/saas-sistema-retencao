@@ -1,9 +1,35 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AxiosError } from "axios";
+import toast from "react-hot-toast";
+import { BODY_COMPOSITION_PROTOCOLS, SKINFOLD_FIELD_LABELS } from "../components/assessments/bodyCompositionProtocols";
 
 import { AssessmentRegistrationComposer } from "../components/assessments/AssessmentRegistrationComposer";
 import { assessmentService } from "../services/assessmentService";
+
+function fillValidSlaughterMeasurements() {
+  fireEvent.change(screen.getByLabelText("Peso"), { target: { value: "50" } });
+  fireEvent.change(screen.getByLabelText("Grupo etnico usado na formula"), { target: { value: "white" } });
+  fireEvent.change(screen.getByLabelText("Estagio maturacional"), { target: { value: "pubertal" } });
+  fireEvent.change(screen.getByLabelText("Dobra tricipital - tentativa 1"), { target: { value: "12" } });
+  fireEvent.change(screen.getByLabelText("Dobra tricipital - tentativa 2"), { target: { value: "12" } });
+  fireEvent.change(screen.getByLabelText("Dobra subescapular - tentativa 1"), { target: { value: "10" } });
+  fireEvent.change(screen.getByLabelText("Dobra subescapular - tentativa 2"), { target: { value: "10" } });
+}
+
+function previewResult() {
+  return {
+    assessment_method: "manual_anthropometry" as const,
+    record_origin: "cordex" as const,
+    protocol: { key: "slaughter_1988_boys_black_white_6_17", label: "Slaughter" },
+    formula_version: "anthropometry-v3",
+    calculation_hash: "hash-1",
+    results: { basal_metabolic_rate: 1512 },
+    indicator_origins: { basal_metabolic_rate: "schofield_hw_1985" },
+    snapshot: { flags: [] },
+  };
+}
 
 vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "user-1", gym_id: "gym-1" } }) }));
 
@@ -48,6 +74,31 @@ describe("AssessmentRegistrationComposer", () => {
     ]);
   });
 
+  it.each(BODY_COMPOSITION_PROTOCOLS.filter((protocol) => protocol.supported))(
+    "shows centimetre units for every protocol: $key", async (protocol) => {
+      vi.mocked(assessmentService.anthropometryProtocols).mockResolvedValue([{
+        key: protocol.key, label: protocol.label, sex: protocol.sex,
+        age_min: protocol.ageMin, age_max: protocol.ageMax, supported: true,
+        required_fields: protocol.requiredFields,
+        required_choice_fields: protocol.requiredChoiceFields ?? [],
+      }]);
+      renderComposer();
+      await waitFor(() => expect(screen.getByLabelText("Protocolo")).toHaveValue(protocol.key));
+      expect(screen.getByText("Altura (cm)")).toBeInTheDocument();
+      for (const field of protocol.requiredFields.filter((field) => field.endsWith("_cm") && field !== "height_cm")) {
+        const label = SKINFOLD_FIELD_LABELS[field];
+        expect(label).toBeTruthy();
+        expect(screen.getByText(`${label} (cm)`)).toBeInTheDocument();
+        for (const attempt of [1, 2, 3]) {
+          expect(screen.getByLabelText(`${label} (cm) - tentativa ${attempt}`)).toBeInTheDocument();
+        }
+      }
+      for (const label of ["Quadril", "Ombros", "Torax", "Braco esquerdo relaxado", "Coxa esquerda", "Panturrilha esquerda"]) {
+        expect(screen.getByLabelText(`${label} (cm)`)).toBeInTheDocument();
+      }
+    },
+  );
+
   it("shows Slaughter population choices in the no-bioimpedance flow", async () => {
     renderComposer();
 
@@ -57,6 +108,39 @@ describe("AssessmentRegistrationComposer", () => {
     expect(screen.queryByRole("option", { name: "Asiatico" })).not.toBeInTheDocument();
   });
 
+  it("shows centimetres beside protocol circumference labels", async () => {
+    vi.mocked(assessmentService.anthropometryProtocols).mockResolvedValue([{
+      key: "weltman_1988_male_obese_20_60", label: "Weltman", sex: "male",
+      age_min: 20, age_max: 60, supported: true,
+      required_fields: ["waist_cm", "abdomen_cm", "weight_kg", "neck_cm", "iliac_cm"], required_choice_fields: [],
+    }]);
+    renderComposer();
+    fireEvent.change(await screen.findByLabelText("Idade usada na formula"), { target: { value: "33" } });
+    fireEvent.change(screen.getByLabelText("Protocolo"), { target: { value: "weltman_1988_male_obese_20_60" } });
+    expect(await screen.findByLabelText("Cintura (cm) - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Abdomen (cm) - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByText("Cintura (cm)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Pescoco (cm) - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Circunferencia iliaca (cm) - tentativa 1")).toBeInTheDocument();
+  });
+
+  it("explains the invalid circumference and its unit from the backend", async () => {
+    const errorToast = vi.spyOn(toast, "error");
+    const error = new AxiosError("invalid measurement");
+    Object.assign(error, { response: { status: 422, data: { detail: {
+      code: "implausible_measurement", field: "waist_cm", minimum: "30.0", maximum: "250.0", unit: "cm",
+    } } } });
+    vi.spyOn(assessmentService, "previewAnthropometry").mockRejectedValue(error);
+    renderComposer();
+    await screen.findByLabelText("Grupo etnico usado na formula");
+    fillValidSlaughterMeasurements();
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+    await waitFor(() => expect(errorToast).toHaveBeenCalledWith(
+      "Cintura fora do intervalo permitido (30,0 a 250,0 cm). Confira o valor digitado.",
+    ));
+    expect(screen.getByRole("button", { name: "Confirmar avaliacao" })).toBeDisabled();
+  });
+
   it("adds Poortmans measurements for an eligible white child without duplicating fields", async () => {
     renderComposer();
     await screen.findByLabelText("Grupo etnico usado na formula");
@@ -64,9 +148,9 @@ describe("AssessmentRegistrationComposer", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /calcular massa muscular/i }));
     fireEvent.change(screen.getByLabelText("Grupo etnico usado na formula"), { target: { value: "white" } });
 
-    expect(screen.getByLabelText("Braco direito relaxado - tentativa 1")).toBeInTheDocument();
-    expect(screen.getByLabelText("Coxa direita - tentativa 1")).toBeInTheDocument();
-    expect(screen.getByLabelText("Panturrilha direita - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Braco direito relaxado (cm) - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Coxa direita (cm) - tentativa 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Panturrilha direita (cm) - tentativa 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Dobra coxa - tentativa 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Dobra panturrilha - tentativa 1")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Dobra tricipital - tentativa 1")).toHaveLength(1);
@@ -123,6 +207,60 @@ describe("AssessmentRegistrationComposer", () => {
 
     expect(await screen.findByText("1512 kcal/dia")).toBeInTheDocument();
     expect(screen.getByText("Origem: TMB por Schofield")).toBeInTheDocument();
+  });
+
+  it("uses the assessment date to prefill age and preserves an explicit correction", async () => {
+    renderComposer();
+    await screen.findByLabelText("Grupo etnico usado na formula");
+
+    fireEvent.change(screen.getByLabelText("Data da avaliacao"), { target: { value: "2025-06-01T12:00" } });
+    expect(screen.getByLabelText("Idade usada na formula")).toHaveValue("14");
+
+    fireEvent.change(screen.getByLabelText("Idade usada na formula"), { target: { value: "13" } });
+    fireEvent.change(screen.getByLabelText("Data da avaliacao"), { target: { value: "2025-07-01T12:00" } });
+    expect(screen.getByLabelText("Idade usada na formula")).toHaveValue("13");
+  });
+
+  it("requires a new preview after a measurement changes before confirmation", async () => {
+    const previewSpy = vi.spyOn(assessmentService, "previewAnthropometry").mockResolvedValue(previewResult());
+    const createSpy = vi.spyOn(assessmentService, "createAnthropometry").mockResolvedValue({ id: "assessment-1" } as Awaited<ReturnType<typeof assessmentService.createAnthropometry>>);
+    renderComposer();
+    await screen.findByLabelText("Grupo etnico usado na formula");
+    fillValidSlaughterMeasurements();
+
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+    await screen.findByText("1512 kcal/dia");
+    expect(screen.getByRole("button", { name: "Confirmar avaliacao" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Peso"), { target: { value: "51" } });
+    expect(screen.getByRole("button", { name: "Confirmar avaliacao" })).toBeDisabled();
+    expect(screen.queryByText("1512 kcal/dia")).not.toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+    await screen.findByText("1512 kcal/dia");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar avaliacao" }));
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    expect(previewSpy).toHaveBeenCalledTimes(2);
+    expect(createSpy.mock.calls[0][1].measurements.weight_kg?.attempts).toEqual([51, 51]);
+  });
+
+  it("discards a preview response if inputs changed while it was loading", async () => {
+    let resolvePreview: ((result: ReturnType<typeof previewResult>) => void) | undefined;
+    vi.spyOn(assessmentService, "previewAnthropometry").mockImplementation(() => new Promise((resolve) => {
+      resolvePreview = resolve;
+    }));
+    renderComposer();
+    await screen.findByLabelText("Grupo etnico usado na formula");
+    fillValidSlaughterMeasurements();
+
+    fireEvent.click(screen.getByRole("button", { name: "Calcular previa" }));
+    await waitFor(() => expect(resolvePreview).toBeDefined());
+    fireEvent.change(screen.getByLabelText("Peso"), { target: { value: "51" } });
+    await act(async () => resolvePreview?.(previewResult()));
+
+    expect(screen.queryByText("1512 kcal/dia")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar avaliacao" })).toBeDisabled();
   });
 
   it("loads original attempts for editing and sends only measured inputs with the concurrency token", async () => {

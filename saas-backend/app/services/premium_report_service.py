@@ -1490,9 +1490,10 @@ def _render_semantic_history_page(
     if not series_list:
         return ""
     pages = []
-    for page_index in range(0, len(series_list), 4):
+    # Six compact charts fit on A4; avoid an orphan fifth chart on its own page.
+    for page_index in range(0, len(series_list), 6):
         charts = []
-        for series in series_list[page_index : page_index + 4]:
+        for series in series_list[page_index : page_index + 6]:
             recent_points = _recent_history_points(series.get("points") or [], limit=12)
             table_points = recent_points[-6:]
             date_counts: dict[str, int] = {}
@@ -4713,8 +4714,8 @@ def _body_composition_report_css() -> str:
       .clinical-page {
         width: 794px;
         max-width: 794px;
-        height: 1123px;
-        min-height: 1123px;
+        height: 1110px;
+        min-height: 1110px;
         padding: 46px 52px 64px;
         overflow: hidden;
       }
@@ -4871,7 +4872,7 @@ def _body_composition_report_css() -> str:
         border-top: 1px solid #edf1f5;
         color: #223047;
         font-size: 8.4px;
-        padding: 4px 7px;
+        padding: 2px 7px;
         vertical-align: middle;
       }
       .clinical-key-table td small {
@@ -4936,8 +4937,8 @@ def _body_composition_report_css() -> str:
         grid-template-columns: minmax(0, 1fr) 74px 60px;
         gap: 8px;
         align-items: center;
-        min-height: 24px;
-        padding: 4px 10px;
+        min-height: 18px;
+        padding: 2px 10px;
         border-top: 1px solid #edf1f5;
       }
       .clinical-detail-item:first-child {

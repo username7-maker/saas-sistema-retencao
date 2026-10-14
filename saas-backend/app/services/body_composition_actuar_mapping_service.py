@@ -15,7 +15,8 @@ def build_body_composition_canonical_payload(member: Member, evaluation: BodyCom
         "member_id": str(member.id),
         "measured_at": measured_at,
         "weight_kg": weight_kg,
-        "height_cm": _derive_height_cm(weight_kg, bmi),
+        "height_cm": _to_float(getattr(evaluation, "height_cm", None))
+        or _derive_height_cm(weight_kg, bmi),
         "target_weight_kg": _to_float(getattr(evaluation, "target_weight_kg", None)),
         "body_fat_kg": _to_float(getattr(evaluation, "body_fat_kg", None)),
         # Actuar V1 keeps the legacy/raw bioimpedance contract. New perimetry fields are internal to GeneOS.
@@ -48,7 +49,9 @@ def build_actuar_field_mapping(
     payload = build_body_composition_canonical_payload(member, evaluation)
     mappings = [
         _mapping("weight_kg", "weight", payload["weight_kg"], "critical_direct", required=True),
-        _mapping("height_cm", "height_cm", payload["height_cm"], "critical_derived", required=True),
+        _mapping("height_cm", "height_cm", payload["height_cm"],
+                 "critical_direct" if _to_float(getattr(evaluation, "height_cm", None)) else "critical_derived",
+                 required=True),
         _mapping("target_weight_kg", "target_weight_kg", payload["target_weight_kg"], "non_critical_direct"),
         # The current Actuar form calculates these read-only fields from editable inputs.
         _mapping("body_fat_kg", "fat_mass_kg", payload["body_fat_kg"], "unsupported", supported=False),

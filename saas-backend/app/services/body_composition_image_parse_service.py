@@ -9,6 +9,7 @@ import unicodedata
 from datetime import date, datetime
 from time import perf_counter
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import anthropic
 from fastapi import HTTPException, status
@@ -38,6 +39,7 @@ from app.services.body_composition_report_service import (
 )
 from app.services.document_image_preprocessing import (
     DocumentPreprocessingResult,
+    build_receipt_value_column_image,
     build_thermal_recovery_image,
     preprocess_receipt_image,
 )
@@ -59,7 +61,16 @@ DEMOGRAPHIC_FIELDS = {"age_years", "sex", "height_cm"}
 AI_EVIDENCE_CRITICAL_FIELDS = {"weight_kg", "bmi"}
 POSITIONAL_INFERENCE_MARKERS = ("inferido pela ordem", "inferida pela ordem", "ordem esperada")
 MIN_EVIDENCE_CONFIDENCE = 0.65
-RECOVERY_READ_FIELDS = ("age_years", "sex", "height_cm", "weight_kg", "bmi")
+RECOVERY_READ_FIELDS = (
+    "age_years", "sex", "height_cm", "weight_kg", "bmi",
+    "waist_hip_ratio", "inorganic_salt_kg", "muscle_mass_kg", "basal_metabolic_rate_kcal",
+)
+VALUE_COLUMN_FIELDS = (
+    "weight_kg", "body_fat_kg", "waist_hip_ratio", "fat_free_mass_kg",
+    "inorganic_salt_kg", "muscle_mass_kg", "protein_kg", "body_water_kg",
+    "body_fat_percent", "visceral_fat_level", "basal_metabolic_rate_kcal",
+    "bmi", "skeletal_muscle_percent",
+)
 FIELD_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
     "evaluation_date": ("date", "data", "test time", "hora do teste"),
     "measured_at": ("date", "data", "time", "hora"),
@@ -268,6 +279,26 @@ def _build_vision_prompt(
     )
 
 
+def _build_value_column_prompt() -> str:
+    return (
+        "Esta e uma segunda leitura INDEPENDENTE de um recibo Tezewa recortado "
+        "horizontalmente: a coluna Range foi removida. Extraia somente os "
+        "valores atuais das tabelas Body composition e Body parameters. "
+        "Ignore o cabecalho e Comprehensive evaluation. "
+        "Associe um numero somente ao rotulo da MESMA linha impressa. "
+        "Linhas quebradas podem completar o rotulo, mas nunca fornecem o "
+        "numero de uma linha vizinha. Nao infira pela ordem, formulas ou "
+        "faixas de referencia; se um digito estiver cortado ou incerto, use null. "
+        "Retorne apenas JSON com device_model, values, ranges={}, warnings, "
+        "needs_review e field_metadata. Em values, preencha apenas estas chaves: "
+        f"{', '.join(VALUE_COLUMN_FIELDS)}. Todas as outras devem ser null. "
+        "Para cada valor, inclua field_metadata com label sem numero, evidence "
+        "contendo o rotulo e o numero da mesma linha, suggested_value identico "
+        "ao valor e confidence. Nao inclua numeros de Range em evidence. "
+        f"Template de values: {_build_values_template()}"
+    )
+
+
 def parse_body_composition_image(
     *,
     image_bytes: bytes,
@@ -409,6 +440,34 @@ def parse_body_composition_image(
                     provider,
                     type(recovery_exc).__name__,
                 )
+        if settings.body_composition_image_ai_validation_enabled:
+            value_column_images: list[tuple[bytes, str, str]] = []
+            for content, _media_type, role in provider_images:
+                cropped = build_receipt_value_column_image(content)
+                if cropped is None:
+                    value_column_images = []
+                    break
+                value_column_images.append((cropped, "image/jpeg", role))
+            focused_read = None
+            if value_column_images:
+                try:
+                    parse_focused = (
+                        _parse_with_openai_vision if provider == "openai" else _parse_with_claude_vision
+                    )
+                    focused_read = parse_focused(
+                        images=value_column_images,
+                        device_profile=normalized_device_profile,
+                        local_ocr_result=None,
+                        timeout_seconds=min(settings.body_composition_image_ai_timeout_seconds, 25),
+                        value_column_only=True,
+                    )
+                except Exception as verification_exc:
+                    logger.warning(
+                        "body_composition_value_column_check_failed provider=%s error_type=%s",
+                        provider,
+                        type(verification_exc).__name__,
+                    )
+            ai_payload = _reconcile_value_column_read(ai_payload, focused_read)
         if provider == "claude":
             claude_circuit_breaker.record_success()
     except Exception as exc:
@@ -497,6 +556,7 @@ def _parse_with_openai_vision(
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
     timeout_seconds: int | None = None,
+    value_column_only: bool = False,
 ) -> BodyCompositionImageParseResultRead:
     # Keep the original single-image callable contract for internal callers and
     # focused tests while accepting the new segmented capture contract.
@@ -504,12 +564,15 @@ def _parse_with_openai_vision(
         if image_bytes is None:
             raise ValueError("Uma imagem e obrigatoria para a leitura assistida.")
         images = [(image_bytes, media_type or "image/jpeg", "full")]
-    prompt = _build_vision_prompt(
-        device_profile=device_profile,
-        local_ocr_result=local_ocr_result,
-        provider_name="openai",
+    prompt = (
+        _build_value_column_prompt() if value_column_only else
+        _build_vision_prompt(
+            device_profile=device_profile,
+            local_ocr_result=local_ocr_result,
+            provider_name="openai",
+        )
     )
-    if len(images) > 1:
+    if len(images) > 1 and not value_column_only:
         prompt += (
             "\nAs imagens representam topo, centro e rodape do mesmo recibo. "
             "Use o topo para Age/Sex/Height/Weight/Test time, o centro para Body composition e o rodape "
@@ -572,38 +635,43 @@ def _parse_with_claude_vision(
     device_profile: BodyCompositionDeviceProfile,
     local_ocr_result: BodyCompositionImageOcrPayload | None,
     timeout_seconds: int | None = None,
+    value_column_only: bool = False,
 ) -> BodyCompositionImageParseResultRead:
     if images is None:
         if image_bytes is None:
             raise ValueError("Uma imagem e obrigatoria para a leitura assistida.")
         images = [(image_bytes, media_type or "image/jpeg", "full")]
-    prompt = _build_vision_prompt(
-        device_profile=device_profile,
-        local_ocr_result=local_ocr_result,
-        provider_name="claude",
+    prompt = (
+        _build_value_column_prompt() if value_column_only else
+        _build_vision_prompt(
+            device_profile=device_profile,
+            local_ocr_result=local_ocr_result,
+            provider_name="claude",
+        )
     )
-    if len(images) > 1:
+    if len(images) > 1 and not value_column_only:
         prompt += (
             "\nAs imagens representam topo, centro e rodape do mesmo recibo. "
             "Use o topo para Age/Sex/Height/Weight/Test time, o centro para Body composition e o rodape "
             "para Body parameters/Comprehensive evaluation. Valores repetidos devem concordar; em conflito, "
             "marque revisao. Informe field_metadata.segment para todo campo extraido."
         )
-    prompt = (
-        f"{prompt}\n"
-        "JSON esperado:\n"
-        "{"
-        "\"device_model\": \"Tezewa ou null\", "
-        "\"values\": "
-        f"{_build_values_template()}, "
-        "\"ranges\": {\"weight_kg\": {\"min\": 61.7, \"max\": 75.5}}, "
-        "\"field_metadata\": {\"weight_kg\": {\"origin\": \"ai_image\", \"state\": \"accepted\", "
-        "\"confidence\": 0.98, \"label\": \"Weight (kg)\", \"evidence\": \"Weight (kg) 84.5\", "
-        "\"suggested_value\": 84.5}}, "
-        "\"warnings\": [], "
-        "\"needs_review\": false"
-        "}\n"
-    )
+    if not value_column_only:
+        prompt = (
+            f"{prompt}\n"
+            "JSON esperado:\n"
+            "{"
+            "\"device_model\": \"Tezewa ou null\", "
+            "\"values\": "
+            f"{_build_values_template()}, "
+            "\"ranges\": {\"weight_kg\": {\"min\": 61.7, \"max\": 75.5}}, "
+            "\"field_metadata\": {\"weight_kg\": {\"origin\": \"ai_image\", \"state\": \"accepted\", "
+            "\"confidence\": 0.98, \"label\": \"Weight (kg)\", \"evidence\": \"Weight (kg) 84.5\", "
+            "\"suggested_value\": 84.5}}, "
+            "\"warnings\": [], "
+            "\"needs_review\": false"
+            "}\n"
+        )
 
     client = anthropic.Anthropic(
         api_key=settings.claude_api_key,
@@ -719,13 +787,33 @@ def _merge_ai_recovery_result(
     """Fill only absent values from the recovery read; never replace a primary value."""
     value_updates: dict[str, Any] = {}
     recovered_fields: set[str] = set()
-    conflicts: set[str] = set()
+    ignored_disagreements: set[str] = set()
     for field_name in BodyCompositionOcrValues.model_fields:
         primary_value = getattr(primary.values, field_name, None)
         recovered_value = getattr(recovery.values, field_name, None)
+        primary_metadata = primary.field_metadata.get(field_name)
+        recovery_metadata = recovery.field_metadata.get(field_name)
+        primary_unverified = primary_value is not None and (
+            not _is_plausible(field_name, primary_value)
+            or _ai_metadata_validation_error(field_name, primary_value, primary_metadata) is not None
+            or (primary_metadata.confidence or 0) < MIN_EVIDENCE_CONFIDENCE
+        )
+        recovery_verified = recovered_value is not None and (
+            _is_plausible(field_name, recovered_value)
+            and _ai_metadata_validation_error(field_name, recovered_value, recovery_metadata) is None
+            and (recovery_metadata.confidence or 0) >= MIN_EVIDENCE_CONFIDENCE
+        )
         if primary_value is not None:
-            if recovered_value is not None and not _values_close(field_name, primary_value, recovered_value):
-                conflicts.add(field_name)
+            if primary_unverified and recovery_verified:
+                value_updates[field_name] = recovered_value
+                recovered_fields.add(field_name)
+                continue
+            if (
+                not primary_unverified
+                and recovery_verified
+                and not _values_close(field_name, primary_value, recovered_value)
+            ):
+                ignored_disagreements.add(field_name)
             continue
         if recovered_value is None:
             continue
@@ -741,21 +829,23 @@ def _merge_ai_recovery_result(
         metadata = recovery.field_metadata.get(field_name)
         if metadata is not None:
             field_metadata[field_name] = metadata
-    for field_name in conflicts:
-        metadata = field_metadata.get(field_name)
-        if metadata is not None:
-            field_metadata[field_name] = metadata.model_copy(update={"state": "conflict"})
 
     validation_issues = list(primary.validation_issues)
-    for field_name in sorted(conflicts):
+    for field_name in sorted(ignored_disagreements):
         _append_issue(
             validation_issues,
-            code="ai_enhancement_conflict",
-            severity="critical" if field_name in RECOVERY_READ_FIELDS else "warning",
+            code="ai_enhancement_disagreement_ignored",
+            severity="warning",
             fields=[field_name],
-            message=f"As duas leituras da imagem divergiram em {field_name}.",
+            message=(
+                f"A leitura de recuperacao divergiu em {field_name}; "
+                "a leitura principal validada foi preservada."
+            ),
         )
 
+    primary_warnings = [
+        warning for warning in primary.warnings if warning.field is None or warning.field not in recovered_fields
+    ]
     recovery_warnings = [
         warning for warning in recovery.warnings if warning.field is None or warning.field in recovered_fields
     ]
@@ -764,7 +854,7 @@ def _merge_ai_recovery_result(
             "device_model": primary.device_model or recovery.device_model,
             "values": primary.values.model_copy(update=value_updates),
             "ranges": ranges,
-            "warnings": _dedupe_warnings([*primary.warnings, *recovery_warnings]),
+            "warnings": _dedupe_warnings([*primary_warnings, *recovery_warnings]),
             "field_metadata": field_metadata,
             "validation_issues": validation_issues,
             "confidence": max(primary.confidence, recovery.confidence),
@@ -966,6 +1056,124 @@ def _finalize_parse_result(result: BodyCompositionImageParseResultRead) -> BodyC
     )
 
 
+def _reconcile_value_column_read(
+    primary: BodyCompositionImageParseResultRead,
+    focused: BodyCompositionImageParseResultRead | None,
+) -> BodyCompositionImageParseResultRead:
+    """Require a separate, range-free observation for every Tezewa table value."""
+    values = primary.values.model_copy(deep=True)
+    field_metadata = dict(primary.field_metadata)
+    warnings = list(primary.warnings)
+    missing_confirmation: list[str] = []
+    primary_only: list[str] = []
+    disagreements: list[str] = []
+    corrected_from_focus: list[str] = []
+    confirmed_from_focus: set[str] = set()
+
+    for field_name in VALUE_COLUMN_FIELDS:
+        primary_value = getattr(values, field_name, None)
+        focused_value = getattr(focused.values, field_name, None) if focused else None
+        focused_metadata = focused.field_metadata.get(field_name) if focused else None
+        focused_verified = (
+            focused_value is not None
+            and _is_plausible(field_name, focused_value)
+            and _ai_metadata_validation_error(field_name, focused_value, focused_metadata) is None
+            and (focused_metadata.confidence or 0) >= MIN_EVIDENCE_CONFIDENCE
+        )
+        if primary_value is None and not focused_verified:
+            continue
+        primary_metadata = field_metadata.get(field_name)
+        primary_verified = (
+            primary_value is not None
+            and _is_plausible(field_name, primary_value)
+            and _ai_metadata_validation_error(field_name, primary_value, primary_metadata) is None
+            and (primary_metadata.confidence or 0) >= MIN_EVIDENCE_CONFIDENCE
+        )
+        if focused_verified and (not primary_verified or primary_value is None):
+            setattr(values, field_name, focused_value)
+            field_metadata[field_name] = focused_metadata
+            confirmed_from_focus.add(field_name)
+            continue
+        if focused_verified and _values_close(field_name, primary_value, focused_value):
+            continue
+
+        # A second model call or its crop can fail independently. A missing
+        # confirmation is not evidence that a separately validated value is
+        # wrong; keep it visible for human review instead of blanking the form.
+        if primary_verified and not focused_verified:
+            primary_only.append(field_name)
+            continue
+
+        if focused_verified and primary_verified:
+            # The independent image contains no Range column. Prefer its
+            # evidenced Value reading, but keep the discrepancy explicit until
+            # the professional confirms the displayed number.
+            setattr(values, field_name, focused_value)
+            field_metadata[field_name] = focused_metadata.model_copy(update={"state": "conflict"})
+            corrected_from_focus.append(field_name)
+            continue
+
+        setattr(values, field_name, None)
+        field_metadata[field_name] = BodyCompositionFieldMetadata(
+            origin="ai_image",
+            state="conflict" if focused_verified else "unavailable",
+            confidence=primary_metadata.confidence if primary_metadata else None,
+            label=primary_metadata.label if primary_metadata else None,
+            evidence=primary_metadata.evidence if primary_metadata else None,
+            suggested_value=primary_value,
+        )
+        (disagreements if focused_verified else missing_confirmation).append(field_name)
+
+    issues = list(primary.validation_issues)
+    if disagreements:
+        _append_issue(
+            issues,
+            code="ai_value_column_mismatch",
+            severity="critical",
+            fields=disagreements,
+            message="A leitura completa e a coluna de valores divergiram; confira os campos no recibo.",
+        )
+    if corrected_from_focus:
+        _append_issue(
+            issues,
+            code="ai_value_column_corrected",
+            severity="critical",
+            fields=corrected_from_focus,
+            message=(
+                "A coluna Value indicou um numero diferente da leitura completa; "
+                "confirme o valor exibido no recibo."
+            ),
+        )
+    if missing_confirmation:
+        _append_issue(
+            issues,
+            code="ai_value_column_unverified",
+            severity="critical",
+            fields=missing_confirmation,
+            message="A coluna de valores nao confirmou estes campos; confira-os no recibo.",
+        )
+    if primary_only:
+        _append_issue(
+            issues,
+            code="ai_value_column_second_read_unavailable",
+            severity="warning",
+            fields=primary_only,
+            message=(
+                "A segunda leitura nao confirmou estes campos; "
+                "a leitura principal validada foi mantida para revisao."
+            ),
+        )
+    warnings = [warning for warning in warnings if warning.field not in confirmed_from_focus]
+    return primary.model_copy(update={
+        "values": values,
+        "field_metadata": field_metadata,
+        "warnings": warnings,
+        "validation_issues": issues,
+        "needs_review": primary.needs_review or bool(
+            disagreements or corrected_from_focus or missing_confirmation or primary_only
+        ),
+    })
+
 def _validate_ai_first_result(
     result: BodyCompositionImageParseResultRead,
     *,
@@ -1008,7 +1216,26 @@ def _validate_ai_first_result(
                 ),
             )
 
-    selected_date = evaluation_date or _parse_date(values.evaluation_date) or date.today()
+    printed_date = _parse_date(values.evaluation_date)
+    measured_date = _date_from_measured_at(values.measured_at)
+    printed_date_metadata = field_metadata.get("evaluation_date")
+    measured_date_metadata = field_metadata.get("measured_at")
+    selected_date = (
+        evaluation_date or printed_date or measured_date
+        or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    )
+
+
+    observed_dates = [candidate for candidate in (printed_date, measured_date) if candidate is not None]
+    printed_date_conflicts = any(candidate != selected_date for candidate in observed_dates)
+    suggested_date = next(
+        (candidate for candidate in observed_dates if candidate != selected_date),
+        printed_date or measured_date,
+    )
+    suggested_metadata = (
+        measured_date_metadata if suggested_date == measured_date and suggested_date != printed_date
+        else printed_date_metadata or measured_date_metadata
+    )
     if evaluation_date is None:
         _append_issue(
             issues,
@@ -1020,9 +1247,23 @@ def _validate_ai_first_result(
     values.evaluation_date = selected_date.isoformat()
     field_metadata["evaluation_date"] = BodyCompositionFieldMetadata(
         origin="manual" if evaluation_date is not None else "derived",
-        state="accepted" if evaluation_date is not None else "suggested",
+        state="conflict" if printed_date_conflicts else "accepted" if evaluation_date is not None else "suggested",
         confidence=1.0 if evaluation_date is not None else 0.7,
+        label=suggested_metadata.label if suggested_metadata else None,
+        evidence=suggested_metadata.evidence if suggested_metadata else None,
+        suggested_value=suggested_date.isoformat() if suggested_date else None,
     )
+    if printed_date_conflicts:
+        _append_issue(
+            issues,
+            code="evaluation_date_receipt_conflict",
+            severity="critical",
+            fields=["evaluation_date"],
+            message=(
+                "A data impressa no exame difere da data selecionada; "
+                "confirme qual avaliacao esta sendo registrada."
+            ),
+        )
 
     _apply_canonical_age(
         values,
@@ -1034,6 +1275,7 @@ def _validate_ai_first_result(
     _apply_canonical_sex(values, field_metadata, issues, member_sex=member_sex)
     _apply_canonical_height(values, field_metadata, issues, member_height_cm=member_height_cm)
     _validate_bmi_consistency(values, field_metadata, issues)
+    _validate_composition_consistency(values, field_metadata, issues)
     _validate_previous_weight(values, field_metadata, issues, previous_weight_kg=previous_weight_kg)
 
     for field_name in BodyCompositionOcrValues.model_fields:
@@ -1128,7 +1370,11 @@ def _discard_unsupported_ai_values(
             )
             continue
         confidence = metadata.confidence if metadata and metadata.confidence is not None else 0.0
-        state = "accepted" if confidence >= MIN_EVIDENCE_CONFIDENCE else "suggested"
+        state = (
+            "conflict" if metadata and metadata.state == "conflict"
+            else "accepted" if confidence >= MIN_EVIDENCE_CONFIDENCE
+            else "suggested"
+        )
         field_metadata[field_name] = BodyCompositionFieldMetadata(
             origin="ai_image",
             state=state,
@@ -1162,6 +1408,10 @@ def _ai_metadata_validation_error(
         return "ai_evidence_value_mismatch"
     if _evidence_uses_only_range_endpoint(field_name, value, metadata.evidence):
         return "ai_range_endpoint_used_as_value"
+    if field_name in VALUE_COLUMN_FIELDS and not _evidence_first_row_value_matches(
+        field_name, value, metadata.evidence
+    ):
+        return "ai_evidence_row_mismatch"
     return None
 
 
@@ -1169,7 +1419,17 @@ def _label_matches_field(field_name: str, label: str, evidence: str = "") -> boo
     normalized = _normalize_label_text(label)
     normalized_with_evidence = _normalize_label_text(f"{label} {evidence}")
     aliases = FIELD_LABEL_ALIASES.get(field_name)
-    if not aliases or not any(alias in normalized_with_evidence for alias in aliases):
+    if field_name == "body_water_kg" and normalized in {"kg", "(kg)"}:
+        label_matches = any(alias in normalized_with_evidence for alias in aliases or ())
+    else:
+        label_matches = any(alias in normalized for alias in aliases or ())
+    if not label_matches:
+        return False
+    if field_name == "weight_kg" and any(
+        marker in normalized for marker in (
+            "target", "goal", "control", "fat free", "fat-free", "peso alvo", "peso meta", "controle",
+        )
+    ):
         return False
     if field_name == "age_years" and any(marker in normalized for marker in ("physical", "fisica", "metabolic")):
         return False
@@ -1177,13 +1437,44 @@ def _label_matches_field(field_name: str, label: str, evidence: str = "") -> boo
         return False
     if field_name == "muscle_mass_kg" and "skeletal" in normalized:
         return False
-    if field_name == "body_fat_kg" and "%" in normalized_with_evidence:
-        return False
-    if field_name == "body_fat_percent" and not any(
-        marker in normalized_with_evidence for marker in ("%", "percent", "ratio", "taxa")
+    if field_name == "body_fat_kg" and any(
+        marker in normalized for marker in ("%", "ratio", "percent", "taxa")
     ):
         return False
+    if field_name == "body_fat_percent" and not any(
+        marker in normalized for marker in ("%", "percent", "ratio", "taxa")
+    ):
+        return False
+    if field_name == "body_water_kg" and "%" in normalized_with_evidence:
+        return False
     return True
+
+
+def _evidence_first_row_value_matches(field_name: str, value: Any, evidence: str) -> bool:
+    """Reject a value borrowed from another row even if it appears in evidence."""
+    normalized_evidence = (
+        unicodedata.normalize("NFKD", evidence.replace("°", "~").replace("º", "~"))
+        .encode("ascii", "ignore").decode().lower()
+    )
+    aliases = FIELD_LABEL_ALIASES.get(field_name, ())
+    matches = []
+    for alias in aliases:
+        normalized_alias = unicodedata.normalize("NFKD", alias).encode("ascii", "ignore").decode().lower()
+        tokens = re.findall(r"[a-z0-9]+", normalized_alias)
+        if not tokens:
+            continue
+        # Thermal printing can join the measured number to the label, as in
+        # "Basal metabolism1366", so no word boundary is required at the end.
+        pattern = r"\b" + r"\W*".join(map(re.escape, tokens))
+        matches.extend(re.finditer(pattern, normalized_evidence))
+    if not matches:
+        return False
+    label_end = max(matches, key=lambda match: len(match.group())).end()
+    first_number = re.search(r"(?<!\d)[+-]?\d+(?:[.,]\d+)?", normalized_evidence[label_end:])
+    if first_number is None:
+        return False
+    candidate = _coerce_float(first_number.group())
+    return candidate is not None and _values_close(field_name, value, candidate)
 
 
 def _metadata_value_matches(field_name: str, value: Any, metadata_value: Any) -> bool:
@@ -1205,7 +1496,17 @@ def _evidence_supports_value(field_name: str, value: Any, evidence: str) -> bool
         return bool(target and any(_normalize_date_string(token) == target for token in date_tokens))
     if field_name == "measured_at":
         normalized = _normalize_datetime_string(value)
-        return bool(normalized and normalized[:10] in evidence.replace("/", "-"))
+        if not normalized:
+            return False
+        measured = datetime.fromisoformat(normalized)
+        if measured.tzinfo is not None:
+            measured = measured.astimezone(ZoneInfo("America/Sao_Paulo"))
+        date_tokens = re.findall(r"\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}", evidence)
+        time_tokens = re.findall(r"(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)", evidence)
+        return any(_normalize_date_string(token) == measured.date().isoformat() for token in date_tokens) and any(
+            (int(token.split(":")[0]), int(token.split(":")[1])) == (measured.hour, measured.minute)
+            for token in time_tokens
+        )
     if field_name == "sex":
         normalized_sex = _normalize_sex_value(value)
         normalized_evidence = _normalize_label_text(evidence)
@@ -1214,12 +1515,12 @@ def _evidence_supports_value(field_name: str, value: Any, evidence: str) -> bool
             if normalized_sex == "male"
             else ("female", "woman", "feminino", "mulher")
         )
-        return any(alias in normalized_evidence for alias in expected)
+        return any(re.search(rf"\b{re.escape(alias)}\b", normalized_evidence) for alias in expected)
 
     expected_value = _coerce_float(value)
     if expected_value is None:
         return False
-    numeric_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", evidence)
+    numeric_tokens = re.findall(r"(?<!\d)[+-]?\d+(?:[.,]\d+)?", evidence)
     return any(
         candidate is not None and _values_close(field_name, expected_value, candidate)
         for token in numeric_tokens
@@ -1233,7 +1534,7 @@ def _evidence_uses_only_range_endpoint(field_name: str, value: Any, evidence: st
         return False
 
     range_pattern = re.compile(
-        r"([+-]?\d+(?:[.,]\d+)?)\s*(?:-|~|–|—)\s*([+-]?\d+(?:[.,]\d+)?)"
+        r"([+-]?\d+(?:[.,]\d+)?)\s*(?:-|~|°|º|\u2013|\u2014)\s*([+-]?\d+(?:[.,]\d+)?)"
     )
     matches = list(range_pattern.finditer(evidence))
     if not any(
@@ -1251,7 +1552,7 @@ def _evidence_uses_only_range_endpoint(field_name: str, value: Any, evidence: st
             + " " * (match.end() - match.start())
             + evidence_without_ranges[match.end() :]
         )
-    remaining_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", evidence_without_ranges)
+    remaining_tokens = re.findall(r"(?<!\d)[+-]?\d+(?:[.,]\d+)?", evidence_without_ranges)
     return not any(
         candidate is not None and _values_close(field_name, expected_value, candidate)
         for token in remaining_tokens
@@ -1278,11 +1579,27 @@ def _discard_ai_values_supported_only_by_ranges(
             for endpoint in endpoints
         ):
             continue
-        numeric_tokens = re.findall(r"(?<!\w)[+-]?\d+(?:[.,]\d+)?", metadata.evidence)
-        matching_evidence_values = sum(
-            candidate is not None and _values_close(field_name, value, candidate)
+        numeric_tokens = re.findall(r"(?<!\d)[+-]?\d+(?:[.,]\d+)?", metadata.evidence)
+        evidence_values = [
+            candidate
             for token in numeric_tokens
             if (candidate := _coerce_float(token)) is not None
+        ]
+        printed_endpoints = [endpoint for endpoint in endpoints if endpoint is not None]
+        has_distinct_range_endpoints = len(printed_endpoints) >= 2 and not _values_close(
+            field_name, printed_endpoints[0], printed_endpoints[1]
+        )
+        has_complete_range_in_evidence = has_distinct_range_endpoints and all(
+            any(_values_close(field_name, endpoint, candidate) for candidate in evidence_values)
+            for endpoint in printed_endpoints
+        )
+        if not has_complete_range_in_evidence:
+            # A measured value may legitimately equal a reference boundary.  The
+            # range payload alone is not proof that the value came from the range
+            # column; its two printed endpoints must also appear in the evidence.
+            continue
+        matching_evidence_values = sum(
+            _values_close(field_name, value, candidate) for candidate in evidence_values
         )
         matching_range_endpoints = sum(
             endpoint is not None and _values_close(field_name, value, endpoint)
@@ -1554,6 +1871,42 @@ def _validate_bmi_consistency(
     )
 
 
+def _validate_composition_consistency(
+    values: BodyCompositionOcrValues,
+    field_metadata: dict[str, BodyCompositionFieldMetadata],
+    issues: list[BodyCompositionValidationIssue],
+) -> None:
+    weight = _coerce_float(values.weight_kg)
+    fat_kg = _coerce_float(values.body_fat_kg)
+    fat_percent = _coerce_float(values.body_fat_percent)
+    fat_free_kg = _coerce_float(values.fat_free_mass_kg)
+    if weight is None or weight <= 0 or fat_kg is None:
+        return
+
+    checks = (
+        (
+            "body_fat_consistency_conflict",
+            ("weight_kg", "body_fat_kg", "body_fat_percent"),
+            fat_percent is not None and abs(fat_percent - 100 * fat_kg / weight) > 2,
+            "Gordura em kg e percentual nao conferem com o peso; revise os numeros impressos.",
+        ),
+        (
+            "fat_free_mass_consistency_conflict",
+            ("weight_kg", "body_fat_kg", "fat_free_mass_kg"),
+            fat_free_kg is not None and abs(fat_free_kg - (weight - fat_kg)) > 1.5,
+            "Massa livre de gordura nao confere com peso menos gordura em kg; revise o recibo.",
+        ),
+    )
+    for code, fields, mismatch, message in checks:
+        if not mismatch:
+            continue
+        for field_name in fields:
+            metadata = field_metadata.get(field_name)
+            if metadata is not None:
+                field_metadata[field_name] = metadata.model_copy(update={"state": "conflict"})
+        _append_issue(issues, code=code, severity="critical", fields=list(fields), message=message)
+
+
 def _validate_previous_weight(
     values: BodyCompositionOcrValues,
     field_metadata: dict[str, BodyCompositionFieldMetadata],
@@ -1679,6 +2032,39 @@ def _complete_parse_request(
     enhancement_retry_used: bool = False,
     enhancement_variant: str | None = None,
 ) -> BodyCompositionImageParseResultRead:
+    raw_receipt_short_side = (
+        capture_metadata.regional_quality.get("receipt_short_side_raw")
+        if capture_metadata else None
+    )
+    if (
+        capture_metadata
+        and capture_metadata.capture_mode == "single"
+        and raw_receipt_short_side is not None
+        and raw_receipt_short_side < 300
+        and "document_blurred" in capture_metadata.quality_codes
+    ):
+        review_fields = [
+            field_name
+            for field_name in BodyCompositionOcrValues.model_fields
+            if field_name not in {"evaluation_date", "measured_at", "body_water_percent"}
+            and getattr(result.values, field_name, None) is not None
+        ]
+        issues = list(result.validation_issues)
+        _append_issue(
+            issues,
+            code="image_resolution_manual_review_required",
+            severity="critical",
+            fields=review_fields,
+            message=(
+                "A resolucao original do papel e baixa. Confira cada valor extraido "
+                "no comprovante antes de salvar."
+            ),
+        )
+        result = _finalize_parse_result(result.model_copy(update={
+            "validation_issues": _dedupe_issues(issues),
+            "warnings": [*result.warnings, *_issues_as_legacy_warnings(issues[-1:])],
+            "needs_review": True,
+        }))
     duration_ms = max(0, round((perf_counter() - started_at) * 1000))
     local_result = result.engine == "local"
     processing = BodyCompositionImageProcessing(
@@ -2089,6 +2475,16 @@ def _parse_date(value: Any) -> date | None:
     return date.fromisoformat(normalized) if normalized else None
 
 
+def _date_from_measured_at(value: Any) -> date | None:
+    normalized = _normalize_datetime_string(value)
+    if normalized is None:
+        return None
+    measured = datetime.fromisoformat(normalized)
+    if measured.tzinfo is not None:
+        measured = measured.astimezone(ZoneInfo("America/Sao_Paulo"))
+    return measured.date()
+
+
 def _normalize_datetime_string(value: Any) -> str | None:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -2180,6 +2576,21 @@ def _is_plausible(field_name: str, value: Any) -> bool:
 def _values_close(field_name: str, left: Any, right: Any) -> bool:
     if field_name == "evaluation_date":
         return _normalize_date_string(left) == _normalize_date_string(right)
+    if field_name == "measured_at":
+        left_time = _normalize_datetime_string(left)
+        right_time = _normalize_datetime_string(right)
+        if left_time is None or right_time is None:
+            return left_time == right_time
+        local_timezone = ZoneInfo("America/Sao_Paulo")
+        left_datetime = datetime.fromisoformat(left_time)
+        right_datetime = datetime.fromisoformat(right_time)
+        if left_datetime.tzinfo is None:
+            left_datetime = left_datetime.replace(tzinfo=local_timezone)
+        if right_datetime.tzinfo is None:
+            right_datetime = right_datetime.replace(tzinfo=local_timezone)
+        return left_datetime == right_datetime
+    if field_name == "sex":
+        return _normalize_sex_value(left) == _normalize_sex_value(right)
     left_value = _coerce_float(left)
     right_value = _coerce_float(right)
     if left_value is None or right_value is None:

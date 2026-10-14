@@ -438,6 +438,10 @@ def build_body_composition_report_read(
         previous_score_breakdown,
         semantic_metrics,
         invalid_date=date_invalid,
+        waist_height_values=(
+            _read_metric_float(evaluation, "waist_height_ratio"),
+            _read_metric_float(previous, "waist_height_ratio") if previous is not None else None,
+        ),
     )
     goals = build_goals(evaluation)
     semantic_history = build_history(evaluation, ordered_history)

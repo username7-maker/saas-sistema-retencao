@@ -34,6 +34,7 @@ type CapturedSegment = {
   height: number;
   rotation: number;
   preparation?: BodyCompositionPreparationMetadata | null;
+  sourcePreparation?: BodyCompositionPreparationMetadata | null;
   captureMethod?: "automatic" | "manual" | "gallery";
 };
 
@@ -103,6 +104,21 @@ const CAPTURE_GUIDE_V3_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_CAPTURE_GUIDE
 const SMART_CAPTURE_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_SMART_CAPTURE_V1 === "true";
 const SEGMENTED_CAPTURE_ENABLED = import.meta.env.VITE_BIOIMPEDANCE_SEGMENTED_CAPTURE_V1 === "true"
   && import.meta.env.VITE_BODY_COMPOSITION_MULTI_IMAGE_PARSE_V1 === "true";
+function readCameraPreference(key: string): string | null {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function writeCameraPreference(key: string, value: string): void {
+  try { window.localStorage.setItem(key, value); } catch { /* storage is optional */ }
+}
+function cameraErrorMessage(error: unknown): string {
+  const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+  const message = error instanceof Error ? error.message : "";
+  if (name === "NotAllowedError" || name === "SecurityError") return "Permita o acesso a camera nas configuracoes do navegador e tente novamente.";
+  if (name === "NotFoundError") return "Nenhuma camera encontrada. Confira a conexao da webcam ou use o envio de arquivo.";
+  if (name === "NotReadableError" || name === "AbortError") return "A camera esta ocupada ou nao respondeu. Feche outros aplicativos que usam a webcam e tente novamente.";
+  if (message === "camera_request_timeout") return "A camera demorou para responder. Confira a permissao do navegador e tente novamente.";
+  return "Nao foi possivel acessar a camera. Verifique a permissao ou use o envio de arquivo.";
+}
 const PREFERRED_CAMERA_STORAGE_KEY = "cordex:bioimpedance:preferred-camera";
 const RESOLUTION_LADDER = [
   { width: 3840, height: 2160 },
@@ -325,6 +341,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
   });
   const [torch, setTorch] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
+  const [zoomFeedback, setZoomFeedback] = useState<string | null>(null);
+  const zoomRequestRef = useRef(0);
   const [cameraHint, setCameraHint] = useState("Preparando camera...");
   const [previewDimensions, setPreviewDimensions] = useState<{ width: number; height: number } | null>(null);
   const [captureMode, setCaptureMode] = useState<"single" | "segmented">("single");
@@ -360,6 +378,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     autoCaptureInFlightRef.current = false;
     setError(null);
     setTorch(false);
+    zoomRequestRef.current += 1;
+    setZoomFeedback(null);
     setCapabilities(EMPTY_CAPABILITIES);
     setPreviewDimensions(null);
     setSegmentFiles([]);
@@ -397,8 +417,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     }
     try {
       let stream: MediaStream | null = null;
-      const storedDevice = SCANNER_V2_ENABLED ? window.localStorage.getItem(PREFERRED_CAMERA_STORAGE_KEY) : "";
-      const storedWasManual = window.localStorage.getItem(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`) === "true";
+      const storedDevice = SCANNER_V2_ENABLED ? readCameraPreference(PREFERRED_CAMERA_STORAGE_KEY) : "";
+      const storedWasManual = readCameraPreference(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`) === "true";
       const preferredDevice = requestedDeviceId || storedDevice || "";
       const requestedResolution = RESOLUTION_LADDER[0];
       try {
@@ -408,11 +428,12 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
             ...(preferredDevice ? { deviceId: { exact: preferredDevice } } : { facingMode: { ideal: "environment" } }),
             width: { ideal: requestedResolution.width },
             height: { ideal: requestedResolution.height },
-            frameRate: { ideal: 30, min: 15 },
+            frameRate: { ideal: 30 },
           },
-        }), 8_000);
+        }), 30_000);
       } catch (error) {
-        if (error instanceof Error && error.message === "camera_request_timeout") throw error;
+        if (error && typeof error === "object" && (("message" in error && error.message === "camera_request_timeout")
+          || ("name" in error && ["NotAllowedError", "SecurityError"].includes(String(error.name))))) throw error;
         stream = null;
       }
       if (!cameraAttemptsRef.current.isCurrent(attempt)) {
@@ -429,7 +450,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
       const track = stream.getVideoTracks()[0];
-      const rawCapabilities = typeof track?.getCapabilities === "function" ? track.getCapabilities() as MediaTrackCapabilities & Record<string, unknown> : {};
+      let rawCapabilities: MediaTrackCapabilities & Record<string, unknown> = {};
+      try { rawCapabilities = (track?.getCapabilities?.() ?? {}) as MediaTrackCapabilities & Record<string, unknown>; } catch { /* optional on webcams */ }
       const zoomCapability = rawCapabilities.zoom as { min?: number; max?: number; step?: number } | undefined;
       const focusModes = Array.isArray(rawCapabilities.focusMode) ? rawCapabilities.focusMode as string[] : [];
       const exposureModes = Array.isArray(rawCapabilities.exposureMode) ? rawCapabilities.exposureMode as string[] : [];
@@ -448,19 +470,23 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       if (SCANNER_V2_ENABLED && exposureModes.includes("continuous")) advanced.exposureMode = "continuous";
       if (SCANNER_V2_ENABLED && whiteBalanceModes.includes("continuous")) advanced.whiteBalanceMode = "continuous";
       if (Object.keys(advanced).length) {
-        try { await track.applyConstraints({ advanced: [advanced] as MediaTrackConstraintSet[] }); } catch { /* optional */ }
+        try { await requestWithTimeout(() => track.applyConstraints({ advanced: [advanced] as MediaTrackConstraintSet[] }), 1_500, "camera_adjustment_timeout"); } catch { /* optional */ }
       }
       const widthCapability = rawCapabilities.width as { max?: number } | undefined;
       const heightCapability = rawCapabilities.height as { max?: number } | undefined;
       if (CAPTURE_GUIDE_V3_ENABLED && widthCapability?.max && heightCapability?.max) {
         try {
-          await track.applyConstraints({
+          await requestWithTimeout(() => track.applyConstraints({
             width: { ideal: widthCapability.max },
             height: { ideal: heightCapability.max },
-          });
+          }), 1_500, "camera_resolution_timeout");
         } catch { /* the active mode is still usable */ }
       }
-      const available = (await navigator.mediaDevices.enumerateDevices()).filter((item) => item.kind === "videoinput");
+      let available: MediaDeviceInfo[] = [];
+      try {
+        available = (await requestWithTimeout(() => navigator.mediaDevices.enumerateDevices(), 1_500, "camera_devices_timeout"))
+          .filter((item) => item.kind === "videoinput");
+      } catch { /* enumeration must not close an already usable stream */ }
       if (!cameraAttemptsRef.current.isCurrent(attempt)) return;
       setDevices(available);
       const settings = track?.getSettings() ?? null;
@@ -479,8 +505,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
       if (!cameraAttemptsRef.current.isCurrent(attempt)) return;
       setActualSettings(settings);
       setDeviceId(activeDeviceId);
-      if (SCANNER_V2_ENABLED && activeDeviceId) window.localStorage.setItem(PREFERRED_CAMERA_STORAGE_KEY, activeDeviceId);
-      if (rememberManualChoice) window.localStorage.setItem(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`, "true");
+      if (SCANNER_V2_ENABLED && activeDeviceId) writeCameraPreference(PREFERRED_CAMERA_STORAGE_KEY, activeDeviceId);
+      if (rememberManualChoice) writeCameraPreference(`${PREFERRED_CAMERA_STORAGE_KEY}:manual`, "true");
       const video = videoRef.current;
       if (video) {
         const stable = CAPTURE_GUIDE_V3_ENABLED ? await waitForStableCamera(video) : true;
@@ -494,13 +520,13 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
         setCameraReady(true);
         recordCaptureEvent({ event: "camera_opened" });
       }
-    } catch {
+    } catch (cameraError) {
       if (!cameraAttemptsRef.current.isCurrent(attempt)) return;
       cameraAttemptsRef.current.invalidate();
       streamRef.current = null;
       setCameraReady(false);
       setCameraHint("Camera indisponivel");
-      setError("Nao foi possivel acessar a camera. Verifique a permissao ou use o envio de arquivo.");
+      setError(cameraErrorMessage(cameraError));
       recordCaptureEvent({ event: "capture_blocked", reason: "camera_unavailable" });
     }
   }, [recordCaptureEvent]);
@@ -524,7 +550,11 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     if (!SCANNER_V2_ENABLED || !open || !mediaDevices) return;
     const deviceEvents = mediaDevices as unknown as EventTarget;
     const handleDeviceChange = () => {
-      if (!reviewActiveRef.current && !captureBusyRef.current) void startCamera(deviceId || undefined);
+      // Permission/device enumeration can emit devicechange during startup.
+      // Only restart after losing the active video track, not on unrelated changes.
+      const tracks = streamRef.current?.getVideoTracks() ?? [];
+      if (tracks.length && tracks.every((track) => track.readyState === "ended")
+        && !reviewActiveRef.current && !captureBusyRef.current) void startCamera(deviceId || undefined);
     };
     deviceEvents.addEventListener("devicechange", handleDeviceChange);
     return () => deviceEvents.removeEventListener("devicechange", handleDeviceChange);
@@ -666,10 +696,13 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
         bottomLeft: result.metadata.corners[3],
       });
       setReviewVersion("corrected");
+      setAcceptWarnings(false);
       setQuality({
         blocking: [],
         warnings: result.metadata.quality_codes.map((code) => ({
-          document_blurred: "Mantenha a camera firme; uma parte do papel esta desfocada.",
+          document_blurred: result.metadata.quality_metrics.receipt_short_side_raw < 300
+            ? "A resolucao original do papel e baixa; revise todos os valores apos a leitura."
+            : "Mantenha a camera firme; uma parte do papel esta desfocada.",
           document_dark: "Melhore a iluminacao antes de confirmar.",
           document_glare: "Evite reflexo direto sobre o papel.",
           document_low_contrast: "O texto esta com pouco contraste.",
@@ -802,6 +835,35 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
     try { await track.applyConstraints({ advanced: [values] as MediaTrackConstraintSet[] }); } catch { toast.error("Este controle nao e suportado pela camera ativa."); }
   }
 
+  async function applyCameraZoom(value: number) {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const request = ++zoomRequestRef.current;
+    setZoom(value);
+    setZoomFeedback(null);
+    const changed = (actual: number | undefined) => typeof actual === "number"
+      && Math.abs(actual - value) <= Math.max(capabilities.zoom?.step ?? 0.1, 0.1);
+    try { await track.applyConstraints({ advanced: [{ zoom: value } as MediaTrackConstraintSet] }); } catch { /* retry below */ }
+    if (request !== zoomRequestRef.current || streamRef.current?.getVideoTracks()[0] !== track) return;
+    if (!changed(track.getSettings().zoom)) {
+      try { await track.applyConstraints({ zoom: value } as MediaTrackConstraints); } catch { /* unsupported device */ }
+    }
+    if (request !== zoomRequestRef.current || streamRef.current?.getVideoTracks()[0] !== track) return;
+    const actual = track.getSettings().zoom;
+    if (changed(actual)) {
+      setZoom(actual ?? null);
+    } else {
+      setZoom(typeof actual === "number" ? actual : capabilities.zoom?.min ?? null);
+      setZoomFeedback("A câmera não aceitou o zoom. Aproxime o papel fisicamente para melhorar a leitura.");
+    }
+  }
+
+  const receiptNeedsCarefulReview = Boolean(
+    preparation
+    && preparation.quality_metrics.receipt_short_side_raw < 300
+    && preparation.quality_codes.includes("document_blurred"),
+  );
+
   async function confirm() {
     if (!rawCapture || preparingImage || adjustingCrop || processing) return;
     const attempt = preparationAttemptRef.current;
@@ -826,6 +888,7 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
         height: normalized.height,
         rotation,
         preparation: usingCorrection ? preparation : null,
+        sourcePreparation: preparation,
         captureMethod,
       };
       if (captureMode === "segmented") {
@@ -866,13 +929,14 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
           rotation: allSegments[0].rotation,
           device_kind: isMobileCaptureDevice() ? "mobile" : "webcam",
           quality_codes: [
+            ...(allSegments[0].sourcePreparation?.quality_codes ?? []),
             ...(quality.warnings.length ? ["quality_warning"] : []),
           ],
           document_confidence: allSegments[0].preparation?.confidence ?? liveAnalysis?.confidence ?? null,
           capture_method: allSegments[0].captureMethod ?? "manual",
           document_corners: allSegments[0].preparation?.corners,
           detection_confidence: allSegments[0].preparation?.confidence ?? liveAnalysis?.confidence ?? null,
-          regional_quality: allSegments[0].preparation?.quality_metrics,
+          regional_quality: allSegments[0].sourcePreparation?.quality_metrics,
           preparation_method: allSegments[0].preparation?.method ?? null,
           correction_confirmed: Boolean(allSegments[0].preparation),
           capture_mode: captureMode,
@@ -984,9 +1048,13 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
                 </Select>
               ) : null}
               {capabilities.zoom && zoom != null ? (
-                <label className="text-xs text-lovable-ink-muted">Zoom
-                  <input className="ml-2 align-middle" type="range" min={capabilities.zoom.min} max={capabilities.zoom.max} step={capabilities.zoom.step} value={zoom} onChange={(event) => { const value = Number(event.target.value); setZoom(value); void applyConstraint({ zoom: value }); }} />
-                </label>
+                <div className="text-xs text-lovable-ink-muted">
+                  <label>Zoom da câmera
+                    <input className="ml-2 align-middle" type="range" min={capabilities.zoom.min} max={capabilities.zoom.max} step={capabilities.zoom.step} value={zoom} onChange={(event) => void applyCameraZoom(Number(event.target.value))} />
+                  </label>
+                  <span className="ml-2">{zoom.toFixed(1)}×</span>
+                  {zoomFeedback ? <p role="status" className="mt-1 text-amber-300">{zoomFeedback}</p> : null}
+                </div>
               ) : null}
               {SMART_CAPTURE_ENABLED ? (
                 <label className="flex min-h-11 items-center gap-2 text-xs text-lovable-ink-muted">
@@ -1025,10 +1093,19 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
                 {preparingImage ? <span className="text-xs text-lovable-ink-muted">Corrigindo perspectiva...</span> : null}
               </div>
             ) : null}
-            <label className="mt-3 flex min-h-11 items-center gap-3 text-sm">Ampliar foto
+            <label className="mt-3 flex min-h-11 items-center gap-3 text-sm">Ampliar foto para conferir
               <input aria-label="Ampliar foto" type="range" min="1" max="3" step="0.25" value={reviewZoom} onChange={(event) => setReviewZoom(Number(event.target.value))} />
               {Math.round(reviewZoom * 100)}%
             </label>
+            {receiptNeedsCarefulReview ? (
+              <p className="mt-1 text-sm text-amber-300">
+                A resolução original do papel é baixa. Se os números estão legíveis, continue a leitura e confira cada campo antes de salvar; aproximar a câmera ou fotografar em partes pode melhorar a precisão.
+              </p>
+            ) : preparation && preparation.quality_metrics.receipt_short_side_raw < 300 ? (
+              <p className="mt-1 text-sm text-amber-300">
+                O papel ficou pequeno na foto. Aproxime a câmera ou fotografe em partes; ampliar esta prévia não melhora o texto capturado.
+              </p>
+            ) : null}
             <div className="mt-3 max-h-[65dvh] overflow-auto rounded-xl border border-lovable-border bg-black">
             <div ref={reviewFrameRef} className="relative" style={{ width: `${reviewZoom * 100}%`, height: `${60 * reviewZoom}dvh` }}>
               {(reviewVersion === "corrected" ? correctedPreviewUrl : previewUrl) ? <img
@@ -1070,8 +1147,8 @@ export function GuidedDocumentScanner({ memberId, open, onClose, onConfirm }: Gu
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value - 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCcw size={14} />Girar esquerda</Button>
-              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value + 90); setQuality({ blocking: [], warnings: [] }); }}><RotateCw size={14} />Girar direita</Button>
+              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value - 90); setQuality((current) => ({ blocking: [], warnings: current.warnings })); }}><RotateCcw size={14} />Girar esquerda</Button>
+              <Button type="button" variant="secondary" disabled={processing} onClick={() => { setRotation((value) => value + 90); setQuality((current) => ({ blocking: [], warnings: current.warnings })); }}><RotateCw size={14} />Girar direita</Button>
               <Button type="button" variant="secondary" disabled={preparingImage || processing} onClick={() => {
                 setReviewVersion("original");
                 if (adjustingCrop && SMART_CAPTURE_ENABLED) setCropCorners(preparation ? { topLeft: preparation.corners[0], topRight: preparation.corners[1], bottomRight: preparation.corners[2], bottomLeft: preparation.corners[3] } : FULL_CROP);

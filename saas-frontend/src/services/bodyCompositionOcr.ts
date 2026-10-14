@@ -206,6 +206,11 @@ const CORE_COMPOSITION_FIELDS: Array<keyof BodyCompositionOcrValues> = [
   "muscle_mass_kg",
 ];
 
+const EXPECTED_RECEIPT_FIELDS: Array<keyof BodyCompositionOcrValues> = [
+  "inorganic_salt_kg",
+  "basal_metabolic_rate_kcal",
+];
+
 const NUMERIC_BOUNDS: Partial<Record<keyof BodyCompositionOcrValues, { min: number; max: number }>> = {
   age_years: { min: 1, max: 119 },
   height_cm: { min: 100, max: 250 },
@@ -394,6 +399,9 @@ export function getBodyCompositionAiFallbackReasons(result: BodyCompositionOcrRe
   }
   if (CORE_COMPOSITION_FIELDS.some((field) => normalized.values[field] == null)) {
     reasons.push("OCR local nao cobriu toda a composicao corporal principal.");
+  }
+  if (EXPECTED_RECEIPT_FIELDS.some((field) => normalized.values[field] == null)) {
+    reasons.push("OCR local nao identificou todas as medidas do recibo.");
   }
 
   return Array.from(new Set(reasons));

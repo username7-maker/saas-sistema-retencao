@@ -4,10 +4,13 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from app.services.body_composition_ai_service import _compare_with_previous, _summarize_previous
+
 
 def _evaluation(**overrides):
     payload = {
         "id": "eval-1",
+        "gym_id": "gym-1",
         "evaluation_date": date(2026, 3, 17),
         "weight_kg": 84.5,
         "fat_mass_estimated_kg": 19.46,
@@ -33,6 +36,15 @@ def _evaluation(**overrides):
     }
     payload.update(overrides)
     return SimpleNamespace(**payload)
+
+
+def test_ai_context_omits_previous_fat_from_incompatible_method() -> None:
+    previous = _evaluation(id="eval-0", evaluation_date=date(2026, 2, 17), body_fat_used_percent=25)
+    current = _evaluation(body_fat_method="different_protocol", weight_kg=83)
+
+    assert "gordura" not in _summarize_previous(previous, current=current)
+    assert "gordura" not in _compare_with_previous(current, previous).lower()
+    assert "Peso total caiu" in _compare_with_previous(current, previous)
 
 
 def test_generate_body_composition_ai_fallback_is_safe_and_structured():

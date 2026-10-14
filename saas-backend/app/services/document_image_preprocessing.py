@@ -8,6 +8,7 @@ import numpy as np
 MAX_DECODED_PIXELS = 48_000_000
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MIN_DOCUMENT_AREA_RATIO = 0.12
+MAX_DOCUMENT_AREA_RATIO = 0.9
 
 
 @dataclass(frozen=True)
@@ -53,13 +54,15 @@ def _find_receipt(gray: np.ndarray) -> tuple[np.ndarray | None, float]:
     for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:20]:
         area = float(cv2.contourArea(contour))
         area_ratio = area / frame_area
-        if area_ratio < MIN_DOCUMENT_AREA_RATIO:
+        if not MIN_DOCUMENT_AREA_RATIO <= area_ratio < MAX_DOCUMENT_AREA_RATIO:
             continue
         perimeter = cv2.arcLength(contour, True)
         polygon = cv2.approxPolyDP(contour, 0.025 * perimeter, True)
         if len(polygon) != 4 or not cv2.isContourConvex(polygon):
             continue
         points = _order_points(polygon.reshape(4, 2).astype("float32"))
+        if abs(cv2.contourArea(points)) / frame_area >= MAX_DOCUMENT_AREA_RATIO:
+            continue
         top = np.linalg.norm(points[1] - points[0])
         bottom = np.linalg.norm(points[2] - points[3])
         left = np.linalg.norm(points[3] - points[0])
@@ -74,7 +77,7 @@ def _find_receipt(gray: np.ndarray) -> tuple[np.ndarray | None, float]:
         if score > best_score:
             best, best_score = points, score
     if best is not None:
-        return best, round(best_score, 3)
+        return best, round(float(best_score), 3)
 
     # Thermal paper often has faint or clipped borders, so edge detection alone
     # may not close a quadrilateral. Fall back to the largest bright, narrow
@@ -95,7 +98,7 @@ def _find_receipt(gray: np.ndarray) -> tuple[np.ndarray | None, float]:
     for contour in sorted(bright_contours, key=cv2.contourArea, reverse=True)[:10]:
         area = float(cv2.contourArea(contour))
         area_ratio = area / frame_area
-        if area_ratio < MIN_DOCUMENT_AREA_RATIO:
+        if not MIN_DOCUMENT_AREA_RATIO <= area_ratio < MAX_DOCUMENT_AREA_RATIO:
             continue
         rectangle = cv2.minAreaRect(contour)
         rect_width, rect_height = rectangle[1]
@@ -105,8 +108,11 @@ def _find_receipt(gray: np.ndarray) -> tuple[np.ndarray | None, float]:
         rectangularity = area / max(1.0, rect_width * rect_height)
         if not 1.6 <= aspect_ratio <= 8.5 or rectangularity < 0.5:
             continue
+        points = _order_points(cv2.boxPoints(rectangle).astype("float32"))
+        if abs(cv2.contourArea(points)) / frame_area >= MAX_DOCUMENT_AREA_RATIO:
+            continue
         score = min(0.82, 0.42 + area_ratio * 0.45 + rectangularity * 0.2)
-        return _order_points(cv2.boxPoints(rectangle).astype("float32")), round(score, 3)
+        return points, round(float(score), 3)
     return None, 0.0
 
 
@@ -215,6 +221,93 @@ def build_thermal_recovery_image(image_bytes: bytes) -> bytes | None:
     if image is None or image.shape[0] * image.shape[1] > MAX_DECODED_PIXELS:
         return None
     return _encode_jpeg(_thermal_recovery_variant(image))
+
+
+def build_receipt_value_column_image(image_bytes: bytes) -> bytes | None:
+    """Keep the printed label and Value columns, excluding the adjacent Range.
+
+    This is an independent visual check for the Tezewa table rows. If the image
+    cannot be decoded or the crop is too small to read, the caller must treat
+    the table values as unverified rather than use this image as evidence.
+    """
+    image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None or image.shape[0] * image.shape[1] > MAX_DECODED_PIXELS:
+        return None
+    height, width = image.shape[:2]
+    if width < 500 or height < 500:
+        return None
+
+    def value_column_cut(oriented: np.ndarray) -> int:
+        oriented_height, oriented_width = oriented.shape[:2]
+        gray = cv2.cvtColor(oriented, cv2.COLOR_BGR2GRAY)
+        rows = gray[int(oriented_height * 0.26):int(oriented_height * 0.74)]
+        ink = np.mean(rows < 135, axis=0).astype("float32")
+        smoothed = cv2.blur(ink.reshape(1, -1), (max(11, round(oriented_width * 0.025)), 1)).ravel()
+        left, right = round(oriented_width * 0.55), round(oriented_width * 0.70)
+        positions = np.arange(left, right)
+        # The quiet strip between Value and Range shifts when the paper is not
+        # perfectly trimmed by a webcam/manual corner crop.
+        scores = smoothed[left:right] + 0.05 * np.abs(positions / oriented_width - 0.62)
+        boundary = int(positions[np.argmin(scores)]) + round(oriented_width * 0.01)
+        return min(round(oriented_width * 0.70), max(round(oriented_width * 0.54), boundary))
+
+    sideways_text = False
+    if width > height * 1.3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, _, components, _ = cv2.connectedComponentsWithStats((gray < 160).astype(np.uint8), 8)
+        glyph_ratios = [
+            component[cv2.CC_STAT_WIDTH] / component[cv2.CC_STAT_HEIGHT]
+            for component in components[1:]
+            if 5 <= component[cv2.CC_STAT_AREA] <= 300
+            and 3 <= component[cv2.CC_STAT_WIDTH] <= 50
+            and 3 <= component[cv2.CC_STAT_HEIGHT] <= 50
+        ]
+        sideways_text = len(glyph_ratios) >= 20 and float(np.median(glyph_ratios)) > 1.1
+    if sideways_text:
+        # Perspective correction keeps the receipt's position in the camera
+        # frame. For a sideways photo, rotate it before interpreting x as the
+        # Project / Value / Range columns. The label side contains more printed
+        # ink than the reference-number side in this receipt layout.
+        candidates = (
+            cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE),
+            cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE),
+        )
+
+        def label_side_score(candidate: np.ndarray) -> float:
+            gray = cv2.cvtColor(candidate, cv2.COLOR_BGR2GRAY)
+            candidate_height, candidate_width = gray.shape
+            center = gray[int(candidate_height * 0.15):int(candidate_height * 0.85)]
+            left = center[:, int(candidate_width * 0.07):int(candidate_width * 0.38)]
+            right = center[:, int(candidate_width * 0.63):int(candidate_width * 0.9)]
+            return float(np.mean(left < 160) - np.mean(right < 160))
+
+        image = max(candidates, key=label_side_score)
+        height, width = image.shape[:2]
+        oriented_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        paper_profile = np.mean(
+            oriented_gray[int(height * 0.2):int(height * 0.8)] > 190,
+            axis=0,
+        ).astype("float32")
+        paper_profile = cv2.blur(paper_profile.reshape(1, -1), (31, 1)).ravel()
+        paper_mask = cv2.morphologyEx(
+            (paper_profile > 0.72).astype(np.uint8).reshape(1, -1),
+            cv2.MORPH_CLOSE,
+            np.ones((1, 11), np.uint8),
+        ).ravel()
+        transitions = np.diff(np.pad(paper_mask.astype(int), (1, 1)))
+        runs = list(zip(np.where(transitions == 1)[0], np.where(transitions == -1)[0], strict=True))
+        if runs:
+            paper_left, paper_right = max(runs, key=lambda run: run[1] - run[0])
+            if paper_right - paper_left >= width * 0.35:
+                image = image[:, paper_left:paper_right]
+                height, width = image.shape[:2]
+                cropped = image[:, :value_column_cut(image)]
+                return _encode_jpeg(cropped)
+        return None
+    # Include the full vertical extent so section headings and row order remain
+    # visible; only the Range column is removed.
+    cropped = image[:, :value_column_cut(image)]
+    return _encode_jpeg(cropped)
 
 
 def _normalized_corners(points: np.ndarray, *, width: int, height: int) -> list[dict[str, float]]:

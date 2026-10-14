@@ -443,6 +443,7 @@ class BodyCompositionEvaluationCreate(BodyCompositionEvaluationBase):
 
 class BodyCompositionEvaluationUpdate(BodyCompositionEvaluationBase):
     expected_updated_at: datetime
+    cleared_anthropometry_fields: list[str] = Field(default_factory=list, max_length=24)
 
 
 class BodyCompositionSyncAttemptRead(BaseModel):

@@ -41,6 +41,10 @@ class ImportPreviewSourceColumn(BaseModel):
 
 
 class ImportPreview(BaseModel):
+    import_dates: list[str] = Field(default_factory=list)
+    pending_import_dates: list[str] = Field(default_factory=list)
+    coverage_start: str | None = None
+    coverage_baseline: str | None = None
     preview_kind: str
     total_rows: int
     valid_rows: int

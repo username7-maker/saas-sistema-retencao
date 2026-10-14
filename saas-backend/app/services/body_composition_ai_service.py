@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.models import Member
 from app.models.assessment import MemberConstraints, MemberGoal
 from app.models.body_composition import BodyCompositionEvaluation
+from app.services.body_composition_report_domain import comparable_metric_delta
 from app.services.ai_prompt_registry_service import prompt_metadata, specialist_model, specialist_system_prompt
 from app.utils.claude import _parse_claude_json
 
@@ -96,8 +97,10 @@ def generate_body_composition_ai(
         select(BodyCompositionEvaluation)
         .where(
             BodyCompositionEvaluation.member_id == member.id,
+            BodyCompositionEvaluation.gym_id == evaluation.gym_id,
             BodyCompositionEvaluation.id != evaluation.id,
             BodyCompositionEvaluation.deleted_at.is_(None),
+            BodyCompositionEvaluation.evaluation_date < evaluation.evaluation_date,
         )
         .order_by(desc(BodyCompositionEvaluation.evaluation_date), desc(BodyCompositionEvaluation.created_at))
         .limit(1)
@@ -184,7 +187,7 @@ def _generate_with_openai(
     range_summary = _summarize_ranges(evaluation)
     goals_summary = ", ".join(goal.title for goal in goals[:3]) if goals else "Sem metas ativas registradas"
     constraints_summary = _summarize_constraints(constraints)
-    previous_summary = _summarize_previous(previous_evaluation)
+    previous_summary = _summarize_previous(previous_evaluation, current=evaluation)
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Analise uma avaliacao de composicao corporal e retorne campos estruturados com resumo para coach e resumo amigavel para o aluno.\n"
@@ -267,7 +270,7 @@ def _generate_with_claude(
     range_summary = _summarize_ranges(evaluation)
     goals_summary = ", ".join(goal.title for goal in goals[:3]) if goals else "Sem metas ativas registradas"
     constraints_summary = _summarize_constraints(constraints)
-    previous_summary = _summarize_previous(previous_evaluation)
+    previous_summary = _summarize_previous(previous_evaluation, current=evaluation)
     classification_summary = _summarize_classifications(evaluation)
     prompt = (
         "Voce e um assistente de apoio operacional para professores de academia.\n"
@@ -550,19 +553,15 @@ def _build_focuses(primary_goal: str, secondary_goal: str, previous_evaluation: 
 
 
 def _compare_with_previous(current: BodyCompositionEvaluation, previous: BodyCompositionEvaluation) -> str:
-    current_fat = _official_body_fat(current)
-    previous_fat = _official_body_fat(previous)
-    current_weight = _to_float(current.weight_kg)
-    previous_weight = _to_float(previous.weight_kg)
     parts: list[str] = []
-    if current_fat is not None and previous_fat is not None:
-        delta = round(current_fat - previous_fat, 2)
+    delta = comparable_metric_delta(current, previous, "body_fat_used_percent")
+    if delta is not None:
         if delta > 0:
             parts.append(f"Estimativa de gordura corporal subiu {delta} ponto(s).")
         elif delta < 0:
             parts.append(f"Estimativa de gordura corporal caiu {abs(delta)} ponto(s).")
-    if current_weight is not None and previous_weight is not None:
-        delta = round(current_weight - previous_weight, 2)
+    delta = comparable_metric_delta(current, previous, "weight_kg")
+    if delta is not None:
         if delta > 0:
             parts.append(f"Peso total subiu {delta} kg.")
         elif delta < 0:
@@ -611,13 +610,21 @@ def _summarize_constraints(constraints: MemberConstraints | None) -> str:
     return "; ".join(parts) if parts else "Sem restricoes registradas"
 
 
-def _summarize_previous(previous_evaluation: BodyCompositionEvaluation | None) -> str:
+def _summarize_previous(
+    previous_evaluation: BodyCompositionEvaluation | None, *, current: BodyCompositionEvaluation
+) -> str:
     if not previous_evaluation:
         return "Sem bioimpedancia anterior registrada"
+    comparable = []
+    if comparable_metric_delta(current, previous_evaluation, "weight_kg") is not None:
+        comparable.append(f"peso {_to_float(previous_evaluation.weight_kg)} kg")
+    if comparable_metric_delta(current, previous_evaluation, "body_fat_used_percent") is not None:
+        comparable.append(f"gordura {_official_body_fat(previous_evaluation)}%")
+    if not comparable:
+        return "Bioimpedancia anterior registrada, sem medidas comparaveis com o exame atual"
     return (
-        f"Ultima bioimpedancia em {previous_evaluation.evaluation_date.isoformat()} com peso "
-        f"{_to_float(previous_evaluation.weight_kg) or '-'} kg e gordura "
-        f"{_official_body_fat(previous_evaluation) or '-'}%."
+        f"Ultima bioimpedancia comparavel em {previous_evaluation.evaluation_date.isoformat()} com "
+        f"{', '.join(comparable)}."
     )
 
 

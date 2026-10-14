@@ -248,6 +248,26 @@ describe("ImportsPage", () => {
     });
   });
 
+  it("warns about missing days and imports only after explicit confirmation", async () => {
+    vi.mocked(importExportService.previewCheckins).mockResolvedValue(buildPreview({
+      preview_kind: "checkins", pending_import_dates: ["2026-10-12"],
+    }));
+    vi.mocked(importExportService.importCheckins).mockResolvedValue({ imported: 1, updated_existing: 0, skipped_duplicates: 0, ignored_rows: 0, provisional_members_created: 0, provisional_members: [], missing_members: [], errors: [] });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { container } = renderPage();
+    const file = new File(["data,hora\n2026-10-13,08:00"], "Acessos.csv");
+    fireEvent.change(container.querySelectorAll('input[type="file"]')[1], { target: { files: [file] } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Validar arquivo" })[1]);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Confirmar importacao" })[1]).toBeEnabled());
+    fireEvent.click(screen.getAllByRole("button", { name: "Confirmar importacao" })[1]);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("12/10/2026"));
+    expect(importExportService.importCheckins).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Confirmar importacao" })[1]);
+    await waitFor(() => expect(importExportService.importCheckins).toHaveBeenCalledWith(file, false, undefined, ["2026-10-12"]));
+    confirm.mockRestore();
+  });
+
   it("imports valid check-ins while keeping invalid rows as pending", async () => {
     vi.mocked(importExportService.previewCheckins).mockResolvedValue({
       preview_kind: "checkins",

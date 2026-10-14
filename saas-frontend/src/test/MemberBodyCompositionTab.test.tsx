@@ -404,6 +404,26 @@ describe("MemberBodyCompositionTab", () => {
     expect(document.querySelector('input[name="skinfold_triceps_mm"]')).toHaveAttribute("placeholder", "");
   });
 
+  it("marks only intentionally cleared stored anthropometry for removal", async () => {
+    const evaluation = makeEvaluation();
+    evaluation.waist_cm = 12;
+    evaluation.hip_cm = 96;
+    vi.mocked(bodyCompositionService.list).mockResolvedValue([evaluation]);
+    vi.mocked(bodyCompositionService.update).mockResolvedValue({ ...evaluation, waist_cm: null });
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+    const waist = document.querySelector('input[name="waist_cm"]') as HTMLInputElement;
+    fireEvent.change(waist, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+    await waitFor(() => {
+      expect(bodyCompositionService.update).toHaveBeenCalledWith(
+        "member-1", "eval-1",
+        expect.objectContaining({ waist_cm: null, hip_cm: 96, cleared_anthropometry_fields: ["waist_cm"] }),
+        { syncActuar: true },
+      );
+    });
+  });
+
   it("submits the Weltman protocol that is currently selected", async () => {
     const evaluation = makeEvaluation();
     vi.mocked(bodyCompositionService.update).mockResolvedValue({
@@ -628,6 +648,104 @@ describe("MemberBodyCompositionTab", () => {
     expect(screen.getByDisplayValue("33")).toBeInTheDocument();
     expect(screen.getByDisplayValue("54")).toBeInTheDocument();
     expect(screen.getByDisplayValue("84.5")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("2.9")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("1420")).not.toBeInTheDocument();
+    vi.mocked(bodyCompositionService.update).mockResolvedValue(makeEvaluation());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Revisao manual concluida" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+    await waitFor(() => expect(bodyCompositionService.update).toHaveBeenCalledWith(
+      "member-1", "eval-1", expect.objectContaining({ measured_at: null }), expect.any(Object),
+    ));
+  });
+
+  it("saves an evidenced printed time only when it belongs to the selected date", async () => {
+    vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
+      localResult: null,
+      result: {
+        device_profile: "tezewa_receipt_v1",
+        values: { weight_kg: 65.1, measured_at: "2026-04-14T08:18:00" },
+        ranges: {}, warnings: [], confidence: 0.95, raw_text: "Test time 2026-04-14 08:18",
+        needs_review: false, engine: "ai_assisted", fallback_used: false,
+        field_metadata: {
+          measured_at: {
+            origin: "ai_image", state: "accepted", confidence: 0.95,
+            label: "Test time", evidence: "Test time 2026-04-14 08:18",
+            suggested_value: "2026-04-14T08:18:00",
+          },
+        },
+      },
+      fallbackReasons: [], assistedAttempted: true, assistedUsed: true, assistedError: null,
+    });
+    vi.mocked(bodyCompositionService.update).mockResolvedValue(makeEvaluation());
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar atual" }));
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["receipt"], "receipt.jpg", { type: "image/jpeg" })] },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ler foto" }));
+    expect(await screen.findByText("Horario impresso: 2026-04-14 08:18")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Revisao manual concluida" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+
+    await waitFor(() => expect(bodyCompositionService.update).toHaveBeenCalledWith(
+      "member-1", "eval-1",
+      expect.objectContaining({ measured_at: "2026-04-14T08:18:00" }),
+      expect.any(Object),
+    ));
+  });
+
+  it("keeps low-confidence suggestions visible without yellow field decoration", async () => {
+    vi.mocked(bodyCompositionService.readWithAssistedFallback).mockResolvedValue({
+      localResult: null,
+      result: {
+        device_profile: "tezewa_receipt_v1",
+        device_model: "Tezewa",
+        values: {
+          weight_kg: 65.1,
+          waist_hip_ratio: 0.86,
+          inorganic_salt_kg: 2.9,
+          basal_metabolic_rate_kcal: 1053,
+        },
+        ranges: {},
+        warnings: [
+          { field: "waist_hip_ratio", severity: "warning", message: "Leitura com baixa confianca; confira no papel." },
+          { field: "inorganic_salt_kg", severity: "warning", message: "Leitura com baixa confianca; confira no papel." },
+        ],
+        confidence: 0.7,
+        raw_text: "Waist hi 0.86\n[norganic salt 2.9",
+        needs_review: true,
+        engine: "ai_assisted",
+        fallback_used: false,
+        field_metadata: {
+          waist_hip_ratio: {
+            origin: "ai_image", state: "suggested", confidence: 0.62, label: "Waist hip", evidence: "Waist hip 0.86", suggested_value: 0.86,
+          },
+          inorganic_salt_kg: {
+            origin: "ai_image", state: "suggested", confidence: 0.61, label: "Inorganic salt", evidence: "Inorganic salt 2.9", suggested_value: 2.9,
+          },
+          basal_metabolic_rate_kcal: {
+            origin: "ai_image", state: "unavailable", confidence: 0.4, label: "Range", evidence: "1053~1346", suggested_value: 1053,
+          },
+        },
+      },
+      fallbackReasons: ["OCR local ficou abaixo da confianca minima."],
+      assistedAttempted: true,
+      assistedUsed: true,
+      assistedError: null,
+    });
+
+    renderTab();
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["receipt"], "receipt.jpg", { type: "image/jpeg" })] },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ler foto" }));
+
+    expect(await screen.findByDisplayValue("0.86")).not.toHaveClass("border-lovable-warning");
+    expect(screen.getByDisplayValue("2.9")).not.toHaveClass("border-lovable-warning");
+    expect(screen.queryByDisplayValue("1053")).not.toBeInTheDocument();
   });
 
   it("invalidates critical review state when the selected photo changes", async () => {

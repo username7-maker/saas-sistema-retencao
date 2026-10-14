@@ -299,6 +299,34 @@ type NumericFieldKey =
   | "physical_age"
   | "health_score";
 
+// These values belong to the receipt being read. A new image replaces them,
+// while anthropometry, profile data and manual overrides remain untouched.
+const RECEIPT_MEASUREMENT_FIELDS: NumericFieldKey[] = [
+  "weight_kg", "body_fat_kg", "body_fat_percent", "waist_hip_ratio",
+  "fat_free_mass_kg", "inorganic_salt_kg", "protein_kg", "body_water_kg",
+  "lean_mass_kg", "muscle_mass_kg", "skeletal_muscle_kg", "skeletal_muscle_percent",
+  "body_water_percent", "visceral_fat_level", "bmi", "basal_metabolic_rate_kcal",
+  "target_weight_kg", "weight_control_kg", "muscle_control_kg", "fat_control_kg",
+  "total_energy_kcal", "physical_age", "health_score",
+];
+
+function evidencedReceiptTime(result: BodyCompositionOcrResult | null, evaluationDate: string): string | null {
+  const value = result?.values.measured_at;
+  if (!value || result?.field_metadata?.measured_at?.state !== "accepted") return null;
+  const isoMatch = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}/.exec(value);
+  if (!isoMatch) return null;
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) {
+    return isoMatch[1] === evaluationDate ? value : null;
+  }
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(instant);
+  const part = (type: string) => dateParts.find((item) => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}` === evaluationDate ? value : null;
+}
+
 interface FieldDef {
   key: NumericFieldKey;
   label: string;
@@ -407,6 +435,9 @@ function validationIssueKey(issue: BodyCompositionValidationIssue): string {
 }
 
 function validationIssueMessage(issue: BodyCompositionValidationIssue): string {
+  if (issue.code === "ai_value_column_mismatch" || issue.code === "ai_value_column_unverified") {
+    return "A coluna Value não confirmou estas medidas. Confira o comprovante e preencha os campos antes de salvar.";
+  }
   if (issue.code === "bmi_consistency_conflict") return "Confira o peso, a altura e o IMC destacados.";
   if (issue.code === "height_profile_conflict") return "Escolha qual altura deve ser usada nesta avaliação.";
   if (issue.code === "sex_profile_conflict") return "Confira o sexo destacado antes de salvar.";
@@ -970,12 +1001,12 @@ function warningTone(warning?: BodyCompositionOcrWarning): string {
   if (!warning) return "";
   return warning.severity === "critical"
     ? "border-lovable-danger focus:ring-lovable-danger/20"
-    : "border-lovable-warning focus:ring-lovable-warning/20";
+    : "";
 }
 
 function fieldSignalTextClass(tone: "success" | "warning" | "neutral"): string {
   if (tone === "success") return "text-lovable-success";
-  if (tone === "warning") return "text-lovable-warning";
+  if (tone === "warning") return "text-lovable-ink-muted";
   return "text-lovable-ink-muted";
 }
 
@@ -1084,7 +1115,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     reset,
     setValue,
     watch,
-    formState: { errors, isDirty },
+    formState: { errors, isDirty, dirtyFields },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: buildDefaultValues(null),
@@ -1145,7 +1176,17 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
         return bodyCompositionService.update(
           memberId,
           editingEvaluationId,
-          { ...payload, expected_updated_at: editingEvaluation.updated_at },
+          {
+            ...payload,
+            expected_updated_at: editingEvaluation.updated_at,
+            cleared_anthropometry_fields: SAVE_VALIDATION_FIELDS.filter((field) => (
+              (field.endsWith("_cm") || field.startsWith("skinfold_"))
+              && field !== "height_cm"
+              && dirtyFields[field]
+              && editingEvaluation[field as keyof BodyCompositionEvaluation] != null
+              && payload[field as keyof BodyCompositionEvaluationCreate] == null
+            )),
+          },
           { syncActuar },
         );
       }
@@ -1753,8 +1794,12 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
 
   function buildPayload(data: FormData): BodyCompositionEvaluationCreate {
     const needsReview = currentSource === "ocr_receipt" ? (reviewedManually ? false : ocrMetadata.needs_review) : false;
+    const receiptTime = currentSource === "ocr_receipt" && ocrResult
+      ? { measured_at: evidencedReceiptTime(ocrResult, data.evaluation_date) }
+      : {};
     return {
       ...data,
+      ...receiptTime,
       body_water_percent: calculateBodyWaterPercent(data.weight_kg, data.body_water_kg),
       source: currentSource,
       reviewed_manually: currentSource === "manual" ? true : reviewedManually,
@@ -1838,6 +1883,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
     const values = result.values;
     const rawValues = values as Record<string, unknown>;
     const nextOrigins: Record<string, BodyCompositionDisplayFieldOrigin> = {};
+    for (const key of RECEIPT_MEASUREMENT_FIELDS) {
+      setValue(key, null, { shouldDirty: true, shouldValidate: true });
+    }
     const numericKeys = Object.keys(values).filter(
       (key) => key !== "evaluation_date" && key !== "measured_at" && key !== "sex",
     ) as NumericFieldKey[];
@@ -1845,7 +1893,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       const value = rawValues[key];
       const metadata = result.field_metadata?.[key];
       if (DEMOGRAPHIC_FIELDS.has(key) && !metadata) continue;
-      if (metadata?.state === "suggested" || metadata?.state === "unavailable") continue;
+      if (metadata?.state === "unavailable") continue;
       if (typeof value === "number" && Number.isFinite(value)) {
         setValue(key, value, { shouldDirty: true, shouldValidate: true });
         nextOrigins[key] = metadata?.origin
@@ -1861,7 +1909,11 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
       nextOrigins.sex = sexMetadata.origin;
     }
     setValue("ocr_source_file_ref", `local://${file.name}`);
-    setFieldOrigins((current) => ({ ...current, ...nextOrigins }));
+    setFieldOrigins((current) => {
+      const retained = { ...current };
+      for (const key of RECEIPT_MEASUREMENT_FIELDS) delete retained[key];
+      return { ...retained, ...nextOrigins };
+    });
     setResolvedCriticalIssues([]);
     setOcrFileNeedsRead(false);
     setCurrentSource("ocr_receipt");
@@ -2243,13 +2295,16 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   </label>
                   <span>Origem atual: {sourceLabel(currentSource)}</span>
                   {ocrMetadata.device_model ? <span>Equipamento: bioimpedância</span> : null}
+                  {ocrResult?.values.measured_at && ocrResult.field_metadata?.measured_at?.state === "accepted" ? (
+                    <span>Horario impresso: {ocrResult.values.measured_at.replace("T", " ").slice(0, 16)}</span>
+                  ) : null}
                 </div>
                 <div
                   className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
                     readCapability.tone === "success"
                       ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
                       : readCapability.tone === "warning"
-                        ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
+                        ? "border-lovable-border bg-lovable-surface text-lovable-ink"
                         : "border-lovable-border bg-lovable-surface text-lovable-ink"
                   }`}
                 >
@@ -2257,7 +2312,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <p className="mt-1 text-xs">{readCapability.description}</p>
                 </div>
                 {ocrMetadata.ocr_warnings_json.length > 0 && unresolvedCriticalIssues.length === 0 ? (
-                  <div className="mt-3 rounded-xl border border-lovable-warning/30 bg-lovable-warning/10 p-3 text-xs text-lovable-warning">
+                  <div className="mt-3 rounded-xl border border-lovable-border bg-lovable-surface p-3 text-xs text-lovable-ink-muted">
                     Alguns campos não ficaram nítidos na foto. Confira apenas os campos destacados antes de salvar.
                   </div>
                 ) : null}
@@ -2622,7 +2677,7 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                     <Metric label="Massa livre estimada" value={fmt(anthropometryPreview.leanMassKg, " kg")} />
                   </div>
                   {anthropometryPreview.missingFields.length > 0 ? (
-                    <p className="mt-3 text-xs text-lovable-warning">
+                    <p className="mt-3 text-xs text-lovable-ink-muted">
                       Para calcular por medidas, complete: {anthropometryPreview.missingFields.join(", ")}.
                     </p>
                   ) : null}
@@ -2959,9 +3014,9 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
                       actuarCapability.tone === "success"
-                        ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
-                        : actuarCapability.tone === "warning"
-                          ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
+                      ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
+                      : actuarCapability.tone === "warning"
+                          ? "border-lovable-border bg-lovable-surface text-lovable-ink"
                           : "border-lovable-border bg-lovable-surface text-lovable-ink"
                     }`}
                   >
@@ -2971,8 +3026,8 @@ export function MemberBodyCompositionTab({ memberId, memberName, memberPhone, on
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
                       syncStatus?.training_ready
-                        ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
-                        : "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
+                      ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
+                        : "border-lovable-border bg-lovable-surface text-lovable-ink"
                     }`}
                   >
                     <p className="font-semibold">
@@ -3331,7 +3386,7 @@ function StatusPill({ children, tone }: { children: ReactNode; tone: "success" |
     tone === "success"
       ? "border-lovable-success/30 bg-lovable-success/10 text-lovable-success"
       : tone === "warning"
-        ? "border-lovable-warning/30 bg-lovable-warning/10 text-lovable-warning"
+        ? "border-lovable-border bg-lovable-surface text-lovable-ink"
         : "border-lovable-border bg-lovable-surface text-lovable-ink";
 
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>;

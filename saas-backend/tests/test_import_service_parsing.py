@@ -1671,3 +1671,32 @@ def test_import_assessment_appointments_csv_creates_appointment_not_technical_as
     assert appointment.metadata_json["technical_data_present"] is False
     effects.assert_called_once()
     db.commit.assert_called_once()
+
+
+@pytest.mark.parametrize("match_phone", [False, True])
+def test_import_does_not_merge_partial_names_with_conflicting_email(match_phone):
+    member = Member(id=uuid4(), full_name="Marcos Paulo Silva Junior",
+                    email="marcos@example.com", phone="54999990000",
+                    extra_data={}, status=MemberStatus.ACTIVE)
+    row = {"nome": "Paulo Silva", "email": "paulo@example.com"}
+    if match_phone:
+        row["telefone"] = "54999990000"
+    assert import_service._resolve_member_from_row(
+        row, import_service._build_member_lookups([member])) is None
+
+
+def test_import_does_not_merge_partial_names_with_conflicting_cpf():
+    member = Member(id=uuid4(), full_name="Marcos Paulo Silva Junior",
+                    cpf_encrypted=import_service.encrypt_cpf("11111111111"),
+                    extra_data={}, status=MemberStatus.ACTIVE)
+    row = {"nome": "Paulo Silva", "cpf": "22222222222"}
+    assert import_service._resolve_member_from_row(
+        row, import_service._build_member_lookups([member])) is None
+
+
+def test_import_does_not_merge_partial_names_with_conflicting_external_id():
+    member = Member(id=uuid4(), full_name="Marcos Paulo Silva Junior",
+                    extra_data={"external_id": "123"}, status=MemberStatus.ACTIVE)
+    row = {"nome": "Paulo Silva", "codigo": "456"}
+    assert import_service._resolve_member_from_row(
+        row, import_service._build_member_lookups([member])) is None

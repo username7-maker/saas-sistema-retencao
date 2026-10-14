@@ -150,6 +150,40 @@ Physical age 44
 Health score 72
 `;
 
+const SPLIT_SALT_AND_WAIST_HIP_RECEIPT = `
+Tezewa
+Body composition
+Project Value Range
+Weight (kg) 65.1 47.5~58.1
+Body fat (kg) 21.12 9.5~14.78
+Waist hi
+0.86
+0.75~0.85
+Fat free (kg) 44.0
+[norganic salt
+2.9
+2.4~2.9
+Muscle mass (kg) 23.4 18.0~20.6
+Protein (kg) 10.0 8.4~10.6
+Body moisture 35.8 31.7~37.0
+Body parameters
+Project Value Range
+Body fat ratio 32.4 18.0~28.0
+Visceral fat 7.0 1.0~5.0
+Basal metabolism 1366 1053~1346
+BMI 23.1 18.5~24.0
+Skeletal muscle 25.7 13.2~24.8
+Comprehensive evaluation
+Project Value
+Target weight (kg) 58.1kg
+Weight control (kg) -7.0kg
+Muscle control (kg) -2.1kg
+Fat control (kg) -4.9kg
+Total energy 2185.6
+Physical age 44
+Health score 72
+`;
+
 const USER_REAL_OCR_DUMP = `
 / an
 / dl ny
@@ -265,28 +299,46 @@ describe("bodyCompositionOcr", () => {
     expect(result.needs_review).toBe(true);
   });
 
-  it("falls back to the expected receipt order when OCR loses most labels but preserves the section blocks", () => {
-    const result = extractBodyCompositionFromText(POSITIONAL_FALLBACK_RECEIPT);
+  it("reads split waist-hip and inorganic-salt rows with common thermal-printer OCR damage", () => {
+    const result = extractBodyCompositionFromText(SPLIT_SALT_AND_WAIST_HIP_RECEIPT);
 
-    expect(result.values.weight_kg).toBe(84.5);
-    expect(result.values.body_fat_kg).toBe(19.46);
-    expect(result.values.body_fat_percent).toBe(23.0);
-    expect(result.values.waist_hip_ratio).toBe(0.88);
-    expect(result.values.fat_free_mass_kg).toBe(65.0);
-    expect(result.values.target_weight_kg).toBe(68.3);
-    expect(result.values.health_score).toBe(62);
-    expect(result.warnings.some((warning) => warning.message.includes("ordem esperada do recibo"))).toBe(true);
+    expect(result.values.waist_hip_ratio).toBe(0.86);
+    expect(result.values.inorganic_salt_kg).toBe(2.9);
   });
 
-  it("rescues plausible values from a noisy real OCR dump instead of accepting impossible measurements like 14kg for weight", () => {
+  it("leaves unlabeled receipt numbers blank instead of assigning them by position", () => {
+    const result = extractBodyCompositionFromText(POSITIONAL_FALLBACK_RECEIPT);
+
+    expect(result.values.weight_kg).toBeUndefined();
+    expect(result.values.body_fat_kg).toBeUndefined();
+    expect(result.values.body_fat_percent).toBeUndefined();
+    expect(result.values.waist_hip_ratio).toBeUndefined();
+    expect(result.values.target_weight_kg).toBeUndefined();
+    expect(result.needs_review).toBe(true);
+  });
+
+  it("refuses to borrow values from neighboring rows in a noisy OCR dump", () => {
     const result = extractBodyCompositionFromText(USER_REAL_OCR_DUMP);
 
-    expect(result.values.weight_kg).toBe(84.5);
-    expect(result.values.body_fat_kg).toBe(19.46);
-    expect(result.values.body_fat_percent).toBe(23.0);
-    expect(result.values.waist_hip_ratio).toBe(0.88);
-    expect(result.values.health_score).toBe(62);
-    expect(result.warnings.some((warning) => warning.message.includes("linha vizinha"))).toBe(true);
+    expect(result.values.weight_kg).toBeUndefined();
+    expect(result.needs_review).toBe(true);
+    expect(result.warnings.some((warning) => warning.message.includes("linha vizinha"))).toBe(false);
+  });
+
+  it("does not copy the next labeled row when the current value is missing", () => {
+    const result = extractBodyCompositionFromText(`
+      Tezewa
+      Body composition
+      Inorganic salt
+      Muscle mass (kg) 23.4 18.0~20.6
+      Protein (kg) 10.0 8.4~10.6
+      Body parameters
+      Body fat ratio 32.4 18.0~28.0
+    `);
+
+    expect(result.values.inorganic_salt_kg).toBeUndefined();
+    expect(result.values.muscle_mass_kg).toBe(23.4);
+    expect(result.values.protein_kg).toBe(10.0);
   });
 
   it("marks needs_review when body fat percent is ambiguous or missing", () => {
@@ -384,6 +436,22 @@ describe("bodyCompositionOcr", () => {
     );
 
     expect(result).toContain("OCR local nao cobriu toda a composicao corporal principal.");
+  });
+
+  it("escalates to assisted OCR when only inorganic salt is missing", () => {
+    const reasons = getBodyCompositionAiFallbackReasons(localResult({
+      values: {
+        weight_kg: 65.1,
+        body_fat_kg: 21.12,
+        body_fat_percent: 32.4,
+        waist_hip_ratio: 0.86,
+        fat_free_mass_kg: 44,
+        body_water_kg: 35.8,
+        muscle_mass_kg: 23.4,
+      },
+    }));
+
+    expect(reasons).toContain("OCR local nao identificou todas as medidas do recibo.");
   });
 });
 

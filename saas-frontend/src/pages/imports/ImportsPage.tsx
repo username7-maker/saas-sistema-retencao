@@ -522,10 +522,15 @@ function ImportResult({
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null) {
+    const requestError = error as { code?: string; response?: { status?: number } };
+    if (requestError.response?.status === 429) return "Limite de importacoes atingido. Aguarde um minuto antes de tentar novamente.";
+    if (requestError.code === "ECONNABORTED" || requestError.code === "ETIMEDOUT") {
+      return "O processamento demorou alem do limite. Revalide o arquivo para verificar o que foi salvo antes de tentar novamente; check-ins repetidos nao serao duplicados.";
+    }
     const maybeAxios = error as {
       response?: {
         data?: {
-          detail?: string | Array<{ msg?: string }>;
+          detail?: string | Array<{ msg?: string }> | { message?: string };
           message?: string;
         } | string;
       };
@@ -539,6 +544,7 @@ function getErrorMessage(error: unknown): string {
       if (typeof detail === "string" && detail.trim()) {
         return detail;
       }
+      if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.message) return detail.message;
       if (Array.isArray(detail) && detail.length > 0) {
         const firstMessage = detail[0]?.msg;
         if (firstMessage) {
@@ -623,6 +629,7 @@ export function ImportsPage() {
       queryClient.invalidateQueries({ queryKey: ["roi-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["insights"] }),
       queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["work-queue"] }),
     ]);
   };
 
@@ -658,11 +665,15 @@ export function ImportsPage() {
       file,
       autoCreate,
       mapping,
+      acknowledgedPendingDates,
     }: {
       file: File;
       autoCreate: boolean;
       mapping?: ImportMappingPayload;
-    }) => importExportService.importCheckins(file, autoCreate, mapping),
+      acknowledgedPendingDates?: string[];
+    }) => acknowledgedPendingDates?.length
+      ? importExportService.importCheckins(file, autoCreate, mapping, acknowledgedPendingDates)
+      : importExportService.importCheckins(file, autoCreate, mapping),
     onSuccess: (summary) => {
       setCheckinsSummary(summary);
       setCheckinsPreview(null);
@@ -682,7 +693,13 @@ export function ImportsPage() {
       }
       toast.success("Importacao de check-ins concluida.");
     },
-    onError: (error) => toast.error(getErrorMessage(error)),
+    onError: (error) => {
+      toast.error(getErrorMessage(error));
+      if ((error as { response?: { status?: number } }).response?.status === 409) {
+        setCheckinsPreviewDirty(true);
+        toast.error("Revalide o arquivo para conferir os dias pendentes atuais. Nenhum acesso foi importado nesta tentativa.");
+      }
+    },
   });
 
   const previewCheckinsMutation = useMutation({
@@ -943,14 +960,19 @@ export function ImportsPage() {
             <button
               type="button"
               disabled={!canConfirmCheckinsImport || importCheckinsMutation.isPending}
-              onClick={() =>
-                checkinsFile &&
+              onClick={() => {
+                if (!checkinsFile) return;
+                const pendingDates = checkinsPreview?.pending_import_dates ?? [];
+                if (pendingDates.length && !window.confirm(
+                  `Ha dias sem importacao completa: ${pendingDates.map(value => value.split("-").reverse().join("/")).join(", ")}.\nImporte os dias pendentes primeiro para manter os indicadores completos. Dias sem acessos podem ser dias de academia fechada.\nDeseja continuar mesmo assim?`,
+                )) return;
                 importCheckinsMutation.mutate({
                   file: checkinsFile,
                   autoCreate: autoCreateMissingMembers,
                   mapping: checkinsMapping,
-                })
-              }
+                  acknowledgedPendingDates: pendingDates,
+                });
+              }}
               className="inline-flex items-center gap-1 rounded-lg border border-lovable-success/40 bg-lovable-success/10 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-lovable-success hover:bg-lovable-success/18 disabled:opacity-60"
             >
               <FileUp size={14} />

@@ -194,7 +194,7 @@ interface BodyCompositionImageParseOptions {
 }
 
 // Primary read (45s) + bounded recovery read (20s) + upload/preprocessing margin.
-const BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS = 90_000;
+const BODY_COMPOSITION_IMAGE_PARSE_TIMEOUT_MS = 120_000;
 const POSITIONAL_INFERENCE_PATTERNS = ["ordem esperada do recibo", "linha vizinha"];
 
 function withoutUnsafeLocalInferences(result: BodyCompositionOcrResult): BodyCompositionOcrResult {

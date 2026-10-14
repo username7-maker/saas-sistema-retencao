@@ -55,6 +55,157 @@ function upload(container: HTMLElement) {
 }
 
 describe("scanner review", () => {
+  it("keeps a connected webcam available when device enumeration and capabilities fail", async () => {
+    const track = { stop: vi.fn(), readyState: "live", getCapabilities: () => { throw new Error("unsupported"); }, getSettings: () => ({ deviceId: "webcam" }) };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(navigator.mediaDevices, "enumerateDevices").mockRejectedValue(new Error("enumeration failed"));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(900);
+    const { unmount } = render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fotografar agora" })).toBeEnabled());
+    act(() => media.dispatchEvent(new Event("devicechange")));
+    expect(media.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(track.stop).not.toHaveBeenCalled();
+    unmount();
+    expect(track.stop).toHaveBeenCalled();
+  });
+
+  it("explains permission denial without issuing another permission request", async () => {
+    media.getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
+    render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    expect(await screen.findByText(/Permita o acesso a camera/)).toBeInTheDocument();
+    expect(media.getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the camera zoom at its actual value when the webcam ignores the request", async () => {
+    const track = {
+      stop: vi.fn(),
+      getCapabilities: () => ({ zoom: { min: 1, max: 3, step: .1 } }),
+      getSettings: () => ({ deviceId: "webcam", zoom: 1 }),
+      applyConstraints: vi.fn().mockResolvedValue(undefined),
+    };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(900);
+    render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    const slider = await screen.findByRole("slider", { name: "Zoom da câmera" });
+    fireEvent.change(slider, { target: { value: "2" } });
+    await waitFor(() => expect(track.applyConstraints).toHaveBeenCalled());
+    await waitFor(() => expect(slider).toHaveValue("1"));
+    expect(screen.getByText(/não aceitou o zoom/i)).toBeInTheDocument();
+  });
+
+  it("shows a zoom change only after the camera reports the new setting", async () => {
+    let actualZoom = 1;
+    const track = {
+      stop: vi.fn(),
+      getCapabilities: () => ({ zoom: { min: 1, max: 3, step: .1 } }),
+      getSettings: () => ({ deviceId: "webcam", zoom: actualZoom }),
+      applyConstraints: vi.fn().mockImplementation(async () => { actualZoom = 2; }),
+    };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(900);
+    render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    const slider = await screen.findByRole("slider", { name: "Zoom da câmera" });
+    fireEvent.change(slider, { target: { value: "2" } });
+    await waitFor(() => expect(slider).toHaveValue("2"));
+    expect(screen.getByText("2.0×")).toBeInTheDocument();
+    expect(screen.queryByText(/não aceitou o zoom/i)).not.toBeInTheDocument();
+  });
+
+  it("retries a camera zoom as a required constraint when an optional one is ignored", async () => {
+    let actualZoom = 1;
+    const track = {
+      stop: vi.fn(),
+      getCapabilities: () => ({ zoom: { min: 1, max: 3, step: .1 } }),
+      getSettings: () => ({ deviceId: "webcam", zoom: actualZoom }),
+      applyConstraints: vi.fn().mockImplementation(async (constraints: MediaTrackConstraints) => {
+        if ("zoom" in constraints) actualZoom = Number(constraints.zoom);
+      }),
+    };
+    media.getUserMedia.mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] });
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1600);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(900);
+    render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    const slider = await screen.findByRole("slider", { name: "Zoom da câmera" });
+    fireEvent.change(slider, { target: { value: "2" } });
+    await waitFor(() => expect(track.applyConstraints).toHaveBeenCalledTimes(2));
+    expect(slider).toHaveValue("2");
+    expect(screen.queryByText(/não aceitou o zoom/i)).not.toBeInTheDocument();
+  });
+
+  it("rotates and uses manually adjusted corners before confirming", async () => {
+    const prepare = vi.spyOn(bodyCompositionService, "prepareImage").mockRejectedValueOnce(new Error("not detected"))
+      .mockResolvedValueOnce({ blob: corrected, metadata });
+    const onConfirm = vi.fn();
+    const { container } = render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={onConfirm} />);
+    await screen.findByText("Tentar novamente");
+    upload(container);
+    await screen.findByText(/nao encontrou os quatro cantos/i);
+    fireEvent.click(screen.getByRole("button", { name: "Girar direita" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ajustar quatro cantos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar correcao" }));
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(2));
+    expect(prepare.mock.calls[1][2]).toHaveLength(4);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar foto corrigida" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce());
+    expect(onConfirm.mock.calls[0][1].rotation).toBe(90);
+    expect(onConfirm.mock.calls[0][1].correction_confirmed).toBe(true);
+  });
+
+  it("warns when the actual paper has too few pixels for reliable reading", async () => {
+    vi.spyOn(bodyCompositionService, "prepareImage").mockResolvedValue({
+      blob: corrected,
+      metadata: { ...metadata, quality_metrics: { receipt_short_side_raw: 248 } },
+    });
+    const { container } = render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={vi.fn()} />);
+    await screen.findByText("Tentar novamente");
+    upload(container);
+    expect(await screen.findByText(/papel ficou pequeno na foto/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar foto corrigida" })).toBeEnabled();
+  });
+
+  it("allows a careful read of a small blurred receipt and forwards its quality evidence", async () => {
+    vi.spyOn(bodyCompositionService, "prepareImage").mockResolvedValue({
+      blob: corrected,
+      metadata: { ...metadata, quality_codes: ["document_blurred"], quality_metrics: { receipt_short_side_raw: 248 } },
+    });
+    const onConfirm = vi.fn();
+    const { container } = render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={onConfirm} />);
+    await screen.findByText("Tentar novamente");
+    upload(container);
+    expect(await screen.findByText(/resolução original do papel é baixa/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar foto corrigida" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Girar direita" }));
+    expect(screen.getByRole("button", { name: "Confirmar foto corrigida" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Usar esta foto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar foto corrigida" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce());
+    expect(onConfirm.mock.calls[0][1].quality_codes).toContain("document_blurred");
+    expect(onConfirm.mock.calls[0][1].regional_quality.receipt_short_side_raw).toBe(248);
+  });
+
+  it("keeps low-resolution evidence when the original image is chosen", async () => {
+    vi.spyOn(bodyCompositionService, "prepareImage").mockResolvedValue({
+      blob: corrected,
+      metadata: { ...metadata, quality_codes: ["document_blurred"], quality_metrics: { receipt_short_side_raw: 248 } },
+    });
+    const onConfirm = vi.fn();
+    const { container } = render(<GuidedDocumentScanner memberId="synthetic" open onClose={vi.fn()} onConfirm={onConfirm} />);
+    await screen.findByText("Tentar novamente");
+    upload(container);
+    await screen.findByText(/resolução original do papel é baixa/i);
+    fireEvent.click(screen.getByRole("button", { name: "Original" }));
+    fireEvent.click(screen.getByRole("button", { name: "Usar esta foto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar foto original" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce());
+    expect(onConfirm.mock.calls[0][1].correction_confirmed).toBe(false);
+    expect(onConfirm.mock.calls[0][1].quality_codes).toContain("document_blurred");
+    expect(onConfirm.mock.calls[0][1].regional_quality.receipt_short_side_raw).toBe(248);
+  });
+
   it("resumes live analysis when the captured image is rejected", async () => {
     const loop = { stop: vi.fn(), resetStability: vi.fn(), setPaused: vi.fn() };
     vi.spyOn(analysisLoop, "startAnalysisLoop").mockReturnValue(loop);

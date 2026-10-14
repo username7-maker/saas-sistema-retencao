@@ -919,7 +919,7 @@ def _field_label(field: str) -> str:
     }.get(field, field)
 
 
-def _is_plausible_field_value(field: str, value: float) -> bool:
+def protocol_measurement_limits(field: str) -> tuple[float, float]:
     ranges = {
         "height_cm": (90.0, 250.0),
         "weight_kg": (20.0, 300.0),
@@ -928,7 +928,11 @@ def _is_plausible_field_value(field: str, value: float) -> bool:
         "hip_cm": (35.0, 260.0),
         "iliac_cm": (30.0, 250.0),
     }
-    minimum, maximum = ranges.get(field, (2.0, 120.0))
+    return ranges.get(field, (2.0, 120.0))
+
+
+def _is_plausible_field_value(field: str, value: float) -> bool:
+    minimum, maximum = protocol_measurement_limits(field)
     return minimum <= value <= maximum
 
 
